@@ -1,0 +1,152 @@
+function ranger-cd
+    set dir (mktemp -t ranger_cd.XXX)
+    ranger --choosedir=$dir
+    cd (cat $dir) $argv
+    rm $dir
+    commandline -f repaint
+end
+
+alias grep='grep --color=auto'
+function gr
+  begin
+    set -l IFS
+    set result (grep --exclude-dir=.mypy_cache --exclude-dir=.idea --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.PVS-Studio --exclude="*.PVS-Studio.i" --exclude="*.PVS-Studio.cfg" -I --color=always --ignore-case --line-number -R  $argv[1] .)
+  end
+  echo -e $result | awk '{ printf "%s \033[0;32m%s\033[0m\n", $0, NR }'
+end
+
+
+# Find and replace string in all files in a directory
+#  param1 - old word
+#  param2 - new word
+function findreplace
+  grep -lr -e "$argv[1]" * | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
+end
+
+# get just the ip address
+function myip
+    ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1'
+end
+
+function ex
+    if test -f $argv[1]
+        switch $argv[1]
+          case '*.tar.bz2'
+            tar xjf $argv[1]
+          case '*.tar.gz'
+            tar xzf $argv[1]
+          case '*.bz2'
+            bunzip2 $argv[1]
+          case '*.rar'
+            rar x $argv[1]
+          case '*.gz'
+            gunzip $argv[1]
+          case '*.tar'
+            tar xf $argv[1]
+          case '*.tbz'
+            tar xjf $argv[1]
+          case '*.tbz2'
+            tar xjf $argv[1]
+          case '*.tgz'
+            tar xzf $argv[1]
+          case '*.zip'
+            unzip $argv[1]
+          case '*.Z'
+            uncompress $argv[1]
+          case '*.7z'
+            7z x $argv[1]
+          case '*.tar.xz'
+            tar xf $argv[1]
+          case '*'
+            echo "'$argv[1]' cannot be extracted via extract()"
+        end
+    else
+        echo "'$argv[1]' is not a valid file"
+    end
+end
+
+# Clipboard
+alias xc="xclip" # copy
+alias xv="xclip -o" # paste
+alias pwdxc="pwd | xclip"
+alias copy="xclip -sel clip"
+alias paste="xclip -sel clip -o"
+alias disk_usage="df -h"
+if test command -v batcat &> /dev/null
+  alias bat="batcat"
+  alias cat='bat --paging=never'
+end
+# gdb
+alias gdbrun='gdb --ex run --args '
+alias colorless='sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g"'
+
+# TODO: Port to fish
+# repeat()
+# {
+#   if [[ "$1" == "--help" ]]; then
+#     echo "Usage: repeat [Number of time to repeat - default: 10] command"
+#     return
+#   fi
+# 	local n="10"
+# 	if [[ "$1" =~ ^[0-9]+$ ]]; then
+# 		n="$1"
+# 		shift
+# 	fi
+# 	echo "Running '$@' $n times"
+# 	for ((i=1; i<="$n"; i++))
+# 	do
+# 		echo "Iteration $i/$n"
+#     	"$@"
+#     	if [[ $? -eq 1 ]]; then
+# 			echo "Iteration $i failed"
+# 			break
+#     	fi
+#   	done
+
+function kill_all
+    if test -z $argv[1]
+        echo "You need to specify the a name as an argument"
+        return 1
+    end
+    ps aux | grep $argv[1] | awk '{print $2}' | xargs kill -9
+end
+
+# fzf settings
+# Options to fzf command
+if command -v fdfind &> /dev/null
+  alias fd="fdfind"
+end
+
+set -l FZF_COMMANDS (command -v fd fdfind find | tr '\n' ':')
+set -xg FD_OPTIONS "--follow"
+set -xg FIND_OPTIONS '-not -path "*/\.git*" -not -path "*/.*" -not -path "*/\__pycache__*"'
+set -xg FZF_ALT_C_COMMAND
+set -xg FZF_DEFAULT_COMMAND
+
+switch "$FZF_COMMANDS"
+  case '*/fd:*'
+    set FZF_ALT_C_COMMAND "fd --type directory $FD_OPTIONS"
+    set FZF_DEFAULT_COMMAND "fd --type f $FD_OPTIONS"
+  case '*/fdfind:*'
+    set FZF_ALT_C_COMMAND "fdfind --type directory $FD_OPTIONS"
+    set FZF_DEFAULT_COMMAND "fdfind --type f $FD_OPTIONS"
+  case '*/find:*'
+    set FZF_ALT_C_COMMAND "find . -type d $FIND_OPTIONS"
+    set FZF_DEFAULT_COMMAND "find . -type f $FIND_OPTIONS"
+end
+
+function fzf_preview
+  set -l filetype (file --mime --brief $argv[1])
+  string match -q "*binary" $filetype \
+  && echo $argv[1] is a binary file $filetype \
+  || batcat --style=numbers --color=always $argv[1] || cat $argv[1] 2> /dev/null \
+  || head -300
+end
+
+set -xg FZF_DEFAULT_OPTS "--no-mouse --height 80% --reverse --multi --info=inline --preview 'fzf_preview {}' \
+                         --preview-window='right:50%:wrap' \
+                         --bind='f2:toggle-preview' \
+                         --bind='f3:execute-silent(subl {} || $EDITOR {})' \
+                         --bind='f4:execute(nvim {} < /dev/tty > /dev/tty 2>&1)' \
+                         --bind='ctrl-h:reload($FZF_DEFAULT_COMMAND --hidden)'"
+set -xg FZF_CTRL_T_COMMAND "$FZF_DEFAULT_COMMAND"

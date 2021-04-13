@@ -1,0 +1,105 @@
+#!/usr/bin/python3
+
+import argparse
+import json
+import multiprocessing
+import os
+
+import argcomplete
+from utils import *
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pkg", nargs="+").completer = PackagesCompleter(
+        get_ros_packages(os.path.abspath(os.curdir) + "/src")
+    )
+    parser.add_argument("--skip", nargs="+").completer = PackagesCompleter(
+        get_ros_packages(os.path.abspath(os.curdir) + "/src")
+    )
+    # Configuring neovim-cmake
+    packages = get_ros_packages_path(os.path.abspath(os.curdir) + "/src")
+    build_path = Path(os.path.abspath(os.curdir)) / "build"
+    for package, path in packages:
+        create_clangd_config(
+            str((build_path / f"{package}").absolute()),
+            Path(path),
+        )
+
+    # Configuring clangd
+    parser.add_argument("--build-tests", action="store_true", help="")
+    parser.add_argument("--dry-run", action="store_true", help="")
+    parser.add_argument(
+        "--build-type",
+        default="Release",
+        const="Release",
+        nargs="?",
+        choices=["Debug", "MinSizeRel", "Release", "RelWithDebInfo"],
+    )
+    parser.add_argument(
+        "--force-linking",
+        action="store_true",
+        help="Force linker to solve references at linking stage (Force GCC to notify about undefined references in shared libraries)",
+    )
+    parser.add_argument(
+        "--jobs", type=int, choices=range(1, multiprocessing.cpu_count() + 1)
+    )
+
+    argcomplete.autocomplete(parser)
+    args = parser.parse_args()
+
+    cmd = []
+    env = os.environ.copy()
+    ROS_VERSION = get_ros_version()
+    if ROS_VERSION == ROS_VERSIONS.UNKNOWN:
+        ROS_VERSION = input("Unknown version -- Select ros version (1/2):")
+        try:
+            ROS_VERSION = ROS_VERSIONS(int(ROS_VERSION))
+        except ValueError:
+            print("Unknown ROS version")
+            return
+    if ROS_VERSION == ROS_VERSIONS.ROS1:
+        cmd += ["catkin", "build"]
+        if args.pkg:
+            cmd += args.pkg
+            cmd += ["--no-deps"]
+        # TODO: Add skipping a package for catkin
+        if args.skip:
+            raise RuntimeError("Skipping a package isn't supported yet for catkin")
+        if args.jobs:
+            raise RuntimeError(
+                "Specifying the number of jobs isn't supported yet for catkin"
+            )
+        cmd += [
+            "--cmake-args",
+            f"-DCMAKE_BUILD_TYPE={args.build_type}",
+            f"-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+        ]
+        if args.force_linking:
+            cmd += [f'-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
+        cmd += ["-DCATKIN_ENABLE_TESTING=" + ("ON" if args.build_tests else "OFF")]
+
+    elif ROS_VERSION == ROS_VERSIONS.ROS2:
+        cmd += ["colcon", "build", "--symlink-install"]
+        if args.pkg:
+            cmd += ["--packages-select"]
+            cmd += args.pkg
+        if args.skip:
+            cmd += ["--packages-skip"]
+            cmd += args.skip
+        if args.jobs:
+            env["MAKEFLAGS"] = f"-j{args.jobs}"
+            cmd.append(f"--parallel-workers={args.jobs}")
+        cmd += [
+            "--cmake-args",
+            f"-DCMAKE_BUILD_TYPE={args.build_type}",
+            f"-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+        ]
+        if args.force_linking:
+            cmd += [f'-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
+        cmd += ["-DBUILD_TESTING=" + ("ON" if args.build_tests else "OFF")]
+    run_command(cmd, args.dry_run, env=env)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,13 @@
+function nvim_config
+  set -l nvim_dir ~/myconfigs/nvim
+  if [ "$argv[1]" = "init.lua" ]
+    nvim $nvim_dir/$argv[1]
+  else
+    nvim $nvim_dir/lua/configs/$argv[1]
+  end
+end
+
+function nvim_notes
+  set -l notes_dir ~/myconfigs/mynotes
+  nvim $notes_dir/$argv[1]
+end

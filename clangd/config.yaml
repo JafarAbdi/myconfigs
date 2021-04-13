@@ -1,0 +1,43 @@
+Hover:
+  ShowAKA: Yes
+CompileFlags:
+  # https://github.com/cpp-best-practices/cppbestpractices/blob/master/02-Use_the_Tools_Available.md#compilers
+  Add: [-Wall,
+        -Wextra,
+        -Wshadow,
+        -Wnon-virtual-dtor,
+        -pedantic]
+Diagnostics:
+  # https://clang.llvm.org/extra/clang-tidy/checks/list.html
+  ClangTidy:
+    Add: [modernize*,
+          cppcoreguidelines*,
+          bugprone*,
+          boost*,
+          clang-analyzer*,
+          concurrency*,
+          readability*,
+          performance*,
+          google*,
+          misc*]
+    Remove: [modernize-use-trailing-return-type,
+             cppcoreguidelines-avoid-magic-numbers,
+             readability-magic-numbers,
+             readability-identifier-length,
+             readability-braces-around-statements,
+             google-readability-braces-around-statements,
+             google-readability-todo,
+             cppcoreguidelines-owning-memory,
+             readability-uppercase-literal-suffix,
+             cppcoreguidelines-special-member-functions,
+             cppcoreguidelines-avoid-non-const-global-variables]
+  UnusedIncludes: Strict
+---
+# Scratch files use C++20 by default
+If:
+  PathMatch: [/tmp/.*,
+              /home/jafar/workspaces/compiler-explorer/vcpkg-libraries/.*]
+CompileFlags:
+  Add: [-std=c++2a,
+        -isystem/home/jafar/workspaces/compiler-explorer/vcpkg-libraries/x64-linux-release/include]
+  Compiler: clang++-12

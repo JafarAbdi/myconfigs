@@ -1,0 +1,43 @@
+#!/usr/bin/python3
+
+import argparse
+import argcomplete
+import os
+from utils import *
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pkg", nargs="+").completer = PackagesCompleter(
+        get_ros_packages(os.path.abspath(os.curdir) + '/src')
+    )
+    parser.add_argument("--verbose", action="store_true", help="")
+    parser.add_argument("--dry-run", action="store_true", help="")
+    argcomplete.autocomplete(parser)
+    args = parser.parse_args()
+
+    cmd = []
+    ROS_VERSION = get_ros_version()
+    if ROS_VERSION == ROS_VERSIONS.UNKNOWN:
+            print("Unknown ROS version")
+            return
+    if ROS_VERSION == ROS_VERSIONS.ROS1:
+        cmd += ["catkin", "build"]
+        if args.pkg:
+            cmd += args.pkg
+            cmd += ["--no-deps"]
+        if args.verbose:
+            cmd += ["--verbose"]
+        cmd += ["--catkin-make-args", "run_tests"]
+    elif ROS_VERSION == ROS_VERSIONS.ROS2:
+        cmd += ["colcon", "test"]
+        if args.pkg:
+            cmd += ["--packages-select"]
+            cmd += args.pkg
+        if args.verbose:
+            cmd += ["--event-handlers",  "console_direct+"]
+    run_command(cmd, args.dry_run)
+
+
+if __name__ == "__main__":
+    main()
