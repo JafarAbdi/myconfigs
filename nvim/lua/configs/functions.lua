@@ -1,8 +1,8 @@
 local ts_query = require("vim.treesitter.query")
-local ts_utils = require("nvim-treesitter.ts_utils")
-local ts_locals = require("nvim-treesitter.locals")
+-- local ts_utils = require("nvim-treesitter.ts_utils")
+-- local ts_locals = require("nvim-treesitter.locals")
 local ts_shared = require("nvim-treesitter.textobjects.shared")
-local ts_configs = require("nvim-treesitter.configs")
+-- local ts_configs = require("nvim-treesitter.configs")
 local buffer_writer = require("nvim-treesitter.nt-cpp-tools.buffer_writer")
 
 local function add_text_edit(text, start_row, start_col)
@@ -60,11 +60,11 @@ function _G.GetClassParameters()
   local _, _, node = ts_shared.textobject_at_point("@class.outer", nil, nil, {})
   -- TODO: Handle failure (node == nil)
   local class_parameters = { parameters = {} }
-  for _, match, metadata in parameters_query:iter_matches(node, bufnr) do
+  for _, match, _ in parameters_query:iter_matches(node, bufnr) do
     table.insert(class_parameters.parameters, ts_query.get_node_text(match[1], bufnr))
   end
   local class_name = {}
-  for _, match, metadata in class_name_query:iter_matches(node, bufnr) do
+  for _, match, _ in class_name_query:iter_matches(node, bufnr) do
     -- TODO: This's so dump, there should be a better way to handle one capture
     table.insert(class_name, ts_query.get_node_text(match[1], bufnr))
   end
@@ -91,7 +91,7 @@ end
 
 local get_gtests = function(query, node, bufnr)
   local gtests = {}
-  for _, match, metadata in query:iter_matches(node, bufnr) do
+  for _, match, _ in query:iter_matches(node, bufnr) do
     local gtest = {}
     for id, key in ipairs(match) do
       gtest[query.captures[id]] = ts_query.get_node_text(key, bufnr)
@@ -204,11 +204,11 @@ P = function(v)
   return v
 end
 
-RELOAD = function(...)
-  return require("plenary.reload").reload_module(...)
-end
+-- RELOAD = function(...)
+--   return require("plenary.reload").reload_module(...)
+-- end
 
-R = function(name)
-  RELOAD(name)
-  return require(name)
-end
+-- R = function(name)
+--   RELOAD(name)
+--   return require(name)
+-- end
