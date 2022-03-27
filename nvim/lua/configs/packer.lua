@@ -10,7 +10,7 @@ vim.cmd([[packadd packer.nvim]])
 local packer = require("packer")
 
 return packer.startup({
-  function()
+  function(use)
     -- Packer
     use("wbthomason/packer.nvim")
     -- Profiler

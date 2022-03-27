@@ -51,7 +51,7 @@ local lspkind_comparator = function(entry1, entry2)
   end
 end
 
-local luasnip = require("luasnip")
+-- local luasnip = require("luasnip")
 local cmp = require("cmp")
 local compare = require("cmp.config.compare")
 

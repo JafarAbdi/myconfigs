@@ -16,7 +16,7 @@ local templates_group = vim.api.nvim_create_augroup("TemplatesGroup", {})
 
 vim.api.nvim_create_autocmd("BufWritePost", {
   callback = function()
-    vim.api.nvim_command(":luafile "..vim.fn.expand("<afile>"))
+    vim.api.nvim_command(":luafile " .. vim.fn.expand("<afile>"))
     vim.api.nvim_command(":PackerCompile")
   end,
   pattern = vim.env.HOME .. "/myconfigs/nvim/lua/**",
@@ -89,7 +89,7 @@ vim.api.nvim_create_autocmd("FileType", {
   group = cpp_group,
   callback = function()
     vim.keymap.set("n", "<leader>rt", function()
-      RunGtest({ at_cursor = true })
+      _G.RunGtest({ at_cursor = true })
     end)
     vim.keymap.set("n", "<leader>cd", function()
       local options = vim.fn.getcompletion("Clangd", "cmdline")

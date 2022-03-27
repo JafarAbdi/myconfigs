@@ -120,7 +120,7 @@ lspconfig.cmake.setup({
     "compile_commands.json",
     "compile_flags.txt",
     ".git"
-  ) or dirname,
+  ),
   single_file_support = true,
 })
 
@@ -206,13 +206,12 @@ lspconfig.sumneko_lua.setup({
   },
 })
 
-
 ----------------
 -- Typescript --
 ----------------
 require("lspconfig").tsserver.setup({})
 
 vim.lsp.handlers["textDocument/publishDiagnostics"] = vim.lsp.with(
-vim.lsp.diagnostic.on_publish_diagnostics,
-{ underline = false }
+  vim.lsp.diagnostic.on_publish_diagnostics,
+  { underline = false }
 )
