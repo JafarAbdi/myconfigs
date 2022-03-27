@@ -2,15 +2,15 @@
 
 ## New system setup
 
-- Debian unstable (sid)
-- Wifi drivers
-  - Edit `/etc/apt/sources.list` to enable non-free packages `deb http://deb.debian.org/debian/ ... main non-free`
-  - su -
-  - apt install firmware-misc-nonfree
-  - adduser jafar sudo (optional)
-  - Restart
-- NVidia drivers
-  - https://wiki.debian.org/NvidiaGraphicsDrivers
+- Debian stable/unstable (sid)
+  - Wifi drivers
+    - Edit `/etc/apt/sources.list` to enable non-free packages `deb http://deb.debian.org/debian/ ... main non-free`
+    - su -
+    - apt install firmware-misc-nonfree
+    - adduser jafar sudo (optional)
+    - Restart
+  - NVidia drivers
+    - https://wiki.debian.org/NvidiaGraphicsDrivers
 - core
   - github-setup
   - install-core
