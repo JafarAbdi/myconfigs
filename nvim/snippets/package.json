@@ -1,8 +1,4 @@
 {
-  "name": "friendly-snippets",
-  "engines": {
-    "vscode": "^1.11.0"
-  },
   "contributes": {
     "snippets": [
       {
@@ -86,5 +82,9 @@
         "path": "./snippets/latex/vscode-latex-snippets.json"
       }
     ]
-  }
+  },
+  "engines": {
+    "vscode": "^1.11.0"
+  },
+  "name": "friendly-snippets"
 }

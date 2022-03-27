@@ -9,7 +9,7 @@ alias clang-format="clang-format-3.9"
 function clang_this_directory_custom # recursive
 {
   # CLANG_FORMAT_EXECUTABLE=$(ls -1 /usr/bin/clang-format* | head -1)
-  # Make sure no changes have occured in repo
+  # Make sure no changes have occurred in repo
   if ! git diff-index --quiet HEAD --; then
     # changes
     console_red

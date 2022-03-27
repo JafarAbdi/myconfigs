@@ -25,9 +25,10 @@ def main():
         "-fix",
         f"-header-filter={package_path}/.*",
         f"-p={package_build_path}",
-        "."
+        ".",
     ]
     run_command(clang_tidy_cmd, args.dry_run, package_path)
+
 
 if __name__ == "__main__":
     main()

@@ -15,19 +15,25 @@ notes = {}
 for note_path in notes_paths:
     notes[Path(note_path).stem] = yaml.safe_load(open(note_path))
 
+
 def list_notes(prefix, parsed_args, **kwargs):
     return notes[parsed_args.note].keys()
+
 
 def list_notes_names():
     return notes.keys()
 
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("note", type=str).completer = ChoicesCompleter(list_notes_names())
+    parser.add_argument("note", type=str).completer = ChoicesCompleter(
+        list_notes_names()
+    )
     parser.add_argument("note_name", type=str).completer = list_notes
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
     print(notes[args.note][args.note_name])
+
 
 if __name__ == "__main__":
     main()

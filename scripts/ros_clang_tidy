@@ -9,14 +9,14 @@ from utils import *
 def main():
     parser = argparse.ArgumentParser()
     pkg_action = parser.add_argument("--pkg").completer = PackagesCompleter(
-        get_ros_packages(os.path.abspath(os.curdir) + '/src')
+        get_ros_packages(os.path.abspath(os.curdir) + "/src")
     )
     parser.add_argument("--dry-run", action="store_true", help="")
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
     package_build_path = (pathlib.Path(".") / f"build/{args.pkg}").resolve()
-    package_path = get_ros_package_path(os.path.abspath(os.curdir) + '/src', args.pkg)
+    package_path = get_ros_package_path(os.path.abspath(os.curdir) + "/src", args.pkg)
     if not pathlib.Path(package_path).exists():
         print(f"Package '{args.pkg}' doesn't exists")
         return
@@ -55,9 +55,10 @@ def main():
         "-fix",
         f"-header-filter={package_path}/.*",
         f"-p={package_build_path}",
-        "."
+        ".",
     ]
     run_command(clang_tidy_cmd, args.dry_run, package_path)
+
 
 if __name__ == "__main__":
     main()

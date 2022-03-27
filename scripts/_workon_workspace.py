@@ -3,9 +3,13 @@ import argparse
 import os
 
 import argcomplete
-from utils import (get_workspace_distro, get_workspace_path,
-                   get_workspace_underlays, get_workspaces,
-                   get_workspaces_yaml)
+from utils import (
+    get_workspace_distro,
+    get_workspace_path,
+    get_workspace_underlays,
+    get_workspaces,
+    get_workspaces_yaml,
+)
 
 # ~/.workspaces.yaml
 # WORKSPACE_NAME:
@@ -55,7 +59,7 @@ elif args.workspace_name:
         is_ros1 = rosdistro in ROS1_VERSIONS
         if rosdistro:
             commands.append(f"source /opt/ros/{rosdistro}/setup.bash")
-        for underlay in (get_workspace_underlays(workspace) or []):
+        for underlay in get_workspace_underlays(workspace) or []:
             underlay_path = get_workspace_path(workspace)
             if is_ros1:
                 commands.append(f"source {home_dir}/{underlay_path}/install/setup.bash")

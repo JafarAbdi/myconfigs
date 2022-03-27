@@ -6,12 +6,14 @@ from utils import create_clangd_config
 import os
 from pathlib import Path
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", default="build")
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
     create_clangd_config(str((Path(os.curdir) / args.build_dir).absolute()))
+
 
 if __name__ == "__main__":
     main()

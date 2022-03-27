@@ -15,4 +15,4 @@ alias ungz='gunzip ' #file.gz
 # x - extract
 # v - verbose output (lists all files as they are extracted)
 # j - deal with bzipped file
-# f - read from a file, rather than a tape devic
+# f - read from a file, rather than a tape device

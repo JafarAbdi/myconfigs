@@ -1,206 +1,39 @@
 {
-  "for": {
-    "prefix": "for",
+  "#def": {
     "body": [
-      "for (${1:size_t} ${2:i} = ${3:0}; $2 < ${4:length}; $2++) {",
-      "\t$0",
-      "}"
+      "#define $0"
     ],
-    "description": "Code snippet for 'for' loop"
-  },
-  "forr": {
-    "prefix": "forr",
-    "body": [
-      "for (${1:size_t} ${2:i} = ${3:length} - 1; $2 >= ${4:0}; $2--) {",
-      "\t$0",
-      "}"
-    ],
-    "description": "Code snippet for reverse 'for' loop"
-  },
-  "while": {
-    "prefix": "while",
-    "body": ["while ($1) {", "\t$0", "}"],
-    "description": ""
-  },
-  "if": {
-    "prefix": "if",
-    "body": ["if ($1) {", "\t$0", "}"],
-    "description": "Code snippet for if statement"
-  },
-  "else": {
-    "prefix": "else",
-    "body": ["else {", "\t$0", "}"],
-    "description": "Code snippet for else statement"
-  },
-  "else if": {
-    "prefix": "else if",
-    "body": ["else if ($1) {", "\t$0", "}"],
-    "description": "Code snippet for else-if statement"
-  },
-  "enum": {
-    "prefix": "enum",
-    "body": ["enum ${1:MyEnum} {", "\t$0", "};"],
-    "description": "Code snippet for enum"
-  },
-  "#ifdef": {
-    "prefix": "#ifdef",
-    "body": ["#ifdef ${1:DEBUG}", "$0", "#endif /* $1 */"],
-    "description": "Code snippet for #ifdef"
-  },
-  "#ifndef": {
-    "prefix": "#ifndef",
-    "body": ["#ifndef ${1:DEBUG}", "$0", "#endif /* !$1 */"],
-    "description": "Code snippet for #ifndef"
+    "description": "Code snippet for #define \" \"",
+    "prefix": "def"
   },
   "#if": {
-    "prefix": "#if",
-    "body": ["#if ${1:0}", "$0", "#endif /* $1 */"],
-    "description": "Code snippet for #if"
-  },
-  "struct": {
-    "prefix": "struct",
-    "body": ["struct ${1:MyStruct} {", "\t$0", "};"],
-    "description": "Code snippet for struct"
-  },
-  "typedef struct": {
-    "prefix": "structt",
-    "body": ["typedef struct {", "\t$0", "} ${1:MyStruct};"],
-    "description": "Code snippet to define a type with struct"
-  },
-  "switch": {
-    "prefix": "switch",
-    "body": ["switch (${1:switch_on}) {", "\tdefault:", "\t\t$0", "\t\tbreak;", "}"],
-    "description": "Code snippet for switch statement"
-  },
-  "case": {
-    "prefix": "case",
-    "body": ["case $1:", "\t$0", "\tbreak;"],
-    "description": "Code snippet for case branch"
-  },
-  "union": {
-    "prefix": "union",
-    "body": ["union ${1:MyUnion} {", "\t$0", "};"],
-    "description": "Code snippet for union"
-  },
-  "#def": {
-    "prefix": "def",
-    "body": ["#define $0"],
-    "description": "Code snippet for #define \" \""
-  },
-  "Main function template": {
-    "prefix": "main",
     "body": [
-      "int main (int argc, char *argv[])",
-      "{",
-      "\t$0",
-      "\treturn 0;",
-      "}"
-    ],
-    "description": "A standard main function for a C program"
-  },
-  "Standard Starter Template": {
-    "prefix": "sst",
-    "body": [
-      "#include <stdio.h>",
-      "",
-      "int main (int argc, char *argv[])",
-      "{",
-      "\t$0",
-      "\treturn 0;",
-      "}"
-    ],
-    "description": "A standard starter template for a C program"
-  },
-  "Stdlib Variant Starter Template": {
-    "prefix": "libsst",
-    "body": [
-      "#include <stdio.h>",
-      "#include <stdlib.h>",
-      "",
-      "int main (int argc, char *argv[])",
-      "{",
-      "\t$0",
-      "\treturn 0;",
-      "}"
-    ],
-    "description": "A standard starter template for a C program with stdlib included"
-  },
-  "Do...while loop": {
-    "prefix": "do",
-    "body": ["do {", "\t$1", "} while($2);"],
-    "description": "Creates a do...while loop"
-  },
-  "Print variable of type float (2 decimal places)": {
-    "prefix": "pflo",
-    "body": ["printf(\"$0 :>> %.2f\\n\", $0);"],
-    "description": "Calls printf() to log value of variable of type float rounded to 2 decimal places"
-  },
-  "Print variable of type integer": {
-    "prefix": "pint",
-    "body": ["printf(\"$0 :>> %d\\n\", $0);"],
-    "description": "Calls printf() to log value of variable of type signed integer"
-  },
-  "Print variable of type char": {
-    "prefix": "pcha",
-    "body": ["printf(\"$0 :>> %c\\n\", $0);"],
-    "description": "Calls printf() to log value of variable of type char"
-  },
-  "Print variable of type pointer": {
-    "prefix": "ppoint",
-    "body": ["printf(\"$0 :>> %p\\n\", (void *) $0);"],
-    "description": "Calls printf() to log value of variable of type pointer"
-  },
-  "Print variable of type size_t": {
-    "prefix": "psiz",
-    "body": ["printf(\"$0 :>> %zu\\n\", $0);"],
-    "description": "Calls printf() to log value of variable of type size_t"
-  },
-  "printf": {
-    "prefix": "printf",
-    "body": ["printf(\"$1\\n\"$0);"],
-    "description": "Generic printf() snippet"
-  },
-  "sprintf": {
-    "prefix": "sprintf",
-    "body": ["sprintf($1, \"$2\\n\"$0);"],
-    "description": "Generic sprintf() snippet"
-  },
-  "fprintf": {
-    "prefix": "fprintf",
-    "body": ["fprintf(${1:stderr}, \"$2\\n\"$0);"],
-    "description": "Generic fprintf() snippet"
-  },
-  "scanf": {
-    "prefix": "scanf",
-    "body": ["scanf(\"$1\"$0);"],
-    "description": "Generic scanf() snippet"
-  },
-  "sscanf": {
-    "prefix": "sscanf",
-    "body": ["sscanf($1, \"$2\"$0);"],
-    "description": "Generic sscanf() snippet"
-  },
-  "fscanf": {
-    "prefix": "fscanf",
-    "body": ["fscanf($1, \"$2\"$0);"],
-    "description": "Generic fscanf() snippet"
-  },
-  "Allocate memory using malloc": {
-    "prefix": "mal",
-    "body": [
-      "${1:int} *${2:v} = malloc(${3:1} * sizeof($1));",
-      "",
-      "if (!$2) {",
-      "\tfprintf(stderr, \"Memory allocation failed!\\n\");",
-      "\t$4;",
-      "}",
+      "#if ${1:0}",
       "$0",
-      "free($2);"
+      "#endif /* $1 */"
     ],
-    "description": "Allocates memory to a pointer variable using malloc(), then deallocates using free()."
+    "description": "Code snippet for #if",
+    "prefix": "#if"
+  },
+  "#ifdef": {
+    "body": [
+      "#ifdef ${1:DEBUG}",
+      "$0",
+      "#endif /* $1 */"
+    ],
+    "description": "Code snippet for #ifdef",
+    "prefix": "#ifdef"
+  },
+  "#ifndef": {
+    "body": [
+      "#ifndef ${1:DEBUG}",
+      "$0",
+      "#endif /* !$1 */"
+    ],
+    "description": "Code snippet for #ifndef",
+    "prefix": "#ifndef"
   },
   "Allocate memory using calloc": {
-    "prefix": "cal",
     "body": [
       "${1:int} *${2:v} = calloc(${3:1}, sizeof($1));",
       "",
@@ -211,6 +44,255 @@
       "$0",
       "free($2);"
     ],
-    "description": "Allocates memory to a pointer variable using calloc(), then deallocates using free()."
+    "description": "Allocates memory to a pointer variable using calloc(), then deallocates using free().",
+    "prefix": "cal"
+  },
+  "Allocate memory using malloc": {
+    "body": [
+      "${1:int} *${2:v} = malloc(${3:1} * sizeof($1));",
+      "",
+      "if (!$2) {",
+      "\tfprintf(stderr, \"Memory allocation failed!\\n\");",
+      "\t$4;",
+      "}",
+      "$0",
+      "free($2);"
+    ],
+    "description": "Allocates memory to a pointer variable using malloc(), then deallocates using free().",
+    "prefix": "mal"
+  },
+  "Do...while loop": {
+    "body": [
+      "do {",
+      "\t$1",
+      "} while($2);"
+    ],
+    "description": "Creates a do...while loop",
+    "prefix": "do"
+  },
+  "Main function template": {
+    "body": [
+      "int main (int argc, char *argv[])",
+      "{",
+      "\t$0",
+      "\treturn 0;",
+      "}"
+    ],
+    "description": "A standard main function for a C program",
+    "prefix": "main"
+  },
+  "Print variable of type char": {
+    "body": [
+      "printf(\"$0 :>> %c\\n\", $0);"
+    ],
+    "description": "Calls printf() to log value of variable of type char",
+    "prefix": "pcha"
+  },
+  "Print variable of type float (2 decimal places)": {
+    "body": [
+      "printf(\"$0 :>> %.2f\\n\", $0);"
+    ],
+    "description": "Calls printf() to log value of variable of type float rounded to 2 decimal places",
+    "prefix": "pflo"
+  },
+  "Print variable of type integer": {
+    "body": [
+      "printf(\"$0 :>> %d\\n\", $0);"
+    ],
+    "description": "Calls printf() to log value of variable of type signed integer",
+    "prefix": "pint"
+  },
+  "Print variable of type pointer": {
+    "body": [
+      "printf(\"$0 :>> %p\\n\", (void *) $0);"
+    ],
+    "description": "Calls printf() to log value of variable of type pointer",
+    "prefix": "ppoint"
+  },
+  "Print variable of type size_t": {
+    "body": [
+      "printf(\"$0 :>> %zu\\n\", $0);"
+    ],
+    "description": "Calls printf() to log value of variable of type size_t",
+    "prefix": "psiz"
+  },
+  "Standard Starter Template": {
+    "body": [
+      "#include <stdio.h>",
+      "",
+      "int main (int argc, char *argv[])",
+      "{",
+      "\t$0",
+      "\treturn 0;",
+      "}"
+    ],
+    "description": "A standard starter template for a C program",
+    "prefix": "sst"
+  },
+  "Stdlib Variant Starter Template": {
+    "body": [
+      "#include <stdio.h>",
+      "#include <stdlib.h>",
+      "",
+      "int main (int argc, char *argv[])",
+      "{",
+      "\t$0",
+      "\treturn 0;",
+      "}"
+    ],
+    "description": "A standard starter template for a C program with stdlib included",
+    "prefix": "libsst"
+  },
+  "case": {
+    "body": [
+      "case $1:",
+      "\t$0",
+      "\tbreak;"
+    ],
+    "description": "Code snippet for case branch",
+    "prefix": "case"
+  },
+  "else": {
+    "body": [
+      "else {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Code snippet for else statement",
+    "prefix": "else"
+  },
+  "else if": {
+    "body": [
+      "else if ($1) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Code snippet for else-if statement",
+    "prefix": "else if"
+  },
+  "enum": {
+    "body": [
+      "enum ${1:MyEnum} {",
+      "\t$0",
+      "};"
+    ],
+    "description": "Code snippet for enum",
+    "prefix": "enum"
+  },
+  "for": {
+    "body": [
+      "for (${1:size_t} ${2:i} = ${3:0}; $2 < ${4:length}; $2++) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Code snippet for 'for' loop",
+    "prefix": "for"
+  },
+  "forr": {
+    "body": [
+      "for (${1:size_t} ${2:i} = ${3:length} - 1; $2 >= ${4:0}; $2--) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Code snippet for reverse 'for' loop",
+    "prefix": "for"
+  },
+  "fprintf": {
+    "body": [
+      "fprintf(${1:stderr}, \"$2\\n\"$0);"
+    ],
+    "description": "Generic fprintf() snippet",
+    "prefix": "fprintf"
+  },
+  "fscanf": {
+    "body": [
+      "fscanf($1, \"$2\"$0);"
+    ],
+    "description": "Generic fscanf() snippet",
+    "prefix": "fscanf"
+  },
+  "if": {
+    "body": [
+      "if ($1) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Code snippet for if statement",
+    "prefix": "if"
+  },
+  "printf": {
+    "body": [
+      "printf(\"$1\\n\"$0);"
+    ],
+    "description": "Generic printf() snippet",
+    "prefix": "printf"
+  },
+  "scanf": {
+    "body": [
+      "scanf(\"$1\"$0);"
+    ],
+    "description": "Generic scanf() snippet",
+    "prefix": "scanf"
+  },
+  "sprintf": {
+    "body": [
+      "sprintf($1, \"$2\\n\"$0);"
+    ],
+    "description": "Generic sprintf() snippet",
+    "prefix": "sprintf"
+  },
+  "sscanf": {
+    "body": [
+      "sscanf($1, \"$2\"$0);"
+    ],
+    "description": "Generic sscanf() snippet",
+    "prefix": "sscanf"
+  },
+  "struct": {
+    "body": [
+      "struct ${1:MyStruct} {",
+      "\t$0",
+      "};"
+    ],
+    "description": "Code snippet for struct",
+    "prefix": "struct"
+  },
+  "switch": {
+    "body": [
+      "switch (${1:switch_on}) {",
+      "\tdefault:",
+      "\t\t$0",
+      "\t\tbreak;",
+      "}"
+    ],
+    "description": "Code snippet for switch statement",
+    "prefix": "switch"
+  },
+  "typedef struct": {
+    "body": [
+      "typedef struct {",
+      "\t$0",
+      "} ${1:MyStruct};"
+    ],
+    "description": "Code snippet to define a type with struct",
+    "prefix": "structt"
+  },
+  "union": {
+    "body": [
+      "union ${1:MyUnion} {",
+      "\t$0",
+      "};"
+    ],
+    "description": "Code snippet for union",
+    "prefix": "union"
+  },
+  "while": {
+    "body": [
+      "while ($1) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "",
+    "prefix": "while"
   }
 }

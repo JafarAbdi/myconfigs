@@ -1,0 +1,6 @@
+map ot chain set sort=type;      set sort_reverse=False
+map oT chain set sort=type;      set sort_reverse=True
+        hist = log --pretty=\"%h %ad%d | %s\" --date=short --graph --branches --remotes
+  git clone git@github.com:yse/easy_profiler.git
+  "forr": {
+    "prefix": "forr",

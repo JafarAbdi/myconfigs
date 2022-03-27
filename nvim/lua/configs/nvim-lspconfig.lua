@@ -127,7 +127,7 @@ lspconfig.cmake.setup({
 require("rust-tools").setup({
   server = {
     capabilities = capabilities,
-    -- on_attach is a callback called when the language server attachs to the buffer
+    -- on_attach is a callback called when the language server attaches to the buffer
     on_attach = lsp_on_attach,
     settings = {
       -- to enable rust-analyzer settings visit:

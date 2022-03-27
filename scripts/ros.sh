@@ -6,7 +6,7 @@
 export ROSCONSOLE_FORMAT='${logger}: ${message}'
 #export ROSCONSOLE_FORMAT='[${severity}] [${time}]: ${message}'
 #export ROSCONSOLE_FORMAT='${time}, ${logger}: ${message}'
-export ROSCONSOLE_CONFIG_FILE=~/myconfigs/ros/rosconsole.yaml
+export ROSCONSOLE_CONFIG_FILE=~/myconfigs/ros/rosconsole.conf
 # Rosdep shortcut
 function rosdepinstall {
   # rosdep update
@@ -16,7 +16,7 @@ function rosdeplistdependencies {
   rosdep install --reinstall --simulate --ignore-src --from-paths .
 }
 export ROSOUT_DISABLE_FILE_LOGGING=true
-export ROSCONSOLE_CONFIG_FILE=~/myconfigs/ros/rosconsole.yaml
+export ROSCONSOLE_CONFIG_FILE=~/myconfigs/ros/rosconsole.conf
 export ROS_LANG_DISABLE="geneus;genlisp;gennodejs"
 # Kill
 alias killgazebo="killall -9 gazebo & killall -9 gzserver  & killall -9 gzclient"
@@ -28,7 +28,7 @@ alias tfpdf='cd /var/tmp && rosrun tf view_frames && open frames.pdf &'
 # ROS2 logger configs
 export RCUTILS_COLORIZED_OUTPUT=1
 export RCUTILS_CONSOLE_OUTPUT_FORMAT='[{name}]: {message}'
-export RCUTILS_LOGGING_CONFIG_FILE=~/myconfigs/ros/ros2console.yaml
+export RCUTILS_LOGGING_CONFIG_FILE=~/myconfigs/ros/ros2console.conf
 export COLCON_LOG_PATH=/tmp
 export ROS_DOMAIN_ID=16
 #########################################################################################
@@ -54,7 +54,7 @@ CURRENT_ROS_WORKSPACE_FILE=$HOME/.current_ros_workspace
 
 # write workspace name to file and update current_ros_workspace
 setCurrentRosWorkspace() {
-  local ws=${1:?"Please specifiy a ros workspace path"}
+  local ws=${1:?"Please specify a ros workspace path"}
   echo $ws > $CURRENT_ROS_WORKSPACE_FILE
   current_ros_workspace="$ws"
 }
@@ -196,4 +196,3 @@ ros2cd()
 
 
 complete -F _ros2cd_completions ros2cd
-

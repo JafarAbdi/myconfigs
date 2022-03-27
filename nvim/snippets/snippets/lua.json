@@ -1,31 +1,12 @@
 {
-  "require": {
-    "prefix": "req",
-    "body": ["require(\"${1:module}\")"],
-    "description": "Require module"
-  },
-  "return": {
-    "prefix": "rt",
-    "body": ["return $0"],
-    "description": "return value"
-  },
-  "assigment": {
-    "prefix": "ll",
-    "body": ["local ${1:varName} = ${0:value}"],
-    "description": "create a variable"
-  },
-  "local": {
-    "prefix": "l",
-    "body": ["local ${0}"],
-    "description": "create a variable"
-  },
-  "locreq": {
-    "prefix": "lreq",
-    "body": ["local ${1:var} = require(\"${2:module}\")"],
-    "description": "Require module as a variable"
+  "assignment": {
+    "body": [
+      "local ${1:varName} = ${0:value}"
+    ],
+    "description": "create a variable",
+    "prefix": "ll"
   },
   "class": {
-    "prefix": "cl",
     "body": [
       "${1:className} = {}\n",
       "$1.${2:new} = function($3)",
@@ -34,27 +15,34 @@
       "\treturn $4",
       "end"
     ],
-    "description": "Create a class"
-  },
-  "if": {
-    "prefix": "if",
-    "body": ["if ${1:true} then", "\t$0", "end"]
+    "description": "Create a class",
+    "prefix": "cl"
   },
   "elseif": {
-    "prefix": "elseif",
-    "body": ["elseif ${1:true} then", "\t$0"]
+    "body": [
+      "elseif ${1:true} then",
+      "\t$0"
+    ],
+    "prefix": "elseif"
   },
   "for": {
-    "prefix": "for",
-    "body": ["for ${1:i}=${2:1},${3:10} do", "\t$0", "end"],
-    "description": "for loop range"
+    "body": [
+      "for ${1:i}=${2:1},${3:10} do",
+      "\t$0",
+      "end"
+    ],
+    "description": "for loop range",
+    "prefix": "for"
   },
   "foreach": {
-    "prefix": "foreach",
-    "body": ["for i, ${1:x} in pairs(${2:table}) do", "\t$0", "end"]
+    "body": [
+      "for i, ${1:x} in pairs(${2:table}) do",
+      "\t$0",
+      "end"
+    ],
+    "prefix": "foreach"
   },
   "forline": {
-    "prefix": "forline",
     "body": [
       "f = io.open(${1:\"${2:filename}\"}, \"${3:r}\")\n",
       "while true do",
@@ -63,26 +51,81 @@
       "\t${0:-- code}",
       "end"
     ],
-    "description": "read file line by line"
+    "description": "read file line by line",
+    "prefix": "forline"
   },
   "function": {
-    "prefix": "fu",
-    "body": ["function ${1:name}($2)", "\t${3:-- code}", "end"]
+    "body": [
+      "function ${1:name}($2)",
+      "\t${3:-- code}",
+      "end"
+    ],
+    "prefix": "fu"
+  },
+  "if": {
+    "body": [
+      "if ${1:true} then",
+      "\t$0",
+      "end"
+    ],
+    "prefix": "if"
   },
   "inline-function": {
-    "prefix": "f=",
-    "body": ["local ${1:name} = function($2)", "\t${0:-- code}", "end"]
+    "body": [
+      "local ${1:name} = function($2)",
+      "\t${0:-- code}",
+      "end"
+    ],
+    "prefix": "f="
+  },
+  "local": {
+    "body": [
+      "local ${0}"
+    ],
+    "description": "create a variable",
+    "prefix": "l"
+  },
+  "locreq": {
+    "body": [
+      "local ${1:var} = require(\"${2:module}\")"
+    ],
+    "description": "Require module as a variable",
+    "prefix": "lreq"
   },
   "print": {
-    "prefix": "p",
-    "body": ["print(${0})"]
+    "body": [
+      "print(${0})"
+    ],
+    "prefix": "p"
+  },
+  "require": {
+    "body": [
+      "require(\"${1:module}\")"
+    ],
+    "description": "Require module",
+    "prefix": "req"
+  },
+  "return": {
+    "body": [
+      "return $0"
+    ],
+    "description": "return value",
+    "prefix": "rt"
   },
   "self": {
-    "prefix": "self:",
-    "body": ["function self:${1:methodName}($2)", "\t$0", "end"]
+    "body": [
+      "function self:${1:methodName}($2)",
+      "\t$0",
+      "end"
+    ],
+    "prefix": "self:"
   },
   "while": {
-    "prefix": "while",
-    "body": ["while ${1:true} do", "\t$0", "end"]
+    "body": [
+      "while ${1:true} do",
+      "\t$0",
+      "end"
+    ],
+    "prefix": "while"
   }
 }

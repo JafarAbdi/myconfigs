@@ -42,7 +42,7 @@ vim.opt.autoindent = true
 vim.opt.copyindent = true
 -- https://vim.fandom.com/wiki/Automatically_wrap_left_and_right
 vim.opt.whichwrap = vim.opt.whichwrap + "<,>,h,l,[,]"
--- Hightlight current selected line.
+-- Highlight current selected line.
 vim.opt.cursorline = true
 --Set colorscheme
 vim.o.termguicolors = true
