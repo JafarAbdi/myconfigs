@@ -1,4 +1,0 @@
-#!/bin/bash -eu
-
-ws=$(_workon_workspace.py --workspaces | tr " " "\n" | dmenu -i -p "Select workspace:")
-terminator -e 'workon $ws'
