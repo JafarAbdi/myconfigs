@@ -317,3 +317,8 @@ function install-ranger
   sudo apt install ranger
   ln -fs ~/myconfigs/ranger ~/.config/ranger
 end
+
+function install-difftastic
+  export CARGO_NET_GIT_FETCH_WITH_CLI=true
+  cargo install difftastic
+end
