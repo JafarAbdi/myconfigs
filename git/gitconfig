@@ -1,82 +1,94 @@
 [user]
-	name = JafarAbdi
-	email = cafer.abdi@gmail.com
+  name = JafarAbdi
+  email = cafer.abdi@gmail.com
 [color]
-        ui = auto
+  ui = auto
 [color "branch"]
-        current = yellow reverse
-        local = yellow
-        remote = green
+  current = yellow reverse
+  local = yellow
+  remote = green
 [color "diff"]
-       meta = yellow bold
-       frag = magenta bold
-       old = red bold
-       new = green bold
+  meta = yellow bold
+  frag = magenta bold
+  old = red bold
+  new = green bold
 [color "status"]
-       added = yellow
-       changed = green
-       untracked = cyan
+  added = yellow
+  changed = green
+  untracked = cyan
 [credential]
-        helper = cache --timeout=7200
+  helper = cache --timeout=7200
 [push]
-        default = current
+  default = current
 [core]
-        autoctrlf = input
-        excludesfile = ~/myconfigs/git/gitignore
-        pager = less -+FX
+  autoctrlf = input
+  excludesfile = ~/myconfigs/git/gitignore
+  pager = less -+FX
 [pack]
-        threads = 6
+  threads = 6
 [http]
-        sslVerify = false
+  sslVerify = false
 [filter "lfs"]
-        clean = git-lfs clean -- %f
-        smudge = git-lfs smudge -- %f
-        required = true
+  clean = git-lfs clean -- %f
+  smudge = git-lfs smudge -- %f
+  required = true
 [branch]
-        autosetuprebase = always
+  autosetuprebase = always
 
 [alias]
-        last = log -1 HEAD
-        co = checkout
-        cp = cherry-pick
-        lol = log --oneline --graph --all --decorate -30
-        hist = log --pretty=\"%h %ad%d | %s\" --date=short --graph --branches --remotes
-        squash = !git rebase -i `git rev-list HEAD --not --remotes | tail -1`~1
-        greview = !git push origin HEAD:refs/for/master
-        undo-commit = reset --soft HEAD^
-        unstage = reset HEAD --
-        br = branch -vv
-        ca = commit -am
-        ci = commit
-        cob = checkout -b
-        com = checkout master
-        d = diff
-        dl = diff --name-only
-        dm = diff master
-        dml = diff master --name-only
-        dt = difftool -d
-        find = log --abbrev-commit --date local --grep
-        ld = log --pretty=format:"%C(yellow)%h\\ %C(green)%ad%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --date=short --graph
-        lg = log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ad) %C(bold blue)<%an>%Creset' --abbrev-commit --date=format:'%a %d.%m.%Y %H:%M'
-        ll = log --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --numstat
-        ls = log --pretty=format:"%C(green)%h\\ %C(yellow)[%ad]%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --date=relative
-        st = status
-        sh = show --ext-diff
-        discard = checkout HEAD --
-        abandon = checkout HEAD --
-        pushf = push --force-with-lease
-        diffs = diff --staged
-        stash-all = stash save --include-untracked
-        rlg = log --color --walk-reflogs --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %gs %Cgreen(%gD) %C(bold blue)<%an>%Creset' --abbrev-commit --date=format:'%a %d.%m.%Y %H:%M'
-        subl-modified = !git st| grep "modified:" | awk '{print $2}' | xargs subl
-        subl-confliects = !git status --short | grep 'UU' | awk '{print $2}' | xargs subl
-        rm-untracked = !git status --short | grep '??' | awk '{print $2}' | xargs rm -r
-        grep-all-commits = "!f() { git grep \"$1\" $(git rev-list --all); }; f"
+  last = log -1 HEAD
+  co = checkout
+  cp = cherry-pick
+  lol = log --oneline --graph --all --decorate -30
+  hist = log --pretty=\"%h %ad%d | %s\" --date=short --graph --branches --remotes
+  squash = !git rebase -i `git rev-list HEAD --not --remotes | tail -1`~1
+  greview = !git push origin HEAD:refs/for/master
+  undo-commit = reset --soft HEAD^
+  unstage = reset HEAD --
+  br = branch -vv
+  ca = commit -am
+  ci = commit
+  cob = checkout -b
+  com = checkout master
+  d = diff
+  dl = diff --name-only
+  dm = diff master
+  dml = diff master --name-only
+  dt = difftool -d
+  find = log --abbrev-commit --date local --grep
+  ld = log --pretty=format:"%C(yellow)%h\\ %C(green)%ad%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --date=short --graph
+  lg = log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ad) %C(bold blue)<%an>%Creset' --abbrev-commit --date=format:'%a %d.%m.%Y %H:%M'
+  ll = log --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --numstat
+  ls = log --pretty=format:"%C(green)%h\\ %C(yellow)[%ad]%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --date=relative
+  st = status
+  sh = show --ext-diff
+  discard = checkout HEAD --
+  abandon = checkout HEAD --
+  pushf = push --force-with-lease
+  diffs = diff --staged
+  stash-all = stash save --include-untracked
+  rlg = log --color --walk-reflogs --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %gs %Cgreen(%gD) %C(bold blue)<%an>%Creset' --abbrev-commit --date=format:'%a %d.%m.%Y %H:%M'
+  subl-modified = !git st| grep "modified:" | awk '{print $2}' | xargs subl
+  subl-confliects = !git status --short | grep 'UU' | awk '{print $2}' | xargs subl
+  rm-untracked = !git status --short | grep '??' | awk '{print $2}' | xargs rm -r
+  grep-all-commits = "!f() { git grep \"$1\" $(git rev-list --all); }; f"
+  # New branch in a Worktree.
+  nw = "!f() { git worktree add $1 -b $1; }; f"
+  # New branch in a Worktree From a specified branch
+  nwf = "!f() { git worktree add $2 -b $2 $1; }; f"
+  # Existing branch in a Worktree.
+  ew = "!f() { git worktree add $1 $1; }; f"
+  # List Worktrees.
+  lw = "!f() { git worktree prune && git worktree list; }; f"
+  # Remove Worktree.
+  rw = "!f() { git worktree remove $1; }; f"
 [pager]
-	branch = true
+  branch = true
 [url "ssh://git@github.com/"]
-	# pushInsteadOf = https://github.com/
-	# Push + Pull
-	insteadOf = https://github.com/
+  # pushInsteadOf = https://github.com/
+  # Push + Pull
+  insteadOf = https://github.com/
+[url "git@github.com:"]
+  insteadOf = gh:
 [init]
   defaultBranch = main
