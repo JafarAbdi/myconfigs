@@ -68,6 +68,7 @@ function install-core
   # Needed for st
   sudo apt install -y libxft-dev libx11-dev
   pip3 install argcomplete==2.0.0
+  github-setup
 end
 
 function install-cpp-dev
@@ -290,6 +291,15 @@ end
 
 # TODO: Add Debian support https://github.com/neovim/neovim/releases
 function install-nvim
+  set -l config_path ~/.config/nvim
+  if test -e $config_path
+    if test (readlink -f $config_path) != $HOME/myconfigs/nvim
+      mv $config_path $config_path".bak"(date +_%Y_%m_%d)
+      ln -sf ~/myconfigs/nvim $config_path
+    end
+  else
+    ln -sf ~/myconfigs/nvim $config_path
+  end
   if set -q argv[1] && test $argv[1] = "stable"
     sudo add-apt-repository ppa:neovim-ppa/stable
   else

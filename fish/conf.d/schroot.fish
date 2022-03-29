@@ -65,24 +65,24 @@ locale-gen
 
 if [[ \"\$(lsb_release -is)\" == \"Ubuntu\" ]];
 then
-apt install -y software-properties-common
-add-apt-repository universe
-add-apt-repository multiverse
-if [[ \"\$(lsb_release -cs)\" != \"jammy\" ]];
-then
-  apt-add-repository ppa:fish-shell/release-3
-  apt update
-fi
+  apt install -y software-properties-common
+  add-apt-repository universe
+  add-apt-repository multiverse
+  if [[ \"\$(lsb_release -cs)\" != \"jammy\" ]];
+  then
+    apt-add-repository ppa:fish-shell/release-3
+    apt update
+  fi
 elif [[ \"\$(lsb_release -is)\" == \"Debian\" ]];
 then
   apt install -y libxft-dev libx11-dev
 fi
 apt install -y fish
 chsh -s `which fish`
-" | sudo schroot --run-session -c noetic-dev -d / bash
+chown jafar:jafar /home/jafar
+" | sudo schroot --run-session -c $session_name -d / bash
 
   echo "\
-sudo chown jafar:jafar /home/jafar
 
 source ~/myconfigs/fish/conf.d/installs.fish
 install-core
