@@ -7,6 +7,7 @@ else
 endif
 ]])
 
+require("configs.packer")
 -- TODO: Cleanup this file
 local opt = vim.opt -- global (vim.opt is better than vim.o)
 local g = vim.g -- global for let options
@@ -86,5 +87,4 @@ vim.cmd("highlight TSCurrentScope guibg=#242830")
 vim.api.nvim_command("let g:surround_no_mappings = 1")
 
 require("configs.disable_builtin")
-require("configs.packer")
 require("configs")

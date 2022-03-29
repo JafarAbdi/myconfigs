@@ -323,3 +323,21 @@ function install-difftastic
   export CARGO_NET_GIT_FETCH_WITH_CLI=true
   cargo install difftastic
 end
+
+function install-docker
+  # Install Docker
+  if ! command -q docker &> /dev/null
+    sudo apt install -y curl
+    curl -sSL https://get.docker.com/ | sh
+    sudo usermod -aG docker (whoami)
+  end
+  # Test:
+  sudo docker run hello-world
+  # Nvidia
+  export distribution=(export (cat /etc/os-release |xargs -L 1);echo $ID$VERSION_ID) \
+    && curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -  \
+    && curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+  sudo apt-get update
+  sudo apt-get install -y nvidia-docker2
+  sudo systemctl restart docker
+end

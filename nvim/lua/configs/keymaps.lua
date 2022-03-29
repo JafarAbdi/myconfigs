@@ -99,6 +99,7 @@ vim.keymap.set("", "<S-C-RIGHT>", ":vertical resize +1<CR>", { silent = true })
 vim.keymap.set("n", "<M-f>", ":RnvimrToggle<CR>")
 vim.keymap.set("t", "<M-f>", "<C-\\><C-n>:RnvimrToggle<CR>")
 vim.keymap.set("t", "<M-r>", "<C-\\><C-n>:RnvimrResize<CR>")
+vim.keymap.set("t", "<Esc>", "<C-\\><C-n>")
 -- F1-12 commands
 vim.keymap.set("", "<F2>", function()
   vim.o.spell = not vim.o.spell
