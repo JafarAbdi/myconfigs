@@ -60,6 +60,7 @@ function get_path
       set path $WORKSPACE_DIR/ws_drake/install/bin:$path
     end
     if test -d $HOME/.cargo/bin
+      export CARGO_NET_GIT_FETCH_WITH_CLI=true
       set path $HOME/.cargo/bin:$path
     end
     if test -d $HOME/.config/lua-lsp/bin

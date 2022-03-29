@@ -37,29 +37,22 @@
 
 [alias]
   last = log -1 HEAD
-  co = checkout
-  cp = cherry-pick
-  lol = log --oneline --graph --all --decorate -30
+  cc  = !fish -c 'forgit::checkout::commit'
+  cb  = !fish -c 'forgit::checkout::branch'
+  cf  = !fish -c 'f = forgit::checkout::file'
+  a   = !fish -c 'forgit::add'
+  d   = !fish -c 'forgit::diff'
+  ssh = !fish -c 'forgit::stash::show'
+  lg  = !fish -c 'forgit::log'
+  rc  = !fish -c 'forgit::revert::commit'
   hist = log --pretty=\"%h %ad%d | %s\" --date=short --graph --branches --remotes
   squash = !git rebase -i `git rev-list HEAD --not --remotes | tail -1`~1
   greview = !git push origin HEAD:refs/for/master
   undo-commit = reset --soft HEAD^
   unstage = reset HEAD --
   br = branch -vv
-  ca = commit -am
-  ci = commit
-  cob = checkout -b
-  com = checkout master
-  d = diff
-  dl = diff --name-only
-  dm = diff master
-  dml = diff master --name-only
   dt = difftool -d
   find = log --abbrev-commit --date local --grep
-  ld = log --pretty=format:"%C(yellow)%h\\ %C(green)%ad%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --date=short --graph
-  lg = log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ad) %C(bold blue)<%an>%Creset' --abbrev-commit --date=format:'%a %d.%m.%Y %H:%M'
-  ll = log --pretty=format:"%C(yellow)%h%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --numstat
-  ls = log --pretty=format:"%C(green)%h\\ %C(yellow)[%ad]%Cred%d\\ %Creset%s%Cblue\\ [%cn]" --decorate --date=relative
   st = status
   sh = show --ext-diff
   discard = checkout HEAD --

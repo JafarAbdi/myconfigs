@@ -216,6 +216,7 @@ function config-fish
   curl -sL https://git.io/fisher | source && fisher install jorgebucaran/fisher
   # To be able to source bash scripts
   fisher install edc/bass
+  fisher install wfxr/forgit
   chsh -s `which fish`
 end
 

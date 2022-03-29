@@ -7,14 +7,6 @@ function ranger-cd
 end
 
 alias grep='grep --color=auto'
-function gr
-  begin
-    set -l IFS
-    set result (grep --exclude-dir=.mypy_cache --exclude-dir=.idea --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.PVS-Studio --exclude="*.PVS-Studio.i" --exclude="*.PVS-Studio.cfg" -I --color=always --ignore-case --line-number -R  $argv[1] .)
-  end
-  echo -e $result | awk '{ printf "%s \033[0;32m%s\033[0m\n", $0, NR }'
-end
-
 
 # Find and replace string in all files in a directory
 #  param1 - old word
@@ -77,7 +69,7 @@ if command -v batcat &> /dev/null
   alias cat='bat --paging=never'
 end
 if command -v difft &> /dev/null
-  set -gx GIT_EXTERNAL_DIFF difft
+  set -gx GIT_EXTERNAL_DIFF "difft --color=always"
 end
 # gdb
 alias gdbrun='gdb --ex run --args '
