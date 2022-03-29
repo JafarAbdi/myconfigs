@@ -69,6 +69,7 @@ function install-core
   sudo apt install -y libxft-dev libx11-dev
   pip3 install argcomplete==2.0.0
   github-setup
+  install-ripgrep
 end
 
 function install-cpp-dev
@@ -105,6 +106,14 @@ function install-from-github
     | tr -d \" \
     | head -n 1 \
     | wget -i -
+end
+
+function install-ripgrep
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github "BurntSushi/ripgrep" "ripgrep_.*_amd64.deb"
+  sudo dpkg -i ripgrep_*
+  cd -
 end
 
 function install-vscode-cpptools
