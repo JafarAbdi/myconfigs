@@ -122,3 +122,4 @@ bind \ef ranger-cd
 bind \cd true
 
 set -g fish_complete_path $fish_complete_path $MYCONFIGS_DIR/fish/completions
+set -g fish_function_path $fish_function_path $MYCONFIGS_DIR/fish/functions

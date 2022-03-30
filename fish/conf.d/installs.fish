@@ -120,7 +120,7 @@ function install-vscode-cpptools
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR
   install-from-github "microsoft/vscode-cpptools" "cpptools-linux.vsix"
-  unzip vscode-cpptools.vsix
+  unzip cpptools-linux.vsix
   chmod +x extension/debugAdapters/bin/OpenDebugAD7
   rm -rf ~/.config/vscode-cpptools
   mkdir -p ~/.config/vscode-cpptools

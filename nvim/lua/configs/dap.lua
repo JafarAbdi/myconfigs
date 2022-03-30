@@ -15,8 +15,7 @@ end
 dap.adapters.cppdbg = {
   id = "cppdbg",
   type = "executable",
-  command = vim.env.HOME
-    .. "/.config/vimspector-conf/gadgets/linux/download/vscode-cpptools/1.7.1/root/extension/debugAdapters/bin/OpenDebugAD7",
+  command = vim.env.HOME .. "/.config/vscode-cpptools/extension/debugAdapters/bin/OpenDebugAD7",
 }
 dap.configurations.cpp = {
   {
