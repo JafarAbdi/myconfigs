@@ -109,6 +109,13 @@ if [ "$current_ros_workspace" != "" ]
   source_workspace $current_ros_workspace
 end
 
+if status is-interactive
+and not set -q TMUX
+and command -v tmux &> /dev/null
+  exec tmux new-session -s %self \; \
+            set-option destroy-unattached on
+end
+
 # eval (python -m virtualfish) &> /dev/null
 alias myconfigs "cd $MYCONFIGS_DIR"
 alias myconfigsr "source ~/.config/fish/config.fish"
