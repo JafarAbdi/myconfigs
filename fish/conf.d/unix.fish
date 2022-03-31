@@ -138,7 +138,7 @@ function fzf_preview
   || head -300
 end
 
-set -xg FZF_DEFAULT_OPTS "--no-mouse --height 80% --reverse --multi --info=inline --preview 'fzf_preview {}' \
+set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inline --preview 'fzf_preview {}' \
                          --preview-window='right:50%:wrap' \
                          --bind='f2:toggle-preview' \
                          --bind='f3:execute-silent(subl {} || $EDITOR {})' \
