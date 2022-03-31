@@ -360,3 +360,9 @@ function install-docker
   sudo apt-get install -y nvidia-docker2
   sudo systemctl restart docker
 end
+
+function install-tmux
+  # We need at least tmux3.2, the older versions have a bug with focus-events
+  # https://github.com/tmux/tmux/releases
+  sudo apt install tmux
+end
