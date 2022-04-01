@@ -13,8 +13,7 @@ set -x HISTFILESIZE 100000
 if status is-interactive
 and not set -q TMUX
 and command -v tmux &> /dev/null
-  exec tmux new-session -s %self \; \
-            set-option destroy-unattached on
+  exec tmux new-session -s %self
 end
 
 if test -d $HOME/myconfigs # Host machine case
@@ -125,7 +124,6 @@ alias cmake 'cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias bat 'batcat'
 
 bind \ef nnn-cd
-bind \cd true
 
 set -g fish_complete_path $fish_complete_path $MYCONFIGS_DIR/fish/completions
 set -g fish_function_path $fish_function_path $MYCONFIGS_DIR/fish/functions
