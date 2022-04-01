@@ -132,8 +132,9 @@ end
 
 set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inline --preview 'fzf_preview {}' \
                          --preview-window='right:50%:wrap' \
+                         --bind='alt-k:preview-up'
+                         --bind='alt-j:preview-down'
                          --bind='f2:toggle-preview' \
-                         --bind='f3:execute-silent(subl {} || $EDITOR {})' \
-                         --bind='f4:execute(nvim {} < /dev/tty > /dev/tty 2>&1)' \
+                         --bind='f3:execute(nvim {} < /dev/tty > /dev/tty 2>&1)' \
                          --bind='ctrl-h:reload($FZF_DEFAULT_COMMAND --hidden)'"
 set -xg FZF_CTRL_T_COMMAND "$FZF_DEFAULT_COMMAND"
