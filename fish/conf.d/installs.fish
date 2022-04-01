@@ -362,7 +362,8 @@ function install-docker
 end
 
 function install-tmux
-  # We need at least tmux3.2, the older versions have a bug with focus-events
+  # We need at least tmux3.3, the older versions have a bug with focus-events
   # https://github.com/tmux/tmux/releases
-  sudo apt install tmux
+  # sudo apt install tmux
+  sudo apt install libevent-dev
 end
