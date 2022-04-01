@@ -76,11 +76,6 @@ g.indent_blankline_show_trailing_blankline_indent = false
 opt.spell = false
 opt.spelllang = "en"
 
---Ranger
--- https://github.com/kevinhwang91/rnvimr#advanced-configuration
-g.rnvimr_enable_bw = 1
-g.rnvimr_enable_picker = 1
-g.rnvimr_enable_ex = 1
 vim.cmd("highlight link LspComment Comment")
 vim.cmd("highlight TSCurrentScope guibg=#242830")
 

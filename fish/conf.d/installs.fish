@@ -333,9 +333,9 @@ function install-vcpkg
   $VCPKG_DIR/vcpkg integrate x-fish
 end
 
-function install-ranger
-  sudo apt install ranger
-  ln -fs ~/myconfigs/ranger ~/.config/ranger
+function install-nnn
+  sudo apt install nnn
+  curl -Ls https://raw.githubusercontent.com/jarun/nnn/master/plugins/getplugs | sh -s -- "master"
 end
 
 function install-difftastic

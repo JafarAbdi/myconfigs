@@ -1,12 +1,3 @@
-vim.g.rnvimr_action = {
-  -- TODO: Conflicts with ranger's fzf binding
-  -- { ["<C-t>"] = "NvimEdit tabedit" },
-  { ["<C-x>"] = "NvimEdit split" },
-  { ["<C-v>"] = "NvimEdit vsplit" },
-  -- { ["gw"] = "JumpNvimCwd" },
-  -- { ["yw"] = "EmitRangerCwd" },
-}
-
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 --Add leader shortcuts
@@ -96,9 +87,8 @@ vim.keymap.set("", "<S-C-DOWN>", ":resize +1<CR>", { silent = true })
 vim.keymap.set("", "<S-C-LEFT>", ":vertical resize -1<CR>", { silent = true })
 vim.keymap.set("", "<S-C-RIGHT>", ":vertical resize +1<CR>", { silent = true })
 
-vim.keymap.set("n", "<M-f>", ":RnvimrToggle<CR>")
-vim.keymap.set("t", "<M-f>", "<C-\\><C-n>:RnvimrToggle<CR>")
-vim.keymap.set("t", "<M-r>", "<C-\\><C-n>:RnvimrResize<CR>")
+vim.keymap.set("n", "<M-f>", ":NnnPicker %:p:h<CR>")
+vim.keymap.set("t", "<M-f>", "<C-\\><C-n>:NnnPicker<CR>")
 -- vim.keymap.set("t", "<Esc>", "<C-\\><C-n>")
 -- F1-12 commands
 vim.keymap.set("", "<F2>", function()

@@ -165,8 +165,12 @@ return packer.startup({
       end,
     })
 
-    -- Ranger
-    use("kevinhwang91/rnvimr")
+    use({
+      "luukvbaal/nnn.nvim",
+      config = function()
+        require("nnn").setup({})
+      end,
+    })
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
       packer.compile()
     end

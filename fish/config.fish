@@ -105,7 +105,6 @@ set -xg PATH (get_path)
 set -xg LD_LIBRARY_PATH (get_ld_library_path)
 set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
 set -xg BROWSER "google-chrome"
-set -xg RANGER_LOAD_DEFAULT_RC false
 
 for config_file in $MYCONFIGS_DIR/fish/conf.d/*
   source $config_file
@@ -125,7 +124,7 @@ alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmake 'cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias bat 'batcat'
 
-bind \ef ranger-cd
+bind \ef nnn-cd
 bind \cd true
 
 set -g fish_complete_path $fish_complete_path $MYCONFIGS_DIR/fish/completions
