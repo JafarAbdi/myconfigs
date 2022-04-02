@@ -260,6 +260,11 @@ function install-cpp-lsp
 end
 
 function install-python-lsp
+  sudo apt install python3-venv
+  mkdir ~/.virtualenvs
+  cd ~/.virtualenvs
+  python3 -m venv debugpy
+  debugpy/bin/python -m pip install debugpy
   python3 -m pip install --user --upgrade pynvim
   pip3 install 'python-lsp-server[all]'
   pip3 install python-lsp-black

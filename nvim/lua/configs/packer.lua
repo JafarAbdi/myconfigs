@@ -91,6 +91,13 @@ return packer.startup({
         require("nvim-dap-virtual-text").setup()
       end,
     })
+
+    use({
+      "mfussenegger/nvim-dap-python",
+      config = function()
+        require("dap-python").setup("~/.virtualenvs/debugpy/bin/python")
+      end,
+    })
     -- Show diffs between directories
     use("will133/vim-dirdiff")
     -- Rust
