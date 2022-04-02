@@ -170,3 +170,6 @@ vim.cmd([[ command! Scratch execute "lua Scratch()" ]])
 
 vim.cmd([[ command! RunGtest execute "lua RunGtest({})" ]])
 vim.cmd([[ command! DebugGtest execute "lua RunGtest({at_cursor = true, debug = true})" ]])
+vim.cmd([[ command! CppDocumentation execute "lua require('telescope_zeal').show('cpp')" ]])
+vim.cmd([[ command! CMakeDocumentation execute "lua require('telescope_zeal').show('cmake')" ]])
+vim.cmd([[ command! BoostDocumentation execute "lua require('telescope_zeal').show('boost')" ]])

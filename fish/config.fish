@@ -104,6 +104,7 @@ set -xg PATH (get_path)
 set -xg LD_LIBRARY_PATH (get_ld_library_path)
 set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
 set -xg BROWSER "google-chrome"
+export LYNX_LSS="$MYCONFIGS_DIR/lynx/lynx.lss"
 
 for config_file in $MYCONFIGS_DIR/fish/conf.d/*
   source $config_file

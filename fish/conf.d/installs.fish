@@ -79,6 +79,9 @@ function install-cpp-dev
   sudo apt install -y gcc
   sudo apt install -y cmake
   sudo apt install -y dwarves
+  # Documentation
+  sudo apt install -y zeal
+  open https://zealdocs.org/usage.html
   install-cpp-lsp
 end
 

@@ -6,6 +6,21 @@ if vim.fn.empty(vim.fn.glob(install_path)) > 0 then
   vim.fn.execute("!git clone https://github.com/wbthomason/packer.nvim " .. install_path)
 end
 
+local hotpot_path = vim.fn.stdpath("data") .. "/site/pack/packer/start/hotpot.nvim"
+
+if vim.fn.empty(vim.fn.glob(hotpot_path)) > 0 then
+  print("Could not find hotpot.nvim, cloning new copy to", hotpot_path)
+  vim.fn.system({
+    "git",
+    "clone",
+    "https://github.com/rktjmp/hotpot.nvim",
+    hotpot_path,
+  })
+  vim.cmd("helptags " .. hotpot_path .. "/doc")
+end
+-- Bootstrap .fnl support
+require("hotpot")
+
 vim.cmd([[packadd packer.nvim]])
 local packer = require("packer")
 
@@ -13,6 +28,8 @@ return packer.startup({
   function(use)
     -- Packer
     use("wbthomason/packer.nvim")
+    use("rktjmp/hotpot.nvim")
+
     -- Profiler
     use("dstein64/vim-startuptime")
     -- Prettier
@@ -172,6 +189,26 @@ return packer.startup({
       end,
     })
 
+    -- Documentation
+    use({
+      "https://gitlab.com/JafarAbdi/zeal-lynx-cli.git",
+      run = "ln -sf "
+        .. vim.fn.stdpath("data")
+        .. "/site/pack/packer/start/zeal-lynx-cli.git/zeal-cli ~/.local/bin/zeal-cli",
+    })
+    use({
+      "https://gitlab.com/ivan-cukic/nvim-telescope-zeal-cli.git",
+      config = function()
+        require("telescope_zeal").setup({
+          documentation_sets = {
+            cpp = { title = "C++ Reference" },
+            cmake = { title = "CMake Documentation" },
+            boost = { title = "Boost Documentation" },
+          },
+        })
+      end,
+    })
+    -- File manager
     use({
       "luukvbaal/nnn.nvim",
       config = function()
