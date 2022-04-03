@@ -12,6 +12,7 @@ IFS=: read -ra selected < <(
         --color "hl:-1:underline,hl+:-1:underline:reverse" \
         --delimiter : \
         --preview 'bat --color=always {1} --highlight-line {2}' \
+        --bind='f3:execute(nvim (echo {} | cut -d':' -f1,2) < /dev/tty > /dev/tty 2>&1)' \
         --preview-window 'up,60%,border-bottom,+{2}+3/3,~3'
 )
 [ -n "${selected[0]}" ] && nvim "${selected[0]}" "+${selected[1]}"
