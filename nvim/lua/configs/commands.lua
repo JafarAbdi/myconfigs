@@ -76,9 +76,7 @@ vim.api.nvim_create_autocmd("BufWritePost", {
   callback = function()
     -- Deletes all trailing whitespaces in a file if it's not binary nor a diff.
     if not vim.o.binary and vim.o.filetype ~= "diff" then
-      local current_view = vim.fn.winsaveview()
-      vim.cmd([[keeppatterns %s/\s\+$//e]])
-      vim.fn.winrestview(current_view)
+      _G.CleanWhitespaces()
     end
   end,
   group = general_group,
@@ -167,6 +165,7 @@ vim.cmd(
 vim.cmd([[ command! ExpandMacro execute "lua ExpandMacro()" ]])
 
 vim.cmd([[ command! Scratch execute "lua Scratch()" ]])
+vim.cmd([[ command! CleanWhitespaces execute "lua CleanWhitespaces()" ]])
 
 vim.cmd([[ command! RunGtest execute "lua RunGtest({})" ]])
 vim.cmd([[ command! DebugGtest execute "lua RunGtest({at_cursor = true, debug = true})" ]])

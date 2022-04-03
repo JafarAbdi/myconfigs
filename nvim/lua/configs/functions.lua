@@ -190,6 +190,12 @@ function _G.ExpandMacro()
   })
 end
 
+function _G.CleanWhitespaces()
+  local current_view = vim.fn.winsaveview()
+  vim.cmd([[keeppatterns %s/\s\+$//e]])
+  vim.fn.winrestview(current_view)
+end
+
 function _G.Scratch()
   vim.cmd([[
     execute 'tabnew '
