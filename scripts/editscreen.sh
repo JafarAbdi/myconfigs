@@ -2,4 +2,4 @@
 tmpfile=$(mktemp /tmp/st-edit.XXXXXX)
 trap  'rm "$tmpfile"' 0 1 15
 cat > "$tmpfile"
-st -e "$EDITOR" "$tmpfile"
+tmux popup -d '#{pane_current_path}' -xC -yC -w80% -h80% -E "$EDITOR $tmpfile"
