@@ -112,7 +112,7 @@ return packer.startup({
     use({
       "mfussenegger/nvim-dap-python",
       config = function()
-        require("dap-python").setup("~/.virtualenvs/debugpy/bin/python")
+        require("dap-python").setup("python3")
       end,
     })
     -- Show diffs between directories
