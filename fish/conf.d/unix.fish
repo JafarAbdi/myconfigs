@@ -134,7 +134,6 @@ function fzf_preview
   || head -300
 end
 
-#--preview-window='right:50%:wrap' \
 set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inline --preview 'fzf_preview {1} {2}' \
                          --color 'hl:-1:underline,hl+:-1:underline:reverse' \
                          --delimiter : \
@@ -142,6 +141,6 @@ set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inli
                          --bind='alt-k:preview-up'
                          --bind='alt-j:preview-down'
                          --bind='f2:toggle-preview' \
-                         --bind='f3:execute(nvim {1}:{2} < /dev/tty > /dev/tty 2>&1)' \
+                         --bind='f3:execute(nvim (echo {} | cut -d':' -f1,2) < /dev/tty > /dev/tty 2>&1)' \
                          --bind='ctrl-h:reload($FZF_DEFAULT_COMMAND --hidden)'"
 set -xg FZF_CTRL_T_COMMAND "$FZF_DEFAULT_COMMAND"
