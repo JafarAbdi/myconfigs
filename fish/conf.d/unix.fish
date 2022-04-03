@@ -124,17 +124,24 @@ end
 
 function fzf_preview
   set -l filetype (file --mime --brief $argv[1])
+  set -l batcat_args "--color=always" $argv[1]
+  if test -n "$argv[2]"
+    set batcat_args $batcat_args --highlight-line $argv[2]
+  end
   string match -q "*binary" $filetype \
   && echo $argv[1] is a binary file $filetype \
-  || batcat --style=numbers --color=always $argv[1] || cat $argv[1] 2> /dev/null \
+  || batcat $batcat_args || cat $argv[1] 2> /dev/null \
   || head -300
 end
 
-set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inline --preview 'fzf_preview {}' \
-                         --preview-window='right:50%:wrap' \
+#--preview-window='right:50%:wrap' \
+set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inline --preview 'fzf_preview {1} {2}' \
+                         --color 'hl:-1:underline,hl+:-1:underline:reverse' \
+                         --delimiter : \
+                         --preview-window 'right,+{2}+3/3,~3'
                          --bind='alt-k:preview-up'
                          --bind='alt-j:preview-down'
                          --bind='f2:toggle-preview' \
-                         --bind='f3:execute(nvim {} < /dev/tty > /dev/tty 2>&1)' \
+                         --bind='f3:execute(nvim {1}:{2} < /dev/tty > /dev/tty 2>&1)' \
                          --bind='ctrl-h:reload($FZF_DEFAULT_COMMAND --hidden)'"
 set -xg FZF_CTRL_T_COMMAND "$FZF_DEFAULT_COMMAND"
