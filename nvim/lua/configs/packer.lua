@@ -212,7 +212,9 @@ return packer.startup({
     use({
       "luukvbaal/nnn.nvim",
       config = function()
-        require("nnn").setup({})
+        require("nnn").setup({
+          replace_netrw = "picker",
+        })
       end,
     })
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
