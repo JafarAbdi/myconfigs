@@ -26,6 +26,8 @@ else
   set_color normal
 end
 
+set -g fish_complete_path $fish_complete_path $MYCONFIGS_DIR/fish/completions
+set -g fish_function_path $fish_function_path $MYCONFIGS_DIR/fish/functions
 
 set -x EDITOR 'nvim'
 set -x TERMINAL '/usr/local/bin/st'
@@ -115,6 +117,8 @@ if [ "$current_ros_workspace" != "" ]
   source_workspace $current_ros_workspace
 end
 
+bind \ef nnn-cd
+
 # eval (python -m virtualfish) &> /dev/null
 alias myconfigs "cd $MYCONFIGS_DIR"
 alias myconfigsr "source ~/.config/fish/config.fish"
@@ -123,8 +127,20 @@ alias jpnb_tmp "jupyter-notebook /tmp/"
 alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmake 'cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias bat 'batcat'
+alias mybashrc="nvim $MYCONFIGS_DIR/.bashrc"
+alias mysetup="nvim $MYCONFIGS_DIR/install/setup.sh"
+alias myreadme="nvim $MYCONFIGS_DIR/README.md"
 
-bind \ef nnn-cd
-
-set -g fish_complete_path $fish_complete_path $MYCONFIGS_DIR/fish/completions
-set -g fish_function_path $fish_function_path $MYCONFIGS_DIR/fish/functions
+register-argcomplete clang_tidy
+register-argcomplete config_clangd
+if test -e /usr/share/vcstool-completion/vcs.fish
+  source /usr/share/vcstool-completion/vcs.fish
+end
+register-argcomplete ros_clang_tidy
+register-argcomplete _workon_workspace.py
+register-argcomplete ros_build
+register-argcomplete ros_test
+# TODO: Push upstream
+register-argcomplete ros2
+register-argcomplete rosidl
+register-argcomplete ament_cmake

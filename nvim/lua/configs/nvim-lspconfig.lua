@@ -145,32 +145,14 @@ require("rust-tools").setup({
 ------------
 -- PYTHON --
 ------------
--- local pylsp_debug_cmd = {"pylsp", "--verbose", "--log-file", "/tmp/asa.log"},
-lspconfig.pylsp.setup({
+lspconfig.jedi_language_server.setup({
+  -- cmd = {"jedi-language-server", "--verbose", "--log-file", "/tmp/logging.txt"},
   on_attach = lsp_on_attach,
-  capabilities = capabilities,
-  settings = {
-    pylsp = {
-      plugins = {
-        autopep8 = { enabled = false },
-        pyflakes = { enabled = false },
-        mccabe = { enabled = false },
-        pycodestyle = { enabled = false },
-        flake = { enabled = true },
-        pyls_flake8 = { enabled = false },
-        flake8_lint = { enabled = false },
-        pylint = { enabled = true },
-        black = { enabled = true },
-        rope_rename = { enabled = true },
-        rope_completion = { enabled = true },
-        -- jedi = { environment = vim.fn.exepath('python3') }
-      },
-    },
-  },
 })
+
 lspconfig.efm.setup({
   cmd = { "efm-langserver", "-c", vim.env.HOME .. "/myconfigs/efm-langserver/config.yaml" },
-  filetypes = { "lua", "cmake", "json", "markdown", "rst", "sh", "tex", "yaml" },
+  filetypes = { "lua", "cmake", "json", "markdown", "rst", "sh", "tex", "yaml", "python" },
 })
 
 ---------

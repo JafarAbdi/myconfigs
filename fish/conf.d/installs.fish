@@ -263,18 +263,12 @@ function install-cpp-lsp
 end
 
 function install-python-lsp
-  sudo apt install python3-venv
-  mkdir ~/.virtualenvs
-  cd ~/.virtualenvs
-  python3 -m venv debugpy
-  debugpy/bin/python -m pip install debugpy
   python3 -m pip install --user --upgrade pynvim
-  pip3 install 'python-lsp-server[all]'
+  pip3 install -U jedi-language-server
+  pip3 install -U debugpy
   pip3 install python-lsp-black
   pip3 install pyls-isort
-  pip3 install pyls-flake8
   pip3 install pylsp-mypy
-  pip3 install pylsp-rope
 end
 
 function install-rust-lsp
@@ -341,6 +335,7 @@ function install-vcpkg
   $VCPKG_DIR/vcpkg integrate x-fish
 end
 
+# TODO: Add installation for ubuntu 22.04
 function install-nnn
   if test (lsb_release -is) = "Ubuntu"
     echo 'deb http://download.opensuse.org/repositories/home:/stig124:/nnn/xUbuntu_'(lsb_release -sr)'/ /' | sudo tee /etc/apt/sources.list.d/home:stig124:nnn.list
