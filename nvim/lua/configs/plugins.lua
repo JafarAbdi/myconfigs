@@ -64,7 +64,7 @@ return packer.startup({
       end,
     })
     -- Tree-sitter
-    use("nvim-treesitter/nvim-treesitter")
+    use({ "nvim-treesitter/nvim-treesitter", run = ":TSUpdate" })
     -- Spell checker
     use({
       "lewis6991/spellsitter.nvim",
@@ -95,7 +95,7 @@ return packer.startup({
     -- Movement
     use("ggandor/lightspeed.nvim")
     -- Undo tree
-    use("mbbill/undotree")
+    use({ "mbbill/undotree", cmd = "UndotreeToggle" })
     -- Go to files file.ex:row_number:col_number
     use("wsdjeg/vim-fetch")
     -- Debugger
@@ -144,6 +144,7 @@ return packer.startup({
     })
     use({
       "p00f/godbolt.nvim",
+      cmd = { "Godbolt", "GodboltCompiler" },
       config = function()
         require("godbolt").setup({
           languages = {
@@ -213,6 +214,11 @@ return packer.startup({
       "luukvbaal/nnn.nvim",
       config = function()
         require("nnn").setup({
+          picker = {
+            cmd = "tmux new-session nnn",
+            style = { border = "rounded" },
+            session = "shared",
+          },
           replace_netrw = "picker",
         })
       end,

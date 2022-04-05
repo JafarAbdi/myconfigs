@@ -106,7 +106,7 @@ cmp.setup({
   sources = {
     { name = "nvim_lsp_signature_help", priority = 100 },
     { name = "nvim_lsp" },
-    { name = "luasnip" },
+    { name = "luasnip", max_item_count = 20 },
     {
       name = "buffer",
       max_item_count = 20,
@@ -121,8 +121,8 @@ cmp.setup({
         end,
       },
     },
+    { name = "path" },
     { name = "nvim_lua" },
-    -- { name = "nvim_lsp_document_symbol", max_item_count = 10 },
   },
   formatting = {
     format = function(entry, vim_item)

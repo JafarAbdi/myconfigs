@@ -105,10 +105,6 @@ vim.keymap.set("", "<F3>", function()
   vim.cmd("UndotreeFocus")
 end, { silent = true })
 
-vim.keymap.set("", "<F4>", function()
-  vim.cmd("TSContextToggle")
-end, { silent = true })
-
 return {
   lsp_keymaps = function(bufnr)
     local opts = { silent = true, buffer = bufnr }
