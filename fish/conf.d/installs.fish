@@ -375,3 +375,23 @@ function install-tmux
   # sudo apt install tmux
   sudo apt install libevent-dev
 end
+
+function install-nodejs
+  sudo apt install nodejs
+  mkdir -p $HOME/.npm-packages
+  npm config set prefix $HOME/.npm-packages
+  npm i -g corepack
+end
+
+function install-json-lsp
+  install-nodejs
+  npm i -g vscode-langservers-extracted
+end
+
+function install-yaml-lsp
+  install-nodejs
+  git clone --depth=1 git@github.com:redhat-developer/yaml-language-server.git ~/.config/yaml-lsp
+  cd ~/.config/yaml-lsp
+  yarn global add yaml-language-server
+  cd -
+end

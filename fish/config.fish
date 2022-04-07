@@ -36,6 +36,9 @@ set -x ROS2_WS_DIR $WORKSPACE_DIR/ros2
 set -x ROS_WS_DIR $WORKSPACE_DIR/ros
 set fish_greeting
 set -x SCHROOT_DIR /srv/chroot
+set -x NPM_PACKAGES "$HOME/.npm-packages"
+set -x MANPATH $NPM_PACKAGES/share/man $MANPATH
+
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$MYCONFIGS_DIR/scripts:$HOME/.local/bin
     if test -d /usr/lib/ccache
@@ -73,6 +76,9 @@ function get_path
     end
     if test -d $HOME/.config/lua-lsp/bin
       set path $HOME/.config/lua-lsp/bin:$path
+    end
+    if test -d $NPM_PACKAGES/bin
+      set path $NPM_PACKAGES/bin:$path
     end
     echo $path
 end
