@@ -64,6 +64,11 @@ vim.api.nvim_create_autocmd(
   { pattern = "*.repos", command = "setf yaml", group = general_group }
 )
 
+vim.api.nvim_create_autocmd(
+  { "BufNewFile", "BufRead" },
+  { pattern = "*.code-snippets", command = "setf json", group = general_group }
+)
+
 vim.api.nvim_create_autocmd("FileType", {
   pattern = { "qf", "git", "gitAnnotate", "Outline", "diff", "help" },
   callback = function()
