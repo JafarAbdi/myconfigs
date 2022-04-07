@@ -13,7 +13,7 @@ def main():
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--dry-run", action="store_true", help="")
     argcomplete.autocomplete(parser)
-    args = parser.parse_aNrgs()
+    args = parser.parse_args()
 
     package_build_path = pathlib.Path(args.build_dir).resolve()
     package_path = pathlib.Path(".").resolve()
