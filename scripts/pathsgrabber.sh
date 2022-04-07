@@ -13,11 +13,12 @@ mkfifo "$pstdin"
 # Regex copied from https://github.com/laktak/extrakto/blob/master/extrakto.conf#L39
 # Check file exists (filename or filename:line_number)
 cat \
-  | perl -lne "print "'"$1$2$3"'" if /(?:[ \\t\\n\\\"([<\':]|^)(~|\/)?([-~a-za-z0-9_+-,.]+\/[^ \\t\\n\\r|:\"\'$%&)>\\]]*)(:[0-9]+)?/" \
+  | grep -oP "(?:[ \\t\\n\\\"([<\':]|^)(~|\/)?([-~a-za-z0-9_+-,.]+\/[^ \\t\\n\\r|:\"\'$%&)>\\]]*)(:[0-9]+)?" \
   | tr -d ' ' \
   | sed 's@^~/@'$HOME'/@g' \
   | sort -u \
-  | perl -ne 'chomp(); if (-e ((split("\\:", "$_"))[0])) {print "$_\n"}' > "$tmpfile"
+  | perl -ne 'chomp(); if (-e ((split("\\:", "$_"))[0])) {print "$_\n"}' \
+  > "$tmpfile"
 
 # background process will run in a different directory
 cat $tmpfile > "$pstdin" &
