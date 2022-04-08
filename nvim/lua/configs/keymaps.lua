@@ -1,3 +1,26 @@
+-- Debugging
+vim.keymap.set("n", "<F5>", require("configs.dap").continue, { silent = true })
+vim.keymap.set("n", "<F6>", require("configs.dap").terminate, { silent = true })
+vim.keymap.set("n", "<F10>", require("configs.dap").step_out, { silent = true })
+vim.keymap.set("n", "<F11>", require("configs.dap").step_over, { silent = true })
+vim.keymap.set("n", "<F12>", require("configs.dap").step_into, { silent = true })
+vim.keymap.set("n", "<leader>b", require("configs.dap").toggle_breakpoint, { silent = true })
+vim.keymap.set("n", "<leader>B", function()
+  require("configs.dap").toggle_breakpoint(vim.fn.input("Breakpoint Condition: "), nil, nil, true)
+end, { silent = true })
+vim.keymap.set("n", "<leader>lp", function()
+  require("configs.dap").toggle_breakpoint(nil, nil, vim.fn.input("Log point message: "), true)
+end, { silent = true })
+vim.keymap.set("n", "<leader>dr", function()
+  require("configs.dap").repl.toggle({ height = 10 })
+end, { silent = true })
+vim.keymap.set("n", "<leader>dl", require("configs.dap").run_last, { silent = true })
+vim.keymap.set("n", "<leader>ds", require("dapui").float_element, { silent = true })
+vim.keymap.set({ "n", "v" }, "<leader>dh", require("dapui").eval, { silent = true })
+vim.keymap.set("n", "<leader>dc", require("configs.dap").run_to_cursor, { silent = true })
+vim.keymap.set("n", "<leader>dj", require("configs.dap").down, { silent = true })
+vim.keymap.set("n", "<leader>dk", require("configs.dap").up, { silent = true })
+
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 --Add leader shortcuts

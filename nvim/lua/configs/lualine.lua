@@ -9,7 +9,18 @@ require("lualine").setup({
     globalstatus = true,
   },
   sections = {
-    lualine_b = { "filename", "branch", "diff" },
+    lualine_b = {
+      "filename",
+      "branch",
+      "diff",
+      function()
+        local ok, dap = pcall(require, "dap")
+        if not ok then
+          return ""
+        end
+        return dap.status()
+      end,
+    },
     lualine_c = {
       function()
         -- TODO: Maybe use require("nvim-treesitter").statusline()
