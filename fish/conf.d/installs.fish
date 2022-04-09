@@ -395,3 +395,13 @@ function install-yaml-lsp
   yarn global add yaml-language-server
   cd -
 end
+
+function install-cmake-lsp
+  cd ~/.config
+  curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python -
+  git clone git@github.com:JafarAbdi/cmake-language-server.git
+  cd cmake-language-server
+  poetry build
+  pip install ./dist/cmake-language-server-0.1.3.tar.gz
+  cd -
+end
