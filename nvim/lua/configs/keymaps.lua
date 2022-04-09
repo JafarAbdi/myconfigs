@@ -1,3 +1,9 @@
+-- tmux <-> nvim integration
+vim.keymap.set("n", "<C-q>h", ":TmuxNavigateLeft<cr>", { silent = true})
+vim.keymap.set("n", "<C-q>j", ":TmuxNavigateDown<cr>", { silent = true})
+vim.keymap.set("n", "<C-q>k", ":TmuxNavigateUp<cr>", { silent = true})
+vim.keymap.set("n", "<C-q>l", ":TmuxNavigateRight<cr>", { silent = true})
+
 -- Debugging
 vim.keymap.set("n", "<F5>", require("configs.dap").continue, { silent = true })
 vim.keymap.set("n", "<F6>", require("configs.dap").terminate, { silent = true })

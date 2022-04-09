@@ -49,3 +49,4 @@ vim.cmd("highlight link LspComment Comment")
 vim.cmd("highlight TSCurrentScope guibg=#242830")
 
 vim.api.nvim_command("let g:surround_no_mappings = 1")
+vim.api.nvim_command("let g:tmux_navigator_no_mappings = 1")
