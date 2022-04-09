@@ -149,7 +149,7 @@ return packer.startup({
         require("godbolt").setup({
           languages = {
             cpp = {
-              compiler = "clang12",
+              compiler = "clangdefault",
               options = {
                 userArguments = "-O3 -std=c++2a",
                 libraries = {
