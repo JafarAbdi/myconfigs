@@ -40,8 +40,8 @@ g.indent_blankline_buftype_exclude = { "terminal", "nofile" }
 g.indent_blankline_show_trailing_blankline_indent = false
 
 --Spell
-opt.spell = false
-opt.spelllang = "en"
+opt.spell = true
+opt.spelllang:append("en")
 
 vim.opt.iskeyword:append("-")
 

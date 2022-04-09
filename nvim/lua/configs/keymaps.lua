@@ -121,11 +121,12 @@ vim.keymap.set("t", "<M-f>", "<C-\\><C-n>:NnnPicker<CR>")
 -- vim.keymap.set("t", "<Esc>", "<C-\\><C-n>")
 -- F1-12 commands
 vim.keymap.set("", "<F2>", function()
-  vim.o.spell = not vim.o.spell
-  if vim.o.spell then
-    print("toggle spell " .. vim.o.spelllang)
+  if vim.opt.spell:get() then
+    vim.opt.spell = false
+    vim.api.nvim_echo({ { "Spellcheck off" } }, false, {})
   else
-    print("toggle spell off")
+    vim.opt.spell = true
+    vim.api.nvim_echo({ { "Spellcheck on" } }, false, {})
   end
 end)
 
