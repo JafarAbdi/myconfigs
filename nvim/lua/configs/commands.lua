@@ -177,3 +177,5 @@ vim.cmd([[ command! DebugGtest execute "lua RunGtest({at_cursor = true, debug = 
 vim.cmd([[ command! CppDocumentation execute "lua require('telescope_zeal').show('cpp')" ]])
 vim.cmd([[ command! CMakeDocumentation execute "lua require('telescope_zeal').show('cmake')" ]])
 vim.cmd([[ command! BoostDocumentation execute "lua require('telescope_zeal').show('boost')" ]])
+vim.cmd([[command! LuaSnipEdit :lua require("luasnip.loaders.from_lua").edit_snippet_files()
+]])
