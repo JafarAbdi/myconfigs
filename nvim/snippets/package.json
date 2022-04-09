@@ -3,26 +3,26 @@
     "snippets": [
       {
         "language": "c",
-        "path": "./snippets/c.json"
+        "path": "./snippets/c.code-snippets"
       },
       {
         "language": "cpp",
-        "path": "./snippets/cpp.json"
+        "path": "./snippets/cpp.code-snippets"
       },
       {
         "language": [
           "cmake",
           "plaintex"
         ],
-        "path": "./snippets/cmake.json"
+        "path": "./snippets/cmake.code-snippets"
       },
       {
         "language": "lua",
-        "path": "./snippets/lua.json"
+        "path": "./snippets/lua.code-snippets"
       },
       {
         "language": "rust",
-        "path": "./snippets/rust.json"
+        "path": "./snippets/rust.code-snippets"
       },
       {
         "language": [
@@ -31,55 +31,55 @@
           "sh",
           "zsh"
         ],
-        "path": "./snippets/shell.json"
+        "path": "./snippets/shell.code-snippets"
       },
       {
         "language": [
           "markdown",
           "rmd"
         ],
-        "path": "./snippets/markdown.json"
+        "path": "./snippets/markdown.code-snippets"
       },
       {
         "language": [
           "plaintex",
           "tex"
         ],
-        "path": "./snippets/latex.json"
+        "path": "./snippets/latex.code-snippets"
       },
       {
         "language": "python",
-        "path": "./snippets/python/base.json"
+        "path": "./snippets/python/base.code-snippets"
       },
       {
         "language": "python",
-        "path": "./snippets/python/comprehension.json"
+        "path": "./snippets/python/comprehension.code-snippets"
       },
       {
         "language": "python",
-        "path": "./snippets/python/debug.json"
+        "path": "./snippets/python/debug.code-snippets"
       },
       {
         "language": "python",
-        "path": "./snippets/python/python.json"
+        "path": "./snippets/python/python.code-snippets"
       },
       {
         "language": "python",
-        "path": "./snippets/python/unittest.json"
+        "path": "./snippets/python/unittest.code-snippets"
       },
       {
         "language": [
           "plaintex",
           "tex"
         ],
-        "path": "./snippets/latex/latex-snippets.json"
+        "path": "./snippets/latex/latex-snippets.code-snippets"
       },
       {
         "language": [
           "plaintex",
           "tex"
         ],
-        "path": "./snippets/latex/vscode-latex-snippets.json"
+        "path": "./snippets/latex/vscode-latex-snippets.code-snippets"
       }
     ]
   },
