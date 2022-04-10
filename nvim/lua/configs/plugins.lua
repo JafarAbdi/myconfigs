@@ -28,12 +28,13 @@ return packer.startup({
   function(use)
     -- Packer
     use("wbthomason/packer.nvim")
+    -- Load funnel plugins
     use("rktjmp/hotpot.nvim")
 
     -- Profiler
-    use("dstein64/vim-startuptime")
+    use({ "dstein64/vim-startuptime", cmd = "StartupTime" })
     -- Prettier
-    use("junegunn/vim-easy-align")
+    use({ "junegunn/vim-easy-align", cmd = "EasyAlign" })
     -- Commenting
     use("tpope/vim-commentary")
     -- Telescope
@@ -74,12 +75,20 @@ return packer.startup({
     })
     -- Highlights & Text selection
     use("nvim-treesitter/nvim-treesitter-textobjects")
-    use("Badhi/nvim-treesitter-cpp-tools")
-    use("nvim-treesitter/playground")
+    -- Maybe no longer needed with
+    -- https://github.com/llvm/llvm-project/commit/68eac9a6e7a10eba8081bab340fda8be13a7840e
+    -- https://github.com/llvm/llvm-project/commit/afa94306a8c197e346d3234e5ac5292ab90eae73
+    use({
+      "Badhi/nvim-treesitter-cpp-tools",
+      -- cmd = { "TSCppDefineClassFunc", "TSCppMakeConcreteClass", "TSCppRuleOf3", "TSCppRuleOf5" },
+    })
+    use({
+      "nvim-treesitter/playground",
+      -- cmd = "TSPlaygroundToggle"
+    })
     use({ "JafarAbdi/nvim-treesitter-refactor", branch = "pr-hl_screenline" })
     -- LSP clients configurations
     use("neovim/nvim-lspconfig")
-    use("mattn/efm-langserver")
     -- Completion
     use("hrsh7th/nvim-cmp")
     use("hrsh7th/cmp-nvim-lsp")
@@ -116,7 +125,17 @@ return packer.startup({
       end,
     })
     -- Show diffs between directories
-    use("will133/vim-dirdiff")
+    use({
+      "will133/vim-dirdiff",
+      cmd = {
+        "DirDiff",
+        "DirDiffPrev",
+        "DirDiffNext",
+        "DirDiffOpen",
+        "DirDiffQuit",
+        "DirDiffUpdate",
+      },
+    })
     -- Rust
     use("simrat39/rust-tools.nvim")
     -- CMake
@@ -193,12 +212,14 @@ return packer.startup({
     -- Documentation
     use({
       "https://gitlab.com/JafarAbdi/zeal-lynx-cli.git",
+      cmd = { "CMakeDocumentation", "BoostDocumentation", "CppDocumentation" },
       run = "ln -sf "
         .. vim.fn.stdpath("data")
         .. "/site/pack/packer/start/zeal-lynx-cli.git/zeal-cli ~/.local/bin/zeal-cli",
     })
     use({
       "https://gitlab.com/ivan-cukic/nvim-telescope-zeal-cli.git",
+      cmd = { "CMakeDocumentation", "BoostDocumentation", "CppDocumentation" },
       config = function()
         require("telescope_zeal").setup({
           documentation_sets = {
