@@ -41,6 +41,9 @@ M.on_attach = function(client, bufnr)
       [[autocmd BufEnter,CursorHold,InsertLeave <buffer> lua vim.lsp.buf.semantic_tokens_full()]]
     )
   end
+  if client.resolved_capabilities.goto_definition == true then
+    vim.api.nvim_buf_set_option(bufnr, "tagfunc", "v:lua.vim.lsp.tagfunc")
+  end
   require("configs.keymaps").lsp_keymaps(bufnr)
   vim.cmd([[ command! Format execute 'lua vim.lsp.buf.formatting()' ]])
   nvim_status.on_attach(client)

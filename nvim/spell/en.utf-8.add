@@ -10,3 +10,5 @@ ros
 utils
 nvim
 godbolt_exec
+chroot
+schroot-scripts
