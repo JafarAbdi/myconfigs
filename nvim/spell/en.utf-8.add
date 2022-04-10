@@ -7,3 +7,6 @@ myconfigs
 jafar
 sudo
 ros
+utils
+nvim
+godbolt_exec

@@ -170,6 +170,7 @@ vim.cmd(
 vim.cmd([[ command! ExpandMacro execute "lua ExpandMacro()" ]])
 
 vim.cmd([[ command! Scratch execute "lua Scratch()" ]])
+vim.cmd([[ command! GodboltExecuteToggle execute "lua GodboltExecuteToggle()" ]])
 vim.cmd([[ command! CleanWhitespaces execute "lua CleanWhitespaces()" ]])
 
 vim.cmd([[ command! RunGtest execute "lua RunGtest({})" ]])
@@ -177,5 +178,4 @@ vim.cmd([[ command! DebugGtest execute "lua RunGtest({at_cursor = true, debug = 
 vim.cmd([[ command! CppDocumentation execute "lua require('telescope_zeal').show('cpp')" ]])
 vim.cmd([[ command! CMakeDocumentation execute "lua require('telescope_zeal').show('cmake')" ]])
 vim.cmd([[ command! BoostDocumentation execute "lua require('telescope_zeal').show('boost')" ]])
-vim.cmd([[command! LuaSnipEdit :lua require("luasnip.loaders.from_lua").edit_snippet_files()
-]])
+vim.cmd([[ command! LuaSnipEdit :lua require("luasnip.loaders.from_lua").edit_snippet_files() ]])
