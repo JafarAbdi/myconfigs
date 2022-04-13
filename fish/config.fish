@@ -142,6 +142,9 @@ register-argcomplete config_clangd
 if test -e /usr/share/vcstool-completion/vcs.fish
   source /usr/share/vcstool-completion/vcs.fish
 end
+if test -e /opt/ros/noetic/share/rosbash/rosfish
+  source /opt/ros/noetic/share/rosbash/rosfish
+end
 register-argcomplete ros_clang_tidy
 register-argcomplete _workon_workspace.py
 register-argcomplete ros_build

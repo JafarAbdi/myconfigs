@@ -11,6 +11,8 @@
     - Restart
   - NVidia drivers
     - https://wiki.debian.org/NvidiaGraphicsDrivers
+  - Printer driver
+    - printer-driver-brlaser
 - core
   - github-setup
   - install-core
