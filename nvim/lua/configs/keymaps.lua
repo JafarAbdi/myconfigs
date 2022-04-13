@@ -146,8 +146,13 @@ return {
     vim.keymap.set("n", "<leader>D", require("telescope.builtin").lsp_type_definitions, opts)
     vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, opts)
     vim.keymap.set("n", "<leader>ca", require("telescope.builtin").lsp_code_actions, opts)
-    -- require("telescope.builtin").lsp_range_code_action isn't working, fix and change back
-    vim.keymap.set("v", "<leader>ca", vim.lsp.buf.range_code_action, opts)
+    vim.api.nvim_buf_set_keymap(
+      bufnr,
+      "v",
+      "<leader>ca",
+      "<Esc><cmd>lua vim.lsp.buf.range_code_action()<CR>",
+      { noremap = true, silent = true }
+    )
     vim.keymap.set("n", "<leader>so", require("telescope.builtin").lsp_document_symbols, opts)
     vim.keymap.set("n", "<leader>ws", require("telescope.builtin").lsp_workspace_symbols, opts)
     vim.keymap.set("n", "<leader>r", require("telescope.builtin").lsp_references, opts)
