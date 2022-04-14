@@ -43,6 +43,9 @@ g.indent_blankline_show_trailing_blankline_indent = false
 opt.spell = true
 opt.spelllang:append("en")
 
+--Diagnostic virtual text
+g.diagnostic_virtual_text = false
+
 vim.opt.iskeyword:append("-")
 
 vim.cmd("highlight link LspComment Comment")

@@ -2,8 +2,21 @@ local M = {}
 
 local nvim_status = require("lsp-status")
 
+local config_diagnostic = function()
+  local virtual_text
+  if vim.g.diagnostic_virtual_text then
+    virtual_text = true
+  else
+    virtual_text = { severity = vim.diagnostic.severity.ERROR }
+  end
+  vim.diagnostic.config({
+    underline = false,
+    virtual_text = virtual_text,
+  })
+end
+
 M.setup = function()
-  vim.diagnostic.config({ underline = false })
+  config_diagnostic()
 
   nvim_status.config({
     select_symbol = function(cursor_pos, symbol)
@@ -46,6 +59,10 @@ M.on_attach = function(client, bufnr)
   end
   require("configs.keymaps").lsp_keymaps(bufnr)
   vim.cmd([[ command! Format execute 'lua vim.lsp.buf.formatting()' ]])
+  vim.api.nvim_buf_add_user_command(bufnr, "ToggleVirtualText", function()
+    vim.g.diagnostic_virtual_text = not vim.g.diagnostic_virtual_text
+    config_diagnostic()
+  end, {})
   nvim_status.on_attach(client)
 end
 
