@@ -2,6 +2,8 @@
 local cmp = require("cmp")
 local compare = require("cmp.config.compare")
 
+require("cmp_git").setup()
+
 cmp.setup.filetype({
   "dapui_hover",
   "dapui_stacks",
@@ -9,6 +11,14 @@ cmp.setup.filetype({
   "dapui_controls",
   "dapui_breakpoints",
 }, {})
+
+cmp.setup.filetype("gitcommit", {
+  sources = cmp.config.sources({
+    { name = "cmp_git" },
+  }, {
+    { name = "buffer" },
+  }),
+})
 
 cmp.setup({
   snippet = {
@@ -69,6 +79,7 @@ cmp.setup({
     },
     { name = "path" },
     { name = "nvim_lua" },
+    { name = "fish" },
   },
   formatting = {
     format = function(entry, vim_item)
@@ -82,6 +93,7 @@ cmp.setup({
         nvim_lua = "[Lua]",
         nvim_lsp_signature_help = "[Signature]",
         nvim_lsp_document_symbol = "[Symbol]",
+        fish = "[Fish]",
       })[entry.source.name]
       return vim_item
     end,

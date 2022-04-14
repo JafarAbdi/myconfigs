@@ -90,7 +90,7 @@ return packer.startup({
     -- LSP clients configurations
     use("neovim/nvim-lspconfig")
     -- Completion
-    use("hrsh7th/nvim-cmp")
+    use({ "hrsh7th/nvim-cmp", commit = "3192a0c57837c1ec5bf298e4f3ec984c7d2d60c0" })
     use("hrsh7th/cmp-nvim-lsp")
     use("saadparwaiz1/cmp_luasnip")
     use("L3MON4D3/LuaSnip")
@@ -99,6 +99,8 @@ return packer.startup({
     use("hrsh7th/cmp-cmdline")
     use("hrsh7th/cmp-nvim-lua")
     use("hrsh7th/cmp-nvim-lsp-signature-help")
+    use({ "mtoohey31/cmp-fish", ft = "fish" })
+    use("petertriho/cmp-git")
     -- TODO: Push upstream with custom format function
     use({ "JafarAbdi/cmp-nvim-lsp-document-symbol", branch = "pr-custom_format" })
     -- Movement
