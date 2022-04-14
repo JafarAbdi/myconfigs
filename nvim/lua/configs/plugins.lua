@@ -246,8 +246,6 @@ return packer.startup({
         })
       end,
     })
-    -- Tmux compatibility
-    use("christoomey/vim-tmux-navigator")
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
       packer.compile()
     end
