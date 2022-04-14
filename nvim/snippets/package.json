@@ -2,6 +2,14 @@
   "contributes": {
     "snippets": [
       {
+        "language": [
+          "xml",
+          "urdf",
+          "xacro"
+        ],
+        "path": "./snippets/urdf.code-snippets"
+      },
+      {
         "language": "c",
         "path": "./snippets/c.code-snippets"
       },

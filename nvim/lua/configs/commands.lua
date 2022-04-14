@@ -66,6 +66,11 @@ vim.api.nvim_create_autocmd(
 
 vim.api.nvim_create_autocmd(
   { "BufNewFile", "BufRead" },
+  { pattern = { "*.urdf", "*.xacro" }, command = "setf xml", group = general_group }
+)
+
+vim.api.nvim_create_autocmd(
+  { "BufNewFile", "BufRead" },
   { pattern = "*.code-snippets", command = "setf json", group = general_group }
 )
 
