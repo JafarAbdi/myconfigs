@@ -73,6 +73,9 @@ return packer.startup({
         require("spellsitter").setup()
       end,
     })
+    -- use("rhysd/vim-grammarous")
+    -- TODO: Port to Lua
+    use("vigoux/LanguageTool.nvim")
     -- Highlights & Text selection
     use("nvim-treesitter/nvim-treesitter-textobjects")
     -- Maybe no longer needed with

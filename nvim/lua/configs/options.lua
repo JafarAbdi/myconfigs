@@ -40,9 +40,12 @@ g.indent_blankline_buftype_exclude = { "terminal", "nofile" }
 g.indent_blankline_show_trailing_blankline_indent = false
 
 --Spell
-opt.spell = true
+opt.spell = false
 opt.spelllang:append("en")
-
+g["grammarous#jar_dir"] = vim.env.HOME .. "/.config/languagetool"
+-- g["grammarous#default_comments_only_filetypes"] = { ["*"] = 1, ["help"] = 0, ["markdown"] = 0 }
+-- g.languagetool_server_command='echo "Server Started"'
+-- g.languagetool_server_jar =  vim.env.HOME .. "/.config/languagetool/languagetool_server.jar"
 --Diagnostic virtual text
 g.diagnostic_virtual_text = false
 

@@ -111,6 +111,18 @@ function install-from-github
     | wget -i -
 end
 
+function install-languagetool
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  wget https://internal1.languagetool.org/snapshots/LanguageTool-latest-snapshot.zip
+  unzip LanguageTool-latest-snapshot.zip
+  rm -rf ~/.config/languagetool
+  mkdir -p ~/.config/languagetool
+  mv LanguageTool*SNAPSHOT/* ~/.config/languagetool/
+  cd -
+  sudo apt install default-jdk
+end
+
 function install-ripgrep
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR

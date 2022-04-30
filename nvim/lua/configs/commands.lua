@@ -42,6 +42,10 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
   end,
   group = cpp_group,
 })
+vim.api.nvim_create_autocmd(
+  "User",
+  { pattern = "LanguageToolCheckDone", command = "LanguageToolSummary", group = general_group }
+)
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
 -- Highlight on yank
 vim.api.nvim_create_autocmd("TextYankPost", {
