@@ -323,13 +323,24 @@ function install-nvim
   else
     ln -sf ~/myconfigs/nvim $config_path
   end
-  if set -q argv[1] && test $argv[1] = "stable"
-    sudo add-apt-repository ppa:neovim-ppa/stable
+  if test (lsb_release -is) = "Debian"
+    cd /tmp
+    if set -q argv[1] && test $argv[1] = "stable"
+      install-from-github neovim/neovim "v.*nvim-linux64.deb"
+    else
+      install-from-github neovim/neovim "nvim-linux64.deb"
+    end
+    sudo apt install /tmp/nvim-linux64.deb
+    cd -
   else
-    sudo apt-add-repository ppa:neovim-ppa/unstable
+    if set -q argv[1] && test $argv[1] = "stable"
+      sudo add-apt-repository ppa:neovim-ppa/stable
+    else
+      sudo apt-add-repository ppa:neovim-ppa/unstable
+    end
+    sudo apt-get update
+    sudo apt-get install -y neovim
   end
-  sudo apt-get update
-  sudo apt-get install -y neovim
   nvim -c "PackerInstall" -c "PackerCompite" -c "TSInstall fish c cpp python rust fish bash make cmake lua vim markdown"
 end
 
