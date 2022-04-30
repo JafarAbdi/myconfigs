@@ -19,7 +19,7 @@ function setup-ssh-keys
   # copy public key to various websites
   xclip -sel clip < ~/.ssh/id_rsa.pub # Linux
 
-  google-chrome 'https://github.com/settings/ssh' &
+  firefox 'https://github.com/settings/ssh' &
   echo "Your public SSH key has been copied to the clipboard - we recommend you add it to Github and optionally Bitbucket now."
   read -P "Press any key to continue."
 end

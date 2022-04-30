@@ -16,8 +16,8 @@ setup_ssh_keys()
       #cat ~/.ssh/id_rsa.pub | pbcopy  # OSX
       xclip -sel clip < ~/.ssh/id_rsa.pub # Linux
 
-      google-chrome 'https://github.com/settings/ssh' &
-      google-chrome 'https://bitbucket.org/' &
+      firefox 'https://github.com/settings/ssh' &
+      firefox 'https://bitbucket.org/' &
       echo "Your public SSH key has been copied to the clipboard - we recommend you add it to Github and optionally Bitbucket now."
       read -p "Press any key to continue."
 }
