@@ -57,6 +57,7 @@ function M.setup()
       type = "cppdbg",
       request = "launch",
       MIMode = "gdb",
+      MIDebuggerPath = "/usr/bin/gdb",
       program = function()
         return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
       end,
@@ -75,8 +76,8 @@ function M.setup()
       type = "cppdbg",
       request = "launch",
       MIMode = "gdb",
-      miDebuggerServerAddress = "localhost:1234",
-      miDebuggerPath = "/usr/bin/gdb",
+      MIDebuggerServerAddress = "localhost:1234",
+      MIDebuggerPath = "/usr/bin/gdb",
       cwd = "${workspaceFolder}",
       program = function()
         return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
