@@ -196,24 +196,6 @@ function _G.CleanWhitespaces()
   vim.fn.winrestview(current_view)
 end
 
-function _G.GodboltExecuteToggle()
-  vim.b.godbolt_exec = not vim.b.godbolt_exec
-  if vim.b.godbolt_exec then
-    vim.api.nvim_echo({ { "Toggle godbolt execution on" } }, false, {})
-  else
-    vim.api.nvim_echo({ { "Toggle godbolt execution off" } }, false, {})
-  end
-end
-
-function _G.Scratch()
-  vim.cmd([[
-    execute 'tabnew '
-    setlocal buftype=nofile
-    setlocal bufhidden=hide
-    setlocal noswapfile
-  ]])
-end
-
 P = function(v)
   print(vim.inspect(v))
   return v

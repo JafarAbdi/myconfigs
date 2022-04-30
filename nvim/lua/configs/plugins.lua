@@ -214,30 +214,6 @@ return packer.startup({
       end,
     })
 
-    -- Documentation
-    use({
-      "https://gitlab.com/JafarAbdi/zeal-lynx-cli.git",
-      cmd = { "CMakeDocumentation", "BoostDocumentation", "CppDocumentation" },
-      run = "ln -sf "
-        .. vim.fn.stdpath("data")
-        .. "/site/pack/packer/start/zeal-lynx-cli.git/zeal-cli ~/.local/bin/zeal-cli",
-    })
-    use({
-      "https://gitlab.com/ivan-cukic/nvim-telescope-zeal-cli.git",
-      cmd = { "CMakeDocumentation", "BoostDocumentation", "CppDocumentation" },
-      config = function()
-        local ok, telescope_zeal = pcall(require, "telescope_zeal")
-        if ok then
-          telescope_zeal.setup({
-            documentation_sets = {
-              cpp = { title = "C++ Reference" },
-              cmake = { title = "CMake Documentation" },
-              boost = { title = "Boost Documentation" },
-            },
-          })
-        end
-      end,
-    })
     -- File manager
     use({
       "luukvbaal/nnn.nvim",

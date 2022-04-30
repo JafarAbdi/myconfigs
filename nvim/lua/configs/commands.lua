@@ -164,27 +164,39 @@ create_file_templates()
 -- Commands --
 --------------
 
-vim.cmd(
-  [[ command! Notes execute 'lua require("telescope.builtin").find_files({cwd="~/myconfigs/mynotes"})']]
+vim.api.nvim_create_user_command("NvimConfigs", function()
+  require("telescope.builtin").find_files({ cwd = "~/myconfigs/nvim" })
+end, { desc = "List all nvim configs using telescope" })
+
+vim.api.nvim_create_user_command(
+  "ClangdConfig",
+  "!config_clangd --build-dir <f-args>",
+  { nargs = 1, complete = "dir" }
 )
 
-vim.cmd(
-  [[ command! NvimConfigs execute 'lua require("telescope.builtin").find_files({cwd="~/myconfigs/nvim"})']]
-)
+-- TODO: This's not ready yet
+-- vim.cmd([[ command! ExpandMacro execute "lua ExpandMacro()" ]])
 
-vim.cmd(
-  [[ command! -nargs=1 -complete=dir ClangdConfig execute '!config_clangd --build-dir <f-args>']]
-)
+vim.api.nvim_create_user_command("GodboltExecuteToggle", function()
+  vim.b.godbolt_exec = not vim.b.godbolt_exec
+  if vim.b.godbolt_exec then
+    vim.api.nvim_echo({ { "Toggle godbolt execution on" } }, false, {})
+  else
+    vim.api.nvim_echo({ { "Toggle godbolt execution off" } }, false, {})
+  end
+end, {})
 
-vim.cmd([[ command! ExpandMacro execute "lua ExpandMacro()" ]])
+vim.api.nvim_create_user_command("CleanWhitespaces", function()
+  _G.CleanWhitespaces()
+end, {})
 
-vim.cmd([[ command! Scratch execute "lua Scratch()" ]])
-vim.cmd([[ command! GodboltExecuteToggle execute "lua GodboltExecuteToggle()" ]])
-vim.cmd([[ command! CleanWhitespaces execute "lua CleanWhitespaces()" ]])
+vim.api.nvim_create_user_command("RunGtest", function()
+  _G.RunGtest({})
+end, {})
+vim.api.nvim_create_user_command("DebugGtest", function()
+  _G.RunGtest({ at_cursor = true, debug = true })
+end, {})
 
-vim.cmd([[ command! RunGtest execute "lua RunGtest({})" ]])
-vim.cmd([[ command! DebugGtest execute "lua RunGtest({at_cursor = true, debug = true})" ]])
-vim.cmd([[ command! CppDocumentation execute "lua require('telescope_zeal').show('cpp')" ]])
-vim.cmd([[ command! CMakeDocumentation execute "lua require('telescope_zeal').show('cmake')" ]])
-vim.cmd([[ command! BoostDocumentation execute "lua require('telescope_zeal').show('boost')" ]])
-vim.cmd([[ command! LuaSnipEdit :lua require("luasnip.loaders.from_lua").edit_snippet_files() ]])
+vim.api.nvim_create_user_command("LuaSnipEdit", function()
+  require("luasnip.loaders.from_lua").edit_snippet_files()
+end, {})
