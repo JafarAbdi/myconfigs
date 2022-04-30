@@ -33,14 +33,19 @@ function workon
     echo "workon expects 1 input"
     return 1
   end
-  if test (_workon_workspace.py --workspace-exists $argv[1]) = "false"
+  if test $argv[1] != "reset" && test (_workon_workspace.py --workspace-exists $argv[1]) = "false"
     echo "Unknown workspace '"$argv[1]"'"
     return
   end
   source_workspace $argv[1]
-  set -l workspace_path (_workon_workspace.py --workspace-path $argv[1])
-  cd $workspace_path
-  set_current_ros_workspace $argv[1]
+  if test $argv[1] = "reset"
+    test -e $CURRENT_ROS_WORKSPACE_FILE && rm $CURRENT_ROS_WORKSPACE_FILE
+    set --erase current_ros_workspace
+  else
+    set -l workspace_path (_workon_workspace.py --workspace-path $argv[1])
+    cd $workspace_path
+    set_current_ros_workspace $argv[1]
+  end
 end
 
 function source_workspace
@@ -62,9 +67,11 @@ function source_workspace
   set -xg PYTHONPATH (get_pythonpath)
   set -xg LD_LIBRARY_PATH (get_ld_library_path)
   set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
-  set -l command (_workon_workspace.py --workspace-name $argv[1])
-  eval "bass '$command'"
-  set -xg CURRENT_ROS_WORKSPACE $argv[1]
+  if test $argv[1] != "reset"
+    set -l command (_workon_workspace.py --workspace-name $argv[1])
+    eval "bass '$command'"
+    set -xg CURRENT_ROS_WORKSPACE $argv[1]
+  end
 end
 
 function get_current_ros_workspace
