@@ -1,7 +1,4 @@
 function fish_prompt
-  if set -q VIRTUAL_ENV
-    echo -n -s (set_color white) "(" (basename "$VIRTUAL_ENV") ")" (set_color normal) " "
-  end
   if test -e ~/.current_ros_workspace
     read -x current_workspace < ~/.current_ros_workspace
     echo -n -s (set_color D68910) "($current_workspace)" (set_color normal)
