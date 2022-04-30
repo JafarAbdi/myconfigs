@@ -226,13 +226,16 @@ return packer.startup({
       "https://gitlab.com/ivan-cukic/nvim-telescope-zeal-cli.git",
       cmd = { "CMakeDocumentation", "BoostDocumentation", "CppDocumentation" },
       config = function()
-        require("telescope_zeal").setup({
-          documentation_sets = {
-            cpp = { title = "C++ Reference" },
-            cmake = { title = "CMake Documentation" },
-            boost = { title = "Boost Documentation" },
-          },
-        })
+        local ok, telescope_zeal = pcall(require, "telescope_zeal")
+        if ok then
+          telescope_zeal.setup({
+            documentation_sets = {
+              cpp = { title = "C++ Reference" },
+              cmake = { title = "CMake Documentation" },
+              boost = { title = "Boost Documentation" },
+            },
+          })
+        end
       end,
     })
     -- File manager

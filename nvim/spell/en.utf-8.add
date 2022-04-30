@@ -12,3 +12,6 @@ nvim
 godbolt_exec
 chroot
 schroot-scripts
+MoveIt
+MTC
+PSM
