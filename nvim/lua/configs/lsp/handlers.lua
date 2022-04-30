@@ -58,7 +58,6 @@ M.on_attach = function(client, bufnr)
     vim.api.nvim_buf_set_option(bufnr, "tagfunc", "v:lua.vim.lsp.tagfunc")
   end
   require("configs.keymaps").lsp_keymaps(bufnr)
-  vim.cmd([[ command! Format execute 'lua vim.lsp.buf.formatting()' ]])
   vim.api.nvim_buf_create_user_command(bufnr, "ToggleVirtualText", function()
     vim.g.diagnostic_virtual_text = not vim.g.diagnostic_virtual_text
     config_diagnostic()
