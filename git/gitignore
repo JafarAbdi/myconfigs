@@ -42,3 +42,4 @@ Cargo.lock
 .clangd_config
 nvim/plugin/*
 .ropeproject/
+.neovim.json
