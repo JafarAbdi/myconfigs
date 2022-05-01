@@ -96,7 +96,7 @@ bindsym $mod+e layout toggle split
 # bindsym $mod+Shift+space floating toggle
 
 # change focus between tiling / floating windows
-# bindsym $mod+space focus mode_toggle
+bindsym $mod+space focus mode_toggle
 
 # focus the parent container
 bindsym $mod+a focus parent
@@ -196,5 +196,7 @@ mode "$mode_system" {
 
 bindsym $mod+Pause mode "$mode_system"
 bindsym Print exec gnome-screenshot
+
+bindsym $mod+n exec "st -g 100x25 -c fzfmenu -n fzfmenu -e sh -c 'cd ~/myconfigs/mynotes && ~/myconfigs/scripts/igr'"
 
 include ~/myconfigs/i3/i3_$MACHINE_NAME.conf
