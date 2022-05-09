@@ -36,6 +36,7 @@ Diagnostics:
 # Scratch files use C++20 by default
 If:
   PathMatch: [/tmp/.*,
+              /home/jafar/workspaces/cpp/scratches/.*,
               /home/jafar/workspaces/compiler-explorer/vcpkg-libraries/.*]
 CompileFlags:
   Add: [-std=c++2a,

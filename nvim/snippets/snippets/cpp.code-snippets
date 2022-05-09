@@ -371,5 +371,16 @@
     ],
     "description": "",
     "prefix": "while"
+  },
+  "scratch": {
+    "prefix": "scratch",
+    "description": "Cpp scratch file",
+    "body": [
+      "#include <fmt/core.h>",
+      "#include <fmt/ranges.h>",
+      "#include <range/v3/all.hpp>",
+      "",
+      "int main() { return 0; }"
+    ]
   }
 }
