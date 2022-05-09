@@ -83,13 +83,12 @@ return packer.startup({
     -- https://github.com/llvm/llvm-project/commit/afa94306a8c197e346d3234e5ac5292ab90eae73
     use({
       "Badhi/nvim-treesitter-cpp-tools",
-      -- cmd = { "TSCppDefineClassFunc", "TSCppMakeConcreteClass", "TSCppRuleOf3", "TSCppRuleOf5" },
     })
     use({
       "nvim-treesitter/playground",
-      -- cmd = "TSPlaygroundToggle"
     })
     use({ "JafarAbdi/nvim-treesitter-refactor", branch = "pr-hl_screenline" })
+    use("RRethy/nvim-treesitter-endwise")
     -- LSP clients configurations
     use("neovim/nvim-lspconfig")
     -- Completion
@@ -199,7 +198,7 @@ return packer.startup({
       end,
     })
 
-    -- Use to fix symlink files
+    -- Used to fix symlink files
     use("moll/vim-bbye")
     use({
       "tpope/vim-surround",
@@ -213,6 +212,7 @@ return packer.startup({
         vim.keymap.set("x", "gS", "<Plug>VgSurround")
       end,
     })
+    use("windwp/nvim-autopairs")
 
     -- File manager
     use({

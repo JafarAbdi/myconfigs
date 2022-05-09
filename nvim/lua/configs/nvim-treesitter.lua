@@ -134,4 +134,8 @@ require("nvim-treesitter.configs").setup({
   refactor = {
     highlight_current_scope = { enable = true, disable = disable, highlight_eol = true },
   },
+  endwise = {
+    enable = true,
+    disable = disable,
+  },
 })
