@@ -60,7 +60,7 @@ if command -v batcat &> /dev/null
   alias bat="batcat"
 end
 if command -v difft &> /dev/null
-  set -gx GIT_EXTERNAL_DIFF "difft --color=always"
+  set -gx GIT_EXTERNAL_DIFF "difft --color=always --tab-width=2"
 end
 # gdb
 alias gdbrun='gdb --ex run --args '
