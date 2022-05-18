@@ -65,6 +65,7 @@ function install-core
   ln -fs $HOME/myconfigs/fd/fdignore ~/.fdignore
   sudo apt install -y bat
   sudo apt install -y curl
+  sudo apt install -y lld
   # Needed for st
   sudo apt install -y libxft-dev libx11-dev
   pip3 install argcomplete==2.0.0

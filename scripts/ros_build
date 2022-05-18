@@ -31,10 +31,10 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="")
     parser.add_argument(
         "--build-type",
-        default="Release",
-        const="Release",
+        default="release",
+        const="release",
         nargs="?",
-        choices=["Debug", "MinSizeRel", "Release", "RelWithDebInfo"],
+        choices=["debug", "min-size-rel", "release", "rel-with-deb-info"],
     )
     parser.add_argument(
         "--force-linking",
@@ -44,6 +44,7 @@ def main():
     parser.add_argument(
         "--jobs", type=int, choices=range(1, multiprocessing.cpu_count() + 1)
     )
+    parser.add_argument("--verbose", action="store_true", help="")
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
@@ -51,6 +52,7 @@ def main():
     cmd = []
     env = os.environ.copy()
     ROS_VERSION = get_ros_version()
+    # colcon works with ROS1???
     if ROS_VERSION == ROS_VERSIONS.UNKNOWN:
         ROS_VERSION = input("Unknown version -- Select ros version (1/2):")
         try:
@@ -91,13 +93,17 @@ def main():
             env["MAKEFLAGS"] = f"-j{args.jobs}"
             cmd.append(f"--parallel-workers={args.jobs}")
         cmd += [
-            "--cmake-args",
-            f"-DCMAKE_BUILD_TYPE={args.build_type}",
-            f"-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+            "--mixin",
+            args.build_type,
+            "compile-commands",
+            "build-testing-" + ("on" if args.build_tests else "off"),
+            "ninja",
+            "lld",
         ]
+        if args.verbose:
+            cmd += ["--event-handlers", "console_direct+"]
         if args.force_linking:
-            cmd += [f'-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
-        cmd += ["-DBUILD_TESTING=" + ("ON" if args.build_tests else "OFF")]
+            cmd += ["--cmake-args", f'-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
     run_command(cmd, args.dry_run, env=env)
 
 

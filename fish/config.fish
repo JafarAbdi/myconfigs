@@ -74,6 +74,12 @@ function get_path
       export CARGO_NET_GIT_FETCH_WITH_CLI=true
       set path $HOME/.cargo/bin:$path
     end
+    if test -d $HOME/.config/mold/bin
+      set path $HOME/.config/mold/bin:$path
+    end
+    if test -d $HOME/.poetry/bin
+      set path $HOME/.poetry/bin:$path
+    end
     if test -d $HOME/.config/lua-lsp/bin
       set path $HOME/.config/lua-lsp/bin:$path
     end
