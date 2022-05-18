@@ -110,8 +110,6 @@ vim.keymap.set("", "<S-C-DOWN>", ":resize +1<CR>", { silent = true })
 vim.keymap.set("", "<S-C-LEFT>", ":vertical resize -1<CR>", { silent = true })
 vim.keymap.set("", "<S-C-RIGHT>", ":vertical resize +1<CR>", { silent = true })
 
-vim.keymap.set("n", "<M-f>", ":NnnPicker %:p:h<CR>")
-vim.keymap.set("t", "<M-f>", "<C-\\><C-n>:NnnPicker<CR>")
 -- F1-12 commands
 vim.keymap.set("", "<F2>", function()
   if vim.opt.spell:get() then

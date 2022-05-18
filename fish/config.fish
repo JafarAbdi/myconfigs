@@ -129,8 +129,6 @@ if [ "$current_ros_workspace" != "" ]
   source_workspace $current_ros_workspace
 end
 
-bind \ef nnn-cd
-
 # eval (python -m virtualfish) &> /dev/null
 alias myconfigs "cd $MYCONFIGS_DIR"
 alias myconfigsr "source ~/.config/fish/config.fish"

@@ -359,17 +359,6 @@ function install-vcpkg
   $VCPKG_DIR/vcpkg integrate x-fish
 end
 
-# TODO: Add installation for ubuntu 22.04
-function install-nnn
-  if test (lsb_release -is) = "Ubuntu"
-    echo 'deb http://download.opensuse.org/repositories/home:/stig124:/nnn/xUbuntu_'(lsb_release -sr)'/ /' | sudo tee /etc/apt/sources.list.d/home:stig124:nnn.list
-    curl -fsSL https://download.opensuse.org/repositories/home:stig124:nnn/xUbuntu_(lsb_release -sr)/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/home_stig124_nnn.gpg > /dev/null
-    sudo apt update
-  end
-  sudo apt install nnn
-  curl -Ls https://raw.githubusercontent.com/jarun/nnn/master/plugins/getplugs | sh -s -- "master"
-end
-
 function install-difftastic
   export CARGO_NET_GIT_FETCH_WITH_CLI=true
   cargo install difftastic

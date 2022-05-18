@@ -214,20 +214,6 @@ return packer.startup({
     })
     use("windwp/nvim-autopairs")
 
-    -- File manager
-    use({
-      "luukvbaal/nnn.nvim",
-      config = function()
-        require("nnn").setup({
-          picker = {
-            cmd = "tmux new-session nnn",
-            style = { border = "rounded" },
-            session = "shared",
-          },
-          replace_netrw = "picker",
-        })
-      end,
-    })
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
       packer.compile()
     end

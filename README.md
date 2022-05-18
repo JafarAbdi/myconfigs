@@ -18,7 +18,6 @@
   - install-core
   - install-fish
   - install-nvim
-  - install-nnn
 - host machines
   - install-i3
   - install-schroot
