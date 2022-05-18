@@ -140,6 +140,8 @@ alias mybashrc="nvim $MYCONFIGS_DIR/.bashrc"
 alias mysetup="nvim $MYCONFIGS_DIR/install/setup.sh"
 alias myreadme="nvim $MYCONFIGS_DIR/README.md"
 
+export ZK_NOTEBOOK_DIR=$MYCONFIGS_DIR/mynotes
+
 register-argcomplete clang_tidy
 register-argcomplete config_clangd
 if test -e /usr/share/vcstool-completion/vcs.fish

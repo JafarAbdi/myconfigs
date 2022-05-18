@@ -4,7 +4,7 @@ if not status_ok then
 end
 
 require("configs.lsp.handlers").setup()
-local servers = { "cpp", "rust", "cmake", "python", "efm", "ts", "lua", "yaml", "json" }
+local servers = { "cpp", "rust", "cmake", "python", "efm", "ts", "lua", "yaml", "json", "zk" }
 for _, server in pairs(servers) do
   require("configs.lsp.servers." .. server)
 end

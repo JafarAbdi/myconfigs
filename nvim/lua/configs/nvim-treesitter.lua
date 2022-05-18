@@ -22,6 +22,7 @@ require("nvim-treesitter.configs").setup({
     },
     enable = true, -- false will disable the whole extension
     disable = disable,
+    additional_vim_regex_highlighting = { "markdown" },
   },
   incremental_selection = {
     enable = true,
