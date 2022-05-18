@@ -214,6 +214,8 @@ return packer.startup({
     })
     use("windwp/nvim-autopairs")
 
+    use("mickael-menu/zk-nvim")
+
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
       packer.compile()
     end
