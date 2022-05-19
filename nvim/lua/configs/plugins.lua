@@ -92,7 +92,7 @@ return packer.startup({
     -- LSP clients configurations
     use("neovim/nvim-lspconfig")
     -- Completion
-    use({ "hrsh7th/nvim-cmp", commit = "3192a0c57837c1ec5bf298e4f3ec984c7d2d60c0" })
+    use({ "hrsh7th/nvim-cmp" })
     use("hrsh7th/cmp-nvim-lsp")
     use("saadparwaiz1/cmp_luasnip")
     use("L3MON4D3/LuaSnip")

@@ -1,4 +1,8 @@
 -- nvim-cmp setup
+-- https://github.com/hrsh7th/nvim-cmp/discussions/609
+local ELLIPSIS_CHAR = "…"
+local MAX_LABEL_WIDTH = 100
+
 local cmp = require("cmp")
 local compare = require("cmp.config.compare")
 
@@ -26,11 +30,16 @@ cmp.setup({
       require("luasnip").lsp_expand(args.body)
     end,
   },
-  mapping = {
+  window = {
+    completion = cmp.config.window.bordered(),
+    documentation = cmp.config.window.bordered(),
+  },
+  mapping = cmp.mapping.preset.insert({
     ["<C-p>"] = cmp.config.disable, -- cmp.mapping.select_prev_item(),
     ["<C-n>"] = cmp.config.disable, -- cmp.mapping.select_next_item(),
-    ["<C-d>"] = cmp.config.disable, -- cmp.mapping.scroll_docs(-4),
-    ["<C-f>"] = cmp.config.disable, -- cmp.mapping.scroll_docs(4),
+    ["<C-d>"] = cmp.mapping.scroll_docs(4),
+    ["<C-u>"] = cmp.mapping.scroll_docs(-4),
+    ["<C-f>"] = cmp.config.disable,
     ["<C-Space>"] = cmp.mapping.complete(),
     ["<C-e>"] = cmp.mapping.close(),
     ["<CR>"] = cmp.mapping.confirm({
@@ -57,7 +66,7 @@ cmp.setup({
         fallback()
       end
     end, { "i", "s" }),
-  },
+  }),
   --See https://github.com/topics/nvim-cmp
   sources = {
     { name = "nvim_lsp_signature_help", priority = 100 },
@@ -84,7 +93,7 @@ cmp.setup({
   formatting = {
     format = function(entry, vim_item)
       -- Kind icons
-      vim_item.kind = string.format("%s", vim_item.kind) -- This concatenates the icons with the name of the item kind
+      -- vim_item.kind = string.format("%s", vim_item.kind) -- This concatenates the icons with the name of the item kind
       -- Source
       vim_item.menu = ({
         buffer = "[Buffer]",
@@ -95,6 +104,11 @@ cmp.setup({
         nvim_lsp_document_symbol = "[Symbol]",
         fish = "[Fish]",
       })[entry.source.name]
+      local label = vim_item.abbr
+      local truncated_label = vim.fn.strcharpart(label, 0, MAX_LABEL_WIDTH)
+      if truncated_label ~= label then
+        vim_item.abbr = truncated_label .. ELLIPSIS_CHAR
+      end
       return vim_item
     end,
   },
@@ -114,6 +128,7 @@ cmp.setup({
 })
 -- Use buffer source for `/` (if you enabled `native_menu`, this won't work anymore).
 cmp.setup.cmdline("/", {
+  mapping = cmp.mapping.preset.cmdline(),
   sources = cmp.config.sources({
     { name = "nvim_lsp_document_symbol", max_item_count = 10 },
   }, {
@@ -123,6 +138,7 @@ cmp.setup.cmdline("/", {
 
 -- Use cmdline & path source for ':' (if you enabled `native_menu`, this won't work anymore).
 cmp.setup.cmdline(":", {
+  mapping = cmp.mapping.preset.cmdline(),
   sources = cmp.config.sources({
     { name = "path" },
   }, {
