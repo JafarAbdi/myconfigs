@@ -54,13 +54,14 @@ if args.workspaces:
 elif args.workspace_name:
     workspace = args.workspace_name
     commands = []
+    # TODO: nothing is no longer needed since we have reset
     if workspace != "nothing":
         rosdistro = get_workspace_distro(workspace)
         is_ros1 = rosdistro in ROS1_VERSIONS
         if rosdistro:
             commands.append(f"source /opt/ros/{rosdistro}/setup.bash")
         for underlay in get_workspace_underlays(workspace) or []:
-            underlay_path = get_workspace_path(workspace)
+            underlay_path = get_workspace_path(underlay)
             if is_ros1:
                 commands.append(f"source {home_dir}/{underlay_path}/install/setup.bash")
             else:
