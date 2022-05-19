@@ -130,15 +130,16 @@ end
 
 # eval (python -m virtualfish) &> /dev/null
 alias myconfigs "cd $MYCONFIGS_DIR"
+alias mynotes="cd $MYCONFIGS_DIR/mynotes"
+alias mybashrc="nvim $MYCONFIGS_DIR/.bashrc"
+alias mysetup="nvim $MYCONFIGS_DIR/install/setup.sh"
+alias myreadme="nvim $MYCONFIGS_DIR/README.md"
 alias myconfigsr "source ~/.config/fish/config.fish"
 alias ce "cd $WORKSPACE_DIR/compiler-explorer;make dev EXTRA_ARGS='--language C++'"
 alias jpnb_tmp "jupyter-notebook /tmp/"
 alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmake 'cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias bat 'batcat'
-alias mybashrc="nvim $MYCONFIGS_DIR/.bashrc"
-alias mysetup="nvim $MYCONFIGS_DIR/install/setup.sh"
-alias myreadme="nvim $MYCONFIGS_DIR/README.md"
 
 export ZK_NOTEBOOK_DIR=$MYCONFIGS_DIR/mynotes
 

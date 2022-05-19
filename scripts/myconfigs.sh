@@ -21,8 +21,8 @@ complete -F _open_script open_script
 if command -v register-python-argcomplete3 > /dev/null ; then
   eval "$(register-python-argcomplete3 mynotes)"
 fi
-# alias mynotes="cd $MYCONFIGS_DIR/mynotes"
-# alias gr_mynotes="mynotes;gr"
+
+alias mynotes="cd $MYCONFIGS_DIR/mynotes"
 alias mybashrc="nvim $MYCONFIGS_DIR/.bashrc"
 alias mysetup="nvim $MYCONFIGS_DIR/install/setup.sh"
 alias myreadme="nvim $MYCONFIGS_DIR/README.md"
