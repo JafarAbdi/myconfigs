@@ -12,4 +12,3 @@ trap "kill $! 2>/dev/null; rm -f $input $output" EXIT
 
 cat > $input
 cat $output | awk '{print $1}' | xargs -d '\n' -I{} -n1 -r xdg-open '{}' > /dev/null
-
