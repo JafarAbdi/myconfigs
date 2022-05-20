@@ -1,7 +1,10 @@
 local handlers = require("configs.lsp.handlers")
 local nvim_status = require("lsp-status")
 -- For testing inlayHints
-local clangd_cmd = { vim.env.HOME .. "/.config/clangd-lsp/bin/clangd" }
+local clangd_cmd = {
+  vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
+  "--completion-style=detailed",
+}
 -- local clangd_debug_cmd = vim.deepcopy(clangd_cmd)
 -- table.insert(clangd_debug_cmd, "-log=verbose")
 -- clangd_cmd = vim.deepcopy(clangd_debug_cmd)
