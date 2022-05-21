@@ -45,7 +45,7 @@ CompilerSet efm +=%E\ \ File\ \"%f\"\\,\ line\ %l%\\C,
 " The possible continutation lines are idenitifed to Vim by %C. We deal
 " with these in order of most to least specific to ensure a proper
 " match. A pointer (^) identifies the column in which the error occurs
-" (but will not be entirely accurate due to indention of Python code).
+" (but will not be entirely accurate due to indentation of Python code).
 CompilerSet efm +=%C%p^,
 
 " Any text, indented by more than two spaces contain useful information.

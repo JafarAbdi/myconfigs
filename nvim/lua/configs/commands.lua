@@ -208,7 +208,7 @@ vim.api.nvim_create_user_command("Make", function(params)
   local cmd = vim.fn.expandcmd(makeprg .. " " .. params.args)
 
   local function on_event(on_success_cb)
-    return function(job_id, data, event)
+    return function(_, data, event)
       if event == "stdout" or event == "stderr" then
         if data then
           vim.list_extend(lines, data)
@@ -235,12 +235,12 @@ vim.api.nvim_create_user_command("Make", function(params)
     end
   end
 
-  local job_id = vim.fn.jobstart(cmd, {
+  local _ = vim.fn.jobstart(cmd, {
     on_stderr = on_event(),
     on_stdout = on_event(),
     on_exit = on_event(function()
       if vim.bo.filetype == "cpp" then
-        local job_id = vim.fn.jobstart(vim.fn.expand("%:p:r") .. ".out", {
+        local _ = vim.fn.jobstart(vim.fn.expand("%:p:r") .. ".out", {
           on_stderr = on_event(),
           on_stdout = on_event(),
           on_exit = on_event(),
