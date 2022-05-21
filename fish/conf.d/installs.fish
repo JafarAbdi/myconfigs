@@ -346,6 +346,10 @@ function install-nvim
   nvim -c "PackerInstall" -c "PackerCompite" -c "TSInstall fish c cpp python rust fish bash make cmake lua vim markdown"
 end
 
+function install-conan
+  pipx install conan
+end
+
 function install-vcpkg
   # https://github.com/microsoft/vcpkg#quick-start-unix
   cd $WORKSPACE_DIR
