@@ -69,6 +69,7 @@ function install-core
   # Needed for st
   sudo apt install -y libxft-dev libx11-dev
   pip3 install argcomplete==2.0.0
+  python3 -m pip install --user pipx
   github-setup
   install-ripgrep
 end

@@ -140,6 +140,7 @@ alias jpnb_tmp "jupyter-notebook /tmp/"
 alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmake 'cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias bat 'batcat'
+alias notes 'zk ie'
 
 export ZK_NOTEBOOK_DIR=$MYCONFIGS_DIR/mynotes
 
