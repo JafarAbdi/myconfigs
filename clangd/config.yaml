@@ -32,13 +32,3 @@ Diagnostics:
              cppcoreguidelines-special-member-functions,
              cppcoreguidelines-avoid-non-const-global-variables]
   UnusedIncludes: Strict
----
-# Scratch files use C++20 by default
-If:
-  PathMatch: [/tmp/.*,
-              /home/jafar/workspaces/cpp/scratches/.*,
-              /home/jafar/workspaces/compiler-explorer/vcpkg-libraries/.*]
-CompileFlags:
-  Add: [-std=c++2a,
-        -isystem/home/jafar/workspaces/compiler-explorer/vcpkg-libraries/x64-linux-release/include]
-  Compiler: clang++-12

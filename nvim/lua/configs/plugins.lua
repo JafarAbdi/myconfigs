@@ -165,38 +165,7 @@ return packer.startup({
         end
       end,
     })
-    use({
-      "p00f/godbolt.nvim",
-      cmd = { "Godbolt", "GodboltCompiler" },
-      config = function()
-        require("godbolt").setup({
-          languages = {
-            cpp = {
-              compiler = "clangdefault",
-              options = {
-                userArguments = "-O3 -std=c++2a",
-                libraries = {
-                  { id = "fmt", version = "trunk" },
-                  { id = "range-v3", version = "trunk" },
-                },
-                filters = {
-                  binary = false,
-                  commentOnly = true,
-                  demangle = true,
-                  directives = true,
-                  execute = false,
-                  intel = true,
-                  labels = true,
-                  libraryCode = true,
-                  trim = false,
-                },
-              },
-            },
-          },
-          url = "http://localhost:10240",
-        })
-      end,
-    })
+    use("p00f/godbolt.nvim")
 
     -- Used to fix symlink files
     use("moll/vim-bbye")
