@@ -350,6 +350,17 @@ function install-conan
   pipx install conan
 end
 
+function setup-cpp-screatches
+  install-conan
+  cd $CPP_SCREATCHES_DIR/..
+  git clone https://github.com/JafarAbdi/cpp-scratches.git scratches
+  cd scratches
+  # TODO: Move to a script in cpp-scratches repo
+  conan install .
+  cp conanbuildinfo.args compile_flags.txt
+  sed -i 's/ /\n/g' compile_flags.txt
+end
+
 function install-vcpkg
   # https://github.com/microsoft/vcpkg#quick-start-unix
   cd $WORKSPACE_DIR

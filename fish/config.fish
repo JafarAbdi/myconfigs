@@ -26,7 +26,6 @@ else
   set_color normal
 end
 
-set -g fish_complete_path $fish_complete_path $MYCONFIGS_DIR/fish/completions
 set -g fish_function_path $fish_function_path $MYCONFIGS_DIR/fish/functions
 
 set -x EDITOR 'nvim'
@@ -36,6 +35,7 @@ set -x ROS2_WS_DIR $WORKSPACE_DIR/ros2
 set -x ROS_WS_DIR $WORKSPACE_DIR/ros
 set fish_greeting
 set -x SCHROOT_DIR /srv/chroot
+set -x CPP_SCREATCHES_DIR $HOME/workspaces/cpp/scratches
 set -x NPM_PACKAGES "$HOME/.npm-packages"
 set -x MANPATH $NPM_PACKAGES/share/man $MANPATH
 
@@ -160,3 +160,7 @@ register-argcomplete ros_test
 register-argcomplete ros2
 register-argcomplete rosidl
 register-argcomplete ament_cmake
+
+for file in $MYCONFIGS_DIR/fish/completions/*
+  source $file
+end

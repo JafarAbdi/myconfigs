@@ -7,7 +7,6 @@ function nvim_config
   end
 end
 
-function nvim_notes
-  set -l notes_dir ~/myconfigs/mynotes
-  nvim $notes_dir/$argv[1]
+function cpp-scratch
+  nvim $CPP_SCREATCHES_DIR/$argv[1]
 end

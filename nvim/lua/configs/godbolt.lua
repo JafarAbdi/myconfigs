@@ -5,9 +5,7 @@ require("godbolt").setup({
     cpp = {
       compiler = "clangdefault",
       options = {
-        userArguments = Path
-          :new(vim.env.WORKSPACE_DIR, "cpp", "scratches", "conanbuildinfo.args")
-          :read(),
+        userArguments = Path:new(vim.env.CPP_SCREATCHES_DIR, "conanbuildinfo.args"):read(),
         filters = {
           binary = false,
           commentOnly = true,
