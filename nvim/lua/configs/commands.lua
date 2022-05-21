@@ -179,15 +179,6 @@ vim.api.nvim_create_user_command(
 -- TODO: This's not ready yet
 -- vim.cmd([[ command! ExpandMacro execute "lua ExpandMacro()" ]])
 
-vim.api.nvim_create_user_command("GodboltExecuteToggle", function()
-  vim.b.godbolt_exec = not vim.b.godbolt_exec
-  if vim.b.godbolt_exec then
-    vim.api.nvim_echo({ { "Toggle godbolt execution on" } }, false, {})
-  else
-    vim.api.nvim_echo({ { "Toggle godbolt execution off" } }, false, {})
-  end
-end, {})
-
 vim.api.nvim_create_user_command("CleanWhitespaces", function()
   _G.CleanWhitespaces()
 end, {})
@@ -202,3 +193,65 @@ end, {})
 vim.api.nvim_create_user_command("LuaSnipEdit", function()
   require("luasnip.loaders.from_lua").edit_snippet_files()
 end, {})
+
+-- https://phelipetls.github.io/posts/async-make-in-nvim-with-lua
+vim.api.nvim_create_user_command("Make", function(params)
+  local lines = { "" }
+  local winnr = vim.fn.win_getid()
+  local bufnr = vim.api.nvim_win_get_buf(winnr)
+
+  local makeprg = vim.api.nvim_buf_get_option(bufnr, "makeprg")
+  if not makeprg then
+    return
+  end
+
+  local cmd = vim.fn.expandcmd(makeprg .. " " .. params.args)
+
+  local function on_event(on_success_cb)
+    return function(job_id, data, event)
+      if event == "stdout" or event == "stderr" then
+        if data then
+          vim.list_extend(lines, data)
+        end
+      end
+
+      if event == "exit" then
+        lines = vim.tbl_filter(function(item)
+          return item ~= ""
+        end, lines)
+        vim.fn.setqflist({}, " ", {
+          title = cmd,
+          lines = lines,
+          efm = vim.api.nvim_buf_get_option(bufnr, "errorformat"),
+        })
+        vim.cmd("copen")
+        vim.cmd("wincmd p")
+        if data == 0 then
+          if vim.is_callable(on_success_cb) then
+            on_success_cb()
+          end
+        end
+      end
+    end
+  end
+
+  local job_id = vim.fn.jobstart(cmd, {
+    on_stderr = on_event(),
+    on_stdout = on_event(),
+    on_exit = on_event(function()
+      if vim.bo.filetype == "cpp" then
+        local job_id = vim.fn.jobstart(vim.fn.expand("%:p:r") .. ".out", {
+          on_stderr = on_event(),
+          on_stdout = on_event(),
+          on_exit = on_event(),
+          stdout_buffered = true,
+          stderr_buffered = true,
+          cwd = vim.fn.expand("%:p:h"),
+        })
+      end
+    end),
+    stdout_buffered = true,
+    stderr_buffered = true,
+    cwd = vim.fn.expand("%:p:h"),
+  })
+end, { nargs = "*" })

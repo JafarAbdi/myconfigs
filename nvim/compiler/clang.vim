@@ -6,7 +6,7 @@ let current_compiler = "clang"
 let s:cpo_save = &cpo
 set cpo-=C
 
-setlocal makeprg=clang++\ %\ -o\ %<.out
+setlocal makeprg=clang++\ %:p\ -o\ %:p:r.out
 if filereadable(expand("%:p:h")."/conanbuildinfo.args")
   setlocal makeprg +=\ @conanbuildinfo.args
 endif

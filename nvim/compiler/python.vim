@@ -20,7 +20,7 @@ endif
 let s:cpo_save = &cpo
 set cpo&vim
 
-setlocal makeprg=python\ %
+setlocal makeprg=python\ %:t
 " For Flake8 first
 CompilerSet efm  =%E%f:%l:\ could\ not\ compile,
 CompilerSet efm +=%-Z%p^,
