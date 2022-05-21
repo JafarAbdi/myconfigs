@@ -11,7 +11,7 @@ ls.config.set_config({
 
   -- Autosnippets:
   enable_autosnippets = true,
-
+  store_selection_keys = "<Tab>",
   ext_opts = {
     [types.choiceNode] = {
       active = {

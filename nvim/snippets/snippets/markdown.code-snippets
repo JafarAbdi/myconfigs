@@ -277,16 +277,6 @@
     "description": "Insert unordered list",
     "prefix": "unordered list"
   },
-  "Links": {
-    "body": [
-      "[${1}](${2}) ${0}"
-    ],
-    "description": "Add links",
-    "prefix": [
-      "l",
-      "link"
-    ]
-  },
   "URLS": {
     "body": [
       "<${1}> ${0}"
