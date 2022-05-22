@@ -164,3 +164,6 @@ register-argcomplete ament_cmake
 for file in $MYCONFIGS_DIR/fish/completions/*
   source $file
 end
+for file in $HOME/.config/fish/completions/*
+  source $file
+end
