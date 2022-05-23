@@ -380,7 +380,10 @@
       "#include <fmt/ranges.h>",
       "#include <range/v3/all.hpp>",
       "",
-      "int main() { return 0; }"
+      "int main() {",
+      "\t$0",
+      "\treturn 0;",
+      "}"
     ]
   }
 }
