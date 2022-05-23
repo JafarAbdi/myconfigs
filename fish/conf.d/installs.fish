@@ -249,10 +249,8 @@ end
 
 function install-fish
   if test (lsb_release -is) = "Ubuntu"
-    if test (lsb_release -sc) != "jammy"
-      sudo apt-add-repository ppa:fish-shell/release-3
-      sudo apt update
-    end
+    sudo apt-add-repository ppa:fish-shell/release-3
+    sudo apt update
   end
   sudo apt install -y fish
   config-fish
