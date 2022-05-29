@@ -57,9 +57,6 @@ function get_path
     if test -d $WORKSPACE_DIR/easy_profiler
       set path $WORKSPACE_DIR/easy_profiler/install/bin:$path
     end
-    if test -d $HOME/go
-      set path $HOME/go/bin:$path
-    end
     if test -d $MYCONFIGS_DIR/optparse
       set path $MYCONFIGS_DIR/optparse:$path
     end
@@ -82,6 +79,9 @@ function get_path
     end
     if test -d $HOME/.config/lua-lsp/bin
       set path $HOME/.config/lua-lsp/bin:$path
+    end
+    if test -d $HOME/.config/efm-lsp
+      set path $HOME/.config/efm-lsp:$path
     end
     if test -d $NPM_PACKAGES/bin
       set path $NPM_PACKAGES/bin:$path

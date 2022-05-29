@@ -68,11 +68,8 @@ then
   apt install -y software-properties-common
   add-apt-repository universe
   add-apt-repository multiverse
-  if [[ \"\$(lsb_release -cs)\" != \"jammy\" ]];
-  then
-    apt-add-repository ppa:fish-shell/release-3
-    apt update
-  fi
+  apt-add-repository ppa:fish-shell/release-3
+  apt update
 elif [[ \"\$(lsb_release -is)\" == \"Debian\" ]];
 then
   apt install -y libxft-dev libx11-dev

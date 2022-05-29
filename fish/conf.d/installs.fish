@@ -293,8 +293,12 @@ end
 
 function install-efm-lsp
   # YAML + CMake +
-  sudo apt  install -y golang-go
-  go get github.com/mattn/efm-langserver
+  mkdir -p ~/.config/efm-lsp
+  rm -r "~/.config/efm-lsp/*" 2> /dev/null
+  cd ~/.config/efm-lsp
+  install-from-github mattn/efm-langserver "efm-langserver_.*_linux_amd64.tar.gz"
+  tar xzf efm-langserver* --strip-components 1
+  cd -
   sudo apt install -y yamllint
 end
 
@@ -323,25 +327,15 @@ function install-nvim
   else
     ln -sf ~/myconfigs/nvim $config_path
   end
-  if test (lsb_release -is) = "Debian"
-    cd /tmp
-    if set -q argv[1] && test $argv[1] = "stable"
-      install-from-github neovim/neovim "v.*nvim-linux64.deb"
-    else
-      install-from-github neovim/neovim "nvim-linux64.deb"
-    end
-    sudo apt install /tmp/nvim-linux64.deb
-    cd -
+  cd /tmp
+  if set -q argv[1] && test $argv[1] = "stable"
+    install-from-github neovim/neovim "v.*nvim-linux64.deb"
   else
-    if set -q argv[1] && test $argv[1] = "stable"
-      sudo add-apt-repository ppa:neovim-ppa/stable
-    else
-      sudo apt-add-repository ppa:neovim-ppa/unstable
-    end
-    sudo apt-get update
-    sudo apt-get install -y neovim
+    install-from-github neovim/neovim "nvim-linux64.deb"
   end
-  nvim -c "PackerInstall" -c "PackerCompite" -c "TSInstall fish c cpp python rust fish bash make cmake lua vim markdown"
+  sudo apt install /tmp/nvim-linux64.deb
+  cd -
+  nvim -c "PackerInstall" -c "PackerCompite"
 end
 
 function install-conan
