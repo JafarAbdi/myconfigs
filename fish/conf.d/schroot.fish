@@ -51,6 +51,7 @@ export XAUTHORITY=/.Xauthority
 export DISPLAY=\"\${DISPLAY:-}\"" | sudo tee "$dir/etc/profile.d/x11.sh" > /dev/null
 
 echo "\
+chown jafar:jafar /home/jafar
 apt install -y lsb-release
 apt install -y sudo
 apt install -y locales
@@ -76,7 +77,6 @@ then
 fi
 apt install -y fish
 chsh -s `which fish`
-chown jafar:jafar /home/jafar
 " | sudo schroot --run-session -c $session_name -d / bash
 
   echo "\
