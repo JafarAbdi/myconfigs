@@ -45,7 +45,9 @@ function start_docker -d "Start docker image with myconfigs & gpu support"
     echo "Make sure to stop/remove it"
     return
   end
-  set -l cid (docker create \
+  set -l cid (docker run \
+                     --detach \
+                     --interactive \
                      --net=host \
                      --pid=host \
                      --gpus all \
@@ -64,6 +66,7 @@ function start_docker -d "Start docker image with myconfigs & gpu support"
                      -v /etc/shadow:/etc/shadow:ro \
                      --cap-add sys_ptrace \
                      -t \
+                     --entrypoint=/bin/bash \
                      --name "$argv[2]" \
                      $argv[1])
   # Detect user inside container
@@ -72,7 +75,7 @@ function start_docker -d "Start docker image with myconfigs & gpu support"
   set -l docker_gid (docker run --rm "$docker_image" id -g)
   # TODO: I have no idea what this line is doing!!!
   xhost +local:root &> /dev/null
-  docker start "$cid"
+  # docker start "$cid"
   docker exec --user root $cid bash -c "mkhomedir_helper jafar"
   docker exec --user root $cid bash -c "chown $USER:$USER $HOME"
   # Pass common credentials to container

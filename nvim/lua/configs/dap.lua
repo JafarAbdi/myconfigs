@@ -30,6 +30,8 @@ local M = setmetatable({}, {
 --   add_tagfunc(widgets.scopes)
 -- end
 
+M.command_pid = nil
+
 function M.setup()
   -- setup_widgets()
   dap.listeners.after.event_initialized["dapui_config"] = function()
@@ -97,10 +99,14 @@ function M.setup()
       type = "cppdbg",
       request = "attach",
       processId = function()
-        return vim.fn.input("Process PID: ")
+        M.command_pid = vim.fn.input("Process PID: ")
+        return M.command_pid
       end, -- require("dap.utils").pick_process,
       program = function()
-        return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
+        local output = vim.fn.system("ps -p " .. M.command_pid .. " -o args --no-headers")
+        local command = vim.split(output, " ")
+        -- return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
+        return command[1]
       end,
       -- program = "/usr/bin/fish", -- Why we need this??
       args = {},

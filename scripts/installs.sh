@@ -265,12 +265,7 @@ install_fish()
 {
   sudo apt-add-repository ppa:fish-shell/release-3
   sudo apt update
-  sudo apt install fish
-  ln -s ~/myconfigs/fish ~/.config/fish
-  curl -sL https://git.io/fisher | source && fisher install jorgebucaran/fisher
-  # To be able to source bash scripts
-  fisher install edc/bass
-  chsh -s `which fish`
+  sudo apt install -y fish
 }
 
 install_nvim()

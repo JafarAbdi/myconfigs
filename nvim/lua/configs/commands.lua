@@ -194,9 +194,25 @@ vim.api.nvim_create_user_command("LuaSnipEdit", function()
   require("luasnip.loaders.from_lua").edit_snippet_files()
 end, {})
 
--- https://phelipetls.github.io/posts/async-make-in-nvim-with-lua
+local utils = require("cmake.utils")
+
+local function run(...)
+  if not utils.ensure_no_job_active() then
+    return
+  end
+
+  return utils.run(
+    vim.fn.expand("%:p:r") .. ".out",
+    { ... },
+    { cwd = vim.fn.expand("%:p:h"), open_quickfix = true }
+  )
+end
+
 vim.api.nvim_create_user_command("Make", function(params)
-  local lines = { "" }
+  if not utils.ensure_no_job_active() then
+    return
+  end
+
   local winnr = vim.fn.win_getid()
   local bufnr = vim.api.nvim_win_get_buf(winnr)
 
@@ -205,53 +221,15 @@ vim.api.nvim_create_user_command("Make", function(params)
     return
   end
 
-  local cmd = vim.fn.expandcmd(makeprg .. " " .. params.args)
-
-  local function on_event(on_success_cb)
-    return function(_, data, event)
-      if event == "stdout" or event == "stderr" then
-        if data then
-          vim.list_extend(lines, data)
+  local cmd = vim.fn.expandcmd(makeprg)
+  local args = vim.split(cmd, " ")
+  return utils.run(args[1], vim.list_slice(args, 2), { cwd = vim.fn.expand("%:p:h") }):after_success(
+    function()
+      vim.schedule(function()
+        if vim.bo.filetype == "cpp" then
+          run(unpack(params.fargs))
         end
-      end
-
-      if event == "exit" then
-        lines = vim.tbl_filter(function(item)
-          return item ~= ""
-        end, lines)
-        vim.fn.setqflist({}, " ", {
-          title = cmd,
-          lines = lines,
-          efm = vim.api.nvim_buf_get_option(bufnr, "errorformat"),
-        })
-        vim.cmd("copen")
-        vim.cmd("wincmd p")
-        if data == 0 then
-          if vim.is_callable(on_success_cb) then
-            on_success_cb()
-          end
-        end
-      end
+      end)
     end
-  end
-
-  local _ = vim.fn.jobstart(cmd, {
-    on_stderr = on_event(),
-    on_stdout = on_event(),
-    on_exit = on_event(function()
-      if vim.bo.filetype == "cpp" then
-        local _ = vim.fn.jobstart(vim.fn.expand("%:p:r") .. ".out", {
-          on_stderr = on_event(),
-          on_stdout = on_event(),
-          on_exit = on_event(),
-          stdout_buffered = true,
-          stderr_buffered = true,
-          cwd = vim.fn.expand("%:p:h"),
-        })
-      end
-    end),
-    stdout_buffered = true,
-    stderr_buffered = true,
-    cwd = vim.fn.expand("%:p:h"),
-  })
+  )
 end, { nargs = "*" })

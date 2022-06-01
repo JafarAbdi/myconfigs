@@ -103,6 +103,7 @@ return packer.startup({
     use("hrsh7th/cmp-nvim-lsp-signature-help")
     use({ "mtoohey31/cmp-fish", ft = "fish" })
     use("petertriho/cmp-git")
+    use("kdheepak/cmp-latex-symbols")
     -- TODO: Push upstream with custom format function
     use({ "JafarAbdi/cmp-nvim-lsp-document-symbol", branch = "pr-custom_format" })
     -- Movement
