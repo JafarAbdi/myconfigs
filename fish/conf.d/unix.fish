@@ -66,6 +66,19 @@ end
 alias gdbrun='gdb --ex run --args '
 alias colorless='sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g"'
 
+function gdb-attach
+  set -l pids (pid_picker)
+  if test (count $pids) -ne 0
+    gdb attach --ex continue $pids[1]
+  end
+end
+
+function kill-all
+  set -l pids (pid_picker)
+  if test (count $pids) -ne 0
+    kill -9 $pids
+  end
+end
 # TODO: Port to fish
 # repeat()
 # {
@@ -88,14 +101,6 @@ alias colorless='sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g"'
 # 			break
 #     	fi
 #   	done
-
-function kill_all
-    if test -z $argv[1]
-        echo "You need to specify the a name as an argument"
-        return 1
-    end
-    ps aux | grep $argv[1] | awk '{print $2}' | xargs kill -9
-end
 
 # fzf settings
 # Options to fzf command

@@ -66,6 +66,7 @@ function install-core
   sudo apt install -y bat
   sudo apt install -y curl
   sudo apt install -y lld
+  sudo apt install -y ninja-build
   # Needed for st
   sudo apt install -y libxft-dev libx11-dev
   pip3 install argcomplete==2.0.0
