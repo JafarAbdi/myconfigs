@@ -368,8 +368,12 @@ function install-vcpkg
 end
 
 function install-difftastic
-  export CARGO_NET_GIT_FETCH_WITH_CLI=true
-  cargo install difftastic
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github Wilfred/difftastic difft-x86_64-unknown-linux-gnu.tar.gz
+  ex difft-x86_64-unknown-linux-gnu.tar.gz
+  mv difft ~/.local/bin
+  cd -
 end
 
 function install-docker
