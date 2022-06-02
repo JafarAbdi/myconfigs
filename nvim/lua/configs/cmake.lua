@@ -37,6 +37,7 @@ require("cmake").setup({
   quickfix_only_on_error = true,
   build_args = {}, -- Default arguments that will be always passed at cmake build step.
   -- quickfix_height = 10, -- Height of the opened quickfix.
+  copy_compile_commands = false,
   dap_configuration = {
     type = "cppdbg",
     request = "launch",

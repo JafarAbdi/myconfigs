@@ -104,8 +104,9 @@ vim.keymap.set("n", "<leader><leader>x", function()
   vim.cmd([[w]])
   if vim.bo.filetype == "lua" then
     vim.cmd([[:luafile %]])
+  else
+    vim.cmd([[Make]])
   end
-  vim.cmd([[Make]])
 end)
 
 vim.keymap.set("", "<S-C-UP>", ":resize -1<CR>", { silent = true })

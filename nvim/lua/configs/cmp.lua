@@ -104,7 +104,7 @@ cmp.setup({
         nvim_lsp_signature_help = "[Signature]",
         nvim_lsp_document_symbol = "[Symbol]",
         fish = "[Fish]",
-        latex_symbols = "[Latex]"
+        latex_symbols = "[Latex]",
       })[entry.source.name]
       local label = vim_item.abbr
       local truncated_label = vim.fn.strcharpart(label, 0, MAX_LABEL_WIDTH)
