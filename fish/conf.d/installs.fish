@@ -368,6 +368,15 @@ function install-vcpkg
   $VCPKG_DIR/vcpkg integrate x-fish
 end
 
+function install-zk
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github mickael-menu/zk "zk.*linux-amd64.tar.gz"
+  ex zk*
+  mv zk ~/.local/bin
+  cd -
+end
+
 function install-difftastic
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR
