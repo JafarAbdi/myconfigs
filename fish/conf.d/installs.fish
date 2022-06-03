@@ -66,6 +66,7 @@ function install-core
   sudo apt install -y bat
   sudo apt install -y curl
   sudo apt install -y lld
+  sudo apt install -y lldb
   sudo apt install -y ninja-build
   # Needed for st
   sudo apt install -y libxft-dev libx11-dev
@@ -83,8 +84,8 @@ function install-cpp-dev
   sudo apt install -y cmake
   sudo apt install -y dwarves
   # Documentation
-  sudo apt install -y zeal
-  open https://zealdocs.org/usage.html
+  # sudo apt install -y zeal
+  # open https://zealdocs.org/usage.html
   install-cpp-lsp
 end
 
@@ -131,18 +132,6 @@ function install-ripgrep
   cd $TMP_DIR
   install-from-github "BurntSushi/ripgrep" "ripgrep_.*_amd64.deb"
   sudo dpkg -i ripgrep_*
-  cd -
-end
-
-function install-vscode-cpptools
-  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-  cd $TMP_DIR
-  install-from-github "microsoft/vscode-cpptools" "cpptools-linux.vsix"
-  unzip cpptools-linux.vsix
-  chmod +x extension/debugAdapters/bin/OpenDebugAD7
-  rm -rf ~/.config/vscode-cpptools
-  mkdir -p ~/.config/vscode-cpptools
-  mv extension/ ~/.config/vscode-cpptools/
   cd -
 end
 
