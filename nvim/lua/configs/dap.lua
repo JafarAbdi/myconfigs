@@ -48,78 +48,62 @@ function M.setup()
     command = "/usr/local/bin/st",
     args = { "-e" },
   }
-  dap.adapters.cppdbg = {
-    id = "cppdbg",
+  local lldb_executable_name = "/usr/bin/lldb-vscode"
+  local lldb_executables = vim.split(vim.fn.glob(lldb_executable_name .. "*"), "\n")
+  if vim.fn.empty(lldb_executables) == 1 then
+    vim.api.nvim_notify(
+      "No lldb-vscode executable found -- make sure to install it using 'sudo apt install lldb'",
+      vim.log.levels.ERROR,
+      {}
+    )
+  end
+  dap.adapters.lldb = {
+    id = "lldb",
     type = "executable",
-    command = vim.env.HOME .. "/.config/vscode-cpptools/extension/debugAdapters/bin/OpenDebugAD7",
+    command = lldb_executables[#lldb_executables],
   }
   dap.configurations.cpp = {
     {
-      name = "Launch file",
-      type = "cppdbg",
+      name = "lldb: Launch (console)",
+      type = "lldb",
       request = "launch",
-      MIMode = "gdb",
-      MIDebuggerPath = "/usr/bin/gdb",
       program = function()
         return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
       end,
       cwd = "${workspaceFolder}",
-      stopOnEntry = true,
-      setupCommands = {
-        {
-          text = "-enable-pretty-printing",
-          description = "enable pretty printing",
-          ignoreFailures = false,
-        },
-      },
+      stopOnEntry = false,
+      args = {},
+      runInTerminal = false,
     },
     {
-      name = "Attach to gdbserver :1234",
-      type = "cppdbg",
+      name = "lldb: Launch (integratedTerminal)",
+      type = "lldb",
       request = "launch",
-      MIMode = "gdb",
-      MIDebuggerServerAddress = "localhost:1234",
-      MIDebuggerPath = "/usr/bin/gdb",
-      cwd = "${workspaceFolder}",
       program = function()
         return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
       end,
-      setupCommands = {
-        {
-          text = "-enable-pretty-printing",
-          description = "enable pretty printing",
-          ignoreFailures = false,
-        },
-      },
+      cwd = "${workspaceFolder}",
+      stopOnEntry = false,
+      args = {},
+      runInTerminal = true,
     },
     {
       -- If you get an "Operation not permitted" error using this, try disabling YAMA:
       --  echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-      name = "Attach to process",
-      type = "cppdbg",
+      name = "lldb: Attach to process",
+      type = "lldb",
       request = "attach",
-      processId = function()
-        M.command_pid = vim.fn.input("Process PID: ")
-        return M.command_pid
-      end, -- require("dap.utils").pick_process,
-      program = function()
-        local output = vim.fn.system("ps -p " .. M.command_pid .. " -o args --no-headers")
-        local command = vim.split(output, " ")
-        -- return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
-        return command[1]
-      end,
-      -- program = "/usr/bin/fish", -- Why we need this??
+      pid = require("dap.utils").pick_process,
       args = {},
-      setupCommands = {
-        {
-          text = "-enable-pretty-printing",
-          description = "enable pretty printing",
-          ignoreFailures = false,
-        },
-      },
+      -- env = function()
+      --   local variables = {}
+      --   for k, v in pairs(vim.fn.environ()) do
+      --     table.insert(variables, string.format("%s=%s", k, v))
+      --   end
+      --   return variables
+      -- end,
     },
   }
-  -- require("dap.ext.vscode").load_launchjs()
 end
 
 M.setup()

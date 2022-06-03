@@ -39,9 +39,8 @@ require("cmake").setup({
   -- quickfix_height = 10, -- Height of the opened quickfix.
   copy_compile_commands = false,
   dap_configuration = {
-    type = "cppdbg",
+    type = "lldb",
     request = "launch",
-    MIMode = "gdb",
     stopOnEntry = true,
     cwd = "${workspaceFolder}",
   },
