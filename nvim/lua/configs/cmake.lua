@@ -41,7 +41,7 @@ require("cmake").setup({
   dap_configuration = {
     type = "lldb",
     request = "launch",
-    stopOnEntry = true,
+    stopOnEntry = false,
     cwd = "${workspaceFolder}",
   },
   dap_open_command = require("dapui").open, -- Command to run after starting DAP session. You can set it to `false` if you don't want to open anything or `require('dapui').open` if you are using https://github.com/rcarriga/nvim-dap-ui
