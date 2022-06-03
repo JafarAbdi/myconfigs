@@ -196,17 +196,7 @@ end, {})
 
 local utils = require("cmake.utils")
 
-local function run(...)
-  if not utils.ensure_no_job_active() then
-    return
-  end
-
-  return utils.run(
-    vim.fn.expand("%:p:r") .. ".out",
-    { ... },
-    { cwd = vim.fn.expand("%:p:h"), open_quickfix = true }
-  )
-end
+local run_in_terminal = require("configs.run_in_terminal")
 
 vim.api.nvim_create_user_command("Make", function(params)
   if not utils.ensure_no_job_active() then
@@ -223,13 +213,19 @@ vim.api.nvim_create_user_command("Make", function(params)
 
   local cmd = vim.fn.expandcmd(makeprg)
   local args = vim.split(cmd, " ")
-  return utils.run(args[1], vim.list_slice(args, 2), { cwd = vim.fn.expand("%:p:h") }):after_success(
-    function()
-      vim.schedule(function()
-        if vim.bo.filetype == "cpp" then
-          run(unpack(params.fargs))
-        end
-      end)
-    end
-  )
+
+  if vim.bo.filetype == "cpp" then
+    return utils.run(args[1], vim.list_slice(args, 2), { cwd = vim.fn.expand("%:p:h") }):after_success(
+      function()
+        vim.schedule(function()
+          run_in_terminal(
+            vim.fn.expand("%:p:r") .. ".out",
+            params.fargs,
+            { cwd = vim.fn.expand("%:p:h"), focus_terminal = true }
+          )
+        end)
+      end
+    )
+  end
+  return run_in_terminal(args[1], vim.list_slice(args, 2), { cwd = vim.fn.expand("%:p:h") })
 end, { nargs = "*" })
