@@ -56,7 +56,17 @@ vim.keymap.set("v", "<A-k>", ":m '<-2<CR>gv=gv")
 vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, { silent = true })
 vim.keymap.set("n", "<leader>dp", vim.diagnostic.goto_prev, { silent = true })
 vim.keymap.set("n", "<leader>dn", vim.diagnostic.goto_next, { silent = true })
-vim.keymap.set("n", "<leader>dq", vim.diagnostic.setloclist, { silent = true })
+vim.keymap.set("n", "<leader>dq", function()
+  require("telescope.builtin").diagnostics(vim.tbl_deep_extend(
+    "error",
+    { bufnr = 0 },
+    require("telescope.themes").get_dropdown({
+      layout_config = {
+        width = 0.8,
+      },
+    })
+  ))
+end, { silent = true })
 
 -- Debug
 vim.keymap.set("n", "<leader>db", require("telescope").extensions.dap.commands, { silent = true })
