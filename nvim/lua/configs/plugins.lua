@@ -6,21 +6,6 @@ if vim.fn.empty(vim.fn.glob(install_path)) > 0 then
   vim.fn.execute("!git clone https://github.com/wbthomason/packer.nvim " .. install_path)
 end
 
-local hotpot_path = vim.fn.stdpath("data") .. "/site/pack/packer/start/hotpot.nvim"
-
-if vim.fn.empty(vim.fn.glob(hotpot_path)) > 0 then
-  print("Could not find hotpot.nvim, cloning new copy to", hotpot_path)
-  vim.fn.system({
-    "git",
-    "clone",
-    "https://github.com/rktjmp/hotpot.nvim",
-    hotpot_path,
-  })
-  vim.cmd("helptags " .. hotpot_path .. "/doc")
-end
--- Bootstrap .fnl support
-require("hotpot")
-
 vim.cmd([[packadd packer.nvim]])
 local packer = require("packer")
 
@@ -28,11 +13,7 @@ return packer.startup({
   function(use)
     -- Packer
     use("wbthomason/packer.nvim")
-    -- Load funnel plugins
-    use("rktjmp/hotpot.nvim")
 
-    -- Profiler
-    use({ "dstein64/vim-startuptime", cmd = "StartupTime" })
     -- Prettier
     use({ "junegunn/vim-easy-align", cmd = "EasyAlign" })
     -- Commenting
@@ -73,9 +54,6 @@ return packer.startup({
         require("spellsitter").setup()
       end,
     })
-    -- use("rhysd/vim-grammarous")
-    -- TODO: Port to Lua
-    use("vigoux/LanguageTool.nvim")
     -- Highlights & Text selection
     use("nvim-treesitter/nvim-treesitter-textobjects")
     -- Maybe no longer needed with
@@ -87,8 +65,6 @@ return packer.startup({
     use({
       "nvim-treesitter/playground",
     })
-    use({ "JafarAbdi/nvim-treesitter-refactor", branch = "pr-hl_screenline" })
-    use("RRethy/nvim-treesitter-endwise")
     -- LSP clients configurations
     use("neovim/nvim-lspconfig")
     -- Completion
@@ -104,8 +80,6 @@ return packer.startup({
     use({ "mtoohey31/cmp-fish", ft = "fish" })
     use("petertriho/cmp-git")
     use("kdheepak/cmp-latex-symbols")
-    -- TODO: Push upstream with custom format function
-    use({ "JafarAbdi/cmp-nvim-lsp-document-symbol", branch = "pr-custom_format" })
     -- Movement
     use("ggandor/lightspeed.nvim")
     -- Undo tree
@@ -115,7 +89,6 @@ return packer.startup({
     -- Debugger
     use("mfussenegger/nvim-dap")
     use("rcarriga/nvim-dap-ui")
-    use("nvim-telescope/telescope-dap.nvim")
     use({
       "theHamsta/nvim-dap-virtual-text",
       config = function()
@@ -129,25 +102,10 @@ return packer.startup({
         require("dap-python").setup("python3")
       end,
     })
-    -- Show diffs between directories
-    use({
-      "will133/vim-dirdiff",
-      cmd = {
-        "DirDiff",
-        "DirDiffPrev",
-        "DirDiffNext",
-        "DirDiffOpen",
-        "DirDiffQuit",
-        "DirDiffUpdate",
-      },
-    })
     -- Rust
     use("simrat39/rust-tools.nvim")
     -- CMake
-    use({
-      "JafarAbdi/neovim-cmake",
-      branch = "pr-fixes",
-    })
+    use("Shatur/neovim-cmake")
     -- C++
     use("p00f/clangd_extensions.nvim")
     use({

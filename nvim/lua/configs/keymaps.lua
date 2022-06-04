@@ -68,8 +68,6 @@ vim.keymap.set("n", "<leader>dq", function()
   ))
 end, { silent = true })
 
--- Debug
-vim.keymap.set("n", "<leader>db", require("telescope").extensions.dap.commands, { silent = true })
 -- <c-k> is my expansion key
 -- this will expand the current item or jump to the next item within the snippet.
 vim.keymap.set({ "i", "s" }, "<c-k>", function()

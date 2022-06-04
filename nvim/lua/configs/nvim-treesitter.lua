@@ -141,11 +141,4 @@ require("nvim-treesitter.configs").setup({
       accept = "<CR>", -- optional keymapping for accept preview
     },
   },
-  refactor = {
-    highlight_current_scope = { enable = true, disable = disable, highlight_eol = true },
-  },
-  endwise = {
-    enable = true,
-    disable = disable,
-  },
 })

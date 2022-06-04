@@ -102,7 +102,6 @@ cmp.setup({
         luasnip = "[LuaSnip]",
         nvim_lua = "[Lua]",
         nvim_lsp_signature_help = "[Signature]",
-        nvim_lsp_document_symbol = "[Symbol]",
         fish = "[Fish]",
         latex_symbols = "[Latex]",
       })[entry.source.name]
@@ -132,8 +131,6 @@ cmp.setup({
 cmp.setup.cmdline("/", {
   mapping = cmp.mapping.preset.cmdline(),
   sources = cmp.config.sources({
-    { name = "nvim_lsp_document_symbol", max_item_count = 10 },
-  }, {
     { name = "buffer" },
   }),
 })
