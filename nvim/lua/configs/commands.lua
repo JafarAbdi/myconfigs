@@ -229,3 +229,51 @@ vim.api.nvim_create_user_command("Make", function(params)
   end
   return run_in_terminal(args[1], vim.list_slice(args, 2), { cwd = vim.fn.expand("%:p:h") })
 end, { nargs = "*" })
+
+vim.api.nvim_create_user_command("DapAttach", function()
+  local finders = require("telescope.finders")
+  local pickers = require("telescope.pickers")
+  local sorters = require("telescope.sorters")
+  local actions = require("telescope.actions")
+  local actions_state = require("telescope.actions.state")
+
+  local command = { "ps", "ah" }
+
+  pickers.new({}, {
+    prompt_title = "Select process",
+    finder = finders.new_oneshot_job(command),
+    sorter = sorters.get_fzy_sorter(),
+    attach_mappings = function(prompt_bufnr, _)
+      actions.select_default:replace(function()
+        local separator = " \\+"
+        -- output format for ps ah
+        --    " 107021 pts/4    Ss     0:00 /bin/zsh <args>"
+        local get_pid = function(parts)
+          return parts[1]
+        end
+
+        local parts = vim.fn.split(vim.fn.trim(actions_state.get_selected_entry().value), separator)
+        local pid = get_pid(parts)
+        pid = tonumber(pid)
+        require("dap").run({
+          -- If you get an "Operation not permitted" error using this, try disabling YAMA:
+          --  echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+          name = "lldb: Attach to process",
+          type = "lldb",
+          request = "attach",
+          pid = pid,
+          args = {},
+          -- env = function()
+          --   local variables = {}
+          --   for k, v in pairs(vim.fn.environ()) do
+          --     table.insert(variables, string.format("%s=%s", k, v))
+          --   end
+          --   return variables
+          -- end,
+        })
+        actions.close(prompt_bufnr)
+      end)
+      return true
+    end,
+  }):find()
+end, {})

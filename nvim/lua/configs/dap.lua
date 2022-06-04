@@ -30,8 +30,6 @@ local M = setmetatable({}, {
 --   add_tagfunc(widgets.scopes)
 -- end
 
-M.command_pid = nil
-
 function M.setup()
   -- setup_widgets()
   dap.listeners.after.event_initialized["dapui_config"] = function()
@@ -87,24 +85,7 @@ function M.setup()
       args = {},
       runInTerminal = true,
     },
-    {
-      -- If you get an "Operation not permitted" error using this, try disabling YAMA:
-      --  echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-      name = "lldb: Attach to process",
-      type = "lldb",
-      request = "attach",
-      pid = require("dap.utils").pick_process,
-      args = {},
-      -- env = function()
-      --   local variables = {}
-      --   for k, v in pairs(vim.fn.environ()) do
-      --     table.insert(variables, string.format("%s=%s", k, v))
-      --   end
-      --   return variables
-      -- end,
-    },
   }
 end
 
-M.setup()
 return M
