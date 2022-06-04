@@ -62,6 +62,8 @@ require("nvim-treesitter.configs").setup({
         ["ip"] = "@parameter.inner",
         ["ao"] = "@conditional.outer",
         ["io"] = "@conditional.inner",
+        ["al"] = "@loop.outer",
+        ["il"] = "@loop.inner",
       },
     },
     -- TODO: https://www.reddit.com/r/neovim/comments/tlkieq/swapping_objects_with_nvimtreesittertextobjects/
