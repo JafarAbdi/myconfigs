@@ -147,4 +147,5 @@ set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inli
                          --bind='f2:toggle-preview' \
                          --bind='f3:execute(nvim (echo {} | cut -d':' -f1,2) < /dev/tty > /dev/tty 2>&1)' \
                          --bind='ctrl-h:reload($FZF_DEFAULT_COMMAND --hidden)'"
+set -xg FZF_CTRL_R_OPTS "--preview=''"
 set -xg FZF_CTRL_T_COMMAND "$FZF_DEFAULT_COMMAND"
