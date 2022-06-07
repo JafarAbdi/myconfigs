@@ -18,8 +18,15 @@
   untracked = cyan
 [credential]
   helper = cache --timeout=7200
+[fetch]
+  parallel = 0
+  prune = true
+[pull]
+  ff = only
 [push]
   default = current
+[merge]
+  ff = only
 [core]
   autoctrlf = input
   excludesfile = ~/myconfigs/git/gitignore
