@@ -23,6 +23,7 @@ require("lualine").setup({
     },
     lualine_c = {
       function()
+        -- require("nvim-treesitter").statusline({indicator_size=1000, separator="\n"})
         -- TODO: Maybe use require("nvim-treesitter").statusline()
         return nvim_status.status()
       end,

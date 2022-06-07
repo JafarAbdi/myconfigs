@@ -56,6 +56,7 @@ return packer.startup({
     })
     -- Highlights & Text selection
     use("nvim-treesitter/nvim-treesitter-textobjects")
+    use("nvim-treesitter/nvim-treesitter-context")
     -- Maybe no longer needed with
     -- https://github.com/llvm/llvm-project/commit/68eac9a6e7a10eba8081bab340fda8be13a7840e
     -- https://github.com/llvm/llvm-project/commit/afa94306a8c197e346d3234e5ac5292ab90eae73
