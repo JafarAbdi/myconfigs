@@ -1,3 +1,4 @@
-set -l workspaces (_workon_workspace.py --workspaces)
-set workspaces $workspaces reset
-complete -c workon -x -a "$workspaces"
+function __fish_workon_workspaces
+  echo reset (_workon_workspace.py --workspaces) | tr '  ' '\n'
+end
+complete -c workon -x -a "(__fish_workon_workspaces)"
