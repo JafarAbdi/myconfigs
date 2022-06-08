@@ -136,7 +136,9 @@ function _G.RunGtest(opts)
 
   local run_test = function(gtest)
     require("cmake").build():after_success(function()
-      local command = "--gtest_filter=" .. gtest.gtest_suite_name .. "." .. gtest.gtest_test_name
+      local command = {
+        "--gtest_filter=" .. gtest.gtest_suite_name .. "." .. gtest.gtest_test_name,
+      }
       vim.schedule(function()
         if opts.debug then
           require("cmake").debug(command)

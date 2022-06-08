@@ -30,6 +30,38 @@ local M = setmetatable({}, {
 --   add_tagfunc(widgets.scopes)
 -- end
 
+M.launch_console = {
+  name = "lldb: Launch (console)",
+  type = "lldb",
+  request = "launch",
+  program = function()
+    return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
+  end,
+  cwd = "${workspaceFolder}",
+  stopOnEntry = false,
+  args = function()
+    local args_string = vim.fn.input("Arguments: ")
+    return vim.split(args_string, " ")
+  end,
+  runInTerminal = false,
+}
+
+M.launch_in_terminal = {
+  name = "lldb: Launch (integratedTerminal)",
+  type = "lldb",
+  request = "launch",
+  program = function()
+    return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
+  end,
+  cwd = "${workspaceFolder}",
+  stopOnEntry = false,
+  args = function()
+    local args_string = vim.fn.input("Arguments: ")
+    return vim.split(args_string, " ")
+  end,
+  runInTerminal = true,
+}
+
 function M.setup()
   -- setup_widgets()
   dap.listeners.after.event_initialized["dapui_config"] = function()
@@ -61,30 +93,8 @@ function M.setup()
     command = lldb_executables[#lldb_executables],
   }
   dap.configurations.cpp = {
-    {
-      name = "lldb: Launch (console)",
-      type = "lldb",
-      request = "launch",
-      program = function()
-        return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
-      end,
-      cwd = "${workspaceFolder}",
-      stopOnEntry = false,
-      args = {},
-      runInTerminal = false,
-    },
-    {
-      name = "lldb: Launch (integratedTerminal)",
-      type = "lldb",
-      request = "launch",
-      program = function()
-        return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
-      end,
-      cwd = "${workspaceFolder}",
-      stopOnEntry = false,
-      args = {},
-      runInTerminal = true,
-    },
+    M.launch_console,
+    M.launch_in_terminal,
   }
 end
 

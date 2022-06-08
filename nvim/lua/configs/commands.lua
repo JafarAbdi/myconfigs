@@ -277,3 +277,7 @@ vim.api.nvim_create_user_command("DapAttach", function()
     end,
   }):find()
 end, {})
+
+vim.api.nvim_create_user_command("DapLaunch", function()
+  require("dap").run(require("configs.dap").launch_in_terminal)
+end, {})
