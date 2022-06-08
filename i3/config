@@ -199,6 +199,6 @@ mode "$mode_system" {
 bindsym $mod+Pause mode "$mode_system"
 bindsym Print exec gnome-screenshot
 
-bindsym $mod+n exec "st -g 100x25 -c fzfmenu -n fzfmenu -e sh -c 'cd ~/myconfigs/mynotes && ~/myconfigs/scripts/igr'"
+bindsym $mod+n exec TMUX=dummy-tmux st -g 120x35 -c fzfmenu -n fzfmenu -e fish --no-config --init-command "source ~/myconfigs/fish/config.fish && cd ~/myconfigs/mynotes && bind \ct fzfimg" &
 
 include ~/myconfigs/i3/i3_$MACHINE_NAME.conf

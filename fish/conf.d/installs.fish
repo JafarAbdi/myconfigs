@@ -219,6 +219,7 @@ function install-i3
   sudo apt install -y i3
   mkdir -p ~/.config/i3/
   ln -fs ~/myconfigs/i3_config ~/.config/i3/config
+  pipx install ueberzug
   cd -
 end
 
