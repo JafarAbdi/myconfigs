@@ -73,6 +73,11 @@ function gdb-attach
   end
 end
 
+function get-ip
+  echo "External IP:" (curl ifconfig.me -s)
+  echo "Internal IP:" (hostname -I)
+end
+
 function kill-all
   set -l pids (pid_picker)
   if test (count $pids) -ne 0
