@@ -432,6 +432,6 @@ function install-cmake-lsp
   git clone git@github.com:JafarAbdi/cmake-language-server.git
   cd cmake-language-server
   poetry build
-  pip install ./dist/cmake-language-server-0.1.3.tar.gz
+  pip3 install ./dist/cmake-language-server-0.1.3.tar.gz
   cd -
 end
