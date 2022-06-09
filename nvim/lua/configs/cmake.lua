@@ -32,7 +32,6 @@ require("cmake").setup({
   default_projects_path = tostring(Path:new(vim.loop.os_homedir(), "workspaces")),
   configure_args = {
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=1",
-    "-DCMAKE_TOOLCHAIN_FILE=~/workspaces/vcpkg/scripts/buildsystems/vcpkg.cmake",
   },
   quickfix_only_on_error = true,
   build_args = {}, -- Default arguments that will be always passed at cmake build step.

@@ -62,7 +62,6 @@ function get_path
     end
     if test -d $WORKSPACE_DIR/vcpkg
       set path $WORKSPACE_DIR/vcpkg:$path
-      alias cmake_vcpkg="cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_TOOLCHAIN_FILE=$WORKSPACE_DIR/vcpkg/scripts/buildsystems/vcpkg.cmake"
     end
     if test -d $WORKSPACE_DIR/ws_drake/install/bin
       set path $WORKSPACE_DIR/ws_drake/install/bin:$path
