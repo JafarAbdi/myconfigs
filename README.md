@@ -14,6 +14,7 @@
   - Printer driver
     - printer-driver-brlaser
 - core
+  - sudo apt install sshfs
   - github-setup
   - install-core
   - install-fish
