@@ -52,6 +52,7 @@ export DISPLAY=\"\${DISPLAY:-}\"" | sudo tee "$dir/etc/profile.d/x11.sh" > /dev/
 
 echo "\
 chown jafar:jafar /home/jafar
+apt update
 apt install -y lsb-release
 apt install -y sudo
 apt install -y locales

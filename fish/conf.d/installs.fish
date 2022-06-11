@@ -435,3 +435,17 @@ function install-cmake-lsp
   pip3 install ./dist/cmake-language-server-0.1.3.tar.gz
   cd -
 end
+
+function install-colcon
+  sudo apt install -y python3-colcon-common-extensions python3-vcstool python3-colcon-mixin
+  colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml
+  colcon mixin update default
+end
+
+function install-clang-build-analyzer
+  cd ~/.local/bin
+  install-from-github aras-p/ClangBuildAnalyzer ClangBuildAnalyzer-linux
+  mv ClangBuildAnalyzer-linux ClangBuildAnalyzer
+  chmod +x ClangBuildAnalyzer
+  cd -
+end
