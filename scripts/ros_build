@@ -51,30 +51,59 @@ def main():
 
     cmd = []
     env = os.environ.copy()
-    # TODO: Add check for ubuntu version and set mold the default linker >= 22.04 with clang???
-    # float(lsb_release.get_distro_information()['RELEASE']) >= 22.04
-    cmd += ["colcon", "build", "--symlink-install"]
-    if args.pkg:
-        cmd += ["--packages-select"]
-        cmd += args.pkg
-    if args.skip:
-        cmd += ["--packages-skip"]
-        cmd += args.skip
-    if args.jobs:
-        env["MAKEFLAGS"] = f"-j{args.jobs}"
-        cmd.append(f"--parallel-workers={args.jobs}")
-    cmd += [
-        "--mixin",
-        args.build_type,
-        "compile-commands",
-        "build-testing-" + ("on" if args.build_tests else "off"),
-        "ninja",
-        "lld",
-    ]
-    if args.verbose:
-        cmd += ["--event-handlers", "console_direct+"]
-    if args.force_linking:
-        cmd += ["--cmake-args", f'-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
+    ROS_VERSION = get_ros_version()
+    # colcon works with ROS1???
+    if ROS_VERSION == ROS_VERSIONS.UNKNOWN:
+        ROS_VERSION = input("Unknown version -- Select ros version (1/2):")
+        try:
+            ROS_VERSION = ROS_VERSIONS(int(ROS_VERSION))
+        except ValueError:
+            print("Unknown ROS version")
+            return
+    if ROS_VERSION == ROS_VERSIONS.ROS1:
+        cmd += ["catkin", "build"]
+        if args.pkg:
+            cmd += args.pkg
+            cmd += ["--no-deps"]
+        # TODO: Add skipping a package for catkin
+        if args.skip:
+            raise RuntimeError("Skipping a package isn't supported yet for catkin")
+        if args.jobs:
+            raise RuntimeError(
+                "Specifying the number of jobs isn't supported yet for catkin"
+            )
+        cmd += [
+            "--cmake-args",
+            f"-DCMAKE_BUILD_TYPE={args.build_type}",
+            f"-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+        ]
+        if args.force_linking:
+            cmd += [f'-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
+        cmd += ["-DCATKIN_ENABLE_TESTING=" + ("ON" if args.build_tests else "OFF")]
+
+    elif ROS_VERSION == ROS_VERSIONS.ROS2:
+        cmd += ["colcon", "build", "--symlink-install"]
+        if args.pkg:
+            cmd += ["--packages-select"]
+            cmd += args.pkg
+        if args.skip:
+            cmd += ["--packages-skip"]
+            cmd += args.skip
+        if args.jobs:
+            env["MAKEFLAGS"] = f"-j{args.jobs}"
+            cmd.append(f"--parallel-workers={args.jobs}")
+        cmd += [
+            "--mixin",
+            args.build_type,
+            "compile-commands",
+            "build-testing-" + ("on" if args.build_tests else "off"),
+            "ninja",
+            "lld",
+        ]
+        if args.verbose:
+            cmd += ["--event-handlers", "console_direct+"]
+        if args.force_linking:
+            cmd += ["--cmake-args", f'-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
     run_command(cmd, args.dry_run, env=env)
 
 

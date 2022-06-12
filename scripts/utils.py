@@ -94,3 +94,13 @@ def create_clangd_config(build_dir, output_dir=None):
         output_dir = Path(".")
     with (output_dir / Path(CLAND_FILE_PATH)).open("w", encoding="utf-8") as f:
         f.write(CLANGD_CONFIG_FILE.format(build_dir=build_dir))
+
+
+def get_ros_version():
+    current = pathlib.Path(".").resolve()
+    if (current / ".catkin_tools").is_dir():
+        return ROS_VERSIONS.ROS1
+    elif (current / "build/COLCON_IGNORE").exists():
+        return ROS_VERSIONS.ROS2
+    else:
+        return ROS_VERSIONS.UNKNOWN
