@@ -9,6 +9,9 @@ from typing import Optional
 import yaml
 
 
+ROS_INSTALLATION_DIR = Path("/opt/ros")
+
+
 class ROS_VERSIONS(Enum):
     ROS1 = 1
     ROS2 = 2
@@ -28,7 +31,11 @@ class ROS_VERSIONS(Enum):
 
 def get_workspaces_yaml():
     file_name = Path(os.getenv("HOME") + "/.workspaces.yaml")
-    return yaml.safe_load(open(file_name)) if file_name.exists() else {}
+    workspaces = yaml.safe_load(open(file_name)) if file_name.exists() else {}
+    if ROS_INSTALLATION_DIR.exists():
+        for ros_distro in os.listdir(ROS_INSTALLATION_DIR):
+            workspaces[ros_distro] = {"ros_distro": ros_distro}
+    return workspaces
 
 
 def get_workspaces(delimiter=None):
