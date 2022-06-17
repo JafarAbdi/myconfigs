@@ -90,12 +90,13 @@ return packer.startup({
     -- Debugger
     use("mfussenegger/nvim-dap")
     use("rcarriga/nvim-dap-ui")
-    use({
-      "theHamsta/nvim-dap-virtual-text",
-      config = function()
-        require("nvim-dap-virtual-text").setup()
-      end,
-    })
+    -- This isn't working properly
+    -- use({
+    --   "theHamsta/nvim-dap-virtual-text",
+    --   config = function()
+    --     require("nvim-dap-virtual-text").setup()
+    --   end,
+    -- })
 
     use({
       "mfussenegger/nvim-dap-python",

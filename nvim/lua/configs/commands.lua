@@ -42,6 +42,17 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
   end,
   group = cpp_group,
 })
+-- https://github.com/ggandor/lightspeed.nvim/issues/140
+vim.api.nvim_create_autocmd("User", {
+  pattern = "LightspeedSxLeave",
+  callback = function()
+    local ignore = vim.tbl_contains({ "terminal", "prompt" }, vim.opt.buftype:get())
+    if vim.opt.modifiable:get() and not ignore then
+      vim.cmd("normal! a")
+    end
+  end,
+  group = general_group,
+})
 vim.api.nvim_create_autocmd(
   "User",
   { pattern = "LanguageToolCheckDone", command = "LanguageToolSummary", group = general_group }
