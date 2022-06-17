@@ -63,9 +63,9 @@ function get_path
     if test -d $WORKSPACE_DIR/vcpkg
       set path $WORKSPACE_DIR/vcpkg:$path
     end
-    if test -d $WORKSPACE_DIR/ws_drake/install/bin
-      set path $WORKSPACE_DIR/ws_drake/install/bin:$path
-    end
+    # if test -d $WORKSPACE_DIR/ws_drake/install/bin
+    #   set path $WORKSPACE_DIR/ws_drake/install/bin:$path
+    # end
     if test -d $HOME/.cargo/bin
       export CARGO_NET_GIT_FETCH_WITH_CLI=true
       set path $HOME/.cargo/bin:$path
@@ -90,9 +90,9 @@ end
 
 function get_pythonpath
     set -l pythonpath $MYCONFIGS_DIR/scripts
-    if test -d $WORKSPACE_DIR/ws_drake/install/lib/python3.8/site-packages
-      set pythonpath $WORKSPACE_DIR/ws_drake/install/lib/python3.8/site-packages:$pythonpath
-    end
+    # if test -d $WORKSPACE_DIR/ws_drake/install/lib/python3.8/site-packages
+    #   set pythonpath $WORKSPACE_DIR/ws_drake/install/lib/python3.8/site-packages:$pythonpath
+    # end
     echo $pythonpath
 end
 

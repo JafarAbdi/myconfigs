@@ -121,14 +121,14 @@ set -xg FZF_DEFAULT_COMMAND
 
 switch "$FZF_COMMANDS"
   case '*/fd:*'
-    set FZF_ALT_C_COMMAND "fd --type directory $FD_OPTIONS"
-    set FZF_DEFAULT_COMMAND "fd --type f $FD_OPTIONS"
+    set FZF_ALT_C_COMMAND "fd --type directory $FD_OPTIONS . \$dir"
+    set FZF_DEFAULT_COMMAND "fd --type f $FD_OPTIONS . \$dir"
   case '*/fdfind:*'
-    set FZF_ALT_C_COMMAND "fdfind --type directory $FD_OPTIONS"
-    set FZF_DEFAULT_COMMAND "fdfind --type f $FD_OPTIONS"
+    set FZF_ALT_C_COMMAND "fdfind --type directory $FD_OPTIONS . \$dir"
+    set FZF_DEFAULT_COMMAND "fdfind --type f $FD_OPTIONS . \$dir"
   case '*/find:*'
-    set FZF_ALT_C_COMMAND "find . -type d $FIND_OPTIONS"
-    set FZF_DEFAULT_COMMAND "find . -type f $FIND_OPTIONS"
+    set FZF_ALT_C_COMMAND "find -L \$dir -type d $FIND_OPTIONS"
+    set FZF_DEFAULT_COMMAND "find -L \$dir -type f $FIND_OPTIONS"
 end
 
 function fzf_preview
