@@ -34,6 +34,7 @@ opt.path:append("**")
 opt.showmatch = true
 opt.title = true
 opt.wildmode = "list:longest,full"
+opt.relativenumber = true
 
 g.mapleader = " "
 g.maplocalleader = " "

@@ -31,14 +31,12 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
       return
     end
     P("Symlink detected redirecting to '" .. resolved_fname .. "' instead")
-    if vim.fn.exists(":Bwipeout") then
-      vim.schedule(function()
-        local cursor = vim.api.nvim_win_get_cursor(0)
-        vim.api.nvim_command("silent! Bwipeout")
-        vim.api.nvim_command("edit " .. resolved_fname)
-        vim.api.nvim_win_set_cursor(0, cursor)
-      end)
-    end
+    vim.schedule(function()
+      local cursor = vim.api.nvim_win_get_cursor(0)
+      require("bufdelete").bufwipeout(0, true)
+      vim.api.nvim_command("edit " .. resolved_fname)
+      vim.api.nvim_win_set_cursor(0, cursor)
+    end)
   end,
   group = cpp_group,
 })

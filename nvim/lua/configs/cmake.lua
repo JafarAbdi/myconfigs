@@ -33,7 +33,9 @@ require("cmake").setup({
   configure_args = {
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=1",
   },
-  quickfix_only_on_error = true,
+  quickfix = {
+    only_on_error = true, -- Open quickfix window only if target build failed.
+  },
   build_args = {}, -- Default arguments that will be always passed at cmake build step.
   -- quickfix_height = 10, -- Height of the opened quickfix.
   copy_compile_commands = false,

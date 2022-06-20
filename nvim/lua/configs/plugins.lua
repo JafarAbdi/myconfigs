@@ -129,7 +129,7 @@ return packer.startup({
     use("p00f/godbolt.nvim")
 
     -- Used to fix symlink files
-    use("moll/vim-bbye")
+    use("famiu/bufdelete.nvim")
     use({
       "tpope/vim-surround",
       config = function()
