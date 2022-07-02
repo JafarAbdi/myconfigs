@@ -3,6 +3,8 @@
 ## New system setup
 
 - Debian stable/unstable (sid)
+  - TP-Link wifi driver
+    - https://github.com/morrownr/88x2bu-20210702
   - Wifi drivers
     - Edit `/etc/apt/sources.list` to enable non-free packages `deb http://deb.debian.org/debian/ ... main non-free`
     - su -
