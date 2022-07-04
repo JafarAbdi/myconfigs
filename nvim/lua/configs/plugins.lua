@@ -82,7 +82,13 @@ return packer.startup({
     use("petertriho/cmp-git")
     use("kdheepak/cmp-latex-symbols")
     -- Movement
-    use("ggandor/lightspeed.nvim")
+    use({
+      "ggandor/leap.nvim",
+      config = function()
+        require("leap").setup({})
+        require("leap").set_default_keymaps()
+      end,
+    })
     -- Undo tree
     use({ "mbbill/undotree", cmd = "UndotreeToggle" })
     -- Go to files file.ex:row_number:col_number
