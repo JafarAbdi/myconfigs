@@ -7,6 +7,16 @@ function findreplace
   grep -lr -e "$argv[1]" * | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
 end
 
+function findreplacehidden
+  grep -lr -e "$argv[1]" | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
+end
+
+function findreplacehiddenexcludegit
+  for f in $(find . -not -path '*/\.git*')
+    grep --file=$f -lre "$argv[1]" | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
+  end
+end
+
 # get just the ip address
 function myip
     ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1'
