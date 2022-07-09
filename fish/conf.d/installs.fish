@@ -44,6 +44,7 @@ end
 
 function install-core
   sudo apt update
+  sudo apt install -y software-properties-common
   sudo apt install -y git-core
   sudo apt install -y ssh
   sudo apt install -y colordiff
@@ -376,13 +377,25 @@ function install-difftastic
   cd -
 end
 
+function install-docker-compose
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github docker/compose docker-compose-linux-x86_64
+  chmod +x docker-compose-linux-x86_64
+  mv docker-compose-linux-x86_64 ~/.local/bin/docker-compose
+  cd -
+end
+
 function install-docker
+  # Install lazydocker
+  curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash
   # Install Docker
   if ! command -q docker &> /dev/null
     sudo apt install -y curl
     curl -sSL https://get.docker.com/ | sh
     sudo usermod -aG docker (whoami)
   end
+  install-docker-compose
   # Test:
   sudo docker run hello-world
   # Nvidia

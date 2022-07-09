@@ -76,6 +76,9 @@ require("lspconfig").yamlls.setup({
           ".github/workflows/**.yml",
           ".github/workflows/**.yaml",
         },
+        ["https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json"] = {
+          "docker-compose.yml",
+        },
       },
     },
   },

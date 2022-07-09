@@ -1,4 +1,7 @@
 function fish_prompt
+  # if set -q VIRTUAL_ENV
+  #   echo -n -s (set_color brmagenta) "("(basename (echo $VIRTUAL_ENV))")" (set_color normal)
+  # end
   if set -q SSH_CONNECTION
     echo -n -s (set_color 85C1E9) "(ssh)" (set_color normal)
   end
