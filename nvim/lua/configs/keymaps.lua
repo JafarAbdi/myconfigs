@@ -57,15 +57,7 @@ vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, { silent = true })
 vim.keymap.set("n", "<leader>dp", vim.diagnostic.goto_prev, { silent = true })
 vim.keymap.set("n", "<leader>dn", vim.diagnostic.goto_next, { silent = true })
 vim.keymap.set("n", "<leader>dq", function()
-  require("telescope.builtin").diagnostics(vim.tbl_deep_extend(
-    "error",
-    { bufnr = 0 },
-    require("telescope.themes").get_dropdown({
-      layout_config = {
-        width = 0.8,
-      },
-    })
-  ))
+  require("telescope.builtin").diagnostics(vim.tbl_deep_extend("error", { bufnr = 0 }, {}))
 end, { silent = true })
 
 -- <c-k> is my expansion key
