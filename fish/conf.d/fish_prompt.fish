@@ -2,8 +2,12 @@ function fish_prompt
   # if set -q VIRTUAL_ENV
   #   echo -n -s (set_color brmagenta) "("(basename (echo $VIRTUAL_ENV))")" (set_color normal)
   # end
+  if test -f /run/.toolboxenv
+    set -l TOOLBOX_NAME (cat /run/.containerenv | grep -oP "(?<=name=\")[^\";]+")
+    echo -n -s (set_color yellow) "($TOOLBOX_NAME)" (set_color normal)
+  end
   if set -q SSH_CONNECTION
-    echo -n -s (set_color 85C1E9) "(ssh)" (set_color normal)
+    echo -n -s (set_color 877960 --italics) "(ssh)" (set_color normal)
   end
   if test -e /.dockerenv
     echo -n -s "(🐳)"
