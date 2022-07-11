@@ -140,6 +140,7 @@ alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmake 'cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias bat 'batcat'
 alias notes 'SHELL=sh zk edit -i'
+alias notes_tag 'SHELL=sh zk edit -i -t'
 
 export ZK_NOTEBOOK_DIR=$MYCONFIGS_DIR/mynotes
 

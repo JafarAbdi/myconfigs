@@ -26,7 +26,7 @@ tools:
       F: E
 languages:
   python:
-    # - <<: *python-isort
+    - <<: *python-isort
     - <<: *python-black
     - <<: *python-pylint
     - <<: *python-mypy
