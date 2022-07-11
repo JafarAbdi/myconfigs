@@ -134,6 +134,7 @@ return packer.startup({
     })
     use("p00f/godbolt.nvim")
 
+    use("tpope/vim-sleuth")
     -- Used to fix symlink files
     use("famiu/bufdelete.nvim")
     use({
