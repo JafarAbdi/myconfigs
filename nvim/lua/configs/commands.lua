@@ -26,7 +26,7 @@ vim.api.nvim_create_autocmd("BufWritePost", {
 vim.api.nvim_create_autocmd("BufWinEnter", {
   callback = function()
     local fname = vim.fn.expand("<afile>")
-    local resolved_fname = vim.fn.fnameescape(vim.fn.resolve(fname))
+    local resolved_fname = vim.fn.resolve(fname)
     if fname == resolved_fname or (vim.bo.filetype ~= "cpp" and vim.bo.filetype ~= "c") then
       return
     end
