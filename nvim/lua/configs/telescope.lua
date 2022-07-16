@@ -1,23 +1,23 @@
 -- Telescope
-require("telescope").setup({
-  defaults = require("telescope.themes").get_dropdown({
-    layout_strategy = "vertical",
-    layout_config = {
-      prompt_position = "bottom",
-      vertical = {
-        width = 0.8,
-        height = 100,
-      },
+local dropdown_configs = {
+  layout_strategy = "vertical",
+  layout_config = {
+    prompt_position = "bottom",
+    vertical = {
+      width = 0.8,
+      height = 100,
     },
-  }),
+  },
+}
+
+require("telescope").setup({
+  defaults = require("telescope.themes").get_dropdown(dropdown_configs),
 })
 
 require("telescope").setup({
   extensions = {
     ["ui-select"] = {
-      require("telescope.themes").get_dropdown({
-        -- even more opts
-      }),
+      require("telescope.themes").get_dropdown(dropdown_configs),
     },
   },
   defaults = {
