@@ -63,9 +63,9 @@ function get_path
     if test -d $WORKSPACE_DIR/vcpkg
       set path $WORKSPACE_DIR/vcpkg:$path
     end
-    # if test -d $WORKSPACE_DIR/ws_drake/install/bin
-    #   set path $WORKSPACE_DIR/ws_drake/install/bin:$path
-    # end
+    if test -d /opt/drake/bin
+      set path /opt/drake/bin:$path
+    end
     if test -d $HOME/.cargo/bin
       export CARGO_NET_GIT_FETCH_WITH_CLI=true
       set path $HOME/.cargo/bin:$path
@@ -90,6 +90,9 @@ end
 
 function get_pythonpath
     set -l pythonpath $MYCONFIGS_DIR/scripts
+    if test -d /opt/drake/lib
+      set pythonpath "/opt/drake/lib/python"(python3 -c 'import sys; print("{0}.{1}".format(*sys.version_info))')"/site-packages"
+    end
     # if test -d $WORKSPACE_DIR/ws_drake/install/lib/python3.8/site-packages
     #   set pythonpath $WORKSPACE_DIR/ws_drake/install/lib/python3.8/site-packages:$pythonpath
     # end
@@ -98,6 +101,9 @@ end
 
 function get_ld_library_path
     set -l ld_library_path
+    if test -d /opt/drake/lib
+      set ld_library_path /opt/drake/lib
+    end
     if test -d $WORKSPACE_DIR/easy_profiler
       set ld_library_path $WORKSPACE_DIR/easy_profiler/install/lib
     end

@@ -44,6 +44,7 @@ end
 
 function install-core
   sudo apt update
+  sudo apt install -y python3-venv
   sudo apt install -y software-properties-common
   sudo apt install -y git-core
   sudo apt install -y ssh
@@ -461,4 +462,20 @@ function install-clang-build-analyzer
   mv ClangBuildAnalyzer-linux ClangBuildAnalyzer
   chmod +x ClangBuildAnalyzer
   cd -
+end
+
+function install-drake
+  # set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  # cd $TMP_DIR
+  # install-from-github RobotLocomotion/drake "drake.*focal.tar.gz"
+  # open https://drake.mit.edu/from_binary.html#stable-releases
+  sudo apt-get update
+  sudo apt-get install --no-install-recommends -y \
+    ca-certificates gnupg lsb-release wget
+  wget -qO- https://drake-apt.csail.mit.edu/drake.asc | gpg --dearmor - \
+    | sudo tee /etc/apt/trusted.gpg.d/drake.gpg >/dev/null
+  echo "deb [arch=amd64] https://drake-apt.csail.mit.edu/$(lsb_release -cs) $(lsb_release -cs) main" \
+    | sudo tee /etc/apt/sources.list.d/drake.list >/dev/null
+  sudo apt-get update
+  sudo apt-get install --no-install-recommends drake-dev
 end
