@@ -411,6 +411,7 @@ function install-docker
   sudo apt-get install -y nvidia-docker2
   sudo systemctl restart docker
   wget https://raw.githubusercontent.com/docker/cli/master/contrib/completion/fish/docker.fish -O ~/.config/fish/completions/docker.fish
+  wget https://raw.githubusercontent.com/docker/compose/master/contrib/completion/fish/docker-compose.fish -O ~/.config/fish/completions/docker-compose.fish
 end
 
 function install-tmux
