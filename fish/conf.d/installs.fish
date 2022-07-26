@@ -480,3 +480,9 @@ function install-drake
   sudo apt-get update
   sudo apt-get install --no-install-recommends drake-dev
 end
+
+function install-markdown-lsp
+  install-from-github artempyanykh/marksman marksman-linux
+  chmod +x marksman-linux
+  mv marksman-linux ~/.local/bin/marksman
+end
