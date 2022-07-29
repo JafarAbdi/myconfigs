@@ -14,6 +14,7 @@ cmp.setup.filetype({
   "dapui_scopes",
   "dapui_controls",
   "dapui_breakpoints",
+  "neotest-summary",
 }, {})
 
 cmp.setup.filetype("gitcommit", {

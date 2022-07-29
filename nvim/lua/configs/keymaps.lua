@@ -152,4 +152,34 @@ return {
     vim.keymap.set("n", "<leader>ws", require("telescope.builtin").lsp_workspace_symbols, opts)
     vim.keymap.set("n", "<leader>r", require("telescope.builtin").lsp_references, opts)
   end,
+  neotest_keymaps = function()
+    local neotest = require("neotest")
+    local opts = { silent = true }
+    -- TODO: Debugging related keymaps
+    vim.keymap.set("n", "<leader>nc", neotest.run.run, opts)
+    vim.keymap.set("n", "<leader>nr", function()
+      neotest.run.run(vim.fn.expand("%"))
+    end, opts)
+    -- TODO: Using this with high frequency is causing the async loop lua/neotest/consumers/summary/init.lua:77 to die with (cannot resume dead coroutine)
+    -- vim.keymap.set("n", "<leader>na", function()
+    --   for _, adapter_id in ipairs(neotest.run.adapters()) do
+    --     neotest.run.run({ suite = true, adapter = adapter_id })
+    --   end
+    -- end, opts)
+    vim.keymap.set("n", "<leader>nR", neotest.run.run_last, opts)
+    vim.keymap.set("n", "<F4>", neotest.summary.toggle, opts)
+    vim.keymap.set("n", "<leader>nm", neotest.summary.run_marked, opts)
+    vim.keymap.set("n", "<leader>no", function()
+      neotest.output.open({ enter = true })
+    end, opts)
+    vim.keymap.set("n", "<leader>nO", function()
+      neotest.output.open({ enter = true, short = true })
+    end, opts)
+    vim.keymap.set("n", "]t", function()
+      neotest.jump.next({ status = "failed" })
+    end, opts)
+    vim.keymap.set("n", "[t", function()
+      neotest.jump.prev({ status = "failed" })
+    end, opts)
+  end,
 }

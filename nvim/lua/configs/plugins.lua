@@ -153,6 +153,16 @@ return packer.startup({
 
     use("mickael-menu/zk-nvim")
 
+    use({
+      "nvim-neotest/neotest",
+      requires = {
+        "nvim-lua/plenary.nvim",
+        "nvim-treesitter/nvim-treesitter",
+        "antoinemadec/FixCursorHold.nvim",
+        "nvim-neotest/neotest-python",
+      },
+    })
+
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
       packer.compile()
     end
