@@ -113,7 +113,7 @@ return packer.startup({
     -- Rust
     use("simrat39/rust-tools.nvim")
     -- CMake
-    use("Shatur/neovim-cmake")
+    use({ "JafarAbdi/neovim-cmake", branch = "pr-auto_select_target" })
     -- C++
     use("p00f/clangd_extensions.nvim")
     use({
@@ -160,6 +160,7 @@ return packer.startup({
         "nvim-treesitter/nvim-treesitter",
         "antoinemadec/FixCursorHold.nvim",
         "nvim-neotest/neotest-python",
+        "JafarAbdi/neotest-gtest",
       },
     })
 
