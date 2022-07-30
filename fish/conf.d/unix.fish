@@ -99,6 +99,10 @@ function kill-all
     kill -9 $pids
   end
 end
+
+function restart-zerotier-one
+  sudo systemctl stop zerotier-one.service && sudo systemctl start zerotier-one.service
+end
 # TODO: Port to fish
 # repeat()
 # {
