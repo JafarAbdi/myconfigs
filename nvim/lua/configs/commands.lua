@@ -100,9 +100,6 @@ vim.api.nvim_create_autocmd("FileType", {
   pattern = { "cpp", "c" },
   group = cpp_group,
   callback = function()
-    vim.keymap.set("n", "<leader>rt", function()
-      _G.RunGtest({ at_cursor = true })
-    end)
     vim.keymap.set("n", "<leader>cd", function()
       local options = vim.fn.getcompletion("Clangd", "cmdline")
       vim.ui.select(options, { prompt = "Select Command: " }, function(command)
@@ -177,13 +174,6 @@ vim.api.nvim_create_user_command(
 
 vim.api.nvim_create_user_command("CleanWhitespaces", function()
   _G.CleanWhitespaces()
-end, {})
-
-vim.api.nvim_create_user_command("RunGtest", function()
-  _G.RunGtest({})
-end, {})
-vim.api.nvim_create_user_command("DebugGtest", function()
-  _G.RunGtest({ at_cursor = true, debug = true })
 end, {})
 
 vim.api.nvim_create_user_command("LuaSnipEdit", function()

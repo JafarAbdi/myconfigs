@@ -3,7 +3,7 @@ local terminal_buf
 -- Maybe replace with something similar to https://github.com/bobrown101/minimal-nnn.nvim ?
 return function(cmd, args, opts)
   if cmd == "" then
-    vim.notify("Could not run commands '"..cmd.."'")
+    vim.notify("Could not run commands '" .. cmd .. "'")
     return
   end
   local cur_buf = vim.api.nvim_get_current_buf()
