@@ -133,7 +133,8 @@ vim.api.nvim_create_autocmd("FileType", {
         end
         -- Why it only work with defer? vim.schedule?
         vim.defer_fn(function()
-          local ok, error = pcall(vim.cmd, "CMake " .. command)
+          require("configs.cmake").cmake_project(vim.fn.expand("%:p"))
+          local ok, error = pcall(require("cmake")[command])
           if not ok then
             vim.notify(error, vim.log.levels.ERROR)
           end

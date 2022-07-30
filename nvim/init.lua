@@ -10,7 +10,6 @@ endif
 require("configs.options")
 require("configs.plugins")
 -- Settings
-require("configs.cmake")
 require("configs.cmp")
 require("configs.colorscheme")
 require("configs.commands")
