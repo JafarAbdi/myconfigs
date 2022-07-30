@@ -161,37 +161,6 @@ function _G.RunGtest(opts)
   end
 end
 
-function _G.ExpandMacro()
-  local Path = require("plenary.path")
-  require("telescope.builtin").lsp_code_actions({
-    execute_action = function(action, offset_encoding)
-      if not vim.startswith(action.title, "Expand macro ") then
-        vim.notify("Not an Expand macro code action", vim.log.levels.ERROR)
-        return
-      end
-      -- TODO: Should remove the temp file?
-      local temp_file = Path:new(vim.fn.tempname() .. ".cpp")
-      local original_file = vim.split(action.command.arguments[1].file, "file://")[2]
-      Path:new(original_file):copy({ destination = temp_file.filename })
-      action.command.arguments[1].file = "file://" .. temp_file.filename
-      if action.edit or type(action.command) == "table" then
-        if action.edit then
-          vim.lsp.util.apply_workspace_edit(action.edit, offset_encoding)
-        end
-        if type(action.command) == "table" then
-          vim.lsp.buf.execute_command(action.command)
-        end
-      else
-        vim.lsp.buf.execute_command(action)
-      end
-      local diff = vim.fn.system(
-        string.format("git --no-pager diff %s %s", original_file.filename, temp_file.filename)
-      )
-      print(diff)
-    end,
-  })
-end
-
 function _G.CleanWhitespaces()
   local current_view = vim.fn.winsaveview()
   vim.cmd([[keeppatterns %s/\s\+$//e]])
