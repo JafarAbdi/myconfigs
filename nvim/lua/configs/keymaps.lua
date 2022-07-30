@@ -100,13 +100,8 @@ vim.keymap.set("n", "<A-8>", "8gt")
 vim.keymap.set("n", "<A-9>", "9gt")
 
 vim.keymap.set("n", "<leader><leader>x", function()
-  -- TODO: Adding make support to lua
   vim.cmd([[w]])
-  if vim.bo.filetype == "lua" then
-    vim.cmd([[:luafile %]])
-  else
-    vim.cmd([[Make]])
-  end
+  vim.cmd([[Make]])
 end)
 
 vim.keymap.set("", "<S-C-UP>", ":resize -1<CR>", { silent = true })

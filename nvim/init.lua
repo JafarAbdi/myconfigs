@@ -1,11 +1,11 @@
-vim.cmd([[
-if exists('$NVIMRUNNING')
-    "can't run nvim inside terminal emulator
-    qall!
-else
-    let $NVIMRUNNING = 1
-endif
-]])
+-- vim.cmd([[
+-- if exists('$NVIMRUNNING')
+--     "can't run nvim inside terminal emulator
+--     qall!
+-- else
+--     let $NVIMRUNNING = 1
+-- endif
+-- ]])
 
 require("configs.options")
 require("configs.plugins")
