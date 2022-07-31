@@ -39,7 +39,7 @@ return function(cmd, args, opts)
     end,
   })
 
-  jobid = vim.fn.jobstart(vim.list_extend({ cmd }, args), {
+  jobid = vim.fn.jobstart({ "bash", "-c", cmd .. " " .. vim.fn.join(args, " ") .. " 2>&1" }, {
     cwd = opts.cwd,
     pty = true,
     on_stderr = function(_, data)
