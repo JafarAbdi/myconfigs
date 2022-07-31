@@ -78,6 +78,7 @@ return packer.startup({
     use("hrsh7th/cmp-cmdline")
     use("hrsh7th/cmp-nvim-lua")
     use("hrsh7th/cmp-nvim-lsp-signature-help")
+    use("lukas-reineke/cmp-under-comparator")
     use({ "mtoohey31/cmp-fish", ft = "fish" })
     use("kdheepak/cmp-latex-symbols")
     -- Movement

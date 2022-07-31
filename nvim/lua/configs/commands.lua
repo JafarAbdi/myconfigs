@@ -172,17 +172,19 @@ vim.api.nvim_create_user_command("Make", function(params)
   local args = vim.split(cmd, " ")
 
   if vim.bo.filetype == "cpp" then
-    return utils.run(args[1], vim.list_slice(args, 2), { cwd = vim.fn.expand("%:p:h") }):after_success(
-      function()
-        vim.schedule(function()
-          run_in_terminal(
-            vim.fn.expand("%:p:r") .. ".out",
-            params.fargs,
-            { cwd = vim.fn.expand("%:p:h"), focus_terminal = true }
-          )
-        end)
-      end
-    )
+    return utils.run(
+      args[1],
+      vim.list_slice(args, 2),
+      { cwd = vim.fn.expand("%:p:h"), force_quickfix = false }
+    ):after_success(function()
+      vim.schedule(function()
+        run_in_terminal(
+          vim.fn.expand("%:p:r") .. ".out",
+          params.fargs,
+          { cwd = vim.fn.expand("%:p:h"), focus_terminal = true }
+        )
+      end)
+    end)
   end
   return run_in_terminal(args[1], vim.list_slice(args, 2), { cwd = vim.fn.expand("%:p:h") })
 end, { nargs = "*" })

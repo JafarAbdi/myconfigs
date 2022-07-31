@@ -10,10 +10,8 @@ end
 
 local get_cmake_configs = function(file_path)
   return {
-    cmake_executable = "cmake",
     parameters_file = ".neovim.json",
     build_dir = get_build_dir(file_path),
-    -- samples_path = tostring(script_path:parent():parent():parent() / 'samples'), -- Folder with samples. `samples` folder from the plugin directory is used by default.
     default_projects_path = tostring(Path:new(vim.loop.os_homedir(), "workspaces")),
     configure_args = {
       "-DCMAKE_EXPORT_COMPILE_COMMANDS=1",
@@ -22,7 +20,6 @@ local get_cmake_configs = function(file_path)
       only_on_error = true, -- Open quickfix window only if target build failed.
     },
     build_args = {}, -- Default arguments that will be always passed at cmake build step.
-    -- quickfix_height = 10, -- Height of the opened quickfix.
     copy_compile_commands = false,
     dap_configuration = {
       type = "lldb",

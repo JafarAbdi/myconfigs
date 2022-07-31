@@ -113,8 +113,23 @@ cmp.setup({
     comparators = {
       compare.offset,
       compare.exact,
-      require("clangd_extensions.cmp_scores"),
-      -- compare.score,
+      compare.score,
+      -- https://github.com/p00f/clangd_extensions.nvim/blob/main/lua/clangd_extensions/cmp_scores.lua
+      function(entry1, entry2)
+        local diff
+        if entry1.completion_item.score and entry2.completion_item.score then
+          diff = (entry2.completion_item.score * entry2.score)
+            - (entry1.completion_item.score * entry1.score)
+        else
+          diff = entry2.score - entry1.score
+        end
+        if diff < 0 then
+          return true
+        elseif diff > 0 then
+          return false
+        end
+      end,
+      require("cmp-under-comparator").under,
       compare.recently_used,
       compare.kind,
       compare.sort_text,
