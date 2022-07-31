@@ -100,21 +100,7 @@ vim.api.nvim_create_autocmd("FileType", {
   pattern = { "cpp", "c" },
   group = cpp_group,
   callback = function()
-    vim.keymap.set("n", "<leader>cd", function()
-      local options = vim.fn.getcompletion("Clangd", "cmdline")
-      vim.ui.select(options, { prompt = "Select Command: " }, function(command)
-        if not command then
-          return
-        end
-        -- Why it only work with defer?
-        vim.defer_fn(function()
-          local ok, error = pcall(vim.cmd, command)
-          if not ok then
-            vim.notify(error, vim.log.levels.ERROR)
-          end
-        end, 10)
-      end)
-    end)
+    require("configs.keymaps").clangd_keymap()
   end,
 })
 
@@ -122,22 +108,7 @@ vim.api.nvim_create_autocmd("FileType", {
   pattern = { "cpp", "c", "cmake" },
   group = cpp_group,
   callback = function()
-    vim.keymap.set("n", "<leader>cm", function()
-      local options = vim.fn.getcompletion("CMake ", "cmdline")
-      vim.ui.select(options, { prompt = "Select Command: " }, function(command)
-        if not command then
-          return
-        end
-        -- Why it only work with defer? vim.schedule?
-        vim.defer_fn(function()
-          require("configs.cmake").cmake_project(vim.fn.expand("%:p"))
-          local ok, error = pcall(require("cmake")[command])
-          if not ok then
-            vim.notify(error, vim.log.levels.ERROR)
-          end
-        end, 10)
-      end)
-    end)
+    require("configs.keymaps").cmake_keymap()
   end,
 })
 

@@ -6,8 +6,6 @@ local MAX_LABEL_WIDTH = 100
 local cmp = require("cmp")
 local compare = require("cmp.config.compare")
 
-require("cmp_git").setup()
-
 cmp.setup.filetype({
   "dapui_hover",
   "dapui_stacks",
@@ -19,8 +17,6 @@ cmp.setup.filetype({
 
 cmp.setup.filetype("gitcommit", {
   sources = cmp.config.sources({
-    { name = "cmp_git" },
-  }, {
     { name = "buffer" },
   }),
 })
@@ -68,7 +64,6 @@ cmp.setup({
       end
     end, { "i", "s" }),
   }),
-  --See https://github.com/topics/nvim-cmp
   sources = {
     { name = "nvim_lsp_signature_help", priority = 100 },
     { name = "nvim_lsp" },
