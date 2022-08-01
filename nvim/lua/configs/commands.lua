@@ -143,6 +143,9 @@ vim.api.nvim_create_user_command(
   { nargs = 1, complete = "dir" }
 )
 
+-- TODO: This's not ready yet
+-- vim.cmd([[ command! ExpandMacro execute "lua ExpandMacro()" ]])
+
 vim.api.nvim_create_user_command("CleanWhitespaces", function()
   _G.CleanWhitespaces()
 end, {})

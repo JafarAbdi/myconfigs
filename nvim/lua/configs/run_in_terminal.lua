@@ -1,6 +1,5 @@
 local terminal_buf
 
--- Maybe replace with something similar to https://github.com/bobrown101/minimal-nnn.nvim ?
 return function(cmd, args, opts)
   if cmd == "" then
     vim.notify("Could not run commands '" .. cmd .. "'")
@@ -42,9 +41,6 @@ return function(cmd, args, opts)
   jobid = vim.fn.jobstart({ "bash", "-c", cmd .. " " .. vim.fn.join(args, " ") .. " 2>&1" }, {
     cwd = opts.cwd,
     pty = true,
-    on_stderr = function(_, data)
-      vim.api.nvim_chan_send(chan, table.concat(data, "\n"))
-    end,
     on_stdout = function(_, data)
       vim.api.nvim_chan_send(chan, table.concat(data, "\n"))
     end,
