@@ -1,9 +1,9 @@
 local handlers = require("configs.lsp.handlers")
 local lspconfig = require("lspconfig")
 
-local cmd = { "jedi-language-server", "-vv", "--log-file", "/tmp/logging.txt" }
+-- local cmd = { "jedi-language-server", "-vv", "--log-file", "/tmp/logging.txt" }
 lspconfig.jedi_language_server.setup({
-  cmd = cmd,
+  -- cmd = cmd,
   on_attach = handlers.on_attach,
   capabilities = handlers.capabilities,
   init_options = {
