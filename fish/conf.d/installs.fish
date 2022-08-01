@@ -269,13 +269,13 @@ end
 
 function install-python-lsp
   pip3 install "python-lsp-server[all]"
+  pip3 install -U jedi-language-server
   pip3 install python-lsp-black
   pip3 install pylsp-mypy
   pip3 install pyls-isort
-  pip install pylsp-rope
+  pip3 install pylsp-rope
 
   python3 -m pip install --user --upgrade pynvim
-  pip3 install -U jedi-language-server
   pip3 install -U debugpy
 end
 
