@@ -11,9 +11,6 @@ lspconfig.jedi_language_server.setup({
       extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
     },
   },
-  root_dir = function()
-    return "/home/jafar/asd"
-  end,
 })
 
 -- Add scripts to generate stubs
