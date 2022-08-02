@@ -12,6 +12,7 @@ highlight SpellBad guifg=red gui=underline
 
 local general_group = vim.api.nvim_create_augroup("GeneralCommands", {})
 local cpp_group = vim.api.nvim_create_augroup("CppCommands", {})
+local python_group = vim.api.nvim_create_augroup("PyCommands", {})
 local templates_group = vim.api.nvim_create_augroup("TemplatesGroup", {})
 
 vim.api.nvim_create_autocmd("BufWritePost", {
@@ -243,3 +244,11 @@ end, {})
 vim.api.nvim_create_user_command("DapLaunch", function()
   require("dap").run(require("configs.dap").launch_in_terminal)
 end, {})
+
+vim.api.nvim_create_user_command("GenerateAllStubs", function()
+  require("configs.functions").generate_all_python_stubs()
+end, {})
+
+vim.api.nvim_create_user_command("GenerateStubs", function(params)
+  require("configs.functions").generate_python_stubs(params.fargs)
+end, { nargs = "*" })

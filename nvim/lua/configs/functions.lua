@@ -1,3 +1,8 @@
+local Path = require("plenary.path")
+local Job = require("plenary.job")
+
+local M = {}
+
 local ts_query = require("vim.treesitter.query")
 -- local ts_utils = require("nvim-treesitter.ts_utils")
 -- local ts_locals = require("nvim-treesitter.locals")
@@ -99,3 +104,118 @@ P = function(v)
   print(vim.inspect(v))
   return v
 end
+
+M.generate_all_python_stubs = function()
+  local job = Job
+    :new({
+      command = "python3",
+      args = {
+        "-c",
+        [[
+import os
+import pkg_resources
+for pkg in pkg_resources.working_set:
+    # TODO: Pass as parameter????
+    if pkg.location.startswith(os.environ["HOME"] + "/workspaces") or pkg.location.startswith("/opt"):
+        print(pkg.project_name.replace("-", "_"))
+    ]],
+      },
+    })
+    :after(function(job, code)
+      if code == 0 then
+        vim.schedule(function()
+          M.generate_python_stubs(job:result())
+        end)
+      else
+        vim.notify(
+          "Failed to list python packages: " .. vim.fn.join(job:stderr_result(), "\n"),
+          vim.log.levels.ERROR
+        )
+      end
+    end)
+  job:start()
+end
+
+M.generate_python_stubs = function(missing_packages)
+  if not vim.fn.executable("stubgen") then
+    vim.notify("stubgen executable doesn't exists", vim.log.levels.WARN)
+    return
+  end
+
+  local stubs_dir = Path.new(vim.env.HOME, ".cache", "python-stubs", "stubs")
+
+  if #missing_packages == 0 then
+    if vim.opt.filetype:get() ~= "python" then
+      vim.notify("generate_python_stubs only works with python", vim.log.levels.ERROR)
+      return
+    end
+
+    local diagnostics = vim.diagnostic.get(0)
+
+    missing_packages = {}
+    for _, diagnostic in ipairs(diagnostics) do
+      local package = diagnostic.message:match(
+        'Cannot find implementation or library stub for module named "(.+)"'
+      ) or diagnostic.message:match(
+        'Skipping analyzing "(.+)": module is installed, but missing library stubs or py.typed marker'
+      )
+      if package then
+        local package_name = vim.split(package, ".", { plain = true })[1]
+        missing_packages[#missing_packages + 1] = package_name
+      end
+    end
+
+    if #missing_packages == 0 then
+      vim.notify("No missing stubs.")
+      return
+    end
+  end
+
+  missing_packages = vim.fn.uniq(vim.fn.sort(missing_packages))
+
+  if not stubs_dir:exists() then
+    if not stubs_dir:mkdir() then
+      vim.notify(
+        "Failed to create stubs directory '" .. stubs_dir.filename .. "'",
+        vim.log.levels.ERROR
+      )
+    end
+  end
+
+  local job = Job
+    :new({
+      command = "stubgen",
+      args = vim.tbl_flatten({
+        vim.tbl_map(function(package_name)
+          return { "-p", package_name }
+        end, missing_packages),
+        "-o",
+        stubs_dir.filename,
+      }),
+    })
+    :after(function(job, signal)
+      for _, package in ipairs(missing_packages) do
+        stubs_dir:joinpath(package):copy({
+          destination = stubs_dir:parent():joinpath(package .. "-stubs").filename,
+          recursive = true,
+        })
+      end
+      vim.schedule(function()
+        vim.api.nvim_command("silent! w")
+        -- TODO: Handle 'PKG_NAME: Failed to import, skipping'
+        -- It return success so use job:result() to access the output
+        -- Maybe use tbl_filter and output the names????
+        if signal == 0 then
+          vim.notify("Successfully generated stubs.")
+        else
+          vim.notify(
+            "Failed to run stubgen: " .. vim.fn.join(job:stderr_result(), "\n"),
+            vim.log.levels.ERROR
+          )
+        end
+      end)
+    end)
+  job:start()
+end
+
+return M
