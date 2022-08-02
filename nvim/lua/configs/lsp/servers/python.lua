@@ -11,6 +11,15 @@ lspconfig.jedi_language_server.setup({
       extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
     },
   },
+  root_dir = function(dir)
+    return lspconfig.util.root_pattern(
+      "pyproject.toml",
+      "setup.py",
+      "setup.cfg",
+      "requirements.txt",
+      "Pipfile"
+    )(dir) or vim.loop.cwd()
+  end,
 })
 
 -- Add scripts to generate stubs
