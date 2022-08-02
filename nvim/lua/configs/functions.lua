@@ -158,7 +158,7 @@ M.generate_python_stubs = function(missing_packages)
         'Cannot find implementation or library stub for module named "(.+)"'
       ) or diagnostic.message:match(
         'Skipping analyzing "(.+)": module is installed, but missing library stubs or py.typed marker'
-      )
+      ) or diagnostic.message:match('Library stubs not installed for "(.+)".+')
       if package then
         local package_name = vim.split(package, ".", { plain = true })[1]
         missing_packages[#missing_packages + 1] = package_name
@@ -174,7 +174,7 @@ M.generate_python_stubs = function(missing_packages)
   missing_packages = vim.fn.uniq(vim.fn.sort(missing_packages))
 
   if not stubs_dir:exists() then
-    if not stubs_dir:mkdir() then
+    if not stubs_dir:mkdir({ parents = true }) then
       vim.notify(
         "Failed to create stubs directory '" .. stubs_dir.filename .. "'",
         vim.log.levels.ERROR
