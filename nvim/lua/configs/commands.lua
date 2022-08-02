@@ -12,7 +12,6 @@ highlight SpellBad guifg=red gui=underline
 
 local general_group = vim.api.nvim_create_augroup("GeneralCommands", {})
 local cpp_group = vim.api.nvim_create_augroup("CppCommands", {})
-local python_group = vim.api.nvim_create_augroup("PyCommands", {})
 local templates_group = vim.api.nvim_create_augroup("TemplatesGroup", {})
 
 vim.api.nvim_create_autocmd("BufWritePost", {
