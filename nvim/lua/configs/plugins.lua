@@ -96,13 +96,12 @@ return packer.startup({
     -- Debugger
     use("mfussenegger/nvim-dap")
     use("rcarriga/nvim-dap-ui")
-    -- This isn't working properly
-    -- use({
-    --   "theHamsta/nvim-dap-virtual-text",
-    --   config = function()
-    --     require("nvim-dap-virtual-text").setup()
-    --   end,
-    -- })
+    use({
+      "theHamsta/nvim-dap-virtual-text",
+      config = function()
+        require("nvim-dap-virtual-text").setup()
+      end,
+    })
 
     use({
       "mfussenegger/nvim-dap-python",
@@ -116,22 +115,23 @@ return packer.startup({
     use({ "JafarAbdi/neovim-cmake", branch = "pr-auto_select_target" })
     -- C++
     use("p00f/clangd_extensions.nvim")
-    use({
-      "theHamsta/nvim-semantic-tokens",
-      config = function()
-        if pcall(require, "vim.lsp.semantic_tokens") then
-          require("nvim-semantic-tokens").setup({
-            preset = "default",
-            -- highlighters is a list of modules following the interface of nvim-semantic-tokens.table-highlighter or
-            -- function with the signature: highlight_token(ctx, token, highlight) where
-            --        ctx (as defined in :h lsp-handler)
-            --        token  (as defined in :h vim.lsp.semantic_tokens.on_full())
-            --        highlight (a helper function that you can call (also multiple times) with the determined highlight group(s) as the only parameter)
-            highlighters = { require("nvim-semantic-tokens.table-highlighter") },
-          })
-        end
-      end,
-    })
+    -- TODO: Uncomment once https://github.com/neovim/neovim/pull/15723 is merged
+    -- use({
+    --   "theHamsta/nvim-semantic-tokens",
+    --   config = function()
+    --     if pcall(require, "vim.lsp.semantic_tokens") then
+    --       require("nvim-semantic-tokens").setup({
+    --         preset = "default",
+    --         -- highlighters is a list of modules following the interface of nvim-semantic-tokens.table-highlighter or
+    --         -- function with the signature: highlight_token(ctx, token, highlight) where
+    --         --        ctx (as defined in :h lsp-handler)
+    --         --        token  (as defined in :h vim.lsp.semantic_tokens.on_full())
+    --         --        highlight (a helper function that you can call (also multiple times) with the determined highlight group(s) as the only parameter)
+    --         highlighters = { require("nvim-semantic-tokens.table-highlighter") },
+    --       })
+    --     end
+    --   end,
+    -- })
     use("p00f/godbolt.nvim")
 
     use("tpope/vim-sleuth")
@@ -151,8 +151,10 @@ return packer.startup({
     })
     use("windwp/nvim-autopairs")
 
+    -- Notes
     use("mickael-menu/zk-nvim")
 
+    -- Testing
     use({
       "nvim-neotest/neotest",
       requires = {
