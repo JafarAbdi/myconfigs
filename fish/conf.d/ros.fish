@@ -69,6 +69,7 @@ function source_workspace
   set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
   if test $argv[1] != "reset"
     set -l command (_workon_workspace.py --workspace-name $argv[1])
+    set -xg ROS_PACKAGE_PATH (_workon_workspace.py --ros-package-path $argv[1] | tr ' ' '\n')
     eval "bass '$command'"
     set -xg CURRENT_ROS_WORKSPACE $argv[1]
   end
