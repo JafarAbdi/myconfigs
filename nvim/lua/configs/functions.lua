@@ -124,6 +124,10 @@ for pkg in pkg_resources.working_set:
     :after(function(job, code)
       if code == 0 then
         vim.schedule(function()
+          if #job:result() == 0 then
+            vim.notify("No package found")
+            return
+          end
           M.generate_python_stubs(job:result())
         end)
       else

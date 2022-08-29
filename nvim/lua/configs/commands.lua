@@ -109,6 +109,7 @@ vim.api.nvim_create_autocmd("FileType", {
   group = cpp_group,
   callback = function()
     require("configs.keymaps").cmake_keymap()
+    require("configs.cmake").cmake_project(vim.fn.expand("%:p"))
   end,
 })
 
