@@ -11,6 +11,8 @@
     - apt install firmware-misc-nonfree
     - adduser jafar sudo (optional)
     - Restart
+  - Display manager
+    - lightdm
   - NVidia drivers
     - https://wiki.debian.org/NvidiaGraphicsDrivers
   - Printer driver
