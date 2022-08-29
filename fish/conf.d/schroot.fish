@@ -85,6 +85,8 @@ chsh -s `which fish`
 source ~/myconfigs/fish/conf.d/installs.fish
 install-core
 config-fish
+install-difftastic
+install-python-lsp
 
 sudo apt install -y libglu1-mesa
 
