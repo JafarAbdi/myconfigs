@@ -147,13 +147,13 @@ return {
           return
         end
         -- Why it only work with defer? vim.schedule?
-        vim.defer_fn(function()
+        vim.schedule(function()
           require("configs.cmake").cmake_project(vim.fn.expand("%:p"))
           local ok, error = pcall(require("cmake")[command])
           if not ok then
             vim.notify(error, vim.log.levels.ERROR)
           end
-        end, 10)
+        end)
       end)
     end)
   end,
