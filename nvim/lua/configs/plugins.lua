@@ -138,15 +138,22 @@ return packer.startup({
     -- Used to fix symlink files
     use("famiu/bufdelete.nvim")
     use({
-      "tpope/vim-surround",
+      "kylechui/nvim-surround",
       config = function()
-        -- https://github.com/tpope/vim-surround/blob/master/plugin/surround.vim
-        vim.keymap.set("n", "ds", "<Plug>Dsurround")
-        vim.keymap.set("n", "cs", "<Plug>Csurround")
-        vim.keymap.set("n", "yss", "<Plug>Yssurround")
-        vim.keymap.set("n", "ySs", "<Plug>YSsurround")
-        vim.keymap.set("x", "gs", "<Plug>VSurround")
-        vim.keymap.set("x", "gS", "<Plug>VgSurround")
+        require("nvim-surround").setup({
+          keymaps = {
+            insert = false,
+            insert_line = false,
+            normal = "ys",
+            normal_cur = "yss",
+            normal_line = false,
+            normal_cur_line = false,
+            visual = "gs",
+            visual_line = "gS",
+            delete = "ds",
+            change = "cs",
+          },
+        })
       end,
     })
     use("windwp/nvim-autopairs")
