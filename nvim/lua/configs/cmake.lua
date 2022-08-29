@@ -1,6 +1,12 @@
 local Path = require("plenary.path")
 local cmake = require("cmake")
 
+local status = {
+  spinner = 1,
+  spinner_frames = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷" },
+  command = "",
+}
+
 local get_project_root = require("lspconfig.util").root_pattern(".clangd_config")
 
 local get_build_dir = function(project_root)
@@ -19,6 +25,16 @@ local get_cmake_configs = function(file_path)
     quickfix = {
       only_on_error = true, -- Open quickfix window only if target build failed.
     },
+    on_build_output = function(lines)
+      status.spinner = status.spinner + 1
+      status.command = "CMake running"
+      -- Get only last line
+      local match = string.match(lines[#lines], "Exited with code %d+")
+      if match then
+        status.spinner = 1
+        status.command = ""
+      end
+    end,
     build_args = {}, -- Default arguments that will be always passed at cmake build step.
     copy_compile_commands = false,
     dap_configuration = {
@@ -37,6 +53,15 @@ M.cmake_project = function(file_path)
   local project_root = get_project_root(file_path)
   vim.cmd(string.format("cd %s", project_root))
   return cmake.setup(get_cmake_configs(project_root))
+end
+
+M.status = function()
+  if status.command == "" then
+    return status.command
+  end
+  return status.command
+    .. ": "
+    .. status.spinner_frames[(status.spinner % #status.spinner_frames) + 1]
 end
 
 return M
