@@ -169,9 +169,18 @@ return packer.startup({
         "nvim-treesitter/nvim-treesitter",
         "antoinemadec/FixCursorHold.nvim",
         "nvim-neotest/neotest-python",
-        "JafarAbdi/neotest-gtest",
       },
     })
+    use({
+      "JafarAbdi/neotest-gtest",
+      config = function()
+        require("neotest-gtest").setup({
+          test_path_pattern = { ".cpp", ".cc" }, -- The path pattern to detect test files
+        })
+      end,
+    })
+    -- TODO: Port to be similar to spellsitter
+    -- use("vigoux/LanguageTool.nvim")
 
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
       packer.compile()
