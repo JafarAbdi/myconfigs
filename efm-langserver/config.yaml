@@ -69,7 +69,7 @@ languages:
       lint-formats:
         - '%f:%l:%c:%m'
   yaml:
-    - lint-command: 'yamllint -f parsable -'
+    - lint-command: 'yamllint -c ~/myconfigs/linters/yamllint.yaml -f parsable -'
       lint-stdin: true
   lua:
     - format-command: 'stylua --config-path ~/myconfigs/linters/stylua.toml -'
