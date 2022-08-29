@@ -12,7 +12,7 @@ function setup-ssh-keys
   ssh-keygen -t rsa -b 4096 -C $email
 
   # Adding your SSH key to the ssh-agent
-  eval (ssh-agent -s)
+  eval (ssh-agent -c)
   mkdir -p ~/.ssh
   ssh-add ~/.ssh/id_rsa
 
@@ -275,8 +275,20 @@ function install-python-lsp
   pip3 install -U pyls-isort
   pip3 install -U pylsp-rope
 
+  # TODO: Add to efm
+  # flake8 --extend-ignore D,E,F,C9
+  # D -> pycodestyle
+  # C9 mccabe
+  # F -> pyflakes
+  # E ??
+  pip3 install -U flake8-bugbear
+  pip3 install -U flake8-builtins
+  pip3 install -U flake8-comprehensions
+  pip3 install -U flake8-debugger
+  pip3 install -U flake8-eradicate
   python3 -m pip install --user --upgrade pynvim
   pip3 install -U debugpy
+  pip3 install -U jupyterlab
 end
 
 function install-rust-lsp
@@ -469,23 +481,43 @@ function install-clang-build-analyzer
 end
 
 function install-drake
-  # set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-  # cd $TMP_DIR
-  # install-from-github RobotLocomotion/drake "drake.*focal.tar.gz"
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  sudo mkdir -p /opt/drake
+  sudo chown $USER:$USER /opt/drake
+  install-from-github RobotLocomotion/drake "drake.*"(lsb_release -cs)".tar.gz"
+  tar xzf drake-*-jammy.tar.gz -C /opt
+  cd -
   # open https://drake.mit.edu/from_binary.html#stable-releases
-  sudo apt-get update
-  sudo apt-get install --no-install-recommends -y \
-    ca-certificates gnupg lsb-release wget
-  wget -qO- https://drake-apt.csail.mit.edu/drake.asc | gpg --dearmor - \
-    | sudo tee /etc/apt/trusted.gpg.d/drake.gpg >/dev/null
-  echo "deb [arch=amd64] https://drake-apt.csail.mit.edu/$(lsb_release -cs) $(lsb_release -cs) main" \
-    | sudo tee /etc/apt/sources.list.d/drake.list >/dev/null
-  sudo apt-get update
-  sudo apt-get install --no-install-recommends drake-dev
+  # sudo apt-get update
+  # sudo apt-get install --no-install-recommends -y \
+  #   ca-certificates gnupg lsb-release wget
+  # wget -qO- https://drake-apt.csail.mit.edu/drake.asc | gpg --dearmor - \
+  #   | sudo tee /etc/apt/trusted.gpg.d/drake.gpg >/dev/null
+  # echo "deb [arch=amd64] https://drake-apt.csail.mit.edu/$(lsb_release -cs) $(lsb_release -cs) main" \
+  #   | sudo tee /etc/apt/sources.list.d/drake.list >/dev/null
+  # sudo apt-get update
+  # sudo apt-get install --no-install-recommends drake-dev
 end
 
 function install-markdown-lsp
   install-from-github artempyanykh/marksman marksman-linux
   chmod +x marksman-linux
   mv marksman-linux ~/.local/bin/marksman
+end
+
+function install-urdf-viz
+  sudo apt install -y rospack-tools
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github openrr/urdf-viz urdf-viz-x86_64-unknown-linux-gnu.tar.gz
+  ex urdf-viz-x86_64-unknown-linux-gnu.tar.gz
+  mv urdf-viz ~/.local/bin
+  cd -
+end
+
+
+function install-luacheck
+  sudo apt install -y luarocks
+  luarocks install luacheck --local
 end
