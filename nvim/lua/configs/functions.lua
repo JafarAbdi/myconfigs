@@ -222,4 +222,24 @@ M.generate_python_stubs = function(missing_packages)
   job:start()
 end
 
+M.load_clangd_config = function(root_path)
+  return vim.trim(Path:new(M.clangd_root_dir(root_path), ".clangd_config"):read())
+end
+
+M.clangd_root_dir = function(startpath)
+  local search_fn = require("lspconfig.util").root_pattern(
+    ".clangd_config",
+    "compile_commands.json"
+  )
+  -- If root directory not found set it to file's directory
+  local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
+  if dir then
+    require("configs.keymaps").cmake_keymap()
+    require("configs.cmake").cmake_project(dir)
+  end
+  dir = dir or vim.fn.getcwd()
+  vim.cmd(string.format("cd %s", dir))
+  return dir
+end
+
 return M

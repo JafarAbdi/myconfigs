@@ -7,18 +7,11 @@ lspconfig.cmake.setup({
   on_attach = handlers.on_attach,
   capabilities = handlers.capabilities,
   on_new_config = function(new_config, new_root_dir)
-    local Path = require("plenary.path")
-    local p = Path:new(new_root_dir, ".clangd_config")
     new_config.cmd = cmd
     new_config.init_options = {
-      buildDirectory = vim.trim(p:read()),
+      buildDirectory = require("configs.functions").load_clangd_config(new_root_dir),
     }
   end,
-  root_dir = require("lspconfig.util").root_pattern(
-    ".clangd_config",
-    "compile_commands.json",
-    "compile_flags.txt",
-    ".git"
-  ),
+  root_dir = require("configs.functions").clangd_root_dir,
   single_file_support = true,
 })

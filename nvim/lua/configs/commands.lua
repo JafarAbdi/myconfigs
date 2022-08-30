@@ -104,15 +104,6 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
-vim.api.nvim_create_autocmd("FileType", {
-  pattern = { "cpp", "c", "cmake" },
-  group = cpp_group,
-  callback = function()
-    require("configs.keymaps").cmake_keymap()
-    require("configs.cmake").cmake_project(vim.fn.expand("%:p"))
-  end,
-})
-
 ---------------
 -- Templates --
 ---------------

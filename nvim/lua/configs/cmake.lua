@@ -7,17 +7,12 @@ local status = {
   command = "",
 }
 
-local get_project_root = require("lspconfig.util").root_pattern(".clangd_config")
-
-local get_build_dir = function(project_root)
-  local p = Path:new(project_root, ".clangd_config")
-  return vim.trim(p:read())
-end
-
 local get_cmake_configs = function(file_path)
   return {
     parameters_file = ".neovim.json",
-    build_dir = get_build_dir(file_path),
+    build_dir = function()
+      return require("configs.functions").load_clangd_config(file_path)
+    end,
     default_projects_path = tostring(Path:new(vim.loop.os_homedir(), "workspaces")),
     configure_args = {
       "-DCMAKE_EXPORT_COMPILE_COMMANDS=1",
@@ -50,9 +45,7 @@ end
 local M = {}
 
 M.cmake_project = function(file_path)
-  local project_root = get_project_root(file_path)
-  vim.cmd(string.format("cd %s", project_root))
-  return cmake.setup(get_cmake_configs(project_root))
+  return cmake.setup(get_cmake_configs(file_path))
 end
 
 M.status = function()

@@ -27,10 +27,10 @@ require("clangd_extensions").setup({
       clangdFileStatus = true,
     },
     on_new_config = function(new_config, new_root_dir)
-      local Path = require("plenary.path")
       -- local current_file_dir = vim.fn.expand("%:p:h")
-      local p = Path:new(new_root_dir, ".clangd_config") -- directory containing opened file
-      local compile_commands_database_path = vim.trim(p:read())
+      local compile_commands_database_path = require("configs.functions").load_clangd_config(
+        new_root_dir
+      )
       new_config.cmd = vim.deepcopy(clangd_cmd)
       table.insert(
         new_config.cmd,
@@ -38,20 +38,7 @@ require("clangd_extensions").setup({
       )
     end,
     handlers = nvim_status.extensions.clangd.setup(),
-    root_dir = function(startpath)
-      local search_fn = require("lspconfig.util").root_pattern(
-        ".clangd_config"
-        -- "compile_commands.json",
-        -- "compile_flags.txt"
-      )
-      local dir = search_fn(startpath)
-      if not dir then
-        -- If root directory not found set it to file's directory
-        dir = search_fn(vim.fn.expand("%:p:h")) or vim.fn.getcwd()
-      end
-      vim.cmd(string.format("cd %s", dir))
-      return dir
-    end,
+    root_dir = require("configs.functions").clangd_root_dir,
     single_file_support = true,
   },
 })

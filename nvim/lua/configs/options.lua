@@ -36,8 +36,6 @@ opt.title = true
 opt.wildmode = "list:longest,full"
 opt.relativenumber = true
 
-g.do_filetype_lua = 1
-g.did_load_filetypes = 0
 g.mapleader = " "
 g.maplocalleader = " "
 g.indent_blankline_char = "┊"

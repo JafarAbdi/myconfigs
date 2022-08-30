@@ -33,7 +33,7 @@ vim.keymap.set(
 )
 vim.keymap.set("n", "<leader>ml", require("telescope.builtin").marks, { silent = true })
 vim.keymap.set("n", "<leader>h", require("telescope.builtin").help_tags, { silent = true })
--- vim.keymap.set("n", "<leader>gs", require("telescope.builtin").grep_string, { silent = true })
+vim.keymap.set("n", "<leader>gs", require("telescope.builtin").grep_string, { silent = true })
 vim.keymap.set("n", "<leader>gl", require("telescope.builtin").live_grep, { silent = true })
 vim.keymap.set("n", "<leader>o", require("telescope.builtin").find_files, { silent = true })
 vim.keymap.set("n", "<leader>j", require("telescope.builtin").jumplist, { silent = true })
