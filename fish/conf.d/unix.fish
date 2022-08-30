@@ -65,6 +65,9 @@ function ex
 end
 
 # Clipboard
+alias df 'df -h'
+alias free 'free -h'
+alias server 'python3 -m http.server'
 alias xc="xclip" # copy
 alias xv="xclip -o" # paste
 alias pwdxc="pwd | xclip"
@@ -103,6 +106,12 @@ end
 function restart-zerotier-one
   sudo systemctl stop zerotier-one.service && sudo systemctl start zerotier-one.service
 end
+
+function sfs
+  sshfs -o identityfile=/home/jafar/.ssh/id_rsa,allow_other,reconnect,default_permissions,auto_cache,no_readahead,Ciphers=chacha20-poly1305@openssh.com $argv[1] $argv[2]
+end
+
+
 # TODO: Port to fish
 # repeat()
 # {
@@ -173,3 +182,5 @@ set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inli
                          --bind='ctrl-h:reload($FZF_DEFAULT_COMMAND --hidden)'"
 set -xg FZF_CTRL_R_OPTS "--preview=''"
 set -xg FZF_CTRL_T_COMMAND "$FZF_DEFAULT_COMMAND"
+
+complete -c sfs -w sshfs
