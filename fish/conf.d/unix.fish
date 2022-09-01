@@ -107,6 +107,10 @@ function restart-zerotier-one
   sudo systemctl stop zerotier-one.service && sudo systemctl start zerotier-one.service
 end
 
+function set-timezone
+  sudo timedatectl set-timezone $argv[1]
+end
+
 function sfs
   sshfs -o identityfile=/home/jafar/.ssh/id_rsa,allow_other,reconnect,default_permissions,auto_cache,no_readahead,Ciphers=chacha20-poly1305@openssh.com $argv[1] $argv[2]
 end
@@ -184,3 +188,4 @@ set -xg FZF_CTRL_R_OPTS "--preview=''"
 set -xg FZF_CTRL_T_COMMAND "$FZF_DEFAULT_COMMAND"
 
 complete -c sfs -w sshfs
+complete -c set-timezone -a "(timedatectl list-timezones)"
