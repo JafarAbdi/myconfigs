@@ -26,7 +26,12 @@ return packer.startup({
     use("mjlbach/onedark.nvim")
     -- Status line
     use("nvim-lualine/lualine.nvim")
-    use("nvim-lua/lsp-status.nvim")
+    use({
+      "j-hui/fidget.nvim",
+      config = function()
+        require("fidget").setup()
+      end,
+    })
     -- Add indentation guides even on blank lines
     use("lukas-reineke/indent-blankline.nvim")
     -- Add git related info in the signs columns and popups

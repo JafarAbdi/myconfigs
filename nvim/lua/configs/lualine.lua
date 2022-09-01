@@ -1,5 +1,4 @@
 --Set statusbar
-local nvim_status = require("lsp-status")
 require("lualine").setup({
   options = {
     icons_enabled = false,
@@ -20,13 +19,6 @@ require("lualine").setup({
           return ""
         end
         return dap.status()
-      end,
-    },
-    lualine_c = {
-      function()
-        -- require("nvim-treesitter").statusline({indicator_size=1000, separator="\n"})
-        -- TODO: Maybe use require("nvim-treesitter").statusline()
-        return nvim_status.status()
       end,
     },
   },

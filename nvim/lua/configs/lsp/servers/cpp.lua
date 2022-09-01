@@ -1,5 +1,4 @@
 local handlers = require("configs.lsp.handlers")
-local nvim_status = require("lsp-status")
 -- For testing inlayHints
 local clangd_cmd = {
   vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
@@ -22,7 +21,6 @@ require("clangd_extensions").setup({
     on_attach = handlers.on_attach,
     capabilities = handlers.capabilities,
     cmd = clangd_cmd,
-    -- Required for lsp-status
     init_options = {
       clangdFileStatus = true,
     },
@@ -37,7 +35,6 @@ require("clangd_extensions").setup({
         string.format("-compile-commands-dir=%s", compile_commands_database_path)
       )
     end,
-    handlers = nvim_status.extensions.clangd.setup(),
     root_dir = require("configs.functions").clangd_root_dir,
     single_file_support = true,
   },

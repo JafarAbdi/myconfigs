@@ -1,7 +1,5 @@
 local M = {}
 
-local nvim_status = require("lsp-status")
-
 local config_diagnostic = function()
   local virtual_text
   if vim.g.diagnostic_virtual_text then
@@ -17,16 +15,10 @@ end
 
 M.setup = function()
   config_diagnostic()
-
-  nvim_status.config({
-    diagnostics = false,
-  })
-  nvim_status.register_progress()
 end
 
 local capabilities = vim.lsp.protocol.make_client_capabilities()
 capabilities = require("cmp_nvim_lsp").update_capabilities(capabilities)
-capabilities = vim.tbl_extend("keep", capabilities, nvim_status.capabilities)
 capabilities.textDocument.completion.completionItem.snippetSupport = true
 M.capabilities = capabilities
 
@@ -46,7 +38,6 @@ M.on_attach = function(client, bufnr)
     vim.g.diagnostic_virtual_text = not vim.g.diagnostic_virtual_text
     config_diagnostic()
   end, {})
-  nvim_status.on_attach(client)
 end
 
 return M
