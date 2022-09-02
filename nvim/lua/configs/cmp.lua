@@ -3,6 +3,9 @@
 local ELLIPSIS_CHAR = "…"
 local MAX_LABEL_WIDTH = 100
 
+-- https://github.com/hrsh7th/nvim-cmp/pull/1162
+require("cmp.utils.misc").redraw.incsearch_redraw_keys = "<C-r><BS>"
+
 local cmp = require("cmp")
 local compare = require("cmp.config.compare")
 
