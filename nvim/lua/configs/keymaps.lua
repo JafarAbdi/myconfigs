@@ -196,7 +196,12 @@ return {
       { noremap = true, silent = true }
     )
     vim.keymap.set("n", "<leader>so", require("telescope.builtin").lsp_document_symbols, opts)
-    vim.keymap.set("n", "<leader>ws", require("telescope.builtin").lsp_dynamic_workspace_symbols, opts)
+    vim.keymap.set(
+      "n",
+      "<leader>ws",
+      require("telescope.builtin").lsp_dynamic_workspace_symbols,
+      opts
+    )
     vim.keymap.set("n", "<leader>r", require("telescope.builtin").lsp_references, opts)
   end,
   neotest_keymaps = function()
