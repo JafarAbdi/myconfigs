@@ -289,6 +289,7 @@ function install-python-lsp
   python3 -m pip install --user --upgrade pynvim
   pip3 install -U debugpy
   pip3 install -U jupyterlab
+  pip3 install -U nbdev
 end
 
 function install-rust-lsp
@@ -480,13 +481,22 @@ function install-clang-build-analyzer
   cd -
 end
 
+function install-quarto
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github quarto-dev/quarto-cli "quarto-.*-linux-amd64.deb"
+  sudo apt install ./quarto*
+  cd -
+end
+
 function install-drake
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR
   sudo mkdir -p /opt/drake
   sudo chown $USER:$USER /opt/drake
-  install-from-github RobotLocomotion/drake "drake.*"(lsb_release -cs)".tar.gz"
-  tar xzf drake-*-jammy.tar.gz -C /opt
+  set -l ubuntu_release (lsb_release -cs)
+  install-from-github RobotLocomotion/drake "drake.*"$ubuntu_release".tar.gz"
+  tar xzf drake-*-$ubuntu_release.tar.gz -C /opt
   cd -
   # open https://drake.mit.edu/from_binary.html#stable-releases
   # sudo apt-get update
