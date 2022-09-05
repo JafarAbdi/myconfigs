@@ -138,6 +138,10 @@ vim.keymap.set("", "<F3>", function()
   vim.cmd("UndotreeFocus")
 end, { silent = true })
 
+vim.keymap.set("", "<F7>", function()
+  vim.cmd("Lexplore")
+end, { silent = true })
+
 return {
   cmake_keymap = function()
     vim.keymap.set("n", "<leader>cm", function()

@@ -59,3 +59,10 @@ vim.cmd("highlight link LspComment Comment")
 vim.cmd("highlight TSCurrentScope guibg=#242830")
 
 vim.api.nvim_command("let g:surround_no_mappings = 1")
+
+g.netrw_list_hide = vim.fn["netrw_gitignore#Hide"]() .. [[,\(^\|\s\s\)\zs\.\S\+]]
+g.netrw_altv = 1
+g.netrw_keepdir = 0
+g.netrw_winsize = 30
+g.netrw_localcopydircmd = "cp -r"
+g.netrw_liststyle = 3
