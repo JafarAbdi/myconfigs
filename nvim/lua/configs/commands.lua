@@ -22,28 +22,6 @@ vim.api.nvim_create_autocmd("BufWritePost", {
   pattern = vim.env.HOME .. "/myconfigs/nvim/lua/**",
   group = general_group,
 })
--- A terrible way to handle symlinks
-vim.api.nvim_create_autocmd("BufWinEnter", {
-  callback = function()
-    local fname = vim.fn.expand("<afile>")
-    local resolved_fname = vim.fn.resolve(fname)
-    if fname == resolved_fname or (vim.bo.filetype ~= "cpp" and vim.bo.filetype ~= "c") then
-      return
-    end
-    P("Symlink detected redirecting to '" .. resolved_fname .. "' instead")
-    vim.schedule(function()
-      local cursor = vim.api.nvim_win_get_cursor(0)
-      require("bufdelete").bufwipeout(0, true)
-      vim.api.nvim_command("edit " .. resolved_fname)
-      vim.api.nvim_win_set_cursor(0, cursor)
-    end)
-  end,
-  group = cpp_group,
-})
-vim.api.nvim_create_autocmd(
-  "User",
-  { pattern = "LanguageToolCheckDone", command = "LanguageToolSummary", group = general_group }
-)
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
 -- Highlight on yank
 vim.api.nvim_create_autocmd({ "TextYankPost" }, {
@@ -52,31 +30,6 @@ vim.api.nvim_create_autocmd({ "TextYankPost" }, {
     vim.highlight.on_yank()
   end,
 })
-
-vim.api.nvim_create_autocmd(
-  { "BufNewFile", "BufRead" },
-  { pattern = { "*.launch", "*.test" }, command = "setf xml", group = general_group }
-)
-
-vim.api.nvim_create_autocmd(
-  { "BufNewFile", "BufRead" },
-  { pattern = "*.install", command = "setf text", group = general_group }
-)
-
-vim.api.nvim_create_autocmd(
-  { "BufNewFile", "BufRead" },
-  { pattern = "*.repos", command = "setf yaml", group = general_group }
-)
-
-vim.api.nvim_create_autocmd(
-  { "BufNewFile", "BufRead" },
-  { pattern = { "*.urdf", "*.xacro" }, command = "setf xml", group = general_group }
-)
-
-vim.api.nvim_create_autocmd(
-  { "BufNewFile", "BufRead" },
-  { pattern = "*.code-snippets", command = "setf json", group = general_group }
-)
 
 vim.api.nvim_create_autocmd("FileType", {
   pattern = { "qf", "git", "gitAnnotate", "Outline", "diff", "help" },

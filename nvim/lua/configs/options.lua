@@ -46,7 +46,7 @@ g.indent_blankline_show_trailing_blankline_indent = false
 --Spell
 opt.spell = false
 opt.spelllang:append("en")
-g["grammarous#jar_dir"] = vim.env.HOME .. "/.config/languagetool"
+-- g["grammarous#jar_dir"] = vim.env.HOME .. "/.config/languagetool"
 -- g["grammarous#default_comments_only_filetypes"] = { ["*"] = 1, ["help"] = 0, ["markdown"] = 0 }
 -- g.languagetool_server_command='echo "Server Started"'
 -- g.languagetool_server_jar =  vim.env.HOME .. "/.config/languagetool/languagetool_server.jar"
@@ -58,11 +58,23 @@ vim.opt.iskeyword:append("-")
 vim.cmd("highlight link LspComment Comment")
 vim.cmd("highlight TSCurrentScope guibg=#242830")
 
-vim.api.nvim_command("let g:surround_no_mappings = 1")
-
 g.netrw_list_hide = vim.fn["netrw_gitignore#Hide"]() .. [[,\(^\|\s\s\)\zs\.\S\+]]
 g.netrw_altv = 1
 g.netrw_keepdir = 0
-g.netrw_winsize = 30
+g.netrw_winsize = 20
 g.netrw_localcopydircmd = "cp -r"
 g.netrw_liststyle = 3
+g.netrw_banner = 0
+
+vim.g.do_filetype_lua = 1
+vim.filetype.add({
+  extension = {
+    launch = "xml",
+    test = "xml",
+    urdf = "xml",
+    xacro = "xml",
+    install = "text",
+    repos = "yaml",
+    ["code-snippets"] = "json",
+  },
+})
