@@ -19,8 +19,6 @@ opt.shiftwidth = 2
 opt.expandtab = true
 opt.autoindent = true
 opt.copyindent = true
--- https://vim.fandom.com/wiki/Automatically_wrap_left_and_right
-opt.whichwrap = vim.opt.whichwrap + "<,>,h,l,[,]"
 opt.cursorline = true
 opt.termguicolors = true
 opt.completeopt = "menuone,noselect,noinsert"
