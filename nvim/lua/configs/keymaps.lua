@@ -195,13 +195,19 @@ return {
       "<Esc><cmd>lua vim.lsp.buf.range_code_action()<CR>",
       { noremap = true, silent = true }
     )
-    vim.keymap.set("n", "<leader>so", require("telescope.builtin").lsp_document_symbols, opts)
-    vim.keymap.set(
-      "n",
-      "<leader>ws",
-      require("telescope.builtin").lsp_dynamic_workspace_symbols,
-      opts
-    )
+    vim.keymap.set("n", "<leader>so", function()
+      require("telescope.builtin").lsp_document_symbols({
+        symbol_width = 0.9,
+        symbol_type_width = 0.1,
+      })
+    end, opts)
+    vim.keymap.set("n", "<leader>ws", function()
+      require("telescope.builtin").lsp_dynamic_workspace_symbols({
+        symbol_width = 0.3,
+        fname_width = 0.6,
+        symbol_type_width = 0.1,
+      })
+    end, opts)
     vim.keymap.set("n", "<leader>r", require("telescope.builtin").lsp_references, opts)
   end,
   neotest_keymaps = function()
