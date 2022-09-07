@@ -44,50 +44,44 @@ end
 
 function install-core
   sudo apt update
-  sudo apt install -y python3-venv
-  sudo apt install -y software-properties-common
-  sudo apt install -y git-core
-  sudo apt install -y ssh
-  sudo apt install -y colordiff
-  sudo apt install -y tree
-  # sudo apt install -y bash-completion
-  sudo apt install -y less
-  sudo apt install -y lsb-release
-  sudo apt install -y iputils-ping
-  sudo apt install -y htop
-  sudo apt install -y python3-pip
-  sudo apt install -y python3-argcomplete
-  sudo apt install -y p7zip-full
-  sudo apt install -y zip
-  sudo apt install -y wget
-  # sudo apt install -y inotify-tools
-  # sudo apt install -y iwyu
-  # sudo apt install -y git-lfs
-  sudo apt install -y fd-find
-  ln -fs $HOME/myconfigs/fd/fdignore ~/.fdignore
-  sudo apt install -y bat
-  sudo apt install -y curl
-  sudo apt install -y lld
-  sudo apt install -y lldb
-  sudo apt install -y ninja-build
-  # Needed for st
-  sudo apt install -y libxft-dev libx11-dev
+  sudo apt install -y python3-venv \
+                      software-properties-common \
+                      git-core \
+                      ssh \
+                      colordiff \
+                      tree \
+                      less \
+                      lsb-release \
+                      iputils-ping \
+                      htop \
+                      python3-pip \
+                      python3-argcomplete \
+                      p7zip-full \
+                      zip \
+                      wget \
+                      fd-find \
+                      bat \
+                      curl \
+                      lld \
+                      lldb \
+                      ninja-build \
+                      # Needed for st
+                      libxft-dev \
+                      libx11-dev
   pip3 install argcomplete==2.0.0
   python3 -m pip install --user pipx
+  ln -fs $HOME/myconfigs/fd/fdignore ~/.fdignore
   github-setup
   install-ripgrep
 end
 
 function install-cpp-dev
-  sudo apt install -y clang-tools
-  sudo apt install -y clang-tidy
-  sudo apt install -y clang
-  sudo apt install -y gcc
-  sudo apt install -y cmake
-  sudo apt install -y dwarves
-  # Documentation
-  # sudo apt install -y zeal
-  # open https://zealdocs.org/usage.html
+  sudo apt install -y clang-tools \
+                      clang-tidy \
+                      clang \
+                      gcc \
+                      cmake \
+                      dwarves
   install-cpp-lsp
 end
 
@@ -130,63 +124,70 @@ function install-languagetool
 end
 
 function install-ripgrep
-  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-  cd $TMP_DIR
-  install-from-github "BurntSushi/ripgrep" "ripgrep_.*_amd64.deb"
-  sudo dpkg -i ripgrep_*
-  cd -
+  if test (lsb_release -sr) = "unstable"
+    sudo apt install -y ripgrep
+  else
+    set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+    cd $TMP_DIR
+    install-from-github "BurntSushi/ripgrep" "ripgrep_.*_amd64.deb"
+    sudo dpkg -i ripgrep_*
+    cd -
+  end
 end
 
 function install-fzf
-  # https://raw.githubusercontent.com/junegunn/fzf/master/install
-  set -l FZF_TMP_DIR (mktemp -d -p /tmp fzf-XXXXXX)
-  cd $FZF_TMP_DIR
-  curl -s https://api.github.com/repos/junegunn/fzf/releases \
+  if test (lsb_release -sr) = "unstable"
+    sudo apt install -y fzf
+  else
+    # https://raw.githubusercontent.com/junegunn/fzf/master/install
+    set -l FZF_TMP_DIR (mktemp -d -p /tmp fzf-XXXXXX)
+    cd $FZF_TMP_DIR
+    curl -s https://api.github.com/repos/junegunn/fzf/releases \
     | grep "https://github.com/junegunn/fzf/releases/download.*-linux_amd64.tar.gz" \
     | cut -d':' -f 2,3 \
     | tr -d \" \
     | head -n 1 \
     | wget -i -
-  ex fzf-*
-  mkdir -p ~/.local/bin || true
-  mv fzf ~/.local/bin/
-  # No need to do this in schroot sessions since we mount the directory
-  # if set -q $SCHROOT_SESSION_ID
+    ex fzf-*
+    mkdir -p ~/.local/bin || true
+    mv fzf ~/.local/bin/
+    cd -
+  end
   mkdir -p ~/.config/fish/functions || true
   wget https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.fish -O ~/.config/fish/functions/fzf_key_bindings.fish
-  # end
-  cd -
 end
 
 
 
 function install-libtree
-  rm ~/.local/bin/libtree 2> /dev/null
-  curl -s https://api.github.com/repos/haampie/libtree/releases \
-    | grep "https://github.com/haampie/libtree/releases/download.*libtree_x86_64" \
-    | grep -v ".tar.gz" \
-    | cut -d':' -f 2,3 \
-    | tr -d \" \
-    | head -n 1 \
-    | wget -O ~/.local/bin/libtree -i -
-  chmod +x ~/.local/bin/libtree
+  if test (lsb_release -sr) = "unstable"
+    sudo apt install -y libtree
+  else
+    rm ~/.local/bin/libtree 2> /dev/null
+    curl -s https://api.github.com/repos/haampie/libtree/releases \
+      | grep "https://github.com/haampie/libtree/releases/download.*libtree_x86_64" \
+      | grep -v ".tar.gz" \
+      | cut -d':' -f 2,3 \
+      | tr -d \" \
+      | head -n 1 \
+      | wget -O ~/.local/bin/libtree -i -
+    chmod +x ~/.local/bin/libtree
+  end
 end
 
 function install-pre-commit
-  pip3 install pre-commit
-  pip3 install black
-  pip3 install cmakelang
-  pip3 install cpplint
+  if test (lsb_release -sr) = "unstable"
+    sudo apt install -y pre-commit black cpplint cmake-format
+  else
+    pip3 install pre-commit
+    pip3 install black
+    pip3 install cmakelang
+    pip3 install cpplint
+  end
 end
 
 function install-heaptrack
-  sudo apt install -y elfutils libdwarf-dev libboost-all-dev gettext
-  cd $WORKSPACE_DIR
-  git clone git@github.com:KDE/heaptrack.git || true
-  cd heaptrack
-  sudo apt-get install -y extra-cmake-modules libunwind-dev libkchart-dev libkf5coreaddons-dev libkf5i18n-dev libkf5itemmodels-dev libkf5threadweaver-dev libkf5configwidgets-dev libkf5kio-dev
-  mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install ..
-  make install -j(nproc)
+  sudo apt install -y heaptrack heaptrack-gui
 end
 
 function install-hotspot
@@ -268,7 +269,6 @@ function install-cpp-lsp
 end
 
 function install-python-lsp
-  pip3 install -U "python-lsp-server[all]"
   pip3 install -U jedi-language-server
   pip3 install -U python-lsp-black
   pip3 install -U pylsp-mypy
@@ -301,13 +301,17 @@ function install-rust-lsp
 end
 
 function install-efm-lsp
-  # YAML + CMake +
-  mkdir -p ~/.config/efm-lsp
-  rm -r "~/.config/efm-lsp/*" 2> /dev/null
-  cd ~/.config/efm-lsp
-  install-from-github mattn/efm-langserver "efm-langserver_.*_linux_amd64.tar.gz"
-  tar xzf efm-langserver* --strip-components 1
-  cd -
+  if test (lsb_release -sr) = "unstable"
+    sudo apt install -y efm-langserver
+  else
+    # YAML + CMake +
+    mkdir -p ~/.config/efm-lsp
+    rm -r "~/.config/efm-lsp/*" 2> /dev/null
+    cd ~/.config/efm-lsp
+    install-from-github mattn/efm-langserver "efm-langserver_.*_linux_amd64.tar.gz"
+    tar xzf efm-langserver* --strip-components 1
+    cd -
+  end
   sudo apt install -y yamllint
 end
 
@@ -344,7 +348,7 @@ function install-nvim
   end
   sudo apt install /tmp/nvim-linux64.deb
   cd -
-  nvim -c "PackerInstall" -c "PackerCompite"
+  nvim -c "PackerInstall" -c "PackerCompile"
 end
 
 function install-conan
@@ -433,8 +437,7 @@ end
 function install-tmux
   # We need at least tmux3.3, the older versions have a bug with focus-events
   # https://github.com/tmux/tmux/releases
-  # sudo apt install tmux
-  sudo apt install libevent-dev
+  sudo apt install -y tmux libevent-dev
 end
 
 function install-nodejs
