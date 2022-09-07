@@ -52,13 +52,6 @@ return packer.startup({
     })
     -- Tree-sitter
     use({ "nvim-treesitter/nvim-treesitter", run = ":TSUpdate" })
-    -- Spell checker
-    use({
-      "lewis6991/spellsitter.nvim",
-      config = function()
-        require("spellsitter").setup()
-      end,
-    })
     -- Highlights & Text selection
     use("nvim-treesitter/nvim-treesitter-textobjects")
     use("nvim-treesitter/nvim-treesitter-context")
