@@ -329,7 +329,6 @@ function install-lua-lsp
   ex lua-language-server-*
 end
 
-# TODO: Add Debian support https://github.com/neovim/neovim/releases
 function install-nvim
   set -l config_path ~/.config/nvim
   if test -e $config_path
@@ -348,7 +347,6 @@ function install-nvim
   end
   sudo apt install /tmp/nvim-linux64.deb
   cd -
-  nvim -c "PackerInstall" -c "PackerCompile"
 end
 
 function install-conan
