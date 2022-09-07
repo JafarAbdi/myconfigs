@@ -180,14 +180,14 @@ return {
   end,
   lsp_keymaps = function(bufnr)
     local opts = { silent = true, buffer = bufnr }
-    vim.keymap.set("n", "gD", vim.lsp.buf.declaration, opts)
-    vim.keymap.set("n", "gd", require("telescope.builtin").lsp_definitions, opts)
+    vim.keymap.set("n", "gD", require("telescope.builtin").lsp_type_definitions, opts)
+    vim.keymap.set("n", "gd", require("telescope.builtin").lsp_definitions, opts) -- Seem to be always same as declaration
     vim.keymap.set("n", "K", vim.lsp.buf.hover, opts)
     vim.keymap.set("n", "gi", require("telescope.builtin").lsp_implementations, opts)
     vim.keymap.set("n", "<C-k>", vim.lsp.buf.signature_help, opts)
-    vim.keymap.set("n", "<leader>D", require("telescope.builtin").lsp_type_definitions, opts)
     vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, opts)
     vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, opts)
+    vim.keymap.set("n", "<leader>r", require("telescope.builtin").lsp_references, opts)
     vim.api.nvim_buf_set_keymap(
       bufnr,
       "v",
@@ -208,7 +208,6 @@ return {
         symbol_type_width = 0.1,
       })
     end, opts)
-    vim.keymap.set("n", "<leader>r", require("telescope.builtin").lsp_references, opts)
   end,
   neotest_keymaps = function()
     local neotest = require("neotest")
