@@ -63,6 +63,8 @@ M.launch_in_terminal = {
 }
 
 function M.setup()
+  require("nvim-dap-virtual-text").setup()
+  require("dap-python").setup("python3")
   -- setup_widgets()
   dap.listeners.after.event_initialized["dapui_config"] = function()
     dapui.open()

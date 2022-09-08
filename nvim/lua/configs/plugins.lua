@@ -13,15 +13,20 @@ return packer.startup({
   function(use)
     -- Packer
     use("wbthomason/packer.nvim")
-
+    -- Neovim utilities
+    use("nvim-lua/plenary.nvim")
     -- Prettier
     use({ "junegunn/vim-easy-align", cmd = "EasyAlign" })
     -- Commenting
     use("tpope/vim-commentary")
     -- Telescope
-    use({ "nvim-telescope/telescope.nvim", requires = { "nvim-lua/plenary.nvim" } })
-    use({ "nvim-telescope/telescope-fzf-native.nvim", run = "make" })
-    use({ "nvim-telescope/telescope-ui-select.nvim" })
+    use({
+      "nvim-telescope/telescope.nvim",
+      requires = {
+        "nvim-telescope/telescope-ui-select.nvim",
+        { "nvim-telescope/telescope-fzf-native.nvim", run = "make" },
+      },
+    })
     -- Theme
     use("mjlbach/onedark.nvim")
     -- Status line
@@ -51,34 +56,36 @@ return packer.startup({
       end,
     })
     -- Tree-sitter
-    use({ "nvim-treesitter/nvim-treesitter", run = ":TSUpdate" })
-    -- Highlights & Text selection
-    use("nvim-treesitter/nvim-treesitter-textobjects")
-    use("nvim-treesitter/nvim-treesitter-context")
-    -- Maybe no longer needed with
-    -- https://github.com/llvm/llvm-project/commit/68eac9a6e7a10eba8081bab340fda8be13a7840e
-    -- https://github.com/llvm/llvm-project/commit/afa94306a8c197e346d3234e5ac5292ab90eae73
     use({
-      "Badhi/nvim-treesitter-cpp-tools",
-    })
-    use({
-      "nvim-treesitter/playground",
+      "nvim-treesitter/nvim-treesitter",
+      run = ":TSUpdate",
+      requires = {
+        -- Highlights & Text selection
+        "nvim-treesitter/nvim-treesitter-textobjects",
+        "nvim-treesitter/nvim-treesitter-context",
+        "Badhi/nvim-treesitter-cpp-tools",
+        "nvim-treesitter/playground",
+      },
     })
     -- LSP clients configurations
     use("neovim/nvim-lspconfig")
     -- Completion
-    use({ "hrsh7th/nvim-cmp" })
-    use("hrsh7th/cmp-nvim-lsp")
-    use("saadparwaiz1/cmp_luasnip")
-    use("L3MON4D3/LuaSnip")
-    use("hrsh7th/cmp-buffer")
-    use("hrsh7th/cmp-path")
-    use("hrsh7th/cmp-cmdline")
-    use("hrsh7th/cmp-nvim-lua")
-    use("hrsh7th/cmp-nvim-lsp-signature-help")
-    use("lukas-reineke/cmp-under-comparator")
-    use({ "mtoohey31/cmp-fish", ft = "fish" })
-    use("kdheepak/cmp-latex-symbols")
+    use({
+      "hrsh7th/nvim-cmp",
+      requires = {
+        "hrsh7th/cmp-nvim-lsp",
+        "saadparwaiz1/cmp_luasnip",
+        "L3MON4D3/LuaSnip",
+        "hrsh7th/cmp-buffer",
+        "hrsh7th/cmp-path",
+        "hrsh7th/cmp-cmdline",
+        "hrsh7th/cmp-nvim-lua",
+        "hrsh7th/cmp-nvim-lsp-signature-help",
+        "lukas-reineke/cmp-under-comparator",
+        "kdheepak/cmp-latex-symbols",
+        { "mtoohey31/cmp-fish", ft = "fish" },
+      },
+    })
     -- Movement
     use({
       "ggandor/leap.nvim",
@@ -92,20 +99,13 @@ return packer.startup({
     -- Go to files file.ex:row_number:col_number
     use("wsdjeg/vim-fetch")
     -- Debugger
-    use("mfussenegger/nvim-dap")
-    use("rcarriga/nvim-dap-ui")
     use({
-      "theHamsta/nvim-dap-virtual-text",
-      config = function()
-        require("nvim-dap-virtual-text").setup()
-      end,
-    })
-
-    use({
-      "mfussenegger/nvim-dap-python",
-      config = function()
-        require("dap-python").setup("python3")
-      end,
+      "mfussenegger/nvim-dap",
+      requires = {
+        "rcarriga/nvim-dap-ui",
+        "theHamsta/nvim-dap-virtual-text",
+        "mfussenegger/nvim-dap-python",
+      },
     })
     -- Rust
     use("simrat39/rust-tools.nvim")
@@ -113,25 +113,8 @@ return packer.startup({
     use({ "JafarAbdi/neovim-cmake", branch = "pr-auto_select_target" })
     -- C++
     use("p00f/clangd_extensions.nvim")
-    -- TODO: Uncomment once https://github.com/neovim/neovim/pull/15723 is merged
-    -- use({
-    --   "theHamsta/nvim-semantic-tokens",
-    --   config = function()
-    --     if pcall(require, "vim.lsp.semantic_tokens") then
-    --       require("nvim-semantic-tokens").setup({
-    --         preset = "default",
-    --         -- highlighters is a list of modules following the interface of nvim-semantic-tokens.table-highlighter or
-    --         -- function with the signature: highlight_token(ctx, token, highlight) where
-    --         --        ctx (as defined in :h lsp-handler)
-    --         --        token  (as defined in :h vim.lsp.semantic_tokens.on_full())
-    --         --        highlight (a helper function that you can call (also multiple times) with the determined highlight group(s) as the only parameter)
-    --         highlighters = { require("nvim-semantic-tokens.table-highlighter") },
-    --       })
-    --     end
-    --   end,
-    -- })
     use("p00f/godbolt.nvim")
-
+    -- Heuristically set buffer options
     use("tpope/vim-sleuth")
     use({
       "kylechui/nvim-surround",
@@ -153,32 +136,18 @@ return packer.startup({
       end,
     })
     use("windwp/nvim-autopairs")
-
     -- Notes
     use("mickael-menu/zk-nvim")
-
     -- Testing
     use({
       "nvim-neotest/neotest",
       requires = {
-        "nvim-lua/plenary.nvim",
-        "nvim-treesitter/nvim-treesitter",
         "antoinemadec/FixCursorHold.nvim",
         "nvim-neotest/neotest-python",
         "nvim-neotest/neotest-plenary",
+        "JafarAbdi/neotest-gtest",
       },
     })
-    use({
-      "JafarAbdi/neotest-gtest",
-      config = function()
-        require("neotest-gtest").setup({
-          test_path_pattern = { ".cpp", ".cc" }, -- The path pattern to detect test files
-        })
-      end,
-    })
-    -- TODO: Port to be similar to spellsitter
-    -- use("vigoux/LanguageTool.nvim")
-
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
       packer.compile()
     end
