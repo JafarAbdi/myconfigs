@@ -53,9 +53,6 @@ g.diagnostic_virtual_text = false
 
 vim.opt.iskeyword:append("-")
 
-vim.cmd("highlight link LspComment Comment")
-vim.cmd("highlight TSCurrentScope guibg=#242830")
-
 g.netrw_list_hide = vim.fn["netrw_gitignore#Hide"]() .. [[,\(^\|\s\s\)\zs\.\S\+]]
 g.netrw_altv = 1
 g.netrw_keepdir = 0

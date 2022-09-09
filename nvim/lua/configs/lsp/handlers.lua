@@ -23,15 +23,8 @@ capabilities.textDocument.completion.completionItem.snippetSupport = true
 M.capabilities = capabilities
 
 M.on_attach = function(client, bufnr)
-  -- TODO: Uncomment once https://github.com/neovim/neovim/pull/15723 is merged
-  -- if client.server_capabilities.semanticTokensProvider then
-  --   -- TODO: Use lua autocmd interface
-  --   vim.cmd(
-  --     [[autocmd BufEnter,CursorHold,InsertLeave <buffer> lua vim.lsp.buf.semantic_tokens_full()]]
-  --   )
-  -- end
   if client.server_capabilities.definitionProvider == true then
-    vim.api.nvim_buf_set_option(bufnr, "tagfunc", "v:lua.vim.lsp.tagfunc")
+    require("configs.commands").semantic_tokens_autocmd()
   end
   require("configs.keymaps").lsp_keymaps(bufnr)
   vim.api.nvim_buf_create_user_command(bufnr, "ToggleVirtualText", function()

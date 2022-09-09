@@ -1,3 +1,5 @@
+local M = {}
+
 ----------------
 -- Highlights --
 ----------------
@@ -5,7 +7,10 @@
 vim.cmd([[
 highlight! link SignColumn LineNr
 highlight SpellBad guifg=red gui=underline
+highlight LspComment guifg=#454a54
+highlight TSCurrentScope guibg=#242830
 ]])
+
 -------------------
 -- Auto-commands --
 -------------------
@@ -56,6 +61,14 @@ vim.api.nvim_create_autocmd("FileType", {
     require("configs.keymaps").clangd_keymap()
   end,
 })
+
+M.semantic_tokens_autocmd = function(bufnr)
+  vim.api.nvim_create_autocmd({ "BufEnter", "CursorHold", "InsertLeave" }, {
+    buffer = bufnr,
+    group = general_group,
+    callback = vim.lsp.buf.semantic_tokens_full,
+  })
+end
 
 ---------------
 -- Templates --
@@ -196,3 +209,5 @@ end, {})
 vim.api.nvim_create_user_command("GenerateStubs", function(params)
   require("configs.functions").generate_python_stubs(params.fargs)
 end, { nargs = "*" })
+
+return M

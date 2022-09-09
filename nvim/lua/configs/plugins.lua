@@ -112,6 +112,15 @@ return packer.startup({
     use({ "JafarAbdi/neovim-cmake", branch = "pr-auto_select_target" })
     -- C++
     use("p00f/clangd_extensions.nvim")
+    use({
+      "theHamsta/nvim-semantic-tokens",
+      config = function()
+        require("nvim-semantic-tokens").setup({
+          preset = "default",
+          highlighters = { require("nvim-semantic-tokens.table-highlighter") },
+        })
+      end,
+    })
     use("p00f/godbolt.nvim")
     -- Heuristically set buffer options
     use("tpope/vim-sleuth")
