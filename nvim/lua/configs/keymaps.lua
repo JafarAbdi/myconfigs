@@ -15,8 +15,6 @@ vim.keymap.set("n", "<leader>dr", function()
   require("configs.dap").repl.toggle({ height = 10 })
 end, { silent = true })
 vim.keymap.set("n", "<leader>dl", require("configs.dap").run_last, { silent = true })
-vim.keymap.set("n", "<leader>ds", require("dapui").float_element, { silent = true })
-vim.keymap.set({ "n", "v" }, "<leader>dh", require("dapui").eval, { silent = true })
 vim.keymap.set("n", "<leader>dc", require("configs.dap").run_to_cursor, { silent = true })
 vim.keymap.set("n", "<leader>dj", require("configs.dap").down, { silent = true })
 vim.keymap.set("n", "<leader>dk", require("configs.dap").up, { silent = true })
@@ -31,6 +29,7 @@ vim.keymap.set(
   require("telescope.builtin").current_buffer_fuzzy_find,
   { silent = true }
 )
+vim.keymap.set("n", "<leader>gr", require("telescope.builtin").resume, { silent = true })
 vim.keymap.set("n", "<leader>ml", require("telescope.builtin").marks, { silent = true })
 vim.keymap.set("n", "<leader>h", require("telescope.builtin").help_tags, { silent = true })
 vim.keymap.set("n", "<leader>gs", require("telescope.builtin").grep_string, { silent = true })

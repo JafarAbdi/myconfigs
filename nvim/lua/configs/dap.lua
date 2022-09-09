@@ -1,5 +1,3 @@
-require("dapui").setup()
-local dapui = require("dapui")
 local dap = require("dap")
 
 local M = setmetatable({}, {
@@ -12,23 +10,6 @@ local M = setmetatable({}, {
     return dap[key]
   end,
 })
-
--- TODO: Add tagfunc support for dapui buffers
--- local function add_tagfunc(widget)
---   local orig_new_buf = widget.new_buf
---   widget.new_buf = function(...)
---     local bufnr = orig_new_buf(...)
---     api.nvim_buf_set_option(bufnr, "tagfunc", "v:lua.require'configs.lsp.ext'.symbol_tagfunc")
---     return bufnr
---   end
--- end
-
--- local function setup_widgets()
---   local widgets = require("dap.ui.widgets")
---   M.sidebar = widgets.sidebar(widgets.scopes)
---   add_tagfunc(widgets.expression)
---   add_tagfunc(widgets.scopes)
--- end
 
 M.launch_console = {
   name = "lldb: Launch (console)",
@@ -65,15 +46,27 @@ M.launch_in_terminal = {
 function M.setup()
   require("nvim-dap-virtual-text").setup()
   require("dap-python").setup("python3")
-  -- setup_widgets()
-  dap.listeners.after.event_initialized["dapui_config"] = function()
-    dapui.open()
+  -- Fixes issues with lldb-vscode
+  -- When it starts it doesn't report any threads
+  dap.listeners.after.event_initialized["lldb-vscode"] = function(session)
+    session:update_threads()
   end
-  dap.listeners.before.event_terminated["dapui_config"] = function()
-    dapui.close()
+  -- After pausing the threads could be wrong
+  dap.listeners.after.pause["lldb-vscode"] = function(session)
+    session:update_threads()
   end
-  dap.listeners.before.event_exited["dapui_config"] = function()
-    dapui.close()
+  -- When we continue it report the allThreadsContinued in a very weird way
+  dap.listeners.after.continue["lldb-vscode"] = function(session, _, response)
+    if response.allThreadsContinued then
+      for _, t in pairs(session.threads) do
+        t.stopped = false
+      end
+    else
+      local thread = session.threads[response.threadId]
+      if thread and thread.stopped then
+        thread.stopped = false
+      end
+    end
   end
   dap.defaults.fallback.terminal_win_cmd = "tabnew"
   dap.defaults.fallback.external_terminal = {

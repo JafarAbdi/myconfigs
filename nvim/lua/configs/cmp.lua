@@ -10,11 +10,6 @@ local cmp = require("cmp")
 local compare = require("cmp.config.compare")
 
 cmp.setup.filetype({
-  "dapui_hover",
-  "dapui_stacks",
-  "dapui_scopes",
-  "dapui_controls",
-  "dapui_breakpoints",
   "neotest-summary",
 }, {})
 
