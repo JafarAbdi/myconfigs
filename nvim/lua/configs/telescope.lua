@@ -1,3 +1,5 @@
+local actions_layout = require("telescope.actions.layout")
+local actions = require("telescope.actions")
 -- Telescope
 local dropdown_configs = {
   layout_strategy = "vertical",
@@ -23,6 +25,12 @@ require("telescope").setup({
   defaults = {
     mappings = {
       i = {
+        ["<F2>"] = actions_layout.toggle_preview,
+        ["<C-j>"] = actions.move_selection_next,
+        ["<C-k>"] = actions.move_selection_previous,
+        ["<M-j>"] = actions.preview_scrolling_down,
+        ["<M-k>"] = actions.preview_scrolling_up,
+        ["<esc>"] = actions.close,
         ["<C-u>"] = false,
         ["<C-d>"] = false,
       },
