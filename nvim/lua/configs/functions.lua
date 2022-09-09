@@ -30,7 +30,7 @@ end
 -- Use textobject_at_point("@function.inner",...)
 
 -- Rename to GetClassMembers
-function _G.GetClassParameters()
+M.get_class_parameters = function()
   local bufnr = vim.api.nvim_get_current_buf()
   local class_name_query = vim.treesitter.parse_query(
     "cpp",
@@ -94,7 +94,7 @@ function _G.GetClassParameters()
   previewer.start_preview(output, vim.api.nvim_win_get_cursor(0)[1], on_preview_succces)
 end
 
-function _G.CleanWhitespaces()
+M.clean_whitespaces = function()
   local current_view = vim.fn.winsaveview()
   vim.cmd([[keeppatterns %s/\s\+$//e]])
   vim.fn.winrestview(current_view)

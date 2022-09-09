@@ -21,13 +21,24 @@ local templates_group = vim.api.nvim_create_augroup("TemplatesGroup", {})
 
 vim.api.nvim_create_autocmd("BufWritePost", {
   callback = function()
+    -- Deletes all trailing whitespaces in a file if it's not binary nor a diff.
+    if not vim.o.binary and vim.o.filetype ~= "diff" then
+      require("configs.functions").clean_whitespaces()
+    end
+  end,
+  group = general_group,
+})
+vim.api.nvim_create_autocmd("BufWritePost", {
+  callback = function()
     vim.api.nvim_command(":luafile " .. vim.fn.expand("<afile>"))
     vim.api.nvim_command(":PackerCompile")
   end,
   pattern = vim.env.HOME .. "/myconfigs/nvim/lua/**",
   group = general_group,
 })
+
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
+
 -- Highlight on yank
 vim.api.nvim_create_autocmd({ "TextYankPost" }, {
   group = general_group,
@@ -43,17 +54,6 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
   group = general_group,
 })
-
-vim.api.nvim_create_autocmd("BufWritePost", {
-  callback = function()
-    -- Deletes all trailing whitespaces in a file if it's not binary nor a diff.
-    if not vim.o.binary and vim.o.filetype ~= "diff" then
-      _G.CleanWhitespaces()
-    end
-  end,
-  group = general_group,
-})
-
 vim.api.nvim_create_autocmd("FileType", {
   pattern = { "cpp", "c" },
   group = cpp_group,
@@ -91,25 +91,13 @@ create_file_templates()
 -- Commands --
 --------------
 
-vim.api.nvim_create_user_command("NvimConfigs", function()
-  require("telescope.builtin").find_files({ cwd = "~/myconfigs/nvim" })
-end, { desc = "List all nvim configs using telescope" })
-
 vim.api.nvim_create_user_command(
   "ClangdConfig",
   "!config_clangd --build-dir <f-args>",
   { nargs = 1, complete = "dir" }
 )
-
--- TODO: This's not ready yet
--- vim.cmd([[ command! ExpandMacro execute "lua ExpandMacro()" ]])
-
 vim.api.nvim_create_user_command("CleanWhitespaces", function()
-  _G.CleanWhitespaces()
-end, {})
-
-vim.api.nvim_create_user_command("LuaSnipEdit", function()
-  require("luasnip.loaders.from_lua").edit_snippet_files()
+  require("configs.functions").clean_whitespaces()
 end, {})
 
 local utils = require("cmake.utils")
