@@ -22,10 +22,7 @@ capabilities = require("cmp_nvim_lsp").update_capabilities(capabilities)
 capabilities.textDocument.completion.completionItem.snippetSupport = true
 M.capabilities = capabilities
 
-M.on_attach = function(client, bufnr)
-  if client.server_capabilities.definitionProvider == true then
-    require("configs.commands").semantic_tokens_autocmd()
-  end
+M.on_attach = function(_, bufnr)
   require("configs.keymaps").lsp_keymaps(bufnr)
   vim.api.nvim_buf_create_user_command(bufnr, "ToggleVirtualText", function()
     vim.g.diagnostic_virtual_text = not vim.g.diagnostic_virtual_text
