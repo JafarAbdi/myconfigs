@@ -59,8 +59,22 @@ vim.api.nvim_create_autocmd("FileType", {
   group = cpp_group,
   callback = function()
     require("configs.keymaps").clangd_keymap()
+    -- This fixes an issue with nvim-cmp -- see https://github.com/hrsh7th/nvim-cmp/issues/1035#issuecomment-1195456419
+    vim.opt_local.cindent = false
   end,
 })
+
+-- TODO: Handle make/cmake/gcc cases
+local compilers = { cpp = "clang", c = "clang", python = "python", fish = "fish" }
+for language, compiler in pairs(compilers) do
+  vim.api.nvim_create_autocmd("FileType", {
+    pattern = language,
+    callback = function()
+      vim.cmd.compiler(compiler)
+    end,
+    group = general_group,
+  })
+end
 
 M.semantic_tokens_autocmd = function(bufnr)
   vim.api.nvim_create_autocmd({ "BufEnter", "CursorHold", "InsertLeave" }, {
@@ -73,6 +87,7 @@ end
 ---------------
 -- Templates --
 ---------------
+-- File shebang
 local create_file_templates = function()
   local templates_dir = vim.env.HOME .. "/myconfigs/nvim/file-templates"
   for _, template in ipairs(require("plenary.scandir").scan_dir(templates_dir)) do
