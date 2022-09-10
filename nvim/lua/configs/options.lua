@@ -53,7 +53,7 @@ g.diagnostic_virtual_text = false
 
 vim.opt.iskeyword:append("-")
 
-g.netrw_list_hide = vim.fn["netrw_gitignore#Hide"]() .. [[,\(^\|\s\s\)\zs\.\S\+]]
+g.netrw_list_hide = [[,\(^\|\s\s\)\zs\.\S\+]]
 g.netrw_altv = 1
 g.netrw_keepdir = 0
 g.netrw_winsize = 20
