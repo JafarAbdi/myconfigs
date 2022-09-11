@@ -80,6 +80,7 @@ cmp.setup({
         end,
       },
     },
+    { name = "conan_recipes" },
     { name = "path" },
     { name = "nvim_lua" },
     { name = "fish" },
@@ -98,6 +99,7 @@ cmp.setup({
         nvim_lsp_signature_help = "[Signature]",
         fish = "[Fish]",
         latex_symbols = "[Latex]",
+        conan_recipes = "[Conan]",
       })[entry.source.name]
       local label = vim_item.abbr
       local truncated_label = vim.fn.strcharpart(label, 0, MAX_LABEL_WIDTH)
