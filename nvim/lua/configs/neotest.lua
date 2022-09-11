@@ -6,6 +6,7 @@ require("neotest").setup({
     require("neotest-python")({}),
     require("neotest-gtest"),
     require("neotest-plenary"),
+    require("neotest-rust"),
   },
 })
 require("configs.keymaps").neotest_keymaps()

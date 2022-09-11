@@ -155,6 +155,7 @@ return packer.startup({
         "nvim-neotest/neotest-python",
         "nvim-neotest/neotest-plenary",
         "JafarAbdi/neotest-gtest",
+        "rouge8/neotest-rust",
       },
     })
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
