@@ -27,6 +27,9 @@ set -xg RCUTILS_CONSOLE_OUTPUT_FORMAT '[{name}]: {message}'
 set -xg RCUTILS_LOGGING_CONFIG_FILE ~/myconfigs/ros/ros2console.conf
 set -xg COLCON_LOG_PATH /tmp
 set -xg ROS_DOMAIN_ID 16
+export COLCON_DEFAULTS_FILE=$HOME/myconfigs/ros/colcon/defaults.yaml
+# Fix the .lock file permission issue
+# set -xg COLCON_HOME ~/myconfigs/ros/colcon
 
 function workon
   if test (count $argv) -ne 1

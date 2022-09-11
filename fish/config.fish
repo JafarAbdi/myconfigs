@@ -171,6 +171,7 @@ register-argcomplete ros_test
 register-argcomplete ros2
 register-argcomplete rosidl
 register-argcomplete ament_cmake
+register-argcomplete colcon
 
 for file in $MYCONFIGS_DIR/fish/completions/*
   source $file

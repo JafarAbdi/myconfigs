@@ -469,7 +469,7 @@ function install-cmake-lsp
 end
 
 function install-colcon
-  sudo apt install -y python3-colcon-common-extensions python3-vcstool python3-colcon-mixin
+  sudo apt install -y 'python3-colcon-*' python3-vcstool
   colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml
   colcon mixin update default
 end
