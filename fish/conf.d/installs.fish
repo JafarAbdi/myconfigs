@@ -47,6 +47,7 @@ function install-core
   sudo apt install -y python3-venv \
                       software-properties-common \
                       git-core \
+                      git-lfs \
                       ssh \
                       colordiff \
                       tree \
