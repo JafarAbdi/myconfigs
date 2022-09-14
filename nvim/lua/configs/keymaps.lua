@@ -35,7 +35,10 @@ vim.keymap.set("n", "<leader>h", require("telescope.builtin").help_tags, { silen
 vim.keymap.set("n", "<leader>gs", require("telescope.builtin").grep_string, { silent = true })
 vim.keymap.set("n", "<leader>gl", require("telescope.builtin").live_grep, { silent = true })
 vim.keymap.set("n", "<leader>o", require("telescope.builtin").find_files, { silent = true })
-vim.keymap.set("n", "<leader>j", require("telescope.builtin").jumplist, { silent = true })
+vim.keymap.set("n", "<leader>ro", require("telescope.builtin").oldfiles, { silent = true })
+vim.keymap.set("n", "<leader>j", function()
+  require("telescope.builtin").jumplist({ fname_width = 0.8 })
+end, { silent = true })
 
 vim.keymap.set("", "<leader>f", vim.lsp.buf.formatting)
 vim.keymap.set("v", "<leader>f", vim.lsp.buf.range_formatting)
