@@ -140,8 +140,36 @@ vim.keymap.set("", "<F3>", function()
   vim.cmd("UndotreeFocus")
 end, { silent = true })
 
+local is_buf_exists = function(name)
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t") == name then
+      return buf
+    end
+  end
+end
+
+local is_win_exists = function(bufnr)
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == bufnr then
+      return win
+    end
+  end
+end
+
 vim.keymap.set("", "<F7>", function()
-  vim.cmd("Lexplore")
+  local bufnr = is_buf_exists("[Terminal]")
+  if bufnr then
+    local win = is_win_exists(bufnr)
+    if win then
+      vim.api.nvim_set_current_win(win)
+    else
+      vim.api.nvim_set_current_buf(bufnr)
+    end
+  else
+    vim.cmd.terminal()
+    vim.api.nvim_buf_set_name(0, "[Terminal]")
+  end
+  vim.cmd([[startinsert!]])
 end, { silent = true })
 
 return {

@@ -19,6 +19,15 @@ local general_group = vim.api.nvim_create_augroup("GeneralCommands", {})
 local cpp_group = vim.api.nvim_create_augroup("CppCommands", {})
 local templates_group = vim.api.nvim_create_augroup("TemplatesGroup", {})
 
+vim.api.nvim_create_autocmd("TermOpen", {
+  callback = function()
+    vim.opt_local.signcolumn = "no"
+    vim.opt_local.number = false
+    vim.opt_local.relativenumber = false
+  end,
+  group = general_group,
+})
+
 vim.api.nvim_create_autocmd("BufWritePost", {
   callback = function()
     -- Deletes all trailing whitespaces in a file if it's not binary nor a diff.
