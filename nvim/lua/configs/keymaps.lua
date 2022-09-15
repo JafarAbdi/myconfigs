@@ -1,4 +1,5 @@
 -- Debugging
+vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 vim.keymap.set("n", "<F5>", require("configs.dap").continue, { silent = true })
 vim.keymap.set("n", "<F6>", require("configs.dap").terminate, { silent = true })
 vim.keymap.set("n", "<F10>", require("configs.dap").step_out, { silent = true })
