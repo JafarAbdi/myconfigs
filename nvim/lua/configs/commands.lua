@@ -74,7 +74,14 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 
 -- TODO: Handle make/cmake/gcc cases
-local compilers = { cpp = "clang", c = "clang", python = "python", fish = "fish" }
+local compilers = {
+  sh = "bash",
+  bash = "bash",
+  cpp = "clang",
+  c = "clang",
+  python = "python",
+  fish = "fish",
+}
 for language, compiler in pairs(compilers) do
   vim.api.nvim_create_autocmd("FileType", {
     pattern = language,
