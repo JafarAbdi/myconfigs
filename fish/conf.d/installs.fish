@@ -187,6 +187,10 @@ function install-pre-commit
   end
 end
 
+function install-pyinstrument
+  pip3 install -U pyinstrument
+end
+
 function install-heaptrack
   sudo apt install -y heaptrack heaptrack-gui
 end
