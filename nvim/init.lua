@@ -9,12 +9,9 @@ if vim.fn.exists("$NVIMRUNNING") == 1 then
     vim.env.NVIMRUNNING,
     "--remote",
     -- Convert all paths to absolute form since the files will be opened w.r.t. the servers cwd
-    vim.fn.join(
-      vim.tbl_map(function(e)
-        return vim.fn.fnamemodify(e, ":p")
-      end, vim.fn.argv()),
-      " "
-    ),
+    unpack(vim.tbl_map(function(e)
+      return vim.fn.fnamemodify(e, ":p")
+    end, vim.fn.argv())),
   })
   vim.cmd("qall!")
 else

@@ -136,7 +136,7 @@ local is_win_exists = function(bufnr)
   end
 end
 
-vim.keymap.set("n", "<M-C-t>", function()
+vim.keymap.set("", "<M-C-t>", function()
   local bufnr = is_buf_exists("[Terminal]")
   if bufnr then
     local win = is_win_exists(bufnr)
