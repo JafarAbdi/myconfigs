@@ -1,10 +1,5 @@
 -- Debugging
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
-vim.keymap.set("n", "<F5>", require("configs.dap").continue, { silent = true })
-vim.keymap.set("n", "<F6>", require("configs.dap").terminate, { silent = true })
-vim.keymap.set("n", "<F10>", require("configs.dap").step_out, { silent = true })
-vim.keymap.set("n", "<F11>", require("configs.dap").step_over, { silent = true })
-vim.keymap.set("n", "<F12>", require("configs.dap").step_into, { silent = true })
 vim.keymap.set("n", "<leader>b", require("configs.dap").toggle_breakpoint, { silent = true })
 vim.keymap.set("n", "<leader>B", function()
   require("configs.dap").toggle_breakpoint(vim.fn.input("Breakpoint Condition: "), nil, nil, true)
@@ -125,22 +120,6 @@ vim.keymap.set("", "<S-C-DOWN>", ":resize +1<CR>", { silent = true })
 vim.keymap.set("", "<S-C-LEFT>", ":vertical resize -1<CR>", { silent = true })
 vim.keymap.set("", "<S-C-RIGHT>", ":vertical resize +1<CR>", { silent = true })
 
--- F1-12 commands
-vim.keymap.set("", "<F2>", function()
-  if vim.opt.spell:get() then
-    vim.opt.spell = false
-    vim.api.nvim_echo({ { "Spellcheck off" } }, false, {})
-  else
-    vim.opt.spell = true
-    vim.api.nvim_echo({ { "Spellcheck on" } }, false, {})
-  end
-end)
-
-vim.keymap.set("", "<F3>", function()
-  vim.cmd("UndotreeToggle")
-  vim.cmd("UndotreeFocus")
-end, { silent = true })
-
 local is_buf_exists = function(name)
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t") == name then
@@ -157,7 +136,7 @@ local is_win_exists = function(bufnr)
   end
 end
 
-vim.keymap.set("", "<F7>", function()
+vim.keymap.set("n", "<M-C-t>", function()
   local bufnr = is_buf_exists("[Terminal]")
   if bufnr then
     local win = is_win_exists(bufnr)
@@ -263,7 +242,7 @@ return {
     --   end
     -- end, opts)
     vim.keymap.set("n", "<leader>nR", neotest.run.run_last, opts)
-    vim.keymap.set("n", "<F4>", neotest.summary.toggle, opts)
+    vim.keymap.set("n", "<leader>nt", neotest.summary.toggle, opts)
     vim.keymap.set("n", "<leader>nm", neotest.summary.run_marked, opts)
     vim.keymap.set("n", "<leader>no", function()
       neotest.output.open({ enter = true })

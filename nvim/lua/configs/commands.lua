@@ -134,6 +134,14 @@ vim.api.nvim_create_user_command("CleanWhitespaces", function()
   require("configs.functions").clean_whitespaces()
 end, {})
 
+vim.api.nvim_create_user_command("SpellToggle", function()
+  if vim.opt.spell:get() then
+    vim.opt.spell = false
+  else
+    vim.opt.spell = true
+  end
+end, {})
+
 local utils = require("cmake.utils")
 
 local run_in_terminal = require("configs.run_in_terminal")
