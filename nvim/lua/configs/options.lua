@@ -33,7 +33,6 @@ opt.showmatch = true
 opt.title = true
 opt.wildmode = "list:longest,full"
 opt.relativenumber = true
-opt.cmdheight = 0
 
 g.mapleader = " "
 g.maplocalleader = " "
