@@ -1,5 +1,13 @@
 local actions_layout = require("telescope.actions.layout")
 local actions = require("telescope.actions")
+local finders = require("telescope.finders")
+local make_entry = require("telescope.make_entry")
+local action_state = require("telescope.actions.state")
+local fd_options = {
+  hidden = false,
+  cmd = { "fd", "--type", "f", "--strip-cwd-prefix", "--ignore" },
+}
+
 -- Telescope
 local dropdown_configs = {
   layout_strategy = "vertical",
@@ -20,6 +28,27 @@ require("telescope").setup({
   extensions = {
     ["ui-select"] = {
       require("telescope.themes").get_dropdown(dropdown_configs),
+    },
+  },
+  pickers = {
+    find_files = {
+      find_command = fd_options.cmd,
+      mappings = {
+        i = {
+          ["<M-h>"] = function(prompt_bufnr)
+            fd_options.hidden = not fd_options.hidden
+            local opts = {}
+            opts.entry_maker = make_entry.gen_from_file(opts)
+
+            local cmd = vim.deepcopy(fd_options.cmd)
+            if fd_options.hidden then
+              table.insert(cmd, "--hidden")
+            end
+            local current_picker = action_state.get_current_picker(prompt_bufnr)
+            current_picker:refresh(finders.new_oneshot_job(cmd, opts), {})
+          end,
+        },
+      },
     },
   },
   defaults = {
