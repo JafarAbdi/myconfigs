@@ -153,6 +153,8 @@ function install-fzf
     mkdir -p ~/.local/bin || true
     mv fzf ~/.local/bin/
     cd -
+    wget https://raw.githubusercontent.com/junegunn/fzf/master/bin/fzf-tmux -O ~/.local/bin/fzf-tmux
+    chmod +x ~/.local/bin/fzf-tmux
   end
   mkdir -p ~/.config/fish/functions || true
   wget https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.fish -O ~/.config/fish/functions/fzf_key_bindings.fish

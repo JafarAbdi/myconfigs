@@ -182,9 +182,15 @@ set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inli
                          --bind='alt-k:preview-up'
                          --bind='alt-j:preview-down'
                          --bind='f2:toggle-preview' \
-                         --bind='f3:execute(nvim (echo {} | cut -d':' -f1,2) < /dev/tty > /dev/tty 2>&1)' \
-                         --bind='ctrl-h:reload($FZF_DEFAULT_COMMAND --hidden)'"
+                         --bind='f3:execute(nvim (echo {} | cut -d':' -f1,2) < /dev/tty > /dev/tty 2>&1)'"
+
 set -xg FZF_CTRL_R_OPTS "--preview=''"
+
+set -xg FZF_CTRL_T_OPTS "--prompt='Files> '" \
+                        "--header='CTRL-D: Directories / CTRL-F: Files / ALT-H: Show hidden files'" \
+                        "--bind='ctrl-d:change-prompt(Directories> )+reload(fd --type d)'" \
+                        "--bind='ctrl-f:change-prompt(Files> )+reload($FZF_DEFAULT_COMMAND)'" \
+                        "--bind='alt-h:change-prompt(Hidden files> )+reload($FZF_DEFAULT_COMMAND --hidden)'"
 set -xg FZF_CTRL_T_COMMAND "$FZF_DEFAULT_COMMAND"
 
 complete -c sfs -w sshfs
