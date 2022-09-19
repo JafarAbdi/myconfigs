@@ -6,6 +6,7 @@ CompileFlags:
         -Wextra,
         -Wshadow,
         -Wnon-virtual-dtor,
+        -Wimplicit-fallthrough,
         -pedantic]
 Diagnostics:
   # https://clang.llvm.org/extra/clang-tidy/checks/list.html
