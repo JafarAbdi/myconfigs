@@ -26,7 +26,6 @@ vim.keymap.set(
   { silent = true }
 )
 vim.keymap.set("n", "<leader>gr", require("telescope.builtin").resume, { silent = true })
-vim.keymap.set("n", "<leader>ml", require("telescope.builtin").marks, { silent = true })
 vim.keymap.set("n", "<leader>h", require("telescope.builtin").help_tags, { silent = true })
 vim.keymap.set("n", "<leader>gs", require("telescope.builtin").grep_string, { silent = true })
 vim.keymap.set("n", "<leader>gl", require("telescope.builtin").live_grep, { silent = true })
@@ -38,9 +37,6 @@ end, { silent = true })
 
 vim.keymap.set("", "<leader>f", vim.lsp.buf.formatting)
 vim.keymap.set("v", "<leader>f", vim.lsp.buf.range_formatting)
---Remap for dealing with word wrap
-vim.keymap.set("n", "k", "v:count == 0 ? 'gk' : 'k'", { expr = true, silent = true })
-vim.keymap.set("n", "j", "v:count == 0 ? 'gj' : 'j'", { expr = true, silent = true })
 
 --Add move line shortcuts
 vim.keymap.set("n", "<A-j>", ":m .+1<CR>==")
@@ -52,8 +48,6 @@ vim.keymap.set("v", "<A-k>", ":m '<-2<CR>gv=gv")
 
 -- Diagnostic keymaps
 vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, { silent = true })
-vim.keymap.set("n", "<leader>dp", vim.diagnostic.goto_prev, { silent = true })
-vim.keymap.set("n", "<leader>dn", vim.diagnostic.goto_next, { silent = true })
 vim.keymap.set("n", "<leader>dq", function()
   require("telescope.builtin").diagnostics(vim.tbl_deep_extend("error", { bufnr = 0 }, {}))
 end, { silent = true })
@@ -97,7 +91,7 @@ vim.keymap.set("n", "<A-7>", "7gt")
 vim.keymap.set("n", "<A-8>", "8gt")
 vim.keymap.set("n", "<A-9>", "9gt")
 
-vim.keymap.set("n", "<leader><leader>x", function()
+vim.keymap.set("n", "<leader>x", function()
   -- TODO: Adding make support to lua
   vim.cmd([[w]])
   local file_extension = vim.fn.expand("%:e")
