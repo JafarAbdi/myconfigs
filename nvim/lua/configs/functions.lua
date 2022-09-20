@@ -242,4 +242,21 @@ M.clangd_root_dir = function(startpath)
   return dir
 end
 
+M.is_buffer_exists = function(name)
+  local buffers = vim.tbl_filter(function(b)
+    if 1 ~= vim.fn.buflisted(b) then
+      return false
+    end
+    if not vim.api.nvim_buf_is_loaded(b) then
+      return false
+    end
+    return true
+  end, vim.api.nvim_list_bufs())
+  for _, buf in ipairs(buffers) do
+    if vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t") == name then
+      return buf
+    end
+  end
+end
+
 return M

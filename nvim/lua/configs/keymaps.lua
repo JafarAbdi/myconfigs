@@ -120,23 +120,6 @@ vim.keymap.set("", "<S-C-DOWN>", ":resize +1<CR>", { silent = true })
 vim.keymap.set("", "<S-C-LEFT>", ":vertical resize -1<CR>", { silent = true })
 vim.keymap.set("", "<S-C-RIGHT>", ":vertical resize +1<CR>", { silent = true })
 
-local is_buf_exists = function(name)
-  local buffers = vim.tbl_filter(function(b)
-    if 1 ~= vim.fn.buflisted(b) then
-      return false
-    end
-    if not vim.api.nvim_buf_is_loaded(b) then
-      return false
-    end
-    return true
-  end, vim.api.nvim_list_bufs())
-  for _, buf in ipairs(buffers) do
-    if vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t") == name then
-      return buf
-    end
-  end
-end
-
 local is_win_exists = function(bufnr)
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     if vim.api.nvim_win_get_buf(win) == bufnr then
@@ -146,7 +129,7 @@ local is_win_exists = function(bufnr)
 end
 
 vim.keymap.set("", "<M-C-t>", function()
-  local bufnr = is_buf_exists("[Terminal]")
+  local bufnr = require("configs.functions").is_buffer_exists("[Terminal]")
   if bufnr then
     local win = is_win_exists(bufnr)
     if win then
