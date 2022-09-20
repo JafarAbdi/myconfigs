@@ -140,5 +140,20 @@
     ],
     "description": "Code snippet for a try/finally statement",
     "prefix": "try/finally"
+  },
+  "wrapper": {
+    "body": [
+      "from functools import wraps",
+      "def ${1}(func):",
+      "\t@wraps(func)",
+      "\tdef wrapper(*args, **kwargs):",
+      "\t\t${2}",
+      "\t\tresult = func(*args, **kwargs)",
+      "\t\t${3}",
+      "\t\treturn result",
+      "\treturn wrapper"
+    ],
+    "description": "Code snippet for a wrapper/decorator",
+    "prefix": "wrapper/decorator"
   }
 }
