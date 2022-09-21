@@ -3,9 +3,10 @@ local actions = require("telescope.actions")
 local finders = require("telescope.finders")
 local make_entry = require("telescope.make_entry")
 local action_state = require("telescope.actions.state")
+local fd_executable = (vim.fn.executable("fd") == 1 and "fd") or "fdfind"
 local fd_options = {
   hidden = false,
-  cmd = { "fd", "--type", "f", "--strip-cwd-prefix", "--ignore" },
+  cmd = { fd_executable, "--type", "f", "--strip-cwd-prefix", "--ignore" },
 }
 
 -- Telescope
