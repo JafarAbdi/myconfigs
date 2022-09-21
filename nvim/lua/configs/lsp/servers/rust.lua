@@ -15,4 +15,7 @@ require("rust-tools").setup({
       },
     },
   },
+  dap = {
+    adapter = require("configs.dap").adapters.lldb,
+  },
 })

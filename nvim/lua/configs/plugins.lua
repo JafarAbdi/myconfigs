@@ -103,6 +103,7 @@ return packer.startup({
     use({
       "mfussenegger/nvim-dap",
       requires = {
+        "rcarriga/nvim-dap-ui",
         "theHamsta/nvim-dap-virtual-text",
         "mfussenegger/nvim-dap-python",
       },
