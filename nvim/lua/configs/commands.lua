@@ -180,24 +180,34 @@ vim.api.nvim_create_user_command("Make", function(params)
     return vim.fn.jobstart({ "cargo", "metadata" }, {
       stdout_buffered = true,
       on_stdout = function(_, data)
-        local metadata = vim.json.decode(vim.tbl_filter(function(e)
+        local output = vim.tbl_filter(function(e)
           return e ~= ""
-        end, data)[1])
-        for _, package in ipairs(metadata.packages) do
-          for _, target in ipairs(package.targets) do
-            -- TODO: Check kind?
-            if target.src_path == vim.fn.expand("%:p") then
-              vim.schedule(function()
-                -- TODO: How to pass arguments? by using vim.list_slice(args, 2)??
-                run_in_terminal(
-                  "cargo",
-                  { "run", "--bin", target.name },
-                  { cwd = vim.fn.expand("%:p:h") }
-                )
-              end)
-              return target.name
+        end, data)[1]
+        if output then
+          local metadata = vim.json.decode(output)
+          for _, package in ipairs(metadata.packages) do
+            for _, target in ipairs(package.targets) do
+              -- TODO: Check kind?
+              if target.src_path == vim.fn.expand("%:p") then
+                vim.schedule(function()
+                  -- TODO: How to pass arguments? by using vim.list_slice(args, 2)??
+                  run_in_terminal(
+                    "cargo",
+                    { "run", "--bin", target.name },
+                    { cwd = vim.fn.expand("%:p:h") }
+                  )
+                end)
+                return target.name
+              end
             end
           end
+        else
+          local output_filename = vim.fn.tempname()
+          return run_in_terminal(
+            "rustc",
+            { vim.fn.expand("%:p"), "-o", output_filename, "&&", output_filename },
+            { cwd = vim.fn.expand("%:p:h") }
+          )
         end
       end,
     })
