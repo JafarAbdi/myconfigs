@@ -11,7 +11,11 @@ return function(cmd, args, opts)
     vim.api.nvim_buf_delete(terminal_buffer, { force = true, unload = false })
   end
   vim.cmd("botright " .. (opts.height or "15") .. "new")
+  -- Start sh shell is way faster than initializing the default shell (Fish in my case)
+  local shell = vim.opt_local.shell
+  vim.opt_local.shell = "/usr/bin/sh"
   vim.fn.termopen(cmd .. " " .. vim.fn.join(args, " "), { cwd = opts.cwd })
+  vim.opt_local.shell = shell
   vim.api.nvim_buf_set_name(0, terminal_name)
 
   if opts.focus_terminal then
