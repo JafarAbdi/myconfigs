@@ -36,6 +36,7 @@ set -x ROS_WS_DIR $WORKSPACE_DIR/ros
 set fish_greeting
 set -x SCHROOT_DIR /srv/chroot
 set -x CPP_SCREATCHES_DIR $HOME/workspaces/cpp/scratches
+set -x RUST_SCREATCHES_DIR $HOME/workspaces/rust/scratches
 set -x NPM_PACKAGES "$HOME/.npm-packages"
 set -x MANPATH $NPM_PACKAGES/share/man $MANPATH
 
