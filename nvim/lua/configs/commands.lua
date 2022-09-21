@@ -176,6 +176,31 @@ vim.api.nvim_create_user_command("Make", function(params)
         )
       end)
     end)
+  elseif vim.bo.filetype == "rust" then
+    return vim.fn.jobstart({ "cargo", "metadata" }, {
+      stdout_buffered = true,
+      on_stdout = function(_, data)
+        local metadata = vim.json.decode(vim.tbl_filter(function(e)
+          return e ~= ""
+        end, data)[1])
+        for _, package in ipairs(metadata.packages) do
+          for _, target in ipairs(package.targets) do
+            -- TODO: Check kind?
+            if target.src_path == vim.fn.expand("%:p") then
+              vim.schedule(function()
+                -- TODO: How to pass arguments? by using vim.list_slice(args, 2)??
+                run_in_terminal(
+                  "cargo",
+                  { "run", "--bin", target.name },
+                  { cwd = vim.fn.expand("%:p:h") }
+                )
+              end)
+              return target.name
+            end
+          end
+        end
+      end,
+    })
   end
   return run_in_terminal(args[1], vim.list_slice(args, 2), { cwd = vim.fn.expand("%:p:h") })
 end, { nargs = "*" })
