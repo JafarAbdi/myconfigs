@@ -299,10 +299,19 @@ function install-python-lsp
   pip3 install -U nbdev
 end
 
+function install-rust
+  if ! command -q rustup &> /dev/null
+  curl --proto '=https' --tlsv1.3 https://sh.rustup.rs -sSf | sh
+  else
+  rustup update
+  end
+end
+
 function install-rust-lsp
-  curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
+  install-rust
   # rustup +nightly component add rust-analyzer-preview
   mkdir -p ~/.local/bin
+  mv ~/.local/bin/rust-analyzer{,.bak}
   curl -L https://github.com/rust-analyzer/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-unknown-linux-gnu.gz | gunzip -c - > ~/.local/bin/rust-analyzer
   chmod +x ~/.local/bin/rust-analyzer
 end
