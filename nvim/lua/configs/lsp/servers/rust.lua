@@ -2,6 +2,7 @@ local handlers = require("configs.lsp.handlers")
 
 require("rust-tools").setup({
   server = {
+    cmd = { vim.env.RUST_ANALYZER_BIN },
     capabilities = handlers.capabilities,
     on_attach = handlers.on_attach,
     settings = {

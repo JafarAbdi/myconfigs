@@ -301,9 +301,10 @@ end
 
 function install-rust
   if ! command -q rustup &> /dev/null
-  curl --proto '=https' --tlsv1.3 https://sh.rustup.rs -sSf | sh
+    curl --proto '=https' --tlsv1.3 https://sh.rustup.rs -sSf | sh
+    rustup component add rust-analyzer
   else
-  rustup update
+    rustup update
   end
 end
 
