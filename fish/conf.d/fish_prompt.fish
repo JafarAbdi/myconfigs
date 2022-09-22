@@ -12,11 +12,11 @@ function fish_prompt
   if test -e /.dockerenv
     echo -n -s "(🐳)"
   end
-  if set -q CURRENT_ROS_WORKSPACE
-    echo -n -s (set_color D68910) "($CURRENT_ROS_WORKSPACE)" (set_color normal)
-  end
   if set -q SCHROOT_SESSION_ID
     echo -n -s (set_color 85C1E9) "($SCHROOT_SESSION_ID)" (set_color normal)
+  end
+  if set -q CURRENT_ROS_WORKSPACE
+    echo -n -s (set_color D68910) "($CURRENT_ROS_WORKSPACE)" (set_color normal)
   end
 
   set -l git (set_color green)(fish_git_prompt | string trim)(set_color normal)
