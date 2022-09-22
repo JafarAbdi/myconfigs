@@ -1,11 +1,4 @@
 {
-  "assignment": {
-    "body": [
-      "local ${1:varName} = ${0:value}"
-    ],
-    "description": "create a variable",
-    "prefix": "ll"
-  },
   "class": {
     "body": [
       "${1:className} = {}\n",
@@ -77,40 +70,6 @@
       "end"
     ],
     "prefix": "f="
-  },
-  "local": {
-    "body": [
-      "local ${0}"
-    ],
-    "description": "create a variable",
-    "prefix": "l"
-  },
-  "locreq": {
-    "body": [
-      "local ${1:var} = require(\"${2:module}\")"
-    ],
-    "description": "Require module as a variable",
-    "prefix": "lreq"
-  },
-  "print": {
-    "body": [
-      "print(${0})"
-    ],
-    "prefix": "p"
-  },
-  "require": {
-    "body": [
-      "require(\"${1:module}\")"
-    ],
-    "description": "Require module",
-    "prefix": "req"
-  },
-  "return": {
-    "body": [
-      "return $0"
-    ],
-    "description": "return value",
-    "prefix": "rt"
   },
   "self": {
     "body": [

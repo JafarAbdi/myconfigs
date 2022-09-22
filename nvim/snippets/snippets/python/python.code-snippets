@@ -1,9 +1,4 @@
 {
-  "add/new/cell": {
-    "body": "# %%",
-    "description": "Code snippet to add a new cell",
-    "prefix": "add/new/cell"
-  },
   "async/def": {
     "body": [
       "async def ${1:funcname}(${2:parameter_list}):",
