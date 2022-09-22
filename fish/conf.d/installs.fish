@@ -557,3 +557,8 @@ function install-bazel
   wget https://raw.githubusercontent.com/bazelbuild/bazel/master/scripts/generate_fish_completion.py
   python3 ./generate_fish_completion.py --bazel=(which bazel) --output=$HOME/.config/fish/completions/bazel.fish
 end
+
+function install-cpp-analyzers
+  pip3 install -U codechecker
+  sudo apt-get install cppcheck
+end

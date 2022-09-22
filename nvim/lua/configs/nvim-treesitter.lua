@@ -167,6 +167,12 @@ require("treesitter-context").setup({
       -- 'switch',
       -- 'case',
     },
+    rust = {
+      "trait_item",
+      "impl_item",
+      "struct",
+      "enum",
+    },
     -- Example for a specific filetype.
     -- If a pattern is missing, *open a PR* so everyone can benefit.
     --   rust = {
