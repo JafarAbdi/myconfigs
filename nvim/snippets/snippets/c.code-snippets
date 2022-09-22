@@ -1,11 +1,4 @@
 {
-  "#def": {
-    "body": [
-      "#define $0"
-    ],
-    "description": "Code snippet for #define \" \"",
-    "prefix": "def"
-  },
   "#if": {
     "body": [
       "#if ${1:0}",

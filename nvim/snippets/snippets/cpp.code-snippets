@@ -1,11 +1,4 @@
 {
-  "#def": {
-    "body": [
-      "#define $0"
-    ],
-    "description": "Code snippet for #define \" \"",
-    "prefix": "def"
-  },
   "#if": {
     "body": [
       "#if ${1:0}",
@@ -43,13 +36,6 @@
     ],
     "description": "A standard main function for a C++ program",
     "prefix": "main"
-  },
-  "cin": {
-    "body": [
-      "std::cin >> $1;"
-    ],
-    "description": "Code snippet for std::cin, provided the header is set",
-    "prefix": "cin"
   },
   "class": {
     "body": [
@@ -96,13 +82,6 @@
     ],
     "description": "Code snippet for class with inline constructor/destructor",
     "prefix": "classi"
-  },
-  "cout": {
-    "body": [
-      "std::cout << \"${1:message}\" << std::endl;"
-    ],
-    "description": "Code snippet for printing to std::cout, provided the header is set",
-    "prefix": "cout"
   },
   "dependent_false": {
     "body": [
