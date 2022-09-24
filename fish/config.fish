@@ -157,7 +157,9 @@ alias notes 'SHELL=sh zk edit -i'
 alias notes_tag 'SHELL=sh zk edit -i -t'
 
 export ZK_NOTEBOOK_DIR=$MYCONFIGS_DIR/mynotes
-export PYTHONSTARTUP=(python3 -m jedi repl)
+if python3 -m jedi &> /dev/null
+  export PYTHONSTARTUP=(python3 -m jedi repl)
+end
 export MYPYPATH=$HOME/.cache/python-stubs/stubs
 
 register-argcomplete clang_tidy

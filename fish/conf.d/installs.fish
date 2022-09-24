@@ -66,6 +66,7 @@ function install-core
                       lld \
                       lldb \
                       ninja-build \
+                      sshfs \
                       # Needed for st
                       libxft-dev \
                       libx11-dev
@@ -227,9 +228,7 @@ function install-i3
     sudo apt update
   end
   sudo apt install -y i3
-  mkdir -p ~/.config/i3/
-  ln -fs ~/myconfigs/i3_config ~/.config/i3/config
-  pipx install ueberzug
+  ln -fs ~/myconfigs/i3 ~/.config/i3
   cd -
 end
 
@@ -302,6 +301,7 @@ end
 function install-rust
   if ! command -q rustup &> /dev/null
     curl --proto '=https' --tlsv1.3 https://sh.rustup.rs -sSf | sh
+    myconfigsr
     rustup component add rust-analyzer
   else
     rustup update
@@ -367,16 +367,17 @@ function install-nvim
 end
 
 function install-conan
-  pipx install conan
+  pip3 install conan
 end
 
 function setup-cpp-screatches
   install-conan
+  mkdir -p $WORKSPACE_DIR/cpp
   cd $CPP_SCREATCHES_DIR/..
   git clone https://github.com/JafarAbdi/cpp-scratches.git scratches
   cd scratches
   # TODO: Move to a script in cpp-scratches repo
-  conan install .
+  conan install --build=missing .
   cp conanbuildinfo.args compile_flags.txt
   sed -i 's/ /\n/g' compile_flags.txt
 end
@@ -452,6 +453,8 @@ end
 function install-tmux
   # We need at least tmux3.3, the older versions have a bug with focus-events
   # https://github.com/tmux/tmux/releases
+  mkdir -p ~/.config/tmux
+  ln -fs ~/myconfigs/tmux/tmux.conf ~/.config/tmux/tmux.conf
   sudo apt install -y tmux libevent-dev
 end
 
@@ -562,4 +565,30 @@ end
 function install-cpp-analyzers
   pip3 install -U codechecker
   sudo apt-get install cppcheck
+end
+
+function install-full-system
+  install-core
+  setup-ssh-keys
+  install-schroot
+  install-gh
+  install-nvim
+  # LSP
+  install-cpp-dev
+  install-ccache
+  install-python-lsp
+  install-rust-lsp
+  install-efm-lsp
+  install-lua-lsp
+  install-json-lsp
+  install-yaml-lsp
+  install-markdown-lsp
+  install-cmake-lsp
+  # Dev
+  setup-cpp-screatches
+  # Utilities
+  install-libtree
+  install-zk
+  install-difftastic
+  install-pre-commit
 end
