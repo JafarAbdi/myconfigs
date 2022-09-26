@@ -567,6 +567,13 @@ function install-cpp-analyzers
   sudo apt-get install cppcheck
 end
 
+function install-podman
+  # TODO: https://podman.io/getting-started/installation#debian
+  sudo apt install -y podman podman-toolbox podman-compose podman-docker
+  sudo touch /etc/containers/nodocker
+  podman completion -f ~/.config/fish/completions/podman.fish fish
+end
+
 function install-full-system
   install-core
   setup-ssh-keys
