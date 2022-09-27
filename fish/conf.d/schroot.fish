@@ -94,4 +94,8 @@ sudo apt install -y python3-pip
 pip3 install PyYAML
 pip3 install argcomplete
 " | schroot --run-session -c "$session_name"
+
+  if test -d $HOME/.config/gh
+    cp -r ~/.config/gh $dir/.config/gh
+  end
 end

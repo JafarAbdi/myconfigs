@@ -574,10 +574,7 @@ function install-podman
   podman completion -f ~/.config/fish/completions/podman.fish fish
 end
 
-function install-full-system
-  install-core
-  setup-ssh-keys
-  install-schroot
+function install-dev-tools
   install-gh
   install-nvim
   # LSP
@@ -591,11 +588,18 @@ function install-full-system
   install-yaml-lsp
   install-markdown-lsp
   install-cmake-lsp
-  # Dev
-  setup-cpp-screatches
   # Utilities
   install-libtree
   install-zk
   install-difftastic
   install-pre-commit
+end
+
+function install-full-system
+  install-core
+  setup-ssh-keys
+  install-schroot
+  install-dev-tools
+  # Dev
+  setup-cpp-screatches
 end
