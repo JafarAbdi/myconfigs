@@ -146,6 +146,33 @@ local utils = require("cmake.utils")
 
 local run_in_terminal = require("configs.run_in_terminal")
 
+-- TODO: Handle for other types (rustc, python, lua, c++) for both
+local makeargs = {}
+local makeenvs = {}
+
+vim.api.nvim_create_user_command("MakeArgs", function()
+  makeargs[vim.bo.filetype] = vim.split(vim.fn.input("Arguments: "), " ")
+end, {})
+
+-- TODO: Add support for overriding env-variables
+vim.api.nvim_create_user_command("MakeEnvs", function()
+  local env_pairs = vim.split(
+    vim.fn.input("Environments (ENV1=VALUE ENV2=VALUE ...): "),
+    " ",
+    { trimempty = true }
+  )
+  if vim.tbl_isempty(env_pairs) then
+    makeenvs[vim.bo.filetype] = nil
+    return
+  end
+  local envs = {}
+  for _, env_pair in ipairs(env_pairs) do
+    local key, value = unpack(vim.split(env_pair, "="))
+    envs[key] = value
+  end
+  makeenvs[vim.bo.filetype] = envs
+end, {})
+
 vim.api.nvim_create_user_command("Make", function(params)
   if not utils.ensure_no_job_active() then
     return
@@ -179,6 +206,7 @@ vim.api.nvim_create_user_command("Make", function(params)
   elseif vim.bo.filetype == "rust" then
     return vim.fn.jobstart({ "cargo", "metadata" }, {
       stdout_buffered = true,
+      cwd = vim.fn.expand("%:p:h"),
       on_stdout = function(_, data)
         local output = vim.tbl_filter(function(e)
           return e ~= ""
@@ -190,11 +218,11 @@ vim.api.nvim_create_user_command("Make", function(params)
               -- TODO: Check kind?
               if target.src_path == vim.fn.expand("%:p") then
                 vim.schedule(function()
-                  -- TODO: How to pass arguments? by using vim.list_slice(args, 2)??
+                  -- cwd should be the root directory??
                   run_in_terminal(
                     "cargo",
-                    { "run", "--bin", target.name },
-                    { cwd = vim.fn.expand("%:p:h") }
+                    { "run", "--bin", target.name, "--", unpack(makeargs[vim.bo.filetype] or {}) },
+                    { env = makeenvs[vim.bo.filetype] }
                   )
                 end)
                 return target.name

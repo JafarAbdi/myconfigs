@@ -14,7 +14,11 @@ return function(cmd, args, opts)
   -- Start sh shell is way faster than initializing the default shell (Fish in my case)
   local shell = vim.opt_local.shell
   vim.opt_local.shell = "/usr/bin/sh"
-  vim.fn.termopen(cmd .. " " .. vim.fn.join(args, " "), { cwd = opts.cwd })
+  local term_opts = { cwd = opts.cwd or vim.loop.cwd() }
+  if opts.env and not vim.tbl_isempty(opts.env) then
+    term_opts.env = opts.env
+  end
+  vim.fn.termopen(cmd .. " " .. vim.fn.join(args, " "), term_opts)
   vim.opt_local.shell = shell
   vim.api.nvim_buf_set_name(0, terminal_name)
 
