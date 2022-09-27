@@ -16,10 +16,6 @@ and command -v tmux &> /dev/null
   exec tmux new-session -s %self
 end
 
-if command -v rustup &> /dev/null
-  export RUST_ANALYZER_BIN=(rustup which rust-analyzer)
-end
-
 if test -d $HOME/myconfigs # Host machine case
   set -x MYCONFIGS_DIR ~/myconfigs
 else if test -d /root/myconfigs # Docker image case
@@ -139,6 +135,10 @@ end
 get_current_ros_workspace > /dev/null
 if [ "$current_ros_workspace" != "" ]
   source_workspace $current_ros_workspace
+end
+
+if command -v rustup &> /dev/null
+  export RUST_ANALYZER_BIN=(rustup which rust-analyzer)
 end
 
 # eval (python -m virtualfish) &> /dev/null
