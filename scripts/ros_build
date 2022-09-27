@@ -104,7 +104,10 @@ def main():
         cmd += [
             "--mixin",
             args.build_type,
+            "compile-commands",
             "build-testing-" + ("on" if args.build_tests else "off"),
+            "ninja",
+            "lld",
         ]
         if args.verbose:
             cmd += ["--event-handlers", "console_direct+"]

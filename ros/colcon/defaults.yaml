@@ -1,8 +1,0 @@
-build:
-  symlink-install: true
-  mixin:
-    - compile-commands
-    - ninja
-    - lld
-  # event-handlers:
-  #   - console_direct+
