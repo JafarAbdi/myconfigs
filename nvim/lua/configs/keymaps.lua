@@ -46,6 +46,8 @@ vim.keymap.set("v", "<A-k>", ":m '<-2<CR>gv=gv")
 
 -- Diagnostic keymaps
 vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, { silent = true })
+vim.keymap.set("n", "<leader>dN", vim.diagnostic.goto_prev, { silent = true })
+vim.keymap.set("n", "<leader>dn", vim.diagnostic.goto_next, { silent = true })
 vim.keymap.set("n", "<leader>dq", function()
   require("telescope.builtin").diagnostics(vim.tbl_deep_extend("error", { bufnr = 0 }, {}))
 end, { silent = true })
