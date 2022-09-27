@@ -87,14 +87,6 @@ return packer.startup({
         { "mtoohey31/cmp-fish", ft = "fish" },
       },
     })
-    -- Movement
-    use({
-      "ggandor/leap.nvim",
-      config = function()
-        require("leap").setup({})
-        require("leap").set_default_keymaps()
-      end,
-    })
     -- Undo tree
     use({ "mbbill/undotree", cmd = "UndotreeToggle" })
     -- Go to files file.ex:row_number:col_number
