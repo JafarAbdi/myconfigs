@@ -222,7 +222,7 @@ vim.api.nvim_create_user_command("Make", function(params)
                   run_in_terminal(
                     "cargo",
                     { "run", "--bin", target.name, "--", unpack(makeargs[vim.bo.filetype] or {}) },
-                    { env = makeenvs[vim.bo.filetype] }
+                    { cwd = vim.fn.expand("%:p:h"), env = makeenvs[vim.bo.filetype] }
                   )
                 end)
                 return target.name
