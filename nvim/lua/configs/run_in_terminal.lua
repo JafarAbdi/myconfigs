@@ -10,6 +10,7 @@ return function(cmd, args, opts)
   if terminal_buffer then
     vim.api.nvim_buf_delete(terminal_buffer, { force = true, unload = false })
   end
+  -- Why I can't call this by indexing vim.cmd???
   vim.cmd("botright " .. (opts.height or "15") .. "new")
   -- Start sh shell is way faster than initializing the default shell (Fish in my case)
   local shell = vim.opt_local.shell
@@ -23,7 +24,7 @@ return function(cmd, args, opts)
   vim.api.nvim_buf_set_name(0, terminal_name)
 
   if opts.focus_terminal then
-    vim.cmd([[startinsert!]])
+    vim.cmd.startinsert({ bang = true })
   else
     vim.cmd.wincmd("p")
   end

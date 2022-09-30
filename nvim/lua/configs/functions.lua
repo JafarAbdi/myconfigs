@@ -238,7 +238,7 @@ M.clangd_root_dir = function(startpath)
     require("configs.cmake").cmake_project(dir)
   end
   dir = dir or vim.fn.getcwd()
-  vim.cmd(string.format("cd %s", dir))
+  vim.cmd.cd(dir)
   return dir
 end
 

@@ -13,7 +13,7 @@ if vim.fn.exists("$NVIMRUNNING") == 1 then
       return vim.fn.fnamemodify(e, ":p")
     end, vim.fn.argv())),
   })
-  vim.cmd("qall!")
+  vim.cmd.qall({ bang = true })
 else
   -- servername is empty inside schroots
   -- TODO: is this a bug????

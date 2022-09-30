@@ -93,10 +93,10 @@ vim.keymap.set("n", "<A-9>", "9gt")
 
 vim.keymap.set("n", "<leader>x", function()
   -- TODO: Adding make support to lua
-  vim.cmd([[w]])
+  vim.cmd.write()
   local file_extension = vim.fn.expand("%:e")
   if vim.bo.filetype == "lua" then
-    vim.cmd([[:luafile %]])
+    vim.cmd.luafile("%")
   elseif file_extension == "urdf" or file_extension == "xacro" then
     local request = "curl -X POST http://127.0.0.1:7777/set_reload_request"
     vim.fn.jobstart(request, {
@@ -105,7 +105,7 @@ vim.keymap.set("n", "<leader>x", function()
       end,
     })
   else
-    vim.cmd([[Make]])
+    vim.cmd.Make()
   end
 end)
 
@@ -135,7 +135,7 @@ vim.keymap.set("", "<M-C-t>", function()
     vim.cmd.terminal()
     vim.api.nvim_buf_set_name(0, "[Terminal]")
   end
-  vim.cmd([[startinsert!]])
+  vim.cmd.startinsert({ bang = true })
 end, { silent = true })
 
 return {
@@ -164,13 +164,12 @@ return {
         if not command then
           return
         end
-        -- Why it only work with defer?
-        vim.defer_fn(function()
+        vim.schedule(function()
           local ok, error = pcall(vim.cmd, command)
           if not ok then
             vim.notify(error, vim.log.levels.ERROR)
           end
-        end, 10)
+        end)
       end)
     end)
   end,
