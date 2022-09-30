@@ -27,6 +27,24 @@ function myip
     end
 end
 
+function file-extension
+  echo (string split --right --max 1 . $argv[1])[2]
+end
+
+function ffmpeg-convert
+  if test (count $argv) -ne 2
+    echo "ffmpeg-convert expects two inputs ffmpeg-convert from to"
+    return
+  end
+  set -l from_extension (file-extension $argv[1])
+  set -l to_extension (file-extension $argv[2])
+  if test "$from_extension" = "gif" && test "$to_extension" = "mp4"
+    ffmpeg -i $argv[1] -movflags faststart -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" $argv[2]
+  else
+    echo "Unsopprted conversion from '"$from_extension"' to '"$to_extension"'"
+  end
+end
+
 function ex
     if test -f $argv[1]
         switch $argv[1]
