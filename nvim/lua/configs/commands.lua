@@ -303,4 +303,47 @@ vim.api.nvim_create_user_command("GenerateStubs", function(params)
   require("configs.functions").generate_python_stubs(params.fargs)
 end, { nargs = "*" })
 
+vim.api.nvim_create_user_command("CESetup", function(opts)
+  local options = {
+    autocmd = {
+      enable = true,
+      hl = "Cursorline",
+    },
+  }
+  require("compiler-explorer.rest").cache = {
+    langs = {},
+    compilers = {},
+    libs = {},
+    formatters = {},
+  }
+  pcall(vim.api.nvim_clear_autocmds, { group = "CompilerExplorerLive" })
+  if opts.args == "local" then
+    local Path = require("plenary.path")
+
+    local user_arguments = ""
+    local scratch_path = Path:new(vim.env.CPP_SCREATCHES_DIR, "conanbuildinfo.args")
+    if scratch_path:exists() then
+      user_arguments = scratch_path:read()
+    end
+    options = vim.tbl_deep_extend(
+      "force",
+      options,
+      { url = "http://localhost:10240", compiler_flags = user_arguments }
+    )
+    require("compiler-explorer").setup(options)
+  elseif opts.args == "online" then
+    options = vim.tbl_deep_extend(
+      "force",
+      options,
+      { url = "https://godbolt.org", compiler_flags = "" }
+    )
+    require("compiler-explorer").setup(options)
+  end
+end, {
+  nargs = 1,
+  complete = function()
+    return { "local", "online" }
+  end,
+})
+
 return M

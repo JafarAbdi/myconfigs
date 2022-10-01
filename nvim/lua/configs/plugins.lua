@@ -115,7 +115,7 @@ return packer.startup({
         })
       end,
     })
-    use("p00f/godbolt.nvim")
+    use("krady21/compiler-explorer.nvim")
     -- Heuristically set buffer options
     use("tpope/vim-sleuth")
     use({
