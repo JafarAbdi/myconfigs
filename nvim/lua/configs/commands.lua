@@ -188,25 +188,26 @@ vim.api.nvim_create_user_command("Make", function(params)
 
   local cmd = vim.fn.expandcmd(makeprg)
   local args = vim.split(cmd, " ")
+  local file_directory = vim.fn.expand("%:p:h")
 
   if vim.bo.filetype == "cpp" then
     return utils.run(
       args[1],
       vim.list_slice(args, 2),
-      { cwd = vim.fn.expand("%:p:h"), force_quickfix = false }
+      { cwd = file_directory, force_quickfix = false }
     ):after_success(function()
       vim.schedule(function()
         run_in_terminal(
           vim.fn.expand("%:p:r") .. ".out",
           params.fargs,
-          { cwd = vim.fn.expand("%:p:h"), focus_terminal = true }
+          { cwd = file_directory, focus_terminal = true }
         )
       end)
     end)
   elseif vim.bo.filetype == "rust" then
     return vim.fn.jobstart({ "cargo", "metadata" }, {
       stdout_buffered = true,
-      cwd = vim.fn.expand("%:p:h"),
+      cwd = file_directory,
       on_stdout = function(_, data)
         local output = vim.tbl_filter(function(e)
           return e ~= ""
@@ -222,7 +223,8 @@ vim.api.nvim_create_user_command("Make", function(params)
                   run_in_terminal(
                     "cargo",
                     { "run", "--bin", target.name, "--", unpack(makeargs[vim.bo.filetype] or {}) },
-                    { cwd = vim.fn.expand("%:p:h"), env = makeenvs[vim.bo.filetype] }
+                    { cwd = require("lspconfig").util.root_pattern("Cargo.toml")(file_directory) or
+                        file_directory, env = makeenvs[vim.bo.filetype] }
                   )
                 end)
                 return target.name
@@ -234,13 +236,13 @@ vim.api.nvim_create_user_command("Make", function(params)
           return run_in_terminal(
             "rustc",
             { vim.fn.expand("%:p"), "-o", output_filename, "&&", output_filename },
-            { cwd = vim.fn.expand("%:p:h") }
+            { cwd = file_directory }
           )
         end
       end,
     })
   end
-  return run_in_terminal(args[1], vim.list_slice(args, 2), { cwd = vim.fn.expand("%:p:h") })
+  return run_in_terminal(args[1], vim.list_slice(args, 2), { cwd = file_directory })
 end, { nargs = "*" })
 
 vim.api.nvim_create_user_command("DapAttach", function()

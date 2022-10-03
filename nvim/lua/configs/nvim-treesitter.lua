@@ -11,6 +11,7 @@ require("nvim-treesitter.configs").setup({
     "cpp",
     "dockerfile",
     "fish",
+    "html",
     "http",
     "javascript",
     "json",
