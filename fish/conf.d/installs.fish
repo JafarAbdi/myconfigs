@@ -513,6 +513,7 @@ end
 function install-drake
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR
+  sudo rm -rf /opt/drake
   sudo mkdir -p /opt/drake
   sudo chown $USER:$USER /opt/drake
   set -l ubuntu_release (lsb_release -cs)
