@@ -118,6 +118,8 @@ return packer.startup({
     use("krady21/compiler-explorer.nvim")
     -- Heuristically set buffer options
     use("tpope/vim-sleuth")
+    -- Used to fix symlink files
+    use("famiu/bufdelete.nvim")
     use({
       "kylechui/nvim-surround",
       config = function()
