@@ -195,3 +195,7 @@ require("treesitter-context").setup({
 
   zindex = 20, -- The Z-index of the context window
 })
+local ft_to_parser = require("nvim-treesitter.parsers").filetype_to_parsername
+ft_to_parser.xml = "html"
+ft_to_parser.xacro = "html"
+ft_to_parser.urdf = "html"
