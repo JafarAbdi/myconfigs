@@ -230,12 +230,15 @@ M.clangd_root_dir = function(startpath)
   local search_fn = require("lspconfig.util").root_pattern(".clangd_config")
   -- If root directory not found set it to file's directory
   local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
+  local build_system = "standalone"
   if dir then
+    build_system = "cmake"
     require("configs.keymaps").cmake_keymap()
     require("configs.cmake").cmake_project(dir)
   end
   dir = dir or vim.fn.getcwd()
   vim.cmd.cd(dir)
+  require("projects").add_project(dir, { lang = "cpp", build_system = build_system })
   return dir
 end
 

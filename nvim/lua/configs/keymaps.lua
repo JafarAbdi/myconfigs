@@ -29,6 +29,7 @@ vim.keymap.set("n", "<leader>gs", require("telescope.builtin").grep_string, { si
 vim.keymap.set("n", "<leader>gl", require("telescope.builtin").live_grep, { silent = true })
 vim.keymap.set("n", "<leader>o", require("telescope.builtin").find_files, { silent = true })
 vim.keymap.set("n", "<leader>ro", require("telescope.builtin").oldfiles, { silent = true })
+vim.keymap.set("n", "<leader>p", require("telescope").extensions.projects.cd, { silent = true })
 vim.keymap.set("n", "<leader>j", function()
   require("telescope.builtin").jumplist({ fname_width = 0.8 })
 end, { silent = true })
