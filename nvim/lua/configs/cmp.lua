@@ -35,20 +35,20 @@ cmp.setup({
     documentation = cmp.config.window.bordered(),
   },
   mapping = cmp.mapping.preset.insert({
-    ["<C-p>"] = cmp.config.disable, -- cmp.mapping.select_prev_item(),
-    ["<C-n>"] = cmp.config.disable, -- cmp.mapping.select_next_item(),
+    ["Tab"] = cmp.config.disable,
+    ["S-Tab"] = cmp.config.disable,
+    ["<C-p>"] = cmp.config.disable,
+    ["<C-n>"] = cmp.config.disable,
+    ["<C-f>"] = cmp.config.disable,
     ["<C-d>"] = cmp.mapping.scroll_docs(4),
     ["<C-u>"] = cmp.mapping.scroll_docs(-4),
-    ["<C-f>"] = cmp.config.disable,
     ["<C-Space>"] = cmp.mapping.complete(),
     ["<C-e>"] = cmp.mapping.close(),
     ["<CR>"] = cmp.mapping.confirm({
       behavior = cmp.ConfirmBehavior.Replace,
       select = false,
     }),
-    -- ["Tab"] = cmp.config.disable,
-    -- ["S-Tab"] = cmp.config.disable,
-    ["<Tab>"] = cmp.mapping(function(fallback)
+    ["<C-j>"] = cmp.mapping(function(fallback)
       if cmp.visible() then
         cmp.select_next_item()
         -- elseif luasnip.expand_or_jumpable() then
@@ -57,7 +57,7 @@ cmp.setup({
         fallback()
       end
     end, { "i", "s" }),
-    ["<S-Tab>"] = cmp.mapping(function(fallback)
+    ["<C-k>"] = cmp.mapping(function(fallback)
       if cmp.visible() then
         cmp.select_prev_item()
         -- elseif luasnip.jumpable(-1) then

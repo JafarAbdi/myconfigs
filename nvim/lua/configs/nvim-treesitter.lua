@@ -105,15 +105,6 @@ require("nvim-treesitter.configs").setup({
         ["[C"] = "@class.outer",
       },
     },
-    lsp_interop = {
-      enable = true,
-      disable = disable,
-      border = "none",
-      peek_definition_code = {
-        ["<leader>pf"] = "@function.outer",
-        ["<leader>pc"] = "@class.outer",
-      },
-    },
   },
   playground = {
     enable = true,
