@@ -242,8 +242,11 @@ vim.api.nvim_create_user_command("Make", function(params)
                   run_in_terminal(
                     "cargo",
                     { "run", "--bin", target.name, "--", unpack(makeargs[vim.bo.filetype] or {}) },
-                    { cwd = require("lspconfig").util.root_pattern("Cargo.toml")(file_directory) or
-                        file_directory, env = makeenvs[vim.bo.filetype] }
+                    {
+                      cwd = require("lspconfig").util.root_pattern("Cargo.toml")(file_directory)
+                        or file_directory,
+                      env = makeenvs[vim.bo.filetype],
+                    }
                   )
                 end)
                 return target.name
