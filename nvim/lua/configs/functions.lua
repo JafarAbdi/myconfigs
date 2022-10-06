@@ -227,10 +227,7 @@ M.load_clangd_config = function(root_path)
 end
 
 M.clangd_root_dir = function(startpath)
-  local search_fn = require("lspconfig.util").root_pattern(
-    ".clangd_config",
-    "compile_commands.json"
-  )
+  local search_fn = require("lspconfig.util").root_pattern(".clangd_config")
   -- If root directory not found set it to file's directory
   local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
   if dir then

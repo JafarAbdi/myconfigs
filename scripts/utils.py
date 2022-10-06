@@ -8,7 +8,6 @@ from typing import Optional
 
 import yaml
 
-
 ROS_INSTALLATION_DIR = Path("/opt/ros")
 
 
@@ -91,6 +90,13 @@ def run_command(
     if dry_run:
         return
     subprocess.call(cmd, cwd=cwd, env=env)
+
+
+def create_cmake_query_files(build_dir):
+    QUERY_DIR = Path(build_dir) / ".cmake" / "api" / "v1" / "query"
+    QUERY_DIR.mkdir(parents=True, exist_ok=True)
+    QUERY_FILE = QUERY_DIR / "codemodel-v2"
+    QUERY_FILE.touch()
 
 
 def create_clangd_config(build_dir, output_dir=None):
