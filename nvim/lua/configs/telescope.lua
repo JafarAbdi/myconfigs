@@ -36,7 +36,7 @@ require("telescope").setup({
       find_command = fd_options.cmd,
       mappings = {
         i = {
-          ["<M-h>"] = function(prompt_bufnr)
+          ["<C-h>"] = function(prompt_bufnr)
             fd_options.hidden = not fd_options.hidden
             local opts = {}
             opts.entry_maker = make_entry.gen_from_file(opts)

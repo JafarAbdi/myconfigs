@@ -39,6 +39,8 @@ cmp.setup({
     ["S-Tab"] = cmp.config.disable,
     ["<C-p>"] = cmp.config.disable,
     ["<C-n>"] = cmp.config.disable,
+    ["<C-k>"] = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Select }),
+    ["<C-j>"] = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Select }),
     ["<C-f>"] = cmp.config.disable,
     ["<C-d>"] = cmp.mapping.scroll_docs(4),
     ["<C-u>"] = cmp.mapping.scroll_docs(-4),
@@ -48,24 +50,6 @@ cmp.setup({
       behavior = cmp.ConfirmBehavior.Replace,
       select = false,
     }),
-    ["<C-j>"] = cmp.mapping(function(fallback)
-      if cmp.visible() then
-        cmp.select_next_item()
-        -- elseif luasnip.expand_or_jumpable() then
-        --   luasnip.expand_or_jump()
-      else
-        fallback()
-      end
-    end, { "i", "s" }),
-    ["<C-k>"] = cmp.mapping(function(fallback)
-      if cmp.visible() then
-        cmp.select_prev_item()
-        -- elseif luasnip.jumpable(-1) then
-        --   luasnip.jump(-1)
-      else
-        fallback()
-      end
-    end, { "i", "s" }),
   }),
   sources = {
     { name = "nvim_lsp_signature_help", priority = 100 },
@@ -147,21 +131,9 @@ cmp.setup({
 local cmdline_mappings = cmp.mapping.preset.cmdline({
   ["<C-p>"] = cmp.config.disable,
   ["<C-n>"] = cmp.config.disable,
+  ["<C-k>"] = { c = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Insert }) },
+  ["<C-j>"] = { c = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Insert }) },
   ["<C-Space>"] = { c = cmp.mapping.complete() },
-  ["<C-j>"] = cmp.mapping(function(fallback)
-    if cmp.visible() then
-      cmp.select_next_item()
-    else
-      fallback()
-    end
-  end, { "c" }),
-  ["<C-k>"] = cmp.mapping(function(fallback)
-    if cmp.visible() then
-      cmp.select_prev_item()
-    else
-      fallback()
-    end
-  end, { "c" }),
 })
 
 -- Use buffer source for `/` (if you enabled `native_menu`, this won't work anymore).
