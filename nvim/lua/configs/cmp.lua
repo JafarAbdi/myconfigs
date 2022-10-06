@@ -143,9 +143,30 @@ cmp.setup({
     },
   },
 })
+
+local cmdline_mappings = cmp.mapping.preset.cmdline({
+  ["<C-p>"] = cmp.config.disable,
+  ["<C-n>"] = cmp.config.disable,
+  ["<C-Space>"] = { c = cmp.mapping.complete() },
+  ["<C-j>"] = cmp.mapping(function(fallback)
+    if cmp.visible() then
+      cmp.select_next_item()
+    else
+      fallback()
+    end
+  end, { "c" }),
+  ["<C-k>"] = cmp.mapping(function(fallback)
+    if cmp.visible() then
+      cmp.select_prev_item()
+    else
+      fallback()
+    end
+  end, { "c" }),
+})
+
 -- Use buffer source for `/` (if you enabled `native_menu`, this won't work anymore).
 cmp.setup.cmdline("/", {
-  mapping = cmp.mapping.preset.cmdline(),
+  mapping = cmdline_mappings,
   sources = cmp.config.sources({
     { name = "buffer" },
   }),
@@ -153,7 +174,7 @@ cmp.setup.cmdline("/", {
 
 -- Use cmdline & path source for ':' (if you enabled `native_menu`, this won't work anymore).
 cmp.setup.cmdline(":", {
-  mapping = cmp.mapping.preset.cmdline(),
+  mapping = cmdline_mappings,
   sources = cmp.config.sources({
     { name = "path" },
   }, {
