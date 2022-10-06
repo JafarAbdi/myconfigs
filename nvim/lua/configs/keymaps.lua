@@ -37,13 +37,10 @@ vim.keymap.set("", "<leader>f", function()
   vim.lsp.buf.format({ async = true })
 end)
 
---Add move line shortcuts
-vim.keymap.set("n", "<A-j>", ":m .+1<CR>==")
-vim.keymap.set("n", "<A-k>", ":m .-2<CR>==")
-vim.keymap.set("i", "<A-j>", "<Esc>:m .+1<CR>==gi")
-vim.keymap.set("i", "<A-k>", "<Esc>:m .-2<CR>==gi")
-vim.keymap.set("v", "<A-j>", ":m '>+1<CR>gv=gv")
-vim.keymap.set("v", "<A-k>", ":m '<-2<CR>gv=gv")
+vim.keymap.set("n", "<A-h>", require("tmux").move_left, { silent = true })
+vim.keymap.set("n", "<A-j>", require("tmux").move_bottom, { silent = true })
+vim.keymap.set("n", "<A-k>", require("tmux").move_top, { silent = true })
+vim.keymap.set("n", "<A-l>", require("tmux").move_right, { silent = true })
 
 -- Diagnostic keymaps
 vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, { silent = true })
@@ -110,10 +107,10 @@ vim.keymap.set("n", "<leader>x", function()
   end
 end)
 
-vim.keymap.set("", "<S-C-UP>", ":resize -1<CR>", { silent = true })
-vim.keymap.set("", "<S-C-DOWN>", ":resize +1<CR>", { silent = true })
-vim.keymap.set("", "<S-C-LEFT>", ":vertical resize -1<CR>", { silent = true })
-vim.keymap.set("", "<S-C-RIGHT>", ":vertical resize +1<CR>", { silent = true })
+vim.keymap.set("", "<M-C-h>", require("tmux").resize_left, { silent = true })
+vim.keymap.set("", "<M-C-j>", require("tmux").resize_bottom, { silent = true })
+vim.keymap.set("", "<M-C-k>", require("tmux").resize_top, { silent = true })
+vim.keymap.set("", "<M-C-l>", require("tmux").resize_right, { silent = true })
 
 local is_win_exists = function(bufnr)
   for _, win in ipairs(vim.api.nvim_list_wins()) do

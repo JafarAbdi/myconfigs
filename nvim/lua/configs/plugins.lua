@@ -14,6 +14,23 @@ return packer.startup({
     -- Packer
     use("wbthomason/packer.nvim")
     -- Neovim utilities
+    use({
+      "aserowy/tmux.nvim",
+      config = function()
+        require("tmux").setup({
+          copy_sync = {
+            enable = false,
+          },
+          navigation = {
+            cycle_navigation = false,
+            enable_default_keybindings = false,
+          },
+          resize = {
+            enable_default_keybindings = false,
+          },
+        })
+      end,
+    })
     use("nvim-lua/plenary.nvim")
     -- Prettier
     use({ "junegunn/vim-easy-align", cmd = "EasyAlign" })
