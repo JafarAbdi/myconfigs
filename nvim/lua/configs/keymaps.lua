@@ -33,8 +33,9 @@ vim.keymap.set("n", "<leader>j", function()
   require("telescope.builtin").jumplist({ fname_width = 0.8 })
 end, { silent = true })
 
-vim.keymap.set("", "<leader>f", vim.lsp.buf.formatting)
-vim.keymap.set("v", "<leader>f", vim.lsp.buf.range_formatting)
+vim.keymap.set("", "<leader>f", function()
+  vim.lsp.buf.format({ async = true })
+end)
 
 --Add move line shortcuts
 vim.keymap.set("n", "<A-j>", ":m .+1<CR>==")
