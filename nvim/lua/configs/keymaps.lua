@@ -149,7 +149,6 @@ return {
         if not command then
           return
         end
-        -- Why it only work with defer? vim.schedule?
         vim.schedule(function()
           require("configs.cmake").cmake_project(vim.fn.expand("%:p"))
           local ok, error = pcall(require("cmake")[command])
@@ -218,9 +217,16 @@ return {
   neotest_keymaps = function()
     local neotest = require("neotest")
     local opts = { silent = true }
+    local set_project = function()
+      require("projects").set_project(vim.fn.expand("%:p:h"))
+    end
     -- TODO: Debugging related keymaps
-    vim.keymap.set("n", "<leader>nc", neotest.run.run, opts)
+    vim.keymap.set("n", "<leader>nc", function()
+      set_project()
+      neotest.run.run()
+    end, opts)
     vim.keymap.set("n", "<leader>nr", function()
+      set_project()
       neotest.run.run(vim.fn.expand("%"))
     end, opts)
     -- TODO: Using this with high frequency is causing the async loop lua/neotest/consumers/summary/init.lua:77 to die with (cannot resume dead coroutine)
