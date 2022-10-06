@@ -30,6 +30,7 @@ def main():
     packages = get_ros_packages_path(src_dir)
     build_path = Path(workspace_dir) / "build"
     for package, path in packages:
+        create_cmake_query_files(str((build_path / f"{package}").absolute()))
         create_clangd_config(
             str((build_path / f"{package}").absolute()),
             Path(path),

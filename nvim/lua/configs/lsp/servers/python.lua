@@ -11,20 +11,22 @@ lspconfig.jedi_language_server.setup({
       extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
     },
   },
-  root_dir = function(dir)
-    return lspconfig.util.root_pattern(
+  root_dir = function(startpath)
+    local dir = lspconfig.util.root_pattern(
       "pyproject.toml",
       "setup.py",
       "setup.cfg",
       "requirements.txt",
       "Pipfile"
-    )(dir) or vim.loop.cwd()
+    )(startpath)
+    if dir then
+      require("projects").add_project(dir, { lang = "python", build_system = "" })
+    end
+    return dir or vim.loop.cwd()
   end,
 })
 
 -- Add scripts to generate stubs
--- stubgen -p pydrake -v -o .
--- mv pydrake pydrake-stubs
 -- lspconfig.pylsp.setup({
 --   cmd = { "pylsp", "--verbose", "--log-file", "/tmp/asd.txt" },
 --   on_attach = handlers.on_attach,

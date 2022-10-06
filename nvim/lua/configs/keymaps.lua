@@ -29,20 +29,23 @@ vim.keymap.set("n", "<leader>gs", require("telescope.builtin").grep_string, { si
 vim.keymap.set("n", "<leader>gl", require("telescope.builtin").live_grep, { silent = true })
 vim.keymap.set("n", "<leader>o", require("telescope.builtin").find_files, { silent = true })
 vim.keymap.set("n", "<leader>ro", require("telescope.builtin").oldfiles, { silent = true })
+vim.keymap.set("n", "<leader>p", require("telescope").extensions.projects.cd, { silent = true })
 vim.keymap.set("n", "<leader>j", function()
   require("telescope.builtin").jumplist({ fname_width = 0.8 })
 end, { silent = true })
 
-vim.keymap.set("", "<leader>f", vim.lsp.buf.formatting)
-vim.keymap.set("v", "<leader>f", vim.lsp.buf.range_formatting)
+vim.keymap.set("", "<leader>f", function()
+  vim.lsp.buf.format({ async = true })
+end)
 
---Add move line shortcuts
-vim.keymap.set("n", "<A-j>", ":m .+1<CR>==")
-vim.keymap.set("n", "<A-k>", ":m .-2<CR>==")
-vim.keymap.set("i", "<A-j>", "<Esc>:m .+1<CR>==gi")
-vim.keymap.set("i", "<A-k>", "<Esc>:m .-2<CR>==gi")
-vim.keymap.set("v", "<A-j>", ":m '>+1<CR>gv=gv")
-vim.keymap.set("v", "<A-k>", ":m '<-2<CR>gv=gv")
+vim.keymap.set("t", "<A-h>", require("tmux").move_left, { silent = true })
+vim.keymap.set("t", "<A-j>", require("tmux").move_bottom, { silent = true })
+vim.keymap.set("t", "<A-k>", require("tmux").move_top, { silent = true })
+vim.keymap.set("t", "<A-l>", require("tmux").move_right, { silent = true })
+vim.keymap.set("n", "<A-h>", require("tmux").move_left, { silent = true })
+vim.keymap.set("n", "<A-j>", require("tmux").move_bottom, { silent = true })
+vim.keymap.set("n", "<A-k>", require("tmux").move_top, { silent = true })
+vim.keymap.set("n", "<A-l>", require("tmux").move_right, { silent = true })
 
 -- Diagnostic keymaps
 vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, { silent = true })
@@ -109,10 +112,10 @@ vim.keymap.set("n", "<leader>x", function()
   end
 end)
 
-vim.keymap.set("", "<S-C-UP>", ":resize -1<CR>", { silent = true })
-vim.keymap.set("", "<S-C-DOWN>", ":resize +1<CR>", { silent = true })
-vim.keymap.set("", "<S-C-LEFT>", ":vertical resize -1<CR>", { silent = true })
-vim.keymap.set("", "<S-C-RIGHT>", ":vertical resize +1<CR>", { silent = true })
+vim.keymap.set("", "<M-C-h>", require("tmux").resize_left, { silent = true })
+vim.keymap.set("", "<M-C-j>", require("tmux").resize_bottom, { silent = true })
+vim.keymap.set("", "<M-C-k>", require("tmux").resize_top, { silent = true })
+vim.keymap.set("", "<M-C-l>", require("tmux").resize_right, { silent = true })
 
 local is_win_exists = function(bufnr)
   for _, win in ipairs(vim.api.nvim_list_wins()) do
@@ -146,7 +149,6 @@ return {
         if not command then
           return
         end
-        -- Why it only work with defer? vim.schedule?
         vim.schedule(function()
           require("configs.cmake").cmake_project(vim.fn.expand("%:p"))
           local ok, error = pcall(require("cmake")[command])
@@ -215,9 +217,16 @@ return {
   neotest_keymaps = function()
     local neotest = require("neotest")
     local opts = { silent = true }
+    local set_project = function()
+      require("projects").set_project(vim.fn.expand("%:p:h"))
+    end
     -- TODO: Debugging related keymaps
-    vim.keymap.set("n", "<leader>nc", neotest.run.run, opts)
+    vim.keymap.set("n", "<leader>nc", function()
+      set_project()
+      neotest.run.run()
+    end, opts)
     vim.keymap.set("n", "<leader>nr", function()
+      set_project()
       neotest.run.run(vim.fn.expand("%"))
     end, opts)
     -- TODO: Using this with high frequency is causing the async loop lua/neotest/consumers/summary/init.lua:77 to die with (cannot resume dead coroutine)

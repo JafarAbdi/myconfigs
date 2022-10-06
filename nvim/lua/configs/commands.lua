@@ -49,8 +49,8 @@ vim.api.nvim_create_autocmd("BufWritePost", {
 
 -- A terrible way to handle symlinks
 vim.api.nvim_create_autocmd("BufWinEnter", {
-  callback = function()
-    local fname = vim.fn.expand("<afile>")
+  callback = function(params)
+    local fname = params.file
     local resolved_fname = vim.fn.resolve(fname)
     if fname == resolved_fname or (vim.bo.filetype ~= "cpp" and vim.bo.filetype ~= "c") then
       return
@@ -58,7 +58,7 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
     P("Symlink detected redirecting to '" .. resolved_fname .. "' instead")
     vim.schedule(function()
       local cursor = vim.api.nvim_win_get_cursor(0)
-      require("bufdelete").bufwipeout(0, true)
+      require("bufdelete").bufwipeout(params.buf, true)
       vim.api.nvim_command("edit " .. resolved_fname)
       vim.api.nvim_win_set_cursor(0, cursor)
     end)

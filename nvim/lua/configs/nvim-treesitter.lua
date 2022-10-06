@@ -20,6 +20,7 @@ require("nvim-treesitter.configs").setup({
     "make",
     "markdown",
     "ninja",
+    "proto",
     "python",
     "query",
     "rst",

@@ -53,15 +53,6 @@ g.diagnostic_virtual_text = false
 
 vim.opt.iskeyword:append("-")
 
-g.netrw_list_hide = [[,\(^\|\s\s\)\zs\.\S\+]]
-g.netrw_altv = 1
-g.netrw_keepdir = 0
-g.netrw_winsize = 20
-g.netrw_localcopydircmd = "cp -r"
-g.netrw_liststyle = 3
-g.netrw_banner = 0
-
-vim.g.do_filetype_lua = 1
 vim.filetype.add({
   extension = {
     launch = "xml",
