@@ -13,6 +13,25 @@ require("rust-tools").setup({
         checkOnSave = {
           command = "clippy",
         },
+        -- TODO: Move all snippets from ../../../../snippets/snippets/rust.code-snippets
+        completion = {
+          snippets = {
+            custom = {
+              ["main"] = {
+                prefix = "main_result",
+                body = {
+                  "fn main() -> Result<(), Box<dyn Error>> {",
+                  "\t${1:unimplemented!();}",
+                  "\tOk(())",
+                  "}",
+                },
+                requires = "std::error::Error",
+                description = "main function with Result",
+                scope = "item",
+              },
+            },
+          },
+        },
       },
     },
   },
