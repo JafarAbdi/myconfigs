@@ -30,17 +30,10 @@ cmp.setup({
       require("luasnip").lsp_expand(args.body)
     end,
   },
-  window = {
-    completion = cmp.config.window.bordered(),
-    documentation = cmp.config.window.bordered(),
-  },
+  view = "native",
   mapping = cmp.mapping.preset.insert({
     ["Tab"] = cmp.config.disable,
     ["S-Tab"] = cmp.config.disable,
-    ["<C-p>"] = cmp.config.disable,
-    ["<C-n>"] = cmp.config.disable,
-    ["<C-k>"] = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Select }),
-    ["<C-j>"] = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Select }),
     ["<C-f>"] = cmp.config.disable,
     ["<C-d>"] = cmp.mapping.scroll_docs(4),
     ["<C-u>"] = cmp.mapping.scroll_docs(-4),
@@ -70,7 +63,6 @@ cmp.setup({
       },
     },
     { name = "conan_recipes" },
-    { name = "path" },
     { name = "nvim_lua" },
     { name = "fish" },
     { name = "latex_symbols" },
@@ -129,10 +121,6 @@ cmp.setup({
 })
 
 local cmdline_mappings = cmp.mapping.preset.cmdline({
-  ["<C-p>"] = cmp.config.disable,
-  ["<C-n>"] = cmp.config.disable,
-  ["<C-k>"] = { c = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Insert }) },
-  ["<C-j>"] = { c = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Insert }) },
   ["<C-Space>"] = { c = cmp.mapping.complete() },
 })
 
@@ -148,8 +136,6 @@ cmp.setup.cmdline("/", {
 cmp.setup.cmdline(":", {
   mapping = cmdline_mappings,
   sources = cmp.config.sources({
-    { name = "path" },
-  }, {
     { name = "cmdline" },
   }),
 })
