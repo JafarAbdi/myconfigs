@@ -27,6 +27,7 @@ local startswith = function(rhs, lhs)
 end
 
 --- @param file_path string
+--- @return Project
 M.set_project = function(file_path)
   for project_root_path, info in pairs(M.projects) do
     if startswith(file_path, project_root_path) then
@@ -34,6 +35,7 @@ M.set_project = function(file_path)
       if info.build_system == "cmake" then
         require("configs.cmake").cmake_project(project_root_path)
       end
+      return info
     end
   end
 end

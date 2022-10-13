@@ -208,6 +208,33 @@ vim.api.nvim_create_user_command("Make", function(params)
   local cmd = vim.fn.expandcmd(makeprg)
   local args = vim.split(cmd, " ")
   local file_directory = vim.fn.expand("%:p:h")
+  local file = vim.fn.expand("%:p")
+
+  local Projects = require("projects")
+  local project = Projects.set_project(file_directory)
+  if project then
+    local cmake = require("cmake")
+    local ProjectConfig = require("cmake.project_config")
+    if not cmake.auto_select_target(file) then
+      vim.notify(
+        "Failed to select target for the following path '" .. file .. "'",
+        vim.log.levels.WARN
+      )
+      return
+    end
+    local project_config = ProjectConfig.new()
+    local target_dir, target, _ = project_config:get_current_target()
+    cmake.build():after_success(function()
+      vim.schedule(function()
+        run_in_terminal(
+          target.filename,
+          makeargs[vim.bo.filetype] or {},
+          { cwd = file_directory, focus_terminal = false }
+        )
+      end)
+    end)
+    return
+  end
 
   if vim.bo.filetype == "cpp" then
     return utils.run(
