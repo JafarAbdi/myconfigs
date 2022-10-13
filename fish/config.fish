@@ -192,3 +192,12 @@ end
 for file in $HOME/.config/fish/completions/*
   source $file
 end
+
+# TODO: Remove
+# This fixes a bug before 1.6.13
+# Calling neovim serverstart() will print errors
+if set -q SCHROOT_SESSION_ID
+  if test ! -e /run/user/$SCHROOT_UID || test ! -w /run/user/$SCHROOT_UID
+    set -e XDG_RUNTIME_DIR
+  end
+end

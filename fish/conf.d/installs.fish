@@ -455,7 +455,16 @@ function install-tmux
   # https://github.com/tmux/tmux/releases
   mkdir -p ~/.config/tmux
   ln -fs ~/myconfigs/tmux/tmux.conf ~/.config/tmux/tmux.conf
-  sudo apt install -y tmux libevent-dev
+  if set -q argv[1] && test $argv[1] = "unstable"
+    set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+    cd $TMP_DIR
+    install-from-github tmux/tmux "tmux.*.tar.gz"
+    tar xzf tmux* --strip-components 1
+    ./configure
+    make && sudo make install
+  else
+    sudo apt install -y tmux libevent-dev
+  end
 end
 
 function install-nodejs
@@ -486,6 +495,15 @@ function install-cmake-lsp
   poetry build
   pip3 install ./dist/cmake-language-server-0.1.3.tar.gz
   cd -
+end
+
+function install-catkin
+  sudo sh \
+    -c 'echo "deb http://packages.ros.org/ros/ubuntu `lsb_release -sc` main" \
+        > /etc/apt/sources.list.d/ros-latest.list'
+  wget http://packages.ros.org/ros.key -O - | sudo apt-key add -
+  sudo apt-get update
+  sudo apt-get install python3-catkin-tools
 end
 
 function install-colcon
