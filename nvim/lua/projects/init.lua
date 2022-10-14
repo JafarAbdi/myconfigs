@@ -1,4 +1,5 @@
 local filetype = require("plenary.filetype")
+local Path = require("plenary.path")
 local run_in_terminal = require("configs.run_in_terminal")
 
 --- @param rhs string
@@ -23,17 +24,23 @@ end
 
 --- @class Project
 --- @field language string
---- @field root_path string
+--- @field root_path Path
 --- @field build_system "cargo" | "cmake"
 local Project = {}
 
 --- @return Project
-function Project:new(opts)
-  setmetatable(opts, self)
+function Project:new(options)
+  local state = {
+    language = options.language,
+    build_system = options.build_system,
+    args = {},
+    env = {},
+  }
+  setmetatable(state, self)
   self.__index = self
   self._runner = {
     cpp = {
-      standalone = function(file)
+      standalone = function(file, opts)
         local utils = require("cmake.utils")
         local makeprg, args = get_makeprg(file)
         utils.run(makeprg, args, { cwd = get_dir(file), force_quickfix = false }):after_success(
@@ -41,14 +48,14 @@ function Project:new(opts)
             vim.schedule(function()
               run_in_terminal(
                 vim.fn.expand("%:p:r") .. ".out",
-                {},
+                opts.args,
                 { cwd = get_dir(file), focus_terminal = true }
               )
             end)
           end
         )
       end,
-      cmake = function(file)
+      cmake = function(file, opts)
         local cmake = require("cmake")
         local ProjectConfig = require("cmake.project_config")
         local cwd = get_dir(file)
@@ -63,13 +70,13 @@ function Project:new(opts)
         local _, target, _ = project_config:get_current_target()
         cmake.build():after_success(function()
           vim.schedule(function()
-            run_in_terminal(target.filename, {}, { cwd = cwd, focus_terminal = false })
+            run_in_terminal(target.filename, opts.args, { cwd = cwd, focus_terminal = false })
           end)
         end)
       end,
     },
     rust = {
-      cargo = function(file)
+      cargo = function(file, opts)
         local cwd = get_dir(file)
         vim.fn.jobstart({ "cargo", "metadata" }, {
           stdout_buffered = true,
@@ -91,28 +98,21 @@ function Project:new(opts)
                         "--bin",
                         target.name,
                         "--",
-                        {}, -- unpack(makeargs[vim.bo.filetype] or {}),
+                        unpack(opts.args or {}),
                       }, {
                         cwd = require("lspconfig").util.root_pattern("Cargo.toml")(cwd) or cwd,
-                        -- env = makeenvs[vim.bo.filetype],
+                        env = opts.env,
                       })
                     end)
                     return target.name
                   end
                 end
               end
-            else
-              local output_filename = vim.fn.tempname()
-              return run_in_terminal(
-                "rustc",
-                { vim.fn.expand("%:p"), "-o", output_filename, "&&", output_filename },
-                { cwd = cwd }
-              )
             end
           end,
         })
       end,
-      standalone = function(file)
+      standalone = function(file, _)
         local output_filename = vim.fn.tempname()
         return run_in_terminal(
           "rustc",
@@ -121,16 +121,19 @@ function Project:new(opts)
         )
       end,
     },
-    default = function(file)
+    default = function(file, opts)
       local makeprg, args = get_makeprg(file)
+      vim.list_extend(args, opts.args)
       run_in_terminal(makeprg, args, { cwd = get_dir(file) })
     end,
   }
-  return opts
+  return state
 end
 
 function Project:set()
-  vim.cmd.cd(self.root_path)
+  if self.root_path:is_dir() then
+    vim.cmd.cd(self.root_path.filename)
+  end
   if self.build_system == "cmake" then
     require("configs.cmake").cmake_project(self.root_path)
   end
@@ -141,14 +144,23 @@ function Project:run(file)
   -- TODO: I don't think we need to set the project just use cwd
   self:set()
   local language_runner = self._runner[self.language]
+  local opts = { args = self.args, env = self.env }
   if language_runner then
     if self.build_system then
-      return language_runner[self.build_system](file)
+      return language_runner[self.build_system](file, opts)
     else
-      return language_runner(file)
+      return language_runner(file, opts)
     end
   end
-  return self._runner.default(file)
+  return self._runner.default(file, opts)
+end
+
+function Project:set_env(env)
+  self.env = env or {}
+end
+
+function Project:set_args(args)
+  self.args = args or {}
 end
 
 local M = { Project = Project }
@@ -166,7 +178,7 @@ M.add_project = function(root_path, project)
     end
     return
   end
-  project.root_path = root_path
+  project.root_path = Path:new(root_path)
   M.projects[root_path] = project
 end
 
@@ -179,10 +191,12 @@ M.get_project = function(file_path)
       return project
     end
   end
-  return Project:new({
+  local project = Project:new({
     language = ft,
     build_system = "standalone",
   })
+  M.add_project(file_path, project)
+  return project
 end
 
 return M

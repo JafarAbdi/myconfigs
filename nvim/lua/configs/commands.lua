@@ -1,3 +1,5 @@
+local Projects = require("projects")
+
 local M = {}
 
 ----------------
@@ -163,12 +165,9 @@ end, {})
 
 local utils = require("cmake.utils")
 
--- TODO: Handle for other types (rustc, python, lua, c++) for both
-local makeargs = {}
-local makeenvs = {}
-
 vim.api.nvim_create_user_command("MakeArgs", function()
-  makeargs[vim.bo.filetype] = vim.split(vim.fn.input("Arguments: "), " ")
+  local project = Projects.get_project(vim.fn.expand("%:p"))
+  project:set_args(vim.split(vim.fn.input("Arguments: "), " ", { trimempty = true }))
 end, {})
 
 -- TODO: Add support for overriding env-variables
@@ -178,16 +177,13 @@ vim.api.nvim_create_user_command("MakeEnvs", function()
     " ",
     { trimempty = true }
   )
-  if vim.tbl_isempty(env_pairs) then
-    makeenvs[vim.bo.filetype] = nil
-    return
-  end
   local envs = {}
   for _, env_pair in ipairs(env_pairs) do
     local key, value = unpack(vim.split(env_pair, "="))
     envs[key] = value
   end
-  makeenvs[vim.bo.filetype] = envs
+  local project = Projects.get_project(vim.fn.expand("%:p"))
+  project:set_env(envs)
 end, {})
 
 vim.api.nvim_create_user_command("Make", function(params)
@@ -195,7 +191,6 @@ vim.api.nvim_create_user_command("Make", function(params)
     return
   end
   local file = params.args ~= "" and params.args or vim.fn.expand("%:p")
-  local Projects = require("projects")
   local project = Projects.get_project(file)
   project:run(file)
 end, { nargs = "*" })

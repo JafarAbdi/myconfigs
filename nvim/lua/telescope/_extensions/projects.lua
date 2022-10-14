@@ -11,11 +11,12 @@ return telescope.register_extension({
       local projects_flattened = {}
       for _, v in pairs(projects) do
         projects_flattened[#projects_flattened + 1] = {
-          root_path = v.root_path,
+          root_path = v.root_path.filename,
           language = v.language,
           build_system = v.build_system,
         }
       end
+      -- TODO: Show args and env-variables
       pickers.new({}, {
         prompt_title = "Projects",
         finder = finders.new_table({
