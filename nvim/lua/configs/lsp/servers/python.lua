@@ -1,5 +1,6 @@
 local handlers = require("configs.lsp.handlers")
 local lspconfig = require("lspconfig")
+local Project = require("projects").Project
 
 -- local cmd = { "jedi-language-server", "-vv", "--log-file", "/tmp/logging.txt" }
 lspconfig.jedi_language_server.setup({
@@ -20,7 +21,10 @@ lspconfig.jedi_language_server.setup({
       "Pipfile"
     )(startpath)
     if dir then
-      require("projects").add_project(dir, { lang = "python", build_system = "" })
+      require("projects").add_project(
+        dir,
+        Project:new({ language = "python", build_system = "standalone" })
+      )
     end
     return dir or vim.loop.cwd()
   end,

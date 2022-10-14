@@ -163,8 +163,6 @@ end, {})
 
 local utils = require("cmake.utils")
 
-local run_in_terminal = require("configs.run_in_terminal")
-
 -- TODO: Handle for other types (rustc, python, lua, c++) for both
 local makeargs = {}
 local makeenvs = {}
@@ -196,102 +194,10 @@ vim.api.nvim_create_user_command("Make", function(params)
   if not utils.ensure_no_job_active() then
     return
   end
-
-  local winnr = vim.fn.win_getid()
-  local bufnr = vim.api.nvim_win_get_buf(winnr)
-
-  local makeprg = vim.api.nvim_buf_get_option(bufnr, "makeprg")
-  if not makeprg then
-    return
-  end
-
-  local cmd = vim.fn.expandcmd(makeprg)
-  local args = vim.split(cmd, " ")
-  local file_directory = vim.fn.expand("%:p:h")
-  local file = vim.fn.expand("%:p")
-
+  local file = params.args ~= "" and params.args or vim.fn.expand("%:p")
   local Projects = require("projects")
-  local project = Projects.set_project(file_directory)
-  if project then
-    local cmake = require("cmake")
-    local ProjectConfig = require("cmake.project_config")
-    if not cmake.auto_select_target(file) then
-      vim.notify(
-        "Failed to select target for the following path '" .. file .. "'",
-        vim.log.levels.WARN
-      )
-      return
-    end
-    local project_config = ProjectConfig.new()
-    local target_dir, target, _ = project_config:get_current_target()
-    cmake.build():after_success(function()
-      vim.schedule(function()
-        run_in_terminal(
-          target.filename,
-          makeargs[vim.bo.filetype] or {},
-          { cwd = file_directory, focus_terminal = false }
-        )
-      end)
-    end)
-    return
-  end
-
-  if vim.bo.filetype == "cpp" then
-    return utils.run(
-      args[1],
-      vim.list_slice(args, 2),
-      { cwd = file_directory, force_quickfix = false }
-    ):after_success(function()
-      vim.schedule(function()
-        run_in_terminal(
-          vim.fn.expand("%:p:r") .. ".out",
-          params.fargs,
-          { cwd = file_directory, focus_terminal = true }
-        )
-      end)
-    end)
-  elseif vim.bo.filetype == "rust" then
-    return vim.fn.jobstart({ "cargo", "metadata" }, {
-      stdout_buffered = true,
-      cwd = file_directory,
-      on_stdout = function(_, data)
-        local output = vim.tbl_filter(function(e)
-          return e ~= ""
-        end, data)[1]
-        if output then
-          local metadata = vim.json.decode(output)
-          for _, package in ipairs(metadata.packages) do
-            for _, target in ipairs(package.targets) do
-              -- TODO: Check kind?
-              if target.src_path == vim.fn.expand("%:p") then
-                vim.schedule(function()
-                  -- cwd should be the root directory??
-                  run_in_terminal(
-                    "cargo",
-                    { "run", "--bin", target.name, "--", unpack(makeargs[vim.bo.filetype] or {}) },
-                    {
-                      cwd = require("lspconfig").util.root_pattern("Cargo.toml")(file_directory)
-                        or file_directory,
-                      env = makeenvs[vim.bo.filetype],
-                    }
-                  )
-                end)
-                return target.name
-              end
-            end
-          end
-        else
-          local output_filename = vim.fn.tempname()
-          return run_in_terminal(
-            "rustc",
-            { vim.fn.expand("%:p"), "-o", output_filename, "&&", output_filename },
-            { cwd = file_directory }
-          )
-        end
-      end,
-    })
-  end
-  return run_in_terminal(args[1], vim.list_slice(args, 2), { cwd = file_directory })
+  local project = Projects.get_project(file)
+  project:run(file)
 end, { nargs = "*" })
 
 vim.api.nvim_create_user_command("DapAttach", function()

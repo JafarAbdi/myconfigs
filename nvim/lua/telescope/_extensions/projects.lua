@@ -9,10 +9,10 @@ return telescope.register_extension({
     cd = function()
       local projects = Projects.projects
       local projects_flattened = {}
-      for k, v in pairs(projects) do
+      for _, v in pairs(projects) do
         projects_flattened[#projects_flattened + 1] = {
-          root_path = k,
-          lang = v.lang,
+          root_path = v.root_path,
+          language = v.language,
           build_system = v.build_system,
         }
       end
@@ -24,7 +24,7 @@ return telescope.register_extension({
             local display = "Root path: "
               .. entry.root_path
               .. " -- Language: "
-              .. entry.lang
+              .. entry.language
               .. " -- Build system: "
               .. entry.build_system
             return {
@@ -40,7 +40,7 @@ return telescope.register_extension({
           local actions_state = require("telescope.actions.state")
           actions.select_default:replace(function()
             local selected_entry = actions_state.get_selected_entry()
-            Projects.set_project(selected_entry.value.root_path)
+            Projects.get_project(selected_entry.value.root_path):set()
             actions.close(prompt_bufnr)
           end)
           return true

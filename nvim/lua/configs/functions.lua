@@ -1,5 +1,6 @@
 local Path = require("plenary.path")
 local Job = require("plenary.job")
+local Project = require("projects").Project
 
 local M = {}
 
@@ -227,7 +228,8 @@ M.load_clangd_config = function(root_path)
 end
 
 M.clangd_root_dir = function(startpath)
-  local search_fn = require("lspconfig.util").root_pattern(".clangd_config")
+  local util = require("lspconfig.util")
+  local search_fn = util.root_pattern(".clangd_config")
   -- If root directory not found set it to file's directory
   local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
   local build_system = "standalone"
@@ -236,9 +238,15 @@ M.clangd_root_dir = function(startpath)
     require("configs.keymaps").cmake_keymap()
     require("configs.cmake").cmake_project(dir)
   end
-  dir = dir or vim.fn.getcwd()
+  local is_scratches = util.root_pattern("conanfile.txt")
+  dir = dir
+    or vim.F.if_nil(is_scratches(startpath), is_scratches(vim.fn.expand("%:p:h")))
+    or vim.fn.getcwd()
   vim.cmd.cd(dir)
-  require("projects").add_project(dir, { lang = "cpp", build_system = build_system })
+  require("projects").add_project(
+    dir,
+    Project:new({ language = "cpp", build_system = build_system })
+  )
   return dir
 end
 
