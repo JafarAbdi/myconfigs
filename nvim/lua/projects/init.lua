@@ -149,7 +149,7 @@ function Project:set()
     vim.cmd.cd(self.root_path.filename)
   end
   if self.build_system == "cmake" then
-    require("configs.cmake").cmake_project(self.root_path)
+    require("configs.cmake").cmake_project(self.root_path.filename)
   end
 end
 

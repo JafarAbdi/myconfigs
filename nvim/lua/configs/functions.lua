@@ -224,6 +224,7 @@ M.generate_python_stubs = function(missing_packages)
 end
 
 M.load_clangd_config = function(root_path)
+  assert(type(root_path) == "string", "root_path have to be a string")
   return vim.trim(Path:new(M.clangd_root_dir(root_path), ".clangd_config"):read())
 end
 

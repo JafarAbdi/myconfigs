@@ -205,7 +205,7 @@ return {
     local neotest = require("neotest")
     local opts = { silent = true }
     local set_project = function()
-      require("projects").set_project(vim.fn.expand("%:p:h"))
+      require("projects").get_project(vim.fn.expand("%:p:h")):set()
     end
     -- TODO: Debugging related keymaps
     vim.keymap.set("n", "<leader>nc", function()
