@@ -32,7 +32,7 @@ local Project = {}
 function Project:new(options)
   local state = {
     language = options.language,
-    build_system = options.build_system,
+    build_system = options.build_system or "",
     args = {},
     env = {},
   }
@@ -126,6 +126,20 @@ function Project:new(options)
       vim.list_extend(args, opts.args)
       run_in_terminal(makeprg, args, { cwd = get_dir(file) })
     end,
+    lua = function(file, _)
+      vim.cmd.luafile(file)
+    end,
+    xml = function(file, _)
+      local extension = vim.fn.fnamemodify(file, "%:e")
+      if extension == "urdf" or extension == "xacro" then
+        local request = "curl -X POST http://127.0.0.1:7777/set_reload_request"
+        vim.fn.jobstart(request, {
+          on_exit = function(_, data)
+            vim.notify(vim.inspect(data), vim.log.levels.TRACE)
+          end,
+        })
+      end
+    end,
   }
   return state
 end
@@ -146,7 +160,7 @@ function Project:run(file)
   local language_runner = self._runner[self.language]
   local opts = { args = self.args, env = self.env }
   if language_runner then
-    if self.build_system then
+    if self.build_system ~= "" then
       return language_runner[self.build_system](file, opts)
     else
       return language_runner(file, opts)
@@ -193,7 +207,6 @@ M.get_project = function(file_path)
   end
   local project = Project:new({
     language = ft,
-    build_system = "standalone",
   })
   M.add_project(file_path, project)
   return project

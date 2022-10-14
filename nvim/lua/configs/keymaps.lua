@@ -95,21 +95,8 @@ vim.keymap.set("n", "<A-8>", "8gt")
 vim.keymap.set("n", "<A-9>", "9gt")
 
 vim.keymap.set("n", "<leader>x", function()
-  -- TODO: Adding make support to lua
   vim.cmd.write()
-  local file_extension = vim.fn.expand("%:e")
-  if vim.bo.filetype == "lua" then
-    vim.cmd.luafile("%")
-  elseif file_extension == "urdf" or file_extension == "xacro" then
-    local request = "curl -X POST http://127.0.0.1:7777/set_reload_request"
-    vim.fn.jobstart(request, {
-      on_exit = function(_, data)
-        vim.notify(vim.inspect(data), vim.log.levels.TRACE)
-      end,
-    })
-  else
-    vim.cmd.Make()
-  end
+  vim.cmd.Make()
 end)
 
 vim.keymap.set("", "<M-C-h>", require("tmux").resize_left, { silent = true })
