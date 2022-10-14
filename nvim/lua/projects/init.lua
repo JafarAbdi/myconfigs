@@ -1,12 +1,7 @@
 local filetype = require("plenary.filetype")
 local Path = require("plenary.path")
 local run_in_terminal = require("configs.run_in_terminal")
-
---- @param rhs string
---- @param lhs string
-local startswith = function(rhs, lhs)
-  return rhs:find("^" .. lhs) ~= nil
-end
+local is_parent = require("configs.functions").is_parent
 
 local get_dir = function(file)
   return vim.fn.fnamemodify(file, ":p:h")
@@ -201,7 +196,7 @@ end
 M.get_project = function(file_path)
   local ft = filetype.detect(file_path)
   for root_path, project in pairs(M.projects) do
-    if startswith(file_path, root_path) and (ft == "" or ft == project.language) then
+    if is_parent(root_path, file_path) and (ft == "" or ft == project.language) then
       return project
     end
   end

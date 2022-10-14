@@ -1,6 +1,5 @@
 local Path = require("plenary.path")
 local Job = require("plenary.job")
-local Project = require("projects").Project
 
 local M = {}
 
@@ -244,6 +243,7 @@ M.clangd_root_dir = function(startpath)
     or vim.F.if_nil(is_scratches(startpath), is_scratches(vim.fn.expand("%:p:h")))
     or vim.fn.getcwd()
   vim.cmd.cd(dir)
+  local Project = require("projects").Project
   require("projects").add_project(
     dir,
     Project:new({ language = "cpp", build_system = build_system })
@@ -266,6 +266,28 @@ M.is_buffer_exists = function(name)
       return buf
     end
   end
+end
+
+M.is_parent = function(parent, path)
+  assert(type(parent) == "string")
+  assert(type(path) == "string")
+  parent = Path:new(parent):normalize("/")
+  path = Path:new(path):normalize("/")
+  if path:len() < parent:len() then
+    return false
+  end
+  if parent == path then
+    return true
+  end
+  for dir in vim.fs.parents(Path:new(path):normalize()) do
+    if dir:len() < parent:len() then
+      break
+    end
+    if parent == dir then
+      return true
+    end
+  end
+  return false
 end
 
 return M
