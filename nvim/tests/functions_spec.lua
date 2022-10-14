@@ -7,6 +7,8 @@ describe("Testing is_parent function", function()
   it("TODO", function()
     local ws_dir = "/home/jafar/workspaces/rust/scratches"
     assert(is_parent(ws_dir, ws_dir .. "/Cargo.toml"))
+    assert(is_parent("/", ws_dir .. "/Cargo.toml"))
+    assert(not is_parent("/home/jafar", "/"))
     assert(is_parent(ws_dir, ws_dir))
     assert(not is_parent(ws_dir, ws_dir .. ".bak"))
     assert(not is_parent(ws_dir .. ".bak", ws_dir))
