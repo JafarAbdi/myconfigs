@@ -130,7 +130,7 @@ function Project:new(options)
       vim.cmd.luafile(file)
     end,
     xml = function(file, _)
-      local extension = vim.fn.fnamemodify(file, "%:e")
+      local extension = vim.fn.fnamemodify(file, ":e")
       if extension == "urdf" or extension == "xacro" then
         local request = "curl -X POST http://127.0.0.1:7777/set_reload_request"
         vim.fn.jobstart(request, {
@@ -209,7 +209,7 @@ M.get_project = function(file_path)
     language = ft,
   })
   M.add_project(file_path, project)
-  return project
+  return M.projects[file_path]
 end
 
 return M
