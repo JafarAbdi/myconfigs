@@ -13,6 +13,7 @@ return packer.startup({
   function(use)
     -- Packer
     use("wbthomason/packer.nvim")
+    use 'lewis6991/impatient.nvim'
     -- Neovim utilities
     use({
       "aserowy/tmux.nvim",
@@ -45,8 +46,6 @@ return packer.startup({
         { "nvim-telescope/telescope-fzf-native.nvim", run = "make" },
       },
     })
-    -- Theme
-    use("mjlbach/onedark.nvim")
     -- Status line
     use("nvim-lualine/lualine.nvim")
     use({

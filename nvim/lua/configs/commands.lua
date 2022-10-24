@@ -6,12 +6,9 @@ local M = {}
 -- Highlights --
 ----------------
 
-vim.cmd([[
-highlight! link SignColumn LineNr
-highlight SpellBad guifg=red gui=underline
-highlight LspComment guifg=#454a54
-highlight TSCurrentScope guibg=#242830
-]])
+vim.api.nvim_set_hl(0, "SpellBad", { fg = 'red', underline = true })
+vim.api.nvim_set_hl(0, "LspComment", { fg = '#454a54' })
+vim.api.nvim_set_hl(0, "SignColumn", { link = "LineNr" })
 
 -------------------
 -- Auto-commands --
