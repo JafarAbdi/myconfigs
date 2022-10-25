@@ -168,6 +168,7 @@ require("treesitter-context").setup({
     },
     cpp = {
       "namespace",
+      "struct",
     },
     -- Example for a specific filetype.
     -- If a pattern is missing, *open a PR* so everyone can benefit.

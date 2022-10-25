@@ -56,8 +56,7 @@ require("telescope").setup({
     mappings = {
       i = {
         ["<F2>"] = actions_layout.toggle_preview,
-        ["<C-j>"] = actions.move_selection_next,
-        ["<C-k>"] = actions.move_selection_previous,
+        -- Change to C-j/k??? This conflict with moving between windows/panes
         ["<M-j>"] = actions.preview_scrolling_down,
         ["<M-k>"] = actions.preview_scrolling_up,
         ["<esc>"] = actions.close,

@@ -119,9 +119,9 @@ local highlights = {
   DiagnosticUnderlineHint = { fg = colors.cyan, underline = true, cterm = { underline = true } },
 
   -- Neovim's built-in language server client
-  LspReferenceWrite = { fg = colors.blue, underline = true },
-  LspReferenceText = { fg = colors.blue, underline = true },
-  LspReferenceRead = { fg = colors.blue, underline = true },
+  LspReferenceWrite = { underline = true },
+  LspReferenceText = { underline = true },
+  LspReferenceRead = { underline = true },
   LspSignatureActiveParameter = { fg = colors.yellow, bold = true },
 
   -- ... an exception for my favorite plugin

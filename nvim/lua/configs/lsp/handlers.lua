@@ -17,12 +17,23 @@ M.setup = function()
   config_diagnostic()
 end
 
-capabilities = require("cmp_nvim_lsp").default_capabilities()
+local capabilities = require("cmp_nvim_lsp").default_capabilities()
 capabilities.textDocument.completion.completionItem.snippetSupport = true
 M.capabilities = capabilities
 
-M.on_attach = function(_, bufnr)
+M.on_attach = function(client, bufnr)
   require("configs.keymaps").lsp_keymaps(bufnr)
+  if client.server_capabilities.documentHighlightProvider then
+    local group = vim.api.nvim_create_augroup("lsp_document_highlight", { clear = true })
+    vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
+      callback = function()
+        vim.lsp.buf.clear_references()
+        vim.lsp.buf.document_highlight()
+      end,
+      group = group,
+      buffer = bufnr,
+    })
+  end
   vim.api.nvim_buf_create_user_command(bufnr, "ToggleVirtualText", function()
     vim.g.diagnostic_virtual_text = not vim.g.diagnostic_virtual_text
     config_diagnostic()
