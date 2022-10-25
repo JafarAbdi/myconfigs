@@ -13,7 +13,8 @@ return packer.startup({
   function(use)
     -- Packer
     use("wbthomason/packer.nvim")
-    use 'lewis6991/impatient.nvim'
+    use("lewis6991/impatient.nvim")
+
     -- Neovim utilities
     use({
       "aserowy/tmux.nvim",

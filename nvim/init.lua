@@ -1,4 +1,4 @@
-require('impatient')
+require("impatient")
 if vim.fn.exists("$NVIMRUNNING") == 1 then
   -- can't run nvim inside terminal emulator
   vim.fn.jobstart({

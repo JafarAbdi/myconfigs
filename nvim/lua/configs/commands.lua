@@ -6,8 +6,8 @@ local M = {}
 -- Highlights --
 ----------------
 
-vim.api.nvim_set_hl(0, "SpellBad", { fg = 'red', underline = true })
-vim.api.nvim_set_hl(0, "LspComment", { fg = '#454a54' })
+vim.api.nvim_set_hl(0, "SpellBad", { fg = "red", underline = true })
+vim.api.nvim_set_hl(0, "LspComment", { fg = "#454a54" })
 vim.api.nvim_set_hl(0, "SignColumn", { link = "LineNr" })
 
 -------------------
