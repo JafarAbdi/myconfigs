@@ -259,12 +259,6 @@ vim.api.nvim_create_user_command("CESetup", function(opts)
       hl = "Cursorline",
     },
   }
-  require("compiler-explorer.rest").cache = {
-    langs = {},
-    compilers = {},
-    libs = {},
-    formatters = {},
-  }
   pcall(vim.api.nvim_clear_autocmds, { group = "CompilerExplorerLive" })
   if opts.args == "local" then
     local Path = require("plenary.path")
