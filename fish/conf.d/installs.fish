@@ -489,11 +489,11 @@ end
 
 function install-cmake-lsp
   cd ~/.config
-  curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python3 -
+  pipx install poetry
   git clone git@github.com:JafarAbdi/cmake-language-server.git
   cd cmake-language-server
   poetry build
-  pip3 install ./dist/cmake-language-server-0.1.3.tar.gz
+  pip3 install ./dist/cmake_language_server-0.1.3.tar.gz
   cd -
 end
 
