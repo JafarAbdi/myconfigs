@@ -1,9 +1,57 @@
 #!/usr/bin/python3
 
 import argparse
-import argcomplete
+import json
 import os
+import re
+
+import argcomplete
+from argcomplete import warn
 from utils import *
+
+PATTERN = re.compile(r"\d* tests collected in \d*.\d*s")
+
+
+def get_tests(package_name):
+    tests = []
+    src_dir, build_dir = get_package_paths(package_name)
+    parsed_output = json.loads(
+        call(
+            [
+                "ctest",
+                "--show-only=json-v1",
+                "--test-dir",
+                build_dir,
+            ]
+        )
+    )
+    for test in parsed_output["tests"]:
+        tests.append(test["name"] + "@ctest")
+
+    # TODO: Why this returns an empty string inside this function, it works when called outside
+    # parsed_output = call(
+    #     [
+    #         "python3",
+    #         "-m",
+    #         "pytest",
+    #         "--color=no",
+    #         "--collect-only",
+    #         "--quiet",
+    #         "--",
+    #         src_dir,
+    #     ]
+    # )
+
+    # for line in parsed_output.split("\n"):
+    #     if len(line) and not PATTERN.match(line):
+    #         tests.append(line + "@pytest")
+
+    return tests
+
+
+class TestCompleter:
+    def __call__(self, prefix, parsed_args, **kwargs):
+        return get_tests(parsed_args.pkg[0])
 
 
 def main():
@@ -11,6 +59,8 @@ def main():
     parser.add_argument("--pkg", nargs="+").completer = PackagesCompleter(
         get_ros_packages(os.path.abspath(os.curdir) + "/src")
     )
+    # nargs??? for ctest it's -L??
+    parser.add_argument("--test").completer = TestCompleter()
     parser.add_argument("--verbose", action="store_true", help="")
     parser.add_argument("--dry-run", action="store_true", help="")
     argcomplete.autocomplete(parser)
@@ -36,6 +86,12 @@ def main():
             cmd += args.pkg
         if args.verbose:
             cmd += ["--event-handlers", "console_direct+"]
+        if args.test:
+            test, type = args.test.split("@")
+            if type == "pytest":
+                cmd += ["--pytest-args", test]
+            elif type == "ctest":
+                cmd += ["--ctest-args", "--tests-regex", test]
     run_command(cmd, args.dry_run)
 
 

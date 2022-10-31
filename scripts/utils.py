@@ -60,6 +60,17 @@ def get_workspace_underlays(workspace):
     return get_workspace_parameters(workspace).get("underlays")
 
 
+def get_package_paths(package_name):
+    import rospkg
+
+    workspace_dir = os.path.abspath(os.curdir)
+    rospack = rospkg.RosPack([workspace_dir + "/src"])
+    return (
+        rospack.get_path(package_name),
+        (Path(workspace_dir) / "build" / f"{package_name}").absolute(),
+    )
+
+
 def get_ros_packages_path(directory):
     import rospkg
 
@@ -117,3 +128,11 @@ def get_ros_version():
         return ROS_VERSIONS.ROS2
     else:
         return ROS_VERSIONS.UNKNOWN
+
+
+def call(*args, **kwargs):
+    try:
+        kwargs["encoding"] = "utf-8"
+        return subprocess.check_output(*args, **kwargs)
+    except subprocess.CalledProcessError:
+        return ""
