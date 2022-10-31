@@ -1,5 +1,5 @@
 require("neotest-gtest").setup({
-  test_path_pattern = { ".cpp", ".cc" }, -- The path pattern to detect test files
+  test_path_pattern = { ".*%.cpp", ".*%.cc" }, -- The path pattern to detect test files
 })
 require("neotest").setup({
   icons = {
