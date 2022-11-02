@@ -20,36 +20,38 @@ return telescope.register_extension({
         end
       end
       -- TODO: Show args and env-variables
-      pickers.new({}, {
-        prompt_title = "Projects",
-        finder = finders.new_table({
-          results = projects_flattened,
-          entry_maker = function(entry)
-            local display = "Root path: "
-              .. entry.root_path
-              .. " -- Language: "
-              .. entry.language
-              .. " -- Build system: "
-              .. entry.build_system
-            return {
-              value = entry,
-              display = display,
-              ordinal = display,
-            }
+      pickers
+        .new({}, {
+          prompt_title = "Projects",
+          finder = finders.new_table({
+            results = projects_flattened,
+            entry_maker = function(entry)
+              local display = "Root path: "
+                .. entry.root_path
+                .. " -- Language: "
+                .. entry.language
+                .. " -- Build system: "
+                .. entry.build_system
+              return {
+                value = entry,
+                display = display,
+                ordinal = display,
+              }
+            end,
+          }),
+          sorter = conf.generic_sorter({}),
+          attach_mappings = function(prompt_bufnr, _)
+            local actions = require("telescope.actions")
+            local actions_state = require("telescope.actions.state")
+            actions.select_default:replace(function()
+              local selected_entry = actions_state.get_selected_entry()
+              Projects.get_project(selected_entry.value.root_path):set()
+              actions.close(prompt_bufnr)
+            end)
+            return true
           end,
-        }),
-        sorter = conf.generic_sorter({}),
-        attach_mappings = function(prompt_bufnr, _)
-          local actions = require("telescope.actions")
-          local actions_state = require("telescope.actions.state")
-          actions.select_default:replace(function()
-            local selected_entry = actions_state.get_selected_entry()
-            Projects.get_project(selected_entry.value.root_path):set()
-            actions.close(prompt_bufnr)
-          end)
-          return true
-        end,
-      }):find()
+        })
+        :find()
     end,
   },
 })

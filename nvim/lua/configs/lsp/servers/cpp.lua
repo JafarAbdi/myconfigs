@@ -29,9 +29,8 @@ require("clangd_extensions").setup({
     },
     on_new_config = function(new_config, new_root_dir)
       -- local current_file_dir = vim.fn.expand("%:p:h")
-      local compile_commands_database_path = require("configs.functions").load_clangd_config(
-        new_root_dir
-      )
+      local compile_commands_database_path =
+        require("configs.functions").load_clangd_config(new_root_dir)
       new_config.cmd = vim.deepcopy(clangd_cmd)
       table.insert(
         new_config.cmd,
