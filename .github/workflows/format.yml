@@ -29,7 +29,8 @@ jobs:
           # export MAMBA_ROOT_PREFIX=~/micromamba
           # eval "$(micromamba shell hook --shell bash --prefix ~/micromamba)"
           # # source ~/.bashrc
-          micromamba create --name refurb --prefix ~/micromamba
+          micromamba create --name refurb
+          micromamba activate refurb
           micromamba install refurb -c conda-forge
       - uses: actions/setup-python@v2
       - uses: pre-commit/action@v2.0.3
