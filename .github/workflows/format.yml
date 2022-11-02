@@ -26,9 +26,6 @@ jobs:
           export MAMBA_ROOT_PREFIX=~/micromamba
           export MAMBA_EXE=~/.local/bin/micromamba
           . $MAMBA_ROOT_PREFIX/etc/profile.d/micromamba.sh
-          # export MAMBA_ROOT_PREFIX=~/micromamba
-          # eval "$(micromamba shell hook --shell bash --prefix ~/micromamba)"
-          # # source ~/.bashrc
           micromamba create --name refurb
           micromamba activate refurb
           micromamba install refurb -c conda-forge
