@@ -622,3 +622,8 @@ function install-full-system
   # Dev
   setup-cpp-screatches
 end
+
+function install-mamba
+  curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C ~/.local/bin/ --strip-components=1 bin/micromamba
+  micromamba shell init --shell=fish --prefix=$HOME/micromamba
+end
