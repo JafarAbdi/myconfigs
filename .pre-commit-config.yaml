@@ -1,7 +1,7 @@
 repos:
   # Standard hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.1.0
+    rev: v4.3.0
     hooks:
       - id: check-added-large-files
       - id: check-ast
@@ -21,19 +21,24 @@ repos:
       - id: pretty-format-json
         args: ['--autofix']
       - id: trailing-whitespace
-
   - repo: https://github.com/psf/black
-    rev: 22.3.0
+    rev: 22.10.0
     hooks:
       - id: black
-
+  - repo: local
+    hooks:
+      - id: refurb
+        name: refurb
+        language: system
+        pass_filenames: false
+        entry: micromamba run --name refurb refurb scripts
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.0.0
+    rev: v2.2.2
     hooks:
       - id: codespell
         args: ['--write-changes', '--ignore-words=.codespell_words', '--exclude-file=.codespellignorelines']
   - repo: https://github.com/JohnnyMorganz/StyLua
-    rev: v0.12.5
+    rev: v0.15.2
     hooks:
       - id: stylua-github
         args: ['--config-path', 'linters/stylua.toml']

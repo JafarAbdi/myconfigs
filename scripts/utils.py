@@ -126,8 +126,7 @@ def get_ros_version():
         return ROS_VERSIONS.ROS1
     elif (current / "build/COLCON_IGNORE").exists():
         return ROS_VERSIONS.ROS2
-    else:
-        return ROS_VERSIONS.UNKNOWN
+    return ROS_VERSIONS.UNKNOWN
 
 
 def call(*args, **kwargs):

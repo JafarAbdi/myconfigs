@@ -4,3 +4,5 @@ map oT chain set sort=type;      set sort_reverse=True
   git clone git@github.com:yse/easy_profiler.git
   "forr": {
     "prefix": "forr",
+    echo "Make sure to run `sudo debootstrap --variant=buildd DISTRO $dir http://archive.ubuntu.com/ubuntu/`"
+    echo "Or `sudo debootstrap --variant=buildd DISTRO $dir https://deb.debian.org/debian`"

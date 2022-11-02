@@ -12,10 +12,22 @@ on:
 jobs:
   pre-commit:
     name: pre-commit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v2
       - name: Install luacheck
         run: sudo apt-get install luarocks && sudo luarocks install luacheck
+      - name: Install micromamba
+        shell: bash -leo pipefail {0}
+        run: |
+          mkdir -p ~/.local/bin
+          curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C ~/.local/bin/ --strip-components=1 bin/micromamba
+          micromamba shell init -s bash -p ~/micromamba
+          export MAMBA_ROOT_PREFIX=~/micromamba
+          export MAMBA_EXE=~/.local/bin/micromamba
+          . $MAMBA_ROOT_PREFIX/etc/profile.d/micromamba.sh
+          micromamba create --name refurb
+          micromamba activate refurb
+          micromamba install refurb -c conda-forge
       - uses: actions/setup-python@v2
       - uses: pre-commit/action@v2.0.3

@@ -38,8 +38,9 @@ function Project:new(options)
       standalone = function(file, opts)
         local utils = require("cmake.utils")
         local makeprg, args = get_makeprg(file)
-        utils.run(makeprg, args, { cwd = get_dir(file), force_quickfix = false }):after_success(
-          function()
+        utils
+          .run(makeprg, args, { cwd = get_dir(file), force_quickfix = false })
+          :after_success(function()
             vim.schedule(function()
               run_in_terminal(
                 vim.fn.expand("%:p:r") .. ".out",
@@ -47,8 +48,7 @@ function Project:new(options)
                 { cwd = get_dir(file), focus_terminal = true }
               )
             end)
-          end
-        )
+          end)
       end,
       cmake = function(file, opts)
         local cmake = require("cmake")

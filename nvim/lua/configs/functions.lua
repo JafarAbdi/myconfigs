@@ -186,39 +186,37 @@ M.generate_python_stubs = function(missing_packages)
     end
   end
 
-  local job = Job
-    :new({
-      command = "stubgen",
-      args = vim.tbl_flatten({
-        vim.tbl_map(function(package_name)
-          return { "-p", package_name }
-        end, missing_packages),
-        "-o",
-        stubs_dir.filename,
-      }),
-    })
-    :after(function(job, signal)
-      for _, package in ipairs(missing_packages) do
-        stubs_dir:joinpath(package):copy({
-          destination = stubs_dir:parent():joinpath(package .. "-stubs").filename,
-          recursive = true,
-        })
+  local job = Job:new({
+    command = "stubgen",
+    args = vim.tbl_flatten({
+      vim.tbl_map(function(package_name)
+        return { "-p", package_name }
+      end, missing_packages),
+      "-o",
+      stubs_dir.filename,
+    }),
+  }):after(function(job, signal)
+    for _, package in ipairs(missing_packages) do
+      stubs_dir:joinpath(package):copy({
+        destination = stubs_dir:parent():joinpath(package .. "-stubs").filename,
+        recursive = true,
+      })
+    end
+    vim.schedule(function()
+      vim.api.nvim_command("silent! w")
+      -- TODO: Handle 'PKG_NAME: Failed to import, skipping'
+      -- It return success so use job:result() to access the output
+      -- Maybe use tbl_filter and output the names????
+      if signal == 0 then
+        vim.notify("Successfully generated stubs.")
+      else
+        vim.notify(
+          "Failed to run stubgen: " .. vim.fn.join(job:stderr_result(), "\n"),
+          vim.log.levels.ERROR
+        )
       end
-      vim.schedule(function()
-        vim.api.nvim_command("silent! w")
-        -- TODO: Handle 'PKG_NAME: Failed to import, skipping'
-        -- It return success so use job:result() to access the output
-        -- Maybe use tbl_filter and output the names????
-        if signal == 0 then
-          vim.notify("Successfully generated stubs.")
-        else
-          vim.notify(
-            "Failed to run stubgen: " .. vim.fn.join(job:stderr_result(), "\n"),
-            vim.log.levels.ERROR
-          )
-        end
-      end)
     end)
+  end)
   job:start()
 end
 

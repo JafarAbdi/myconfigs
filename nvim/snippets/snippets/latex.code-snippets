@@ -304,14 +304,14 @@
     "description": "mu",
     "prefix": "@m"
   },
-  "multline": {
-    "body": "\\begin{multline}\n\t${0:${TM_SELECTED_TEXT}}\n\\end{multline}",
-    "description": "multline environment",
+  "multiline": {
+    "body": "\\begin{multiline}\n\t${0:${TM_SELECTED_TEXT}}\n\\end{multiline}",
+    "description": "multiline environment",
     "prefix": "BMU"
   },
-  "multline*": {
-    "body": "\\begin{multline*}\n\t${0:${TM_SELECTED_TEXT}}\n\\end{multline*}",
-    "description": "multline* environment",
+  "multiline*": {
+    "body": "\\begin{multiline*}\n\t${0:${TM_SELECTED_TEXT}}\n\\end{multiline*}",
+    "description": "multiline* environment",
     "prefix": "BSMU"
   },
   "nonumber": {
