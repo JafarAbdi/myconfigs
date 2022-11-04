@@ -4,8 +4,7 @@ import argparse
 import pathlib
 
 import argcomplete
-import os
-from utils import *
+from utils import run_command
 
 
 def main():

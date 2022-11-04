@@ -1,12 +1,21 @@
 #!/usr/bin/python3
 
 import argparse
-import json
 import multiprocessing
 import os
 
+from pathlib import Path
 import argcomplete
-from utils import *
+from utils import (
+    ROS_VERSIONS,
+    PackagesCompleter,
+    get_ros_packages_path,
+    create_clangd_config,
+    create_cmake_query_files,
+    get_ros_packages,
+    get_ros_version,
+    run_command,
+)
 
 
 def main():
@@ -85,10 +94,10 @@ def main():
         cmd += [
             "--cmake-args",
             f"-DCMAKE_BUILD_TYPE={args.build_type}",
-            f"-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
         ]
         if args.force_linking:
-            cmd += [f'-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
+            cmd += ['-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
         cmd += ["-DCATKIN_ENABLE_TESTING=" + ("ON" if args.build_tests else "OFF")]
 
     elif ROS_VERSION == ROS_VERSIONS.ROS2:
@@ -113,7 +122,7 @@ def main():
         if args.verbose:
             cmd += ["--event-handlers", "console_direct+"]
         if args.force_linking:
-            cmd += ["--cmake-args", f'-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
+            cmd += ["--cmake-args", '-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
     run_command(cmd, args.dry_run, env=env)
 
 

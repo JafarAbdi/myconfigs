@@ -11,6 +11,13 @@ tools:
   python-isort: &python-isort
     format-command: 'isort --quiet -'
     format-stdin: true
+  python-ruff: &python-ruff
+    lint-command: 'ruff --config ~/myconfigs/linters/ruff.toml --quiet ${INPUT}'
+    lint-stdin: true
+    lint-formats:
+      - '%f:%l:%c: %m'
+    format-command: 'ruff --stdin-filename ${INPUT} --config ~/myconfigs/linters/ruff.toml --fix --exit-zero --quiet -'
+    format-stdin: true
   python-pylint: &python-pylint
     lint-command: 'pylint --output-format text --score no --msg-template {path}:{line}:{column}:{C}:{msg} ${INPUT}'
     lint-stdin: false
@@ -30,6 +37,7 @@ languages:
     - <<: *python-black
     - <<: *python-pylint
     - <<: *python-mypy
+    - <<: *python-ruff
   cmake:
     - lint-command: 'cmake-lint'
       lint-formats:

@@ -6,8 +6,15 @@ import os
 import re
 
 import argcomplete
-from argcomplete import warn
-from utils import *
+from utils import (
+    ROS_VERSIONS,
+    PackagesCompleter,
+    call,
+    get_package_paths,
+    get_ros_packages,
+    get_ros_version,
+    run_command,
+)
 
 PATTERN = re.compile(r"\d* tests collected in \d*.\d*s")
 
