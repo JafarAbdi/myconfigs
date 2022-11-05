@@ -26,7 +26,7 @@ end
 -- For changing the texts
 -- https://github.com/nvim-treesitter/nvim-treesitter/blob/50cf31065c1e3502d8964bb3674b95567d752074/lua/nvim-treesitter/ts_utils.lua#L322-L334
 -- To get the source/header path
--- https://github.com/neovim/nvim-lspconfig/blob/master/lua/lspconfig/server_configurations/clangd.lua#L4-L22
+-- https://github.com/neovim/nvim-lspconfig/blob/5f4b1fa83c80f43e434c1fb227967dac9ad8f44c/lua/lspconfig/server_configurations/clangd.lua#L4-L22
 -- Use textobject_at_point("@function.inner",...)
 
 -- Rename to GetClassMembers

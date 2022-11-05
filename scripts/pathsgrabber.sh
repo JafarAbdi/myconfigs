@@ -10,7 +10,7 @@ cleanup() {
 trap 'cleanup' 0 1 15
 
 mkfifo "$pstdin"
-# Regex copied from https://github.com/laktak/extrakto/blob/master/extrakto.conf#L39
+# Regex copied from https://github.com/laktak/extrakto/blob/4179acea28f69853fda9ab15c7564cd73757856c/extrakto.conf#L40
 # Check file exists (filename or filename:line_number)
 cat \
   | grep -oP "(?:[ \\t\\n\\\"([<\':]|^)(~|\/)?([-~a-za-z0-9_+-,.]+\/[^ \\t\\n\\r|:\"\'$%&)>\\]]*)(:[0-9]+)?" \

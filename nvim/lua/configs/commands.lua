@@ -244,6 +244,24 @@ vim.api.nvim_create_user_command("DapLaunch", function()
   require("dap").run(require("configs.dap").launch_in_terminal)
 end, {})
 
+vim.api.nvim_create_user_command("DapLaunchPython", function()
+  require("dap").run({
+    type = "python",
+    request = "launch",
+    name = "Launch file with arguments",
+    program = function()
+      return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
+    end,
+    args = function()
+      local args_string = vim.fn.input("Arguments: ")
+      return vim.split(args_string, " +")
+    end,
+    console = "integratedTerminal",
+    pythonPath = nil,
+    justMyCode = false,
+  })
+end, {})
+
 vim.api.nvim_create_user_command("GenerateAllStubs", function()
   require("configs.functions").generate_all_python_stubs()
 end, {})

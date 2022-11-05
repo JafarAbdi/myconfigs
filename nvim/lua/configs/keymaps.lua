@@ -31,7 +31,7 @@ vim.keymap.set("n", "<leader>o", require("telescope.builtin").find_files, { sile
 vim.keymap.set("n", "<leader>ro", require("telescope.builtin").oldfiles, { silent = true })
 vim.keymap.set("n", "<leader>p", require("telescope").extensions.projects.cd, { silent = true })
 vim.keymap.set("n", "<leader>j", function()
-  require("telescope.builtin").jumplist({ fname_width = 0.8 })
+  require("telescope.builtin").jumplist({ fname_width = 0.6 })
 end, { silent = true })
 
 vim.keymap.set("", "<leader>f", function()
@@ -105,18 +105,6 @@ vim.keymap.set("i", "<c-l>", function()
     ls.change_choice(1)
   end
 end)
-
--- Tab switching
-vim.keymap.set("n", "<C-t>", ":tabedit<CR>")
-vim.keymap.set("n", "<A-1>", "1gt")
-vim.keymap.set("n", "<A-2>", "2gt")
-vim.keymap.set("n", "<A-3>", "3gt")
-vim.keymap.set("n", "<A-4>", "4gt")
-vim.keymap.set("n", "<A-5>", "5gt")
-vim.keymap.set("n", "<A-6>", "6gt")
-vim.keymap.set("n", "<A-7>", "7gt")
-vim.keymap.set("n", "<A-8>", "8gt")
-vim.keymap.set("n", "<A-9>", "9gt")
 
 vim.keymap.set("n", "<leader>x", function()
   vim.cmd.write()

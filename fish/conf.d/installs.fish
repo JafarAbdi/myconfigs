@@ -280,6 +280,7 @@ function install-python-lsp
   pip3 install -U pylsp-mypy
   pip3 install -U pyls-isort
   pip3 install -U pylsp-rope
+  pip3 install ruff
 
   # TODO: Add to efm
   # flake8 --extend-ignore D,E,F,C9
