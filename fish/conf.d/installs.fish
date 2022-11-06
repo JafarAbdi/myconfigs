@@ -67,6 +67,7 @@ function install-core
                       lldb \
                       ninja-build \
                       sshfs \
+                      zathura \
                       # Needed for st
                       libxft-dev \
                       libx11-dev
