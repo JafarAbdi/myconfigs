@@ -1,3 +1,8 @@
+local ok, _ = pcall(require, "plenary")
+if not ok then
+  return
+end
+
 local filetype = require("plenary.filetype")
 local Path = require("plenary.path")
 local run_in_terminal = require("configs.run_in_terminal")

@@ -125,19 +125,21 @@ end
 -- Templates --
 ---------------
 -- File shebang
-local create_file_templates = function()
-  local templates_dir = vim.env.HOME .. "/myconfigs/nvim/file-templates"
-  for _, template in ipairs(require("plenary.scandir").scan_dir(templates_dir)) do
-    local type_extension = template:match("[^.]+$")
-    vim.api.nvim_create_autocmd("BufNewFile", {
-      pattern = "*." .. type_extension,
-      group = templates_group,
-      command = "0r " .. template,
-    })
+local ok, scandir = pcall(require, "plenary.scandir")
+if ok then
+  local create_file_templates = function()
+    local templates_dir = vim.env.HOME .. "/myconfigs/nvim/file-templates"
+    for _, template in ipairs(scandir.scan_dir(templates_dir)) do
+      local type_extension = template:match("[^.]+$")
+      vim.api.nvim_create_autocmd("BufNewFile", {
+        pattern = "*." .. type_extension,
+        group = templates_group,
+        command = "0r " .. template,
+      })
+    end
   end
+  create_file_templates()
 end
-
-create_file_templates()
 
 --------------
 -- Commands --
@@ -160,8 +162,6 @@ vim.api.nvim_create_user_command("SpellToggle", function()
   end
 end, {})
 
-local utils = require("cmake.utils")
-
 vim.api.nvim_create_user_command("MakeArgs", function()
   local project = Projects.get_project(vim.fn.expand("%:p"))
   project:set_args(vim.split(vim.fn.input("Arguments: "), " ", { trimempty = true }))
@@ -181,6 +181,7 @@ vim.api.nvim_create_user_command("MakeEnvs", function()
 end, {})
 
 vim.api.nvim_create_user_command("Make", function(params)
+  local utils = require("cmake.utils")
   if not utils.ensure_no_job_active() then
     return
   end

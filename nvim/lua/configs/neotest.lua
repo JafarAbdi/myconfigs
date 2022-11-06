@@ -1,3 +1,7 @@
+local ok, _ = pcall(require, "neotest-gtest")
+if not ok then
+  return
+end
 require("neotest-gtest").setup({
   test_path_pattern = { ".*%.cpp", ".*%.cc" }, -- The path pattern to detect test files
 })

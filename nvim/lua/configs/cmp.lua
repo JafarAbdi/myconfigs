@@ -1,12 +1,19 @@
+local cmp_ok, cmp = pcall(require, "cmp")
+if not cmp_ok then
+  return
+end
+
 -- nvim-cmp setup
 -- https://github.com/hrsh7th/nvim-cmp/discussions/609
 local ELLIPSIS_CHAR = "…"
 local MAX_LABEL_WIDTH = 100
 
 -- https://github.com/hrsh7th/nvim-cmp/pull/1162
-require("cmp.utils.misc").redraw.incsearch_redraw_keys = "<C-r><BS>"
+local ok, cmp_misc = pcall(require, "cmp.utils.misc")
+if ok then
+  cmp_misc.redraw.incsearch_redraw_keys = "<C-r><BS>"
+end
 
-local cmp = require("cmp")
 local compare = require("cmp.config.compare")
 
 cmp.setup.filetype({

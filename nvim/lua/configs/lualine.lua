@@ -1,5 +1,9 @@
+local lualine_ok, lualine = pcall(require, "lualine")
+if not lualine_ok then
+  return
+end
 --Set statusbar
-require("lualine").setup({
+lualine.setup({
   options = {
     icons_enabled = false,
     theme = "onedark",

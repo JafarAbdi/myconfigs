@@ -1,17 +1,21 @@
+local ok, dap = pcall(require, "dap")
+if not ok then
+  return
+end
 -- Debugging
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
-vim.keymap.set("n", "<leader>b", require("configs.dap").toggle_breakpoint, { silent = true })
+vim.keymap.set("n", "<leader>b", dap.toggle_breakpoint, { silent = true })
 vim.keymap.set("n", "<leader>B", function()
-  require("configs.dap").toggle_breakpoint(vim.fn.input("Breakpoint Condition: "), nil, nil, true)
+  dap.toggle_breakpoint(vim.fn.input("Breakpoint Condition: "), nil, nil, true)
 end, { silent = true })
 vim.keymap.set("n", "<leader>dp", function()
-  require("configs.dap").toggle_breakpoint(nil, nil, vim.fn.input("Log point message: "), true)
+  dap.toggle_breakpoint(nil, nil, vim.fn.input("Log point message: "), true)
 end, { silent = true })
-vim.keymap.set("n", "<leader>dr", require("configs.dap").continue, { silent = true })
-vim.keymap.set("n", "<leader>dl", require("configs.dap").run_last, { silent = true })
-vim.keymap.set("n", "<leader>dc", require("configs.dap").run_to_cursor, { silent = true })
-vim.keymap.set("n", "<leader>dj", require("configs.dap").down, { silent = true })
-vim.keymap.set("n", "<leader>dk", require("configs.dap").up, { silent = true })
+vim.keymap.set("n", "<leader>dr", dap.continue, { silent = true })
+vim.keymap.set("n", "<leader>dl", dap.run_last, { silent = true })
+vim.keymap.set("n", "<leader>dc", dap.run_to_cursor, { silent = true })
+vim.keymap.set("n", "<leader>dj", dap.down, { silent = true })
+vim.keymap.set("n", "<leader>dk", dap.up, { silent = true })
 
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
@@ -150,8 +154,8 @@ return {
         end
         vim.schedule(function()
           require("configs.cmake").cmake_project(vim.fn.expand("%:p"))
-          local ok, error = pcall(require("cmake")[command])
-          if not ok then
+          local cmake_ok, error = pcall(require("cmake")[command])
+          if not cmake_ok then
             vim.notify(error, vim.log.levels.ERROR)
           end
         end)
@@ -166,8 +170,8 @@ return {
           return
         end
         vim.schedule(function()
-          local ok, error = pcall(vim.cmd, command)
-          if not ok then
+          local cmd_ok, error = pcall(vim.cmd, command)
+          if not cmd_ok then
             vim.notify(error, vim.log.levels.ERROR)
           end
         end)

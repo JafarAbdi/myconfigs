@@ -1,3 +1,7 @@
+local ok, _ = pcall(require, "telescope")
+if not ok then
+  return
+end
 local actions_layout = require("telescope.actions.layout")
 local actions = require("telescope.actions")
 local finders = require("telescope.finders")

@@ -1,9 +1,13 @@
+local ok, ts_configs = pcall(require, "nvim-treesitter.configs")
+if not ok then
+  return
+end
 -- Treesitter configuration
 -- Parsers must be installed manually via :TSInstall
 local disable = function(lang, bufnr) -- Disable in large C++ buffers
   return (lang == "cpp" or lang == "c") and vim.api.nvim_buf_line_count(bufnr) > 50000
 end
-require("nvim-treesitter.configs").setup({
+ts_configs.setup({
   ensure_installed = {
     "bash",
     "c",

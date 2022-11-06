@@ -1,4 +1,9 @@
-require("dapui").setup({
+local ok, dapui = pcall(require, "dapui")
+if not ok then
+  return
+end
+
+dapui.setup({
   layouts = {
     {
       elements = {
@@ -24,19 +29,9 @@ require("dapui").setup({
     enabled = false,
   },
 })
-local dapui = require("dapui")
 local dap = require("dap")
 
-local M = setmetatable({}, {
-  __index = function(tbl, key)
-    if key == "widgets" then
-      local val = require("dap.ui.widgets")
-      rawset(tbl, key, val)
-      return val
-    end
-    return dap[key]
-  end,
-})
+local M = {}
 
 M.launch_console = {
   name = "lldb: Launch (console)",
@@ -70,74 +65,72 @@ M.launch_in_terminal = {
   runInTerminal = true,
 }
 
-function M.setup()
-  require("nvim-dap-virtual-text").setup()
-  require("dap-python").setup("python3")
-  dap.listeners.after.event_initialized["dapui_config"] = function()
-    dapui.open()
-  end
-  dap.listeners.before.event_terminated["dapui_config"] = function()
-    dapui.close()
-  end
-  dap.listeners.before.event_exited["dapui_config"] = function()
-    dapui.close()
-  end
-  -- Fixes issues with lldb-vscode
-  -- When it starts it doesn't report any threads
-  -- TODO: This's causing issues with dapui
-  -- dap.listeners.after.event_initialized["lldb-vscode"] = function(session)
-  --   session:update_threads()
-  -- end
-  -- After pausing the threads could be wrong
-  dap.listeners.after.pause["lldb-vscode"] = function(session)
-    session:update_threads()
-  end
-  -- When we continue it report the allThreadsContinued in a very weird way
-  dap.listeners.after.continue["lldb-vscode"] = function(session, _, response)
-    if response.allThreadsContinued then
-      for _, t in pairs(session.threads) do
-        t.stopped = false
-      end
-    else
-      local thread = session.threads[response.threadId]
-      if thread and thread.stopped then
-        thread.stopped = false
-      end
+require("nvim-dap-virtual-text").setup()
+require("dap-python").setup("python3")
+dap.listeners.after.event_initialized["dapui_config"] = function()
+  dapui.open()
+end
+dap.listeners.before.event_terminated["dapui_config"] = function()
+  dapui.close()
+end
+dap.listeners.before.event_exited["dapui_config"] = function()
+  dapui.close()
+end
+-- Fixes issues with lldb-vscode
+-- When it starts it doesn't report any threads
+-- TODO: This's causing issues with dapui
+-- dap.listeners.after.event_initialized["lldb-vscode"] = function(session)
+--   session:update_threads()
+-- end
+-- After pausing the threads could be wrong
+dap.listeners.after.pause["lldb-vscode"] = function(session)
+  session:update_threads()
+end
+-- When we continue it report the allThreadsContinued in a very weird way
+dap.listeners.after.continue["lldb-vscode"] = function(session, _, response)
+  if response.allThreadsContinued then
+    for _, t in pairs(session.threads) do
+      t.stopped = false
+    end
+  else
+    local thread = session.threads[response.threadId]
+    if thread and thread.stopped then
+      thread.stopped = false
     end
   end
-  dap.defaults.fallback.terminal_win_cmd = "tabnew"
-  dap.defaults.fallback.external_terminal = {
-    command = "/usr/local/bin/st",
-    args = { "-e" },
-  }
-  local lldb_executable_name = "/usr/bin/lldb-vscode"
-  local lldb_executables = vim.split(vim.fn.glob(lldb_executable_name .. "*"), "\n")
-  if vim.fn.empty(lldb_executables) == 1 then
+end
+dap.defaults.fallback.terminal_win_cmd = "tabnew"
+dap.defaults.fallback.external_terminal = {
+  command = "/usr/local/bin/st",
+  args = { "-e" },
+}
+local lldb_executable_name = "/usr/bin/lldb-vscode"
+local lldb_executables = vim.split(vim.fn.glob(lldb_executable_name .. "*"), "\n")
+if vim.fn.empty(lldb_executables) == 1 then
+  vim.api.nvim_notify(
+    "No lldb-vscode executable found -- make sure to install it using 'sudo apt install lldb'",
+    vim.log.levels.ERROR,
+    {}
+  )
+end
+local lldb_version = lldb_executables[#lldb_executables]:match("lldb%-vscode%-(%d+)")
+if lldb_version then
+  if tonumber(lldb_version) < 11 then
     vim.api.nvim_notify(
-      "No lldb-vscode executable found -- make sure to install it using 'sudo apt install lldb'",
-      vim.log.levels.ERROR,
+      "lldb-vscode version '" .. lldb_version .. "' doesn't support integratedTerminal",
+      vim.log.levels.DEBUG,
       {}
     )
   end
-  local lldb_version = lldb_executables[#lldb_executables]:match("lldb%-vscode%-(%d+)")
-  if lldb_version then
-    if tonumber(lldb_version) < 11 then
-      vim.api.nvim_notify(
-        "lldb-vscode version '" .. lldb_version .. "' doesn't support integratedTerminal",
-        vim.log.levels.DEBUG,
-        {}
-      )
-    end
-  end
-  dap.adapters.lldb = {
-    id = "lldb",
-    type = "executable",
-    command = lldb_executables[#lldb_executables],
-  }
-  dap.configurations.cpp = {
-    -- M.launch_console,
-    M.launch_in_terminal,
-  }
 end
+dap.adapters.lldb = {
+  id = "lldb",
+  type = "executable",
+  command = lldb_executables[#lldb_executables],
+}
+dap.configurations.cpp = {
+  -- M.launch_console,
+  M.launch_in_terminal,
+}
 
 return M
