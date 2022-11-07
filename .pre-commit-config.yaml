@@ -61,11 +61,11 @@ repos:
     hooks:
       - id: luacheck
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.0.99
+    rev: v0.0.104
     hooks:
       - id: ruff
         args: ['--fix', '--config', 'linters/ruff.toml']
   - repo: https://github.com/hadolint/hadolint
-    rev: v2.9.3
+    rev: v2.10.0
     hooks:
       - id: hadolint-docker
