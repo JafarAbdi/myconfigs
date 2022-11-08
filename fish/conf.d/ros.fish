@@ -92,3 +92,56 @@ function set_current_ros_workspace
   echo "$argv[1]" > $CURRENT_ROS_WORKSPACE_FILE
   set -xg current_ros_workspace $argv[1]
 end
+
+function ros_pkgs
+  if test "$argv[1]" = "--ignored"
+    fd --no-ignore --hidden --glob .git --exec test -e {//}/COLCON_IGNORE \; --exec echo {//}
+    python3 -c '
+import rospkg
+from pathlib import Path
+rospack = rospkg.RosPack(["."])
+for pkg in rospack.list():
+  if (Path(rospack.get_path(pkg)) / "COLCON_IGNORE").exists():
+    print(pkg)'
+  else
+    fd --no-ignore --hidden --glob .git --exec test ! -e {//}/COLCON_IGNORE \; --exec echo {//}
+    python3 -c '
+import rospkg
+from pathlib import Path
+rospack = rospkg.RosPack(["."])
+for pkg in rospack.list():
+  if not (Path(rospack.get_path(pkg)) / "COLCON_IGNORE").exists():
+    print(pkg)'
+  end
+end
+
+# TODO: make this function receive a list of pkgs and return list of paths
+function ros_pkg_path
+  python3 -c '
+import rospkg
+rospack = rospkg.RosPack(["."])
+print(rospack.get_path("'$argv[1]'"))'
+end
+
+function ros_ignore
+  set -l pkgs (FZF_DEFAULT_COMMAND="ros_pkgs" fzf \
+                --preview='' \
+                --preview-window down,20% \
+                --prompt='Not ignored> ' \
+                --header='CTRL-F: Not ignored packages / CTRL-R: Ignored packages' \
+                --bind='ctrl-f:change-prompt(Not ignored> )+reload(ros_pkgs)' \
+                --bind='ctrl-r:change-prompt(Ignored> )+reload(ros_pkgs --ignored)')
+  for pkg in $pkgs
+    set -l pkg_path
+    if test -d $pkg
+      set pkg_path $pkg
+    else
+      set pkg_path (ros_pkg_path $pkg)
+    end
+    if test -e $pkg_path"/COLCON_IGNORE"
+      rm $pkg_path"/COLCON_IGNORE"
+    else
+      touch $pkg_path"/COLCON_IGNORE"
+    end
+  end
+end

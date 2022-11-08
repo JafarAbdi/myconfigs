@@ -60,6 +60,7 @@ def get_workspace_underlays(workspace):
     return get_workspace_parameters(workspace).get("underlays")
 
 
+# TODO: Refactor packages to be a dictionary of packages name to src/build directories
 def get_package_paths(package_name):
     import rospkg
 
