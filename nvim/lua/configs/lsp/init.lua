@@ -16,6 +16,7 @@ local servers = {
   "json",
   "zk",
   "markdown",
+  "docker",
 }
 for _, server in pairs(servers) do
   require("configs.lsp.servers." .. server)
