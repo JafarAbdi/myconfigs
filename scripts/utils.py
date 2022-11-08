@@ -72,6 +72,13 @@ def get_package_paths(package_name):
     )
 
 
+def get_ros_package_path(directory, package_name):
+    import rospkg
+
+    rospack = rospkg.RosPack([directory])
+    return rospack.get_path(package_name)
+
+
 def get_ros_packages_path(directory):
     import rospkg
 
