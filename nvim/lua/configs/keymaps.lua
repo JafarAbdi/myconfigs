@@ -87,6 +87,18 @@ vim.keymap.set("n", "<leader>dq", function()
   require("telescope.builtin").diagnostics(vim.tbl_deep_extend("error", { bufnr = 0 }, {}))
 end, { silent = true })
 
+-- Tab switching
+vim.keymap.set("n", "<C-t>", ":tabedit<CR>")
+vim.keymap.set("n", "<A-1>", "1gt")
+vim.keymap.set("n", "<A-2>", "2gt")
+vim.keymap.set("n", "<A-3>", "3gt")
+vim.keymap.set("n", "<A-4>", "4gt")
+vim.keymap.set("n", "<A-5>", "5gt")
+vim.keymap.set("n", "<A-6>", "6gt")
+vim.keymap.set("n", "<A-7>", "7gt")
+vim.keymap.set("n", "<A-8>", "8gt")
+vim.keymap.set("n", "<A-9>", "9gt")
+
 -- <c-k> is my expansion key
 -- this will expand the current item or jump to the next item within the snippet.
 vim.keymap.set({ "i", "s" }, "<c-k>", function()
