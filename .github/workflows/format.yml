@@ -21,6 +21,7 @@ jobs:
         uses: mamba-org/provision-with-micromamba@main
         with:
           environment-file: false
+          environment-name: refurb
           extra-specs: |
             refurb
       - uses: actions/setup-python@v2
