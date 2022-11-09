@@ -22,6 +22,7 @@ jobs:
         with:
           environment-file: false
           environment-name: refurb
+          channels: conda-forge
           extra-specs: |
             refurb
       - uses: actions/setup-python@v2
