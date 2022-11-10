@@ -60,7 +60,6 @@ function install-core
                       p7zip-full \
                       zip \
                       wget \
-                      fd-find \
                       bat \
                       curl \
                       lld \
@@ -77,6 +76,7 @@ function install-core
   ln -fs $HOME/myconfigs/fd/fdignore ~/.fdignore
   github-setup
   install-ripgrep
+  install-fd
 end
 
 function install-cpp-dev
@@ -573,6 +573,15 @@ end
 function install-luacheck
   sudo apt install -y luarocks
   luarocks install luacheck --local
+end
+
+function install-fd
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github sharkdp/fd "fd-musl_.*_amd64.deb"
+  sudo apt remove fd-find || true
+  sudo dpkg -i ./fd-*.deb
+  cd -
 end
 
 function install-bazel
