@@ -1,6 +1,7 @@
 -- Patterns from https://github.com/b0o/SchemaStore.nvim/blob/main/lua/schemastore/catalog.lua
 local handlers = require("configs.lsp.handlers")
 require("lspconfig").yamlls.setup({
+  cmd = { "micromamba", "run", "-n", "nodejs", "yaml-language-server", "--stdio" },
   on_attach = handlers.on_attach,
   capabilities = handlers.capabilities,
   settings = {

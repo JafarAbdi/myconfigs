@@ -2,6 +2,7 @@
 local handlers = require("configs.lsp.handlers")
 require("lspconfig").jsonls.setup({
   -- ... -- other configuration for setup {}
+  cmd = { "micromamba", "run", "-n", "nodejs", "vscode-json-language-server", "--stdio" },
   on_attach = handlers.on_attach,
   capabilities = handlers.capabilities,
   settings = {

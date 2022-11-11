@@ -101,7 +101,7 @@ cmp.setup({
     comparators = {
       compare.offset,
       compare.exact,
-      compare.score,
+      -- compare.score,
       -- https://github.com/p00f/clangd_extensions.nvim/blob/main/lua/clangd_extensions/cmp_scores.lua
       function(entry1, entry2)
         local diff

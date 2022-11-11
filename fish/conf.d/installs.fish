@@ -460,24 +460,13 @@ function install-tmux
   end
 end
 
-function install-nodejs
-  sudo apt install nodejs
-  mkdir -p $HOME/.npm-packages
-  npm config set prefix $HOME/.npm-packages
-  npm i -g corepack
-end
-
 function install-json-lsp
-  install-nodejs
-  npm i -g vscode-langservers-extracted
-end
-
-function install-yaml-lsp
-  install-nodejs
+  install-mamba
   git clone --depth=1 git@github.com:redhat-developer/yaml-language-server.git ~/.config/yaml-lsp
   cd ~/.config/yaml-lsp
-  yarn global add yaml-language-server
-  cd -
+  micromamba run -n nodejs npm install -g vscode-langservers-extracted
+  micromamba run -n nodejs npm install -g dockerfile-language-server-nodejs
+  micromamba run -n nodejs yarn global add yaml-language-server --cwd ~/.config/yaml-lsp
 end
 
 function install-cmake-lsp
@@ -613,6 +602,7 @@ function install-dev-tools
   install-libtree
   install-difftastic
   install-pre-commit
+  install-mamba
 end
 
 function install-full-system
@@ -627,4 +617,6 @@ end
 function install-mamba
   curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C ~/.local/bin/ --strip-components=1 bin/micromamba
   micromamba shell init --shell=fish --prefix=$HOME/micromamba
+  myconfigsr
+  fd --glob '*.yml' ~/myconfigs/micromamba --exec test ! -e ~/micromamba/envs/{/.} \; --exec micromamba create -y -f {}
 end
