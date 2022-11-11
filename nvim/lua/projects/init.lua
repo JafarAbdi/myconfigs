@@ -121,9 +121,6 @@ function Project:new(options)
         )
       end,
     },
-    tex = function()
-      vim.cmd.VimtexCompileSS()
-    end,
     default = function(file, opts)
       local makeprg, args = get_makeprg(file)
       vim.list_extend(args, opts.args)

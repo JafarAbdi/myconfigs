@@ -67,7 +67,6 @@ function install-core
                       ninja-build \
                       sshfs \
                       zathura \
-                      latexmk \
                       # Needed for st
                       libxft-dev \
                       libx11-dev

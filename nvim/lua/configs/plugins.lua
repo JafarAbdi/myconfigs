@@ -35,7 +35,6 @@ return packer.startup({
       end,
     })
     use("nvim-lua/plenary.nvim")
-    use("lervag/vimtex")
     -- Prettier
     use({ "junegunn/vim-easy-align", cmd = "EasyAlign" })
     -- Commenting
