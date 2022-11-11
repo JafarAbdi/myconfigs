@@ -158,8 +158,6 @@ return packer.startup({
       end,
     })
     use("windwp/nvim-autopairs")
-    -- Notes
-    use("mickael-menu/zk-nvim")
     -- Testing
     use({
       "nvim-neotest/neotest",

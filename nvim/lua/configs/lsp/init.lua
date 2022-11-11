@@ -14,7 +14,6 @@ local servers = {
   "lua",
   "yaml",
   "json",
-  "zk",
   "markdown",
   "docker",
 }

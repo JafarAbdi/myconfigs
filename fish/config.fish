@@ -150,7 +150,6 @@ end
 
 # eval (python -m virtualfish) &> /dev/null
 alias myconfigs "cd $MYCONFIGS_DIR"
-alias mynotes="cd $MYCONFIGS_DIR/mynotes"
 alias mybashrc="nvim $MYCONFIGS_DIR/.bashrc"
 alias mysetup="nvim $MYCONFIGS_DIR/install/setup.sh"
 alias myreadme="nvim $MYCONFIGS_DIR/README.md"
@@ -160,10 +159,7 @@ alias jpnb_tmp "jupyter-notebook /tmp/"
 alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmake 'cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias bat 'batcat'
-alias notes 'SHELL=sh zk edit -i'
-alias notes_tag 'SHELL=sh zk edit -i -t'
 
-export ZK_NOTEBOOK_DIR=$MYCONFIGS_DIR/mynotes
 if python3 -m jedi &> /dev/null
   export PYTHONSTARTUP=(python3 -m jedi repl)
 end
