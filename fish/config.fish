@@ -104,9 +104,6 @@ function get_pythonpath
     if test -d /opt/drake/lib
       set pythonpath "/opt/drake/lib/python"(python3 -c 'import sys; print("{0}.{1}".format(*sys.version_info))')"/site-packages"
     end
-    # if test -d $WORKSPACE_DIR/ws_drake/install/lib/python3.8/site-packages
-    #   set pythonpath $WORKSPACE_DIR/ws_drake/install/lib/python3.8/site-packages:$pythonpath
-    # end
     echo $pythonpath
 end
 
@@ -148,17 +145,10 @@ if command -v rustup &> /dev/null
   export RUST_ANALYZER_BIN=(rustup which rust-analyzer)
 end
 
-# eval (python -m virtualfish) &> /dev/null
 alias myconfigs "cd $MYCONFIGS_DIR"
-alias mybashrc="nvim $MYCONFIGS_DIR/.bashrc"
-alias mysetup="nvim $MYCONFIGS_DIR/install/setup.sh"
-alias myreadme="nvim $MYCONFIGS_DIR/README.md"
 alias myconfigsr "source ~/.config/fish/config.fish"
-alias ce "cd $WORKSPACE_DIR/compiler-explorer;make dev EXTRA_ARGS='--language C++'"
-alias jpnb_tmp "jupyter-notebook /tmp/"
 alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmake 'cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
-alias bat 'batcat'
 
 if python3 -m jedi &> /dev/null
   export PYTHONSTARTUP=(python3 -m jedi repl)
