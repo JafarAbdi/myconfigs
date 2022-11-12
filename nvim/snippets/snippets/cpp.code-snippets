@@ -205,7 +205,7 @@
       "};",
       "template <typename... T>",
       "constexpr auto make_overloader(T&&... t) {",
-      "    return Overloader<T...>{std::forward<T>(t)...};",
+      "    return overload<T...>{std::forward<T>(t)...};",
       "}",
       "template <class... Ts>",
       "overload(Ts...) -> overload<Ts...>;"
