@@ -46,6 +46,7 @@ function install-core
   sudo apt update
   sudo apt install -y python3-venv \
                       software-properties-common \
+                      git \
                       git-core \
                       git-lfs \
                       ssh \
@@ -448,6 +449,7 @@ function install-tmux
   # https://github.com/tmux/tmux/releases
   mkdir -p ~/.config/tmux
   ln -fs ~/myconfigs/tmux/tmux.conf ~/.config/tmux/tmux.conf
+  sudo apt install -y libevent-dev libncurses-dev
   if set -q argv[1] && test $argv[1] = "unstable"
     set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
     cd $TMP_DIR
@@ -456,7 +458,7 @@ function install-tmux
     ./configure
     make && sudo make install
   else
-    sudo apt install -y tmux libevent-dev
+    sudo apt install -y tmux
   end
 end
 
