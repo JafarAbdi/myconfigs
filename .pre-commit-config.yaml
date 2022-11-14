@@ -60,15 +60,15 @@ repos:
     hooks:
       - id: luacheck
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.0.104
+    rev: v0.0.117
     hooks:
       - id: ruff
         args: ['--fix', '--config', 'linters/ruff.toml']
   - repo: https://github.com/hadolint/hadolint
-    rev: v2.10.0
+    rev: v2.12.1-beta
     hooks:
       - id: hadolint-docker
   - repo: https://github.com/lsst-ts/pre-commit-xmllint
-    rev: v1.0.0
+    rev: 6f36260b537bf9a42b6ea5262c915ae50786296e
     hooks:
       - id: format-xmllint
