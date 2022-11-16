@@ -622,3 +622,11 @@ function install-mamba
   myconfigsr
   fd --glob '*.yml' ~/myconfigs/micromamba --exec test ! -e ~/micromamba/envs/{/.} \; --exec micromamba create -y -f {}
 end
+
+function install-mold
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github rui314/mold "mold-.*-x86_64-linux.tar.gz"
+  tar -vxzf mold* -C ~/.local --strip-components=1
+  cd -
+end
