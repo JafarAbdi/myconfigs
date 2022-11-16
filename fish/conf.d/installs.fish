@@ -73,7 +73,7 @@ function install-core
                       libx11-dev
   pip3 install argcomplete==2.0.0
   python3 -m pip install --user pipx
-  ln -fs $HOME/myconfigs/fd/fdignore ~/.fdignore
+  ln -fs $HOME/myconfigs/.ignore ~/.ignore
   github-setup
   install-ripgrep
   install-fd

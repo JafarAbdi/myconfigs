@@ -1,0 +1,8 @@
+.git/
+.mypy_cache/
+.idea/
+build/
+logs/
+devel/
+gems/
+__pycache__/
