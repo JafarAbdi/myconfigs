@@ -4,17 +4,11 @@ alias grep='grep --color=auto'
 #  param1 - old word
 #  param2 - new word
 function findreplace
-  grep -lr -e "$argv[1]" * | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
+  rg --files-with-matches "$argv[1]" | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
 end
 
 function findreplacehidden
-  grep -lr -e "$argv[1]" | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
-end
-
-function findreplacehiddenexcludegit
-  for f in $(find . -not -path '*/\.git*')
-    grep --file=$f -lre "$argv[1]" | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
-  end
+  rg --files-with-matches --hidden "$argv[1]" | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
 end
 
 # get just the ip address
@@ -115,11 +109,6 @@ function gdb-attach
   if test (count $pids) -ne 0
     gdb attach --ex continue $pids[1]
   end
-end
-
-function get-ip
-  echo "External IP:" (curl ifconfig.me -s)
-  echo "Internal IP:" (hostname -I)
 end
 
 function kill-all
