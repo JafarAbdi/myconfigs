@@ -624,9 +624,13 @@ function install-mamba
 end
 
 function install-mold
-  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-  cd $TMP_DIR
-  install-from-github rui314/mold "mold-.*-x86_64-linux.tar.gz"
-  tar -vxzf mold* -C ~/.local --strip-components=1
-  cd -
+  if test (lsb_release -sr) = "unstable"
+    sudo apt install -y mold
+  else
+    set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+    cd $TMP_DIR
+    install-from-github rui314/mold "mold-.*-x86_64-linux.tar.gz"
+    tar -vxzf mold* -C ~/.local --strip-components=1
+    cd -
+  end
 end
