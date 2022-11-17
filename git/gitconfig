@@ -45,6 +45,11 @@
 
 [alias]
   last = log -1 HEAD
+  edit-staged  = !git status --short | grep 'M  ' | awk '{print $2}' | fzf   | xargs --no-run-if-empty nvim
+  edit-modified  = !git status --short | grep ' M ' | awk '{print $2}' | fzf | xargs --no-run-if-empty nvim
+  edit-conflicts = !git status --short | grep 'UU' | awk '{print $2}' | fzf  | xargs --no-run-if-empty nvim
+  edit-untracked = !git status --short | grep '??' | awk '{print $2}' | fzf  | xargs --no-run-if-empty nvim
+  rm-untracked = !git status --short | grep '??' | awk '{print $2}' | xargs rm -r
   cc  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::checkout::commit'
   cb  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::checkout::branch'
   cf  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::checkout::file'
@@ -69,9 +74,6 @@
   diffs = diff --staged
   stash-all = stash save --include-untracked
   rlg = log --color --walk-reflogs --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %gs %Cgreen(%gD) %C(bold blue)<%an>%Creset' --abbrev-commit --date=format:'%a %d.%m.%Y %H:%M'
-  subl-modified = !git st| grep "modified:" | awk '{print $2}' | xargs subl
-  subl-confliects = !git status --short | grep 'UU' | awk '{print $2}' | xargs subl
-  rm-untracked = !git status --short | grep '??' | awk '{print $2}' | xargs rm -r
   grep-all-commits = "!f() { git grep \"$1\" $(git rev-list --all); }; f"
   # New branch in a Worktree.
   nw = "!f() { git worktree add $1 -b $1; }; f"
