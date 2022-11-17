@@ -5,4 +5,5 @@ build/
 logs/
 devel/
 gems/
+install/
 __pycache__/
