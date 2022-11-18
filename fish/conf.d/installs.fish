@@ -634,3 +634,10 @@ function install-mold
     cd -
   end
 end
+
+function install-alacritty
+   cargo install alacritty
+   wget https://github.com/alacritty/alacritty/releases/latest/download/alacritty.fish -O ~/.config/fish/completions/alacritty.fish
+   ln -fs ~/myconfigs/alacritty ~/.config/alacritty
+   # wget https://github.com/alacritty/alacritty/releases/latest/download/alacritty.yml
+end
