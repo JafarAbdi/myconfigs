@@ -4,7 +4,6 @@ local wo = vim.wo -- window local
 -- local bo = vim.bo -- buffer local
 
 -- help options
-opt.hlsearch = false
 opt.number = true
 opt.mouse = "a"
 opt.breakindent = true

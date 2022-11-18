@@ -88,7 +88,7 @@ local highlights = {
   PmenuThumb = { bg = colors.white }, --Popup menu: Thumb of the scrollbar.
   Question = { fg = colors.purple }, --hit-enter prompt and yes/no questions
   QuickFixLine = { fg = colors.black, bg = colors.yellow }, --Current quickfix item in the quickfix window.
-  Search = { fg = colors.black, bg = colors.yellow }, --Last search pattern highlighting (see 'hlsearch'). Also used for similar items that need to stand out.
+  Search = { fg = colors.black, bg = "#a2ad6a" }, --Last search pattern highlighting (see 'hlsearch'). Also used for similar items that need to stand out.
   SpecialKey = { fg = colors.special_grey }, --Meta and special keys listed with " =map", also for text used to show unprintable characters in the text, 'listchars'. Generally: text that is displayed differently from what it really is.
   SpellBad = { fg = colors.red, underline = true, cterm = { underline = true } }, --Word that is not recognized by the spellchecker. This will be combined with the highlighting used otherwise.
   SpellCap = { fg = colors.dark_yellow }, --Word that should start with a capital. This will be combined with the highlighting used otherwise.
