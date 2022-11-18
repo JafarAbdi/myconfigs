@@ -1,4 +1,0 @@
-[submodule "st"]
-	path = st
-	url = https://github.com/JafarAbdi/st.git
-	branch = myconfigs
