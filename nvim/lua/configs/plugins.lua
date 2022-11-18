@@ -69,6 +69,7 @@ return packer.startup({
             delete = { text = "_" },
             topdelete = { text = "‾" },
             changedelete = { text = "~" },
+            untracked = { text = "" },
           },
         })
       end,
@@ -104,6 +105,7 @@ return packer.startup({
         { "mtoohey31/cmp-fish", ft = "fish" },
       },
     })
+    use("danymat/neogen")
     -- Undo tree
     use({ "mbbill/undotree", cmd = "UndotreeToggle" })
     -- Go to files file.ex:row_number:col_number

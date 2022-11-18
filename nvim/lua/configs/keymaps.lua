@@ -101,19 +101,25 @@ vim.keymap.set("n", "<A-9>", "9gt")
 
 -- <c-k> is my expansion key
 -- this will expand the current item or jump to the next item within the snippet.
-vim.keymap.set({ "i", "s" }, "<c-k>", function()
+vim.keymap.set({ "i", "s" }, "<c-j>", function()
   local ls = require("luasnip")
+  local neogen = require("neogen")
   if ls.expand_or_jumpable() then
     ls.expand_or_jump()
+  elseif neogen.jumpable() then
+    neogen.jump_next()
   end
 end, { silent = true })
 
 -- <c-j> is my jump backwards key.
 -- this always moves to the previous item within the snippet
-vim.keymap.set({ "i", "s" }, "<c-j>", function()
+vim.keymap.set({ "i", "s" }, "<c-k>", function()
   local ls = require("luasnip")
+  local neogen = require("neogen")
   if ls.jumpable(-1) then
     ls.jump(-1)
+  elseif neogen.jumpable(-1) then
+    neogen.jump_prev()
   end
 end, { silent = true })
 
@@ -124,6 +130,17 @@ vim.keymap.set("i", "<c-l>", function()
   if ls.choice_active() then
     ls.change_choice(1)
   end
+end)
+
+vim.keymap.set("n", "<leader>dg", function()
+  vim.ui.select({ "func", "class", "type", "file" }, { prompt = "Select type" }, function(command)
+    if not command then
+      return
+    end
+    vim.schedule(function()
+      require("neogen").generate({ type = command })
+    end)
+  end)
 end)
 
 vim.keymap.set("n", "<leader>x", function()
