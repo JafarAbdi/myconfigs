@@ -579,11 +579,21 @@ function install-cpp-analyzers
   sudo apt-get install cppcheck
 end
 
+function install-podman-tui
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  wget https://github.com/containers/podman-tui/releases/latest/download/podman-tui-release-linux_amd64.zip
+  ex podman-tui-release-linux_amd64.zip
+  rm -f ~/.local/bin/podman-tui && mv (fd -t executable podman-tui) ~/.local/bin
+  cd -
+end
+
 function install-podman
   # TODO: https://podman.io/getting-started/installation#debian
   sudo apt install -y podman podman-toolbox podman-compose podman-docker
   sudo touch /etc/containers/nodocker
   podman completion -f ~/.config/fish/completions/podman.fish fish
+  podman-tui
 end
 
 function install-dev-tools
