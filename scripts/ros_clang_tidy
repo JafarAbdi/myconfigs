@@ -6,8 +6,8 @@ import pathlib
 
 import argcomplete
 from utils import (
-    ROS_VERSIONS,
     PackagesCompleter,
+    RosVersions,
     get_ros_package_path,
     get_ros_packages,
     get_ros_version,
@@ -31,15 +31,15 @@ def main():
         return
 
     cmd = []
-    ROS_VERSION = get_ros_version()
-    if ROS_VERSION == ROS_VERSIONS.UNKNOWN:
-        ROS_VERSION = input("Unknown version -- Select ros version (1/2):")
+    ros_version = get_ros_version()
+    if ros_version == RosVersions.UNKNOWN:
+        ros_version = input("Unknown version -- Select ros version (1/2):")
         try:
-            ROS_VERSION = ROS_VERSIONS(int(ROS_VERSION))
+            ros_version = RosVersions(int(ros_version))
         except ValueError:
             print("Unknown ROS version")
             return
-    if ROS_VERSION == ROS_VERSIONS.ROS1:
+    if ros_version == RosVersions.ROS1:
         cmd += ["catkin", "build"]
         if args.pkg:
             cmd += [args.pkg]
@@ -48,7 +48,7 @@ def main():
             "--cmake-args",
             "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
         ]
-    elif ROS_VERSION == ROS_VERSIONS.ROS2:
+    elif ros_version == RosVersions.ROS2:
         cmd += ["colcon", "build", "--symlink-install"]
         if args.pkg:
             cmd += ["--packages-select"]

@@ -4,14 +4,13 @@ import pathlib
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
 ROS_INSTALLATION_DIR = Path("/opt/ros")
 
 
-class ROS_VERSIONS(Enum):
+class RosVersions(Enum):
     ROS1 = 1
     ROS2 = 2
     UNKNOWN = 3
@@ -94,7 +93,7 @@ def get_ros_packages(directory):
     return rospack.list()
 
 
-class PackagesCompleter(object):
+class PackagesCompleter:
     def __init__(self, choices):
         self.choices = choices
 
@@ -103,7 +102,10 @@ class PackagesCompleter(object):
 
 
 def run_command(
-    cmd: list, dry_run: bool, cwd: Optional[str] = None, env: Optional[dict] = None
+    cmd: list,
+    dry_run: bool,  # noqa: FBT001
+    cwd: str | None = None,
+    env: dict | None = None,
 ):
     print(" ".join(cmd))
     if dry_run:
@@ -112,29 +114,29 @@ def run_command(
 
 
 def create_cmake_query_files(build_dir):
-    QUERY_DIR = Path(build_dir) / ".cmake" / "api" / "v1" / "query"
-    QUERY_DIR.mkdir(parents=True, exist_ok=True)
-    QUERY_FILE = QUERY_DIR / "codemodel-v2"
-    QUERY_FILE.touch()
+    query_dir = Path(build_dir) / ".cmake" / "api" / "v1" / "query"
+    query_dir.mkdir(parents=True, exist_ok=True)
+    query_file = query_dir / "codemodel-v2"
+    query_file.touch()
 
 
 def create_clangd_config(build_dir, output_dir=None):
     # https://clangd.llvm.org/config#compilationdatabase
-    CLANGD_CONFIG_FILE = "{build_dir}"
-    CLAND_FILE_PATH = Path(".clangd_config")
+    clangd_config_file = "{build_dir}"
+    clang_file_path = Path(".clangd_config")
     if output_dir is None:
         output_dir = Path(".")
-    with (output_dir / Path(CLAND_FILE_PATH)).open("w", encoding="utf-8") as f:
-        f.write(CLANGD_CONFIG_FILE.format(build_dir=build_dir))
+    with (output_dir / Path(clang_file_path)).open("w", encoding="utf-8") as f:
+        f.write(clangd_config_file.format(build_dir=build_dir))
 
 
 def get_ros_version():
     current = pathlib.Path(".").resolve()
     if (current / ".catkin_tools").is_dir():
-        return ROS_VERSIONS.ROS1
+        return RosVersions.ROS1
     elif (current / "build/COLCON_IGNORE").exists():
-        return ROS_VERSIONS.ROS2
-    return ROS_VERSIONS.UNKNOWN
+        return RosVersions.ROS2
+    return RosVersions.UNKNOWN
 
 
 def call(*args, **kwargs):
