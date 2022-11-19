@@ -156,11 +156,7 @@ end
 
 # fzf settings
 # Options to fzf command
-if command -v fdfind &> /dev/null
-  alias fd="fdfind"
-end
-
-set -l FZF_COMMANDS (command -v fd fdfind find | tr '\n' ':')
+set -l FZF_COMMANDS (command -v fd find | tr '\n' ':')
 set -xg FD_OPTIONS "--follow"
 set -xg FIND_OPTIONS '-not -path "*/\.git*" -not -path "*/.*" -not -path "*/\__pycache__*"'
 set -xg FZF_ALT_C_COMMAND
@@ -168,11 +164,8 @@ set -xg FZF_DEFAULT_COMMAND
 
 switch "$FZF_COMMANDS"
   case '*/fd:*'
-    set FZF_ALT_C_COMMAND "fd --type directory $FD_OPTIONS . \$dir"
-    set FZF_DEFAULT_COMMAND "fd --type f $FD_OPTIONS . \$dir"
-  case '*/fdfind:*'
-    set FZF_ALT_C_COMMAND "fdfind --type directory $FD_OPTIONS . \$dir"
-    set FZF_DEFAULT_COMMAND "fdfind --type f $FD_OPTIONS . \$dir"
+    set FZF_ALT_C_COMMAND "fd --strip-cwd-prefix --type directory $FD_OPTIONS \$dir"
+    set FZF_DEFAULT_COMMAND "fd --strip-cwd-prefix --type f $FD_OPTIONS \$dir"
   case '*/find:*'
     set FZF_ALT_C_COMMAND "find -L \$dir -type d $FIND_OPTIONS"
     set FZF_DEFAULT_COMMAND "find -L \$dir -type f $FIND_OPTIONS"
