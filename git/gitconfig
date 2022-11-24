@@ -36,20 +36,11 @@
   threads = 6
 [http]
   sslVerify = false
-[filter "lfs"]
-  clean = git-lfs clean -- %f
-  smudge = git-lfs smudge -- %f
-  required = true
 [branch]
   autosetuprebase = always
 
 [alias]
   last = log -1 HEAD
-  edit-staged  = !git status --short | grep 'M  ' | awk '{print $2}' | fzf   | xargs --no-run-if-empty nvim
-  edit-modified  = !git status --short | grep ' M ' | awk '{print $2}' | fzf | xargs --no-run-if-empty nvim
-  edit-conflicts = !git status --short | grep 'UU' | awk '{print $2}' | fzf  | xargs --no-run-if-empty nvim
-  edit-untracked = !git status --short | grep '??' | awk '{print $2}' | fzf  | xargs --no-run-if-empty nvim
-  rm-untracked = !git status --short | grep '??' | awk '{print $2}' | xargs rm -r
   cc  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::checkout::commit'
   cb  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::checkout::branch'
   cf  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::checkout::file'

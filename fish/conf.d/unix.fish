@@ -164,8 +164,8 @@ set -xg FZF_DEFAULT_COMMAND
 
 switch "$FZF_COMMANDS"
   case '*/fd:*'
-    set FZF_ALT_C_COMMAND "fd --strip-cwd-prefix --type directory $FD_OPTIONS \$dir"
-    set FZF_DEFAULT_COMMAND "fd --strip-cwd-prefix --type f $FD_OPTIONS \$dir"
+    set FZF_ALT_C_COMMAND "fd  --type directory $FD_OPTIONS . \$dir"
+    set FZF_DEFAULT_COMMAND "fd --type f $FD_OPTIONS . \$dir"
   case '*/find:*'
     set FZF_ALT_C_COMMAND "find -L \$dir -type d $FIND_OPTIONS"
     set FZF_DEFAULT_COMMAND "find -L \$dir -type f $FIND_OPTIONS"
@@ -200,6 +200,46 @@ set -xg FZF_CTRL_T_OPTS "--prompt='Files> '" \
                         "--bind='ctrl-f:change-prompt(Files> )+reload($FZF_DEFAULT_COMMAND)'" \
                         "--bind='ctrl-h:change-prompt(Hidden files> )+reload($FZF_DEFAULT_COMMAND --hidden)'"
 set -xg FZF_CTRL_T_COMMAND "$FZF_DEFAULT_COMMAND"
+
+function fzf-inline -d "List files and put them under current cursor"
+  begin
+    fzf | while read -l r; set result $result $r; end
+  end
+  if [ -z "$result" ]
+    commandline -f repaint
+    return
+  else
+    # Remove last token from commandline.
+    commandline -t ""
+  end
+  for i in $result
+    commandline -it -- $prefix
+    commandline -it -- (string escape $i)
+    commandline -it -- ' '
+  end
+  commandline -f repaint
+end
+
+
+function gstaged
+  git status --short | grep 'UA' | awk '{print $2}' | fzf-inline
+end
+
+function gstaged
+  git status --short | grep 'M  ' | awk '{print $2}' | fzf-inline
+end
+
+function gmodified
+  git status --short | grep ' M ' | awk '{print $2}' | fzf-inline
+end
+
+function gconflicts
+  git status --short | grep 'UU' | awk '{print $2}' | fzf-inline
+end
+
+function guntracked
+  git status --short | rg '\??' | awk '{print $2}' | fzf-inline
+end
 
 complete -c sfs -w sshfs
 complete -c set-timezone -a "(timedatectl list-timezones)"

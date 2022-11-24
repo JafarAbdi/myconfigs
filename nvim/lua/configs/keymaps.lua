@@ -77,10 +77,10 @@ end, { silent = true })
 
 -- Diagnostic keymaps
 vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, { silent = true })
-vim.keymap.set("n", "<leader>dN", function()
+vim.keymap.set("n", "<leader>d<Up>", function()
   vim.diagnostic.goto_prev({ severity = vim.diagnostic.severity.ERROR })
 end, { silent = true })
-vim.keymap.set("n", "<leader>dn", function()
+vim.keymap.set("n", "<leader>d<Down>", function()
   vim.diagnostic.goto_next({ severity = vim.diagnostic.severity.ERROR })
 end, { silent = true })
 vim.keymap.set("n", "<leader>dq", function()

@@ -130,6 +130,12 @@ cmp.setup({
 
 local cmdline_mappings = cmp.mapping.preset.cmdline({
   ["<C-Space>"] = { c = cmp.mapping.complete() },
+  ["<Down>"] = {
+    c = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Insert }),
+  },
+  ["<Up>"] = {
+    c = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Insert }),
+  },
 })
 
 -- Use buffer source for `/` (if you enabled `native_menu`, this won't work anymore).
