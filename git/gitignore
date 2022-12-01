@@ -1,3 +1,9 @@
+### VSCode ###
+.vscode
+
+### CodeChecker ###
+.codechecker
+
 ### QtCreator ###
 CMakeLists.txt.user
 

@@ -9,8 +9,7 @@ import argcomplete
 from utils import (
     PackagesCompleter,
     RosVersions,
-    create_clangd_config,
-    create_cmake_query_files,
+    create_vscode_config,
     get_ros_packages,
     get_ros_packages_path,
     get_ros_version,
@@ -39,8 +38,7 @@ def main():
     packages = get_ros_packages_path(src_dir)
     build_path = Path(workspace_dir) / "build"
     for package, path in packages:
-        create_cmake_query_files(str((build_path / f"{package}").absolute()))
-        create_clangd_config(
+        create_vscode_config(
             str((build_path / f"{package}").absolute()),
             Path(path),
         )

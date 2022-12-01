@@ -120,14 +120,26 @@ def create_cmake_query_files(build_dir):
     query_file.touch()
 
 
-def create_clangd_config(build_dir, output_dir=None):
-    # https://clangd.llvm.org/config#compilationdatabase
-    clangd_config_file = "{build_dir}"
-    clang_file_path = Path(".clangd_config")
+def create_vscode_config(build_dir, output_dir=None):
+    import json
+
     if output_dir is None:
         output_dir = Path(".")
-    with (output_dir / Path(clang_file_path)).open("w", encoding="utf-8") as f:
-        f.write(clangd_config_file.format(build_dir=build_dir))
+    vscode_dir = Path(output_dir) / Path(".vscode")
+    settings_file = "settings.json"
+    vscode_dir.mkdir(parents=True, exist_ok=True)
+    with (vscode_dir / settings_file).open("w", encoding="utf-8") as f:
+        settings = {
+            "cmake.configureOnOpen": True,
+            "cmake.buildDirectory": f"{build_dir}",
+            "clangd.arguments": [
+                f"--compile-commands-dir={build_dir}",
+                "--completion-style=detailed",
+            ],
+            "codechecker.backend.compilationDatabasePath": f"{build_dir}/compile_commands.json",
+        }
+
+        json.dump(settings, f, ensure_ascii=True, indent=4)
 
 
 def get_ros_version():

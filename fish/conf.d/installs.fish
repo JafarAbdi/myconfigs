@@ -644,3 +644,11 @@ function install-mold
     cd -
   end
 end
+
+function install-vscode
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  wget 'https://code.visualstudio.com/sha/download?build=insider&os=linux-deb-x64' -O vscode.deb
+  sudo apt install ./vscode.deb
+  cd -
+end
