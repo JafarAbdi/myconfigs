@@ -13,7 +13,6 @@ return packer.startup({
   function(use)
     -- Packer
     use("wbthomason/packer.nvim")
-    use("lewis6991/impatient.nvim")
 
     -- Neovim utilities
     use({
@@ -49,12 +48,6 @@ return packer.startup({
     })
     -- Status line
     use("nvim-lualine/lualine.nvim")
-    use({
-      "j-hui/fidget.nvim",
-      config = function()
-        require("fidget").setup()
-      end,
-    })
     -- Add indentation guides even on blank lines
     use("lukas-reineke/indent-blankline.nvim")
     -- Add git related info in the signs columns and popups
@@ -74,28 +67,12 @@ return packer.startup({
         })
       end,
     })
-    -- Tree-sitter
-    use({
-      "nvim-treesitter/nvim-treesitter",
-      run = ":TSUpdate",
-      requires = {
-        -- Highlights & Text selection
-        "nvim-treesitter/nvim-treesitter-textobjects",
-        "nvim-treesitter/nvim-treesitter-context",
-        "Badhi/nvim-treesitter-cpp-tools",
-        "nvim-treesitter/playground",
-      },
-    })
-    -- LSP clients configurations
-    use("neovim/nvim-lspconfig")
     -- Completion
     use({
       "hrsh7th/nvim-cmp",
       requires = {
         "JafarAbdi/cmp-conan",
         "hrsh7th/cmp-nvim-lsp",
-        "saadparwaiz1/cmp_luasnip",
-        "L3MON4D3/LuaSnip",
         "hrsh7th/cmp-buffer",
         "hrsh7th/cmp-cmdline",
         "hrsh7th/cmp-nvim-lua",
@@ -105,40 +82,12 @@ return packer.startup({
         { "mtoohey31/cmp-fish", ft = "fish" },
       },
     })
-    use("danymat/neogen")
     -- Undo tree
     use({ "mbbill/undotree", cmd = "UndotreeToggle" })
     -- Go to files file.ex:row_number:col_number
     use("wsdjeg/vim-fetch")
-    -- Debugger
-    use({
-      "mfussenegger/nvim-dap",
-      requires = {
-        "rcarriga/nvim-dap-ui",
-        "theHamsta/nvim-dap-virtual-text",
-        "mfussenegger/nvim-dap-python",
-      },
-    })
-    -- Rust
-    use("simrat39/rust-tools.nvim")
-    -- CMake
-    use({ "JafarAbdi/neovim-cmake", branch = "pr-auto_select_target" })
-    -- C++
-    use("p00f/clangd_extensions.nvim")
-    use({
-      "theHamsta/nvim-semantic-tokens",
-      config = function()
-        require("nvim-semantic-tokens").setup({
-          preset = "default",
-          highlighters = { require("nvim-semantic-tokens.table-highlighter") },
-        })
-      end,
-    })
-    use("krady21/compiler-explorer.nvim")
     -- Heuristically set buffer options
     use("tpope/vim-sleuth")
-    -- Used to fix symlink files
-    use("famiu/bufdelete.nvim")
     use({
       "kylechui/nvim-surround",
       config = function()
@@ -159,16 +108,6 @@ return packer.startup({
       end,
     })
     use("windwp/nvim-autopairs")
-    -- Testing
-    use({
-      "nvim-neotest/neotest",
-      requires = {
-        "nvim-neotest/neotest-python",
-        "nvim-neotest/neotest-plenary",
-        "JafarAbdi/neotest-gtest",
-        "rouge8/neotest-rust",
-      },
-    })
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
       packer.compile()
     end

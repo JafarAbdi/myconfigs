@@ -16,14 +16,6 @@ lualine.setup({
       "filename",
       "branch",
       "diff",
-      require("configs.cmake").status,
-      function()
-        local ok, dap = pcall(require, "dap")
-        if not ok then
-          return ""
-        end
-        return dap.status()
-      end,
     },
   },
 })
