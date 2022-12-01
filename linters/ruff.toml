@@ -39,3 +39,4 @@ extend-select = [
   "M",
 ]
 ignore = ["E501"]
+extend-ignore = ["ANN", "C90", "D"]
