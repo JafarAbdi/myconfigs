@@ -136,8 +136,6 @@ local colorscheme = function()
   end
 end
 
-
-
 local ts_highlights = {
   -- ["error"] = "TSError",
   -- ["variable"] = "TSVariable",

@@ -36,7 +36,7 @@ ts_configs.setup({
     "yaml",
   },
   highlight = {
-    enable = not  vim.g.vscode, 
+    enable = not vim.g.vscode,
     disable = disable,
   },
   -- TODO: Why this is not working in vscode?
