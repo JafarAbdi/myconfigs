@@ -67,6 +67,15 @@ return packer.startup({
         })
       end,
     })
+    -- Tree-sitter
+    use({
+      "nvim-treesitter/nvim-treesitter",
+      run = ":TSUpdate",
+      requires = {
+        -- Highlights & Text selection
+        "nvim-treesitter/nvim-treesitter-textobjects",
+      },
+    })
     -- Completion
     use({
       "hrsh7th/nvim-cmp",
