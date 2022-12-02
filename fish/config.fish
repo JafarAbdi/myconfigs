@@ -11,6 +11,7 @@ set -x HISTFILESIZE 100000
 
 
 if status is-interactive
+and not set -q VSCODE_GIT_ASKPASS_NODE
 and not set -q TMUX
 and command -v tmux &> /dev/null
   exec tmux new-session -s %self
