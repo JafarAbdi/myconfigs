@@ -4,6 +4,7 @@ import pathlib
 import subprocess
 from enum import Enum
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -104,8 +105,8 @@ class PackagesCompleter:
 def run_command(
     cmd: list,
     dry_run: bool,  # noqa: FBT001
-    cwd: str | None = None,
-    env: dict | None = None,
+    cwd: Optional[str] = None,  # noqa: U007
+    env: Optional[dict] = None,  # noqa: U007
 ):
     print(" ".join(cmd))
     if dry_run:
