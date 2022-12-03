@@ -39,6 +39,11 @@ if vim.g.vscode then
   keymap("n", "gt", "<Cmd>call VSCodeNotify('editor.action.goToTypeDefinition')<CR>")
   -- keymap("n", "gf", "<Cmd>call VSCodeNotify('editor.action.revealDeclaration')<CR>")
   keymap("n", "gs", "<Cmd>call VSCodeNotify('workbench.action.gotoSymbol')<CR>")
+  keymap(
+    "n",
+    "<leader>x",
+    "<Cmd>call VSCodeNotify('workbench.action.tasks.runTask', 'Run current file')<CR>"
+  )
 else
   --Add leader shortcuts
   vim.keymap.set("n", "<leader><space>", require("telescope.builtin").buffers, { silent = true })
