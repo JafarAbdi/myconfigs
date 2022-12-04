@@ -118,6 +118,23 @@ function kill-all
   end
 end
 
+function cookiecutter-file
+  set -l template_directory $HOME/myconfigs/cookiecutter/
+  set -l template_name (fd --type directory --full-path $template_directory --maxdepth 1 --base-directory=$template_directory --strip-cwd-prefix --exclude 'file-generator' |
+                        sed 's#/##g'|
+                        fzf)
+  if test (count $template_name) -eq 1
+    set -l temporary_directory (mktemp -d -p /tmp cookiecutter-XXXXX)
+    cookiecutter $template_directory/$template_name --output-dir $temporary_directory project_name=$template_name
+    fd --hidden --glob '*' $temporary_directory --exec mv {} .
+  end
+end
+
+function cookiecutter-file-template
+  set -l template_directory $HOME/myconfigs/cookiecutter/
+  cookiecutter $template_directory/file-generator
+end
+
 function restart-zerotier-one
   sudo systemctl stop zerotier-one.service && sudo systemctl start zerotier-one.service
 end
