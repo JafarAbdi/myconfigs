@@ -12,24 +12,6 @@ from utils import (
     get_workspaces_yaml,
 )
 
-# ~/.workspaces.yaml
-# WORKSPACE_NAME:
-# ros_distro: DISTRO
-# path: path w.r.t. HOME (optional)
-# underlays: [] (optional)
-# moveit2:
-# ros_distro: foxy
-# path: workspaces/ros2/ws_moveit2
-# underlays: []
-# hello_robot:
-# ros_distro: foxy
-# path: workspaces/ros2/ws_hello_robot
-# underlays: []
-# moveit_studio:
-# ros_distro: foxy
-# path: workspaces/ros2/ws_moveit_studio
-# underlays: []
-
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--workspace-exists", help="Check if a workspace is defined in ~/.workspaces.yaml"

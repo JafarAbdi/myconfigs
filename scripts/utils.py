@@ -17,17 +17,6 @@ class RosVersions(Enum):
     UNKNOWN = 3
 
 
-# def get_ros2_packages(directory):
-#     import ament_index_python
-#
-#     get_packages_with_prefixes = ament_index_python.get_packages_with_prefixes()
-#     packages = []
-#     for package, path in get_packages_with_prefixes.items():
-#         if path.startswith(directory):
-#             packages.append(package)
-#     return packages
-
-
 def get_workspaces_yaml():
     file_name = Path(os.getenv("HOME") + "/.workspaces.yaml")
     workspaces = yaml.safe_load(open(file_name)) if file_name.exists() else {}
@@ -147,7 +136,7 @@ def get_ros_version():
     current = pathlib.Path(".").resolve()
     if (current / ".catkin_tools").is_dir():
         return RosVersions.ROS1
-    elif (current / "build/COLCON_IGNORE").exists():
+    if (current / "build/COLCON_IGNORE").exists():
         return RosVersions.ROS2
     return RosVersions.UNKNOWN
 

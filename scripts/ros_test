@@ -35,24 +35,6 @@ def get_tests(package_name):
     for test in parsed_output["tests"]:
         tests.append(test["name"] + "@ctest")
 
-    # TODO: Why this returns an empty string inside this function, it works when called outside
-    # parsed_output = call(
-    #     [
-    #         "python3",
-    #         "-m",
-    #         "pytest",
-    #         "--color=no",
-    #         "--collect-only",
-    #         "--quiet",
-    #         "--",
-    #         src_dir,
-    #     ]
-    # )
-
-    # for line in parsed_output.split("\n"):
-    #     if len(line) and not PATTERN.match(line):
-    #         tests.append(line + "@pytest")
-
     return tests
 
 
