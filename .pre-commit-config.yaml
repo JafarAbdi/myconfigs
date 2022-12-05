@@ -61,7 +61,7 @@ repos:
     hooks:
       - id: luacheck
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.0.141
+    rev: v0.0.158
     hooks:
       - id: ruff
         args: ['--show-source', '--fix', '--config', 'linters/ruff.toml']
