@@ -11,11 +11,15 @@ import argcomplete
 from utils import call, run_command
 
 
-def python(file: Path):
-    run_command(["python3", str(file)], dry_run=False)
+def python(file: Path, args: list, cwd: Path, extra_args: dict):
+    cmd = []
+    if micromamba_env := extra_args.get("micromamba"):
+        cmd.extend(["micromamba", "run", "-n", micromamba_env])
+    cmd.extend(["python3", str(file)])
+    run_command(cmd + args, dry_run=False, cwd=cwd)
 
 
-def rust(file: Path):
+def rust(file: Path, args: list, cwd: Path, extra_args: dict):
     output = call(
         ["cargo", "metadata", "--format-version=1"], cwd=file.parent.resolve()
     )
@@ -26,9 +30,9 @@ def rust(file: Path):
             # TODO: Check kind, we should only run bin
             if resolved_file_path == target["src_path"]:
                 run_command(
-                    ["cargo", "run", "--bin", target["name"]],
+                    ["cargo", "run", "--bin", target["name"]] + args,
                     dry_run=False,
-                    cwd=file.parent.resolve(),
+                    cwd=cwd,
                 )
                 return
     logging.error(f"Can't find a target for {file.resolve()}")
@@ -49,7 +53,8 @@ def main():
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
-    file_path = Path(" ".join(args.workspace_folder)) / Path(" ".join(args.file_path))
+    workspace_path = Path(" ".join(args.workspace_folder))
+    file_path = workspace_path / Path(" ".join(args.file_path))
     if not file_path.exists():
         logging.error(f"File '{file_path}' doesn't exists.")
         sys.exit(1)
@@ -58,7 +63,19 @@ def main():
         logging.error(f"Unsupported language '{file_type}' for path '{file_path}'")
         sys.exit(1)
     logging.info(f"Executing '{file_path}'")
-    runner(file_path)
+    settings_path = workspace_path / ".vscode"
+    args = []
+    if (args_file := settings_path / file_path.stem).exists():
+        with args_file.open("r") as file:
+            args = file.readline().split(" ")
+        logging.info(f"Load args file '{args_file} with {args}")
+    run_args = {}
+    if (micromamba_file := settings_path / "micromamba").exists():
+        with micromamba_file.open("r") as file:
+            run_args["micromamba"] = file.readline()
+        logging.info(f"Using micromamba env {run_args['micromamba']}")
+
+    runner(file_path, args, workspace_path, extra_args=run_args)
 
 
 if __name__ == "__main__":
