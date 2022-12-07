@@ -44,6 +44,10 @@ if vim.g.vscode then
     "<leader>x",
     "<Cmd>call VSCodeNotify('workbench.action.tasks.runTask', 'Run current file')<CR>"
   )
+  vim.keymap.set("n", "<M-h>", "<Cmd>call VSCodeNotify('workbench.action.navigateLeft')<CR>")
+  vim.keymap.set("n", "<M-j>", "<Cmd>call VSCodeNotify('workbench.action.navigateDown')<CR>")
+  vim.keymap.set("n", "<M-l>", "<Cmd>call VSCodeNotify('workbench.action.navigateRight')<CR>")
+  vim.keymap.set("n", "<M-k>", "<Cmd>call VSCodeNotify('workbench.action.navigateUp')<CR>")
 else
   --Add leader shortcuts
   vim.keymap.set("n", "<leader><space>", require("telescope.builtin").buffers, { silent = true })
