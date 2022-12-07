@@ -4,144 +4,147 @@ vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 
-if vim.g.vscode then
-  -- https://github.com/vscode-neovim/vscode-neovim/tree/master/vim
-  local keymap = function(mode, lhs, rhs)
-    vim.keymap.set(mode, lhs, rhs, { silent = true })
+-- https://github.com/vscode-neovim/vscode-neovim/tree/master/vim
+local keymap = function(mode, lhs, editor)
+  if vim.g.vscode and editor.vscode then
+    vim.keymap.set(mode, lhs, editor.vscode, { silent = true })
+  elseif editor.neovim then
+    vim.keymap.set(mode, lhs, editor.neovim, { silent = true })
   end
-  local replace_keymap = function(mode, old_lhs, new_lhs, rhs)
-    vim.keymap.del(mode, old_lhs)
-    if new_lhs and rhs then
-      keymap(mode, new_lhs, rhs)
-    end
-  end
-  replace_keymap(
-    "n",
-    "=",
-    "<leader>f",
-    "<Cmd>call VSCodeNotify('editor.action.formatDocument')<CR>"
-  )
-  replace_keymap(
-    "x",
-    "=",
-    "<leader>f",
-    "<Cmd>call VSCodeNotifyVisual('editor.action.formatSelection', 1)<CR>"
-  )
-  replace_keymap({ "x", "n" }, "gh")
-  replace_keymap({ "x", "n" }, "gf")
-  -- replace_keymap({"x", "n"}, "<C-]>")
-  replace_keymap({ "x", "n" }, "gO")
-  replace_keymap({ "x", "n" }, "gF")
-  replace_keymap({ "x", "n" }, "gD")
-  replace_keymap({ "x", "n" }, "gH")
-  keymap("n", "gi", "<Cmd>call VSCodeNotify('editor.action.goToImplementation')<CR>")
-  keymap("n", "gr", "<Cmd>call VSCodeNotify('editor.action.goToReferences')<CR>")
-  keymap("n", "gt", "<Cmd>call VSCodeNotify('editor.action.goToTypeDefinition')<CR>")
-  -- keymap("n", "gf", "<Cmd>call VSCodeNotify('editor.action.revealDeclaration')<CR>")
-  keymap("n", "gs", "<Cmd>call VSCodeNotify('workbench.action.gotoSymbol')<CR>")
-  keymap(
-    "n",
-    "<leader>x",
-    "<Cmd>call VSCodeNotify('workbench.action.tasks.runTask', 'Run current file')<CR>"
-  )
-  vim.keymap.set("n", "<M-h>", "<Cmd>call VSCodeNotify('workbench.action.navigateLeft')<CR>")
-  vim.keymap.set("n", "<M-j>", "<Cmd>call VSCodeNotify('workbench.action.navigateDown')<CR>")
-  vim.keymap.set("n", "<M-l>", "<Cmd>call VSCodeNotify('workbench.action.navigateRight')<CR>")
-  vim.keymap.set("n", "<M-k>", "<Cmd>call VSCodeNotify('workbench.action.navigateUp')<CR>")
-else
-  --Add leader shortcuts
-  vim.keymap.set("n", "<leader><space>", require("telescope.builtin").buffers, { silent = true })
-  vim.keymap.set(
-    "n",
-    "<leader>gc",
-    require("telescope.builtin").current_buffer_fuzzy_find,
-    { silent = true }
-  )
-  vim.keymap.set("n", "<leader>gr", require("telescope.builtin").resume, { silent = true })
-  vim.keymap.set("n", "<leader>h", require("telescope.builtin").help_tags, { silent = true })
-  vim.keymap.set("n", "<leader>gs", require("telescope.builtin").grep_string, { silent = true })
-  vim.keymap.set("n", "<leader>gl", require("telescope.builtin").live_grep, { silent = true })
-  vim.keymap.set("n", "<leader>o", require("telescope.builtin").find_files, { silent = true })
-  vim.keymap.set("n", "<leader>ro", require("telescope.builtin").oldfiles, { silent = true })
-  vim.keymap.set("n", "<leader>j", function()
-    require("telescope.builtin").jumplist({ fname_width = 0.6 })
-  end, { silent = true })
+end
+local del = vim.keymap.del
 
-  vim.keymap.set("", "<leader>f", function()
+keymap("n", "<leader>f", {
+  vscode = "<Cmd>call VSCodeNotify('editor.action.formatDocument')<CR>",
+  neovim = function()
     vim.lsp.buf.format({ async = true })
-  end)
+  end,
+})
+keymap(
+  "x",
+  "<leader>f",
+  { vscode = "<Cmd>call VSCodeNotifyVisual('editor.action.formatSelection', 1)<CR>" }
+)
+if vim.g.vscode then
+  -- replace_keymap({"x", "n"}, "<C-]>")
+  del({ "x", "n" }, "gh")
+  del({ "x", "n" }, "=")
+  del({ "x", "n" }, "gf")
+  del({ "x", "n" }, "gO")
+  del({ "x", "n" }, "gF")
+  del({ "x", "n" }, "gD")
+  del({ "x", "n" }, "gH")
+end
+keymap("n", "gi", { vscode = "<Cmd>call VSCodeNotify('editor.action.goToImplementation')<CR>" })
+keymap("n", "gr", { vscode = "<Cmd>call VSCodeNotify('editor.action.goToReferences')<CR>" })
+keymap("n", "gt", { vscode = "<Cmd>call VSCodeNotify('editor.action.goToTypeDefinition')<CR>" })
+-- keymap("n", "gf", "<Cmd>call VSCodeNotify('editor.action.revealDeclaration')<CR>")
+keymap("n", "gs", { vscode = "<Cmd>call VSCodeNotify('workbench.action.gotoSymbol')<CR>" })
+keymap(
+  "n",
+  "<leader>x",
+  { vscode = "<Cmd>call VSCodeNotify('workbench.action.tasks.runTask', 'Run current file')<CR>" }
+)
+keymap("n", "<leader><space>", { neovim = require("telescope.builtin").buffers })
+keymap("n", "<leader>gc", { neovim = require("telescope.builtin").current_buffer_fuzzy_find })
+keymap("n", "<leader>gr", { neovim = require("telescope.builtin").resume })
+keymap("n", "<leader>h", { neovim = require("telescope.builtin").help_tags })
+keymap("n", "<leader>gs", { neovim = require("telescope.builtin").grep_string })
+keymap("n", "<leader>gl", { neovim = require("telescope.builtin").live_grep })
+keymap("n", "<leader>o", { neovim = require("telescope.builtin").find_files })
+keymap("n", "<leader>ro", { neovim = require("telescope.builtin").oldfiles })
+keymap("n", "<leader>j", {
+  neovim = function()
+    require("telescope.builtin").jumplist({ fname_width = 0.6 })
+  end,
+})
 
-  vim.keymap.set("t", "<A-h>", function()
+keymap("t", "<A-h>", {
+  neovim = function()
     require("tmux").move_left()
     vim.cmd.checktime()
-  end, { silent = true })
-  vim.keymap.set("t", "<A-j>", function()
+  end,
+})
+keymap("t", "<A-j>", {
+  neovim = function()
     require("tmux").move_bottom()
     vim.cmd.checktime()
-  end, { silent = true })
-  vim.keymap.set("t", "<A-k>", function()
+  end,
+})
+keymap("t", "<A-k>", {
+  neovim = function()
     require("tmux").move_top()
     vim.cmd.checktime()
-  end, { silent = true })
-  vim.keymap.set("t", "<A-l>", function()
+  end,
+})
+keymap("t", "<A-l>", {
+  neovim = function()
     require("tmux").move_right()
     vim.cmd.checktime()
-  end, { silent = true })
-  vim.keymap.set("n", "<A-h>", function()
+  end,
+})
+keymap("n", "<A-h>", {
+  neovim = function()
     require("tmux").move_left()
     vim.cmd.checktime()
-  end, { silent = true })
-  vim.keymap.set("n", "<A-j>", function()
+  end,
+  vscode = "<Cmd>call VSCodeNotify('workbench.action.navigateLeft')<CR>",
+})
+keymap("n", "<A-j>", {
+  neovim = function()
     require("tmux").move_bottom()
     vim.cmd.checktime()
-  end, { silent = true })
-  vim.keymap.set("n", "<A-k>", function()
+  end,
+  vscode = "<Cmd>call VSCodeNotify('workbench.action.navigateDown')<CR>",
+})
+keymap("n", "<A-k>", {
+  neovim = function()
     require("tmux").move_top()
     vim.cmd.checktime()
-  end, { silent = true })
-  vim.keymap.set("n", "<A-l>", function()
+  end,
+  vscode = "<Cmd>call VSCodeNotify('workbench.action.navigateUp')<CR>",
+})
+keymap("n", "<A-l>", {
+  neovim = function()
     require("tmux").move_right()
     vim.cmd.checktime()
-  end, { silent = true })
+  end,
+  vscode = "<Cmd>call VSCodeNotify('workbench.action.navigateRight')<CR>",
+})
 
-  -- Diagnostic keymaps
-  vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, { silent = true })
-  vim.keymap.set("n", "<leader>d<Up>", function()
+-- Diagnostic keymaps
+keymap("n", "<leader>df", { neovim = vim.diagnostic.open_float })
+keymap("n", "<leader>d<Up>", {
+  neovim = function()
     vim.diagnostic.goto_prev({ severity = vim.diagnostic.severity.ERROR })
-  end, { silent = true })
-  vim.keymap.set("n", "<leader>d<Down>", function()
+  end,
+}, { silent = true })
+keymap("n", "<leader>d<Down>", {
+  neovim = function()
     vim.diagnostic.goto_next({ severity = vim.diagnostic.severity.ERROR })
-  end, { silent = true })
-  vim.keymap.set("n", "<leader>dq", function()
+  end,
+}, { silent = true })
+keymap("n", "<leader>dq", {
+  neovim = function()
     require("telescope.builtin").diagnostics(vim.tbl_deep_extend("error", { bufnr = 0 }, {}))
-  end, { silent = true })
+  end,
+}, { silent = true })
 
-  -- Tab switching
-  vim.keymap.set("n", "<C-t>", ":tabedit<CR>")
-  vim.keymap.set("n", "<A-1>", "1gt")
-  vim.keymap.set("n", "<A-2>", "2gt")
-  vim.keymap.set("n", "<A-3>", "3gt")
-  vim.keymap.set("n", "<A-4>", "4gt")
-  vim.keymap.set("n", "<A-5>", "5gt")
-  vim.keymap.set("n", "<A-6>", "6gt")
-  vim.keymap.set("n", "<A-7>", "7gt")
-  vim.keymap.set("n", "<A-8>", "8gt")
-  vim.keymap.set("n", "<A-9>", "9gt")
+keymap("", "<M-C-h>", { neovim = require("tmux").resize_left })
+keymap("", "<M-C-j>", { neovim = require("tmux").resize_bottom })
+keymap("", "<M-C-k>", { neovim = require("tmux").resize_top })
+keymap("", "<M-C-l>", { neovim = require("tmux").resize_right })
 
-  vim.keymap.set("", "<M-C-h>", require("tmux").resize_left, { silent = true })
-  vim.keymap.set("", "<M-C-j>", require("tmux").resize_bottom, { silent = true })
-  vim.keymap.set("", "<M-C-k>", require("tmux").resize_top, { silent = true })
-  vim.keymap.set("", "<M-C-l>", require("tmux").resize_right, { silent = true })
-
-  local is_win_exists = function(bufnr)
-    for _, win in ipairs(vim.api.nvim_list_wins()) do
-      if vim.api.nvim_win_get_buf(win) == bufnr then
-        return win
-      end
+local is_win_exists = function(bufnr)
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == bufnr then
+      return win
     end
   end
+end
 
-  vim.keymap.set("", "<M-C-t>", function()
+keymap("", "<M-C-t>", {
+  neovim = function()
     local bufnr = require("configs.functions").is_buffer_exists("[Terminal]")
     if bufnr then
       local win = is_win_exists(bufnr)
@@ -155,5 +158,5 @@ else
       vim.api.nvim_buf_set_name(0, "[Terminal]")
     end
     vim.cmd.startinsert({ bang = true })
-  end, { silent = true })
-end
+  end,
+})
