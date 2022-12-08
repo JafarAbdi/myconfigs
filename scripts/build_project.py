@@ -107,14 +107,11 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict):
     return True
 
 
-# TODO: Add cpp support
-# https://github.com/JafarAbdi/myconfigs/commit/1d33a821c193c6abd11cb3aa6d474ccaa87aafec#diff-9b28a557022c67e167fe460a7b3f179c02469cc0dec165f7d9e30760e05a1c5f
 runners: Final = {".py": python, ".rs": rust, ".cpp": cpp}
 
 
 def main():
     parser = argparse.ArgumentParser()
-    # TODO: Add an environment argument (To use micromamba as an example)
     # https://stackoverflow.com/a/26990349
     parser.add_argument("--workspace-folder", nargs="+", required=True)
     parser.add_argument("--file-path", nargs="+", required=True)
