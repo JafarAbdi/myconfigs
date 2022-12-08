@@ -99,8 +99,8 @@ def run_command(
 ):
     print(" ".join(cmd))
     if dry_run:
-        return
-    subprocess.call(cmd, cwd=cwd, env=env)
+        return None
+    return subprocess.call(cmd, cwd=cwd, env=env)
 
 
 def create_cmake_query_files(build_dir):

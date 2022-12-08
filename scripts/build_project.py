@@ -3,12 +3,15 @@
 import argparse
 import json
 import logging
+import shutil
 import sys
 from pathlib import Path
 from typing import Final
 
 import argcomplete
 from utils import call, run_command
+
+CMAKE_REPLY_DIR: Final = Path(".cmake") / "api" / "v1" / "reply"
 
 
 def python(file: Path, args: list, cwd: Path, extra_args: dict):
@@ -38,9 +41,75 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict):
     logging.error(f"Can't find a target for {file.resolve()}")
 
 
+def cpp(file: Path, args: list, cwd: Path, extra_args: dict):
+    if (cwd / "CMakeLists.txt").exists():
+        cmake(file, args, cwd, extra_args)
+        return
+    logging.error(f"Unsupported build system found for cpp file {file}")
+
+
+def cmake(file: Path, args: list, cwd: Path, extra_args: dict):
+    settings_path = cwd / ".vscode" / "settings.json"
+    with settings_path.open("r") as settings_file:
+        settings = json.load(settings_file)
+        build_dir = Path(settings["cmake.buildDirectory"])
+    reply_dir = build_dir / CMAKE_REPLY_DIR
+    indices = sorted(reply_dir.glob("index-*.json"))
+    if not indices:
+        logging.error("No cmake reply")
+        return False
+    with indices[-1].open() as fp:
+        index = json.load(fp)
+    try:
+        responses = index["reply"]["client-vscode"]["query.json"]["responses"]
+    except KeyError:
+        logging.error("No response for client-vscode")
+        return False
+    targets = {}
+    for response in responses:
+        if response["kind"] == "codemodel":
+            with (reply_dir / response["jsonFile"]).open() as fp:
+                codemodel = json.load(fp)
+            config = codemodel["configurations"][0]
+            for target_config in config["targets"]:
+                with (reply_dir / target_config["jsonFile"]).open() as target_file:
+                    target = json.load(target_file)
+                    if target["type"] == "EXECUTABLE":
+                        targets[cwd / target["sources"][0]["path"]] = {
+                            "name": target["name"],
+                            "path": build_dir / target["artifacts"][0]["path"],
+                        }
+    if (target_info := targets.get(file)) is None:
+        logging.error(f"Can't find an executable corresponding to {file}")
+        return False
+    logging.info(f"Running executable '{target_info['name']}'")
+    if (
+        run_command(
+            [
+                shutil.which("cmake"),
+                "--build",
+                str(build_dir),
+                "--target",
+                target_info["name"],
+            ],
+            dry_run=False,
+            cwd=cwd,
+        )
+        != 0
+    ):
+        logging.error(f"Failed to build '{target_info['name']}'")
+        return False
+    run_command(
+        [str(target_info["path"])] + args,
+        dry_run=False,
+        cwd=cwd,
+    )
+    return True
+
+
 # TODO: Add cpp support
 # https://github.com/JafarAbdi/myconfigs/commit/1d33a821c193c6abd11cb3aa6d474ccaa87aafec#diff-9b28a557022c67e167fe460a7b3f179c02469cc0dec165f7d9e30760e05a1c5f
-runners: Final = {".py": python, ".rs": rust}
+runners: Final = {".py": python, ".rs": rust, ".cpp": cpp}
 
 
 def main():

@@ -51,7 +51,7 @@ keymap("n", "<leader>gr", { neovim = require("telescope.builtin").resume })
 keymap("n", "<leader>h", { neovim = require("telescope.builtin").help_tags })
 keymap("n", "<leader>gs", { neovim = require("telescope.builtin").grep_string })
 keymap("n", "<leader>gl", { neovim = require("telescope.builtin").live_grep })
-keymap("n", "<leader>o", { neovim = require("telescope.builtin").find_files })
+keymap("n", "<C-p>", { neovim = require("telescope.builtin").find_files })
 keymap("n", "<leader>ro", { neovim = require("telescope.builtin").oldfiles })
 keymap("n", "<leader>j", {
   neovim = function()
@@ -118,17 +118,17 @@ keymap("n", "<leader>d<Up>", {
   neovim = function()
     vim.diagnostic.goto_prev({ severity = vim.diagnostic.severity.ERROR })
   end,
-}, { silent = true })
+})
 keymap("n", "<leader>d<Down>", {
   neovim = function()
     vim.diagnostic.goto_next({ severity = vim.diagnostic.severity.ERROR })
   end,
-}, { silent = true })
+})
 keymap("n", "<leader>dq", {
   neovim = function()
     require("telescope.builtin").diagnostics(vim.tbl_deep_extend("error", { bufnr = 0 }, {}))
   end,
-}, { silent = true })
+})
 
 keymap("", "<M-C-h>", { neovim = require("tmux").resize_left })
 keymap("", "<M-C-j>", { neovim = require("tmux").resize_bottom })
