@@ -40,11 +40,32 @@ keymap("n", "gr", { vscode = "<Cmd>call VSCodeNotify('editor.action.goToReferenc
 keymap("n", "gt", { vscode = "<Cmd>call VSCodeNotify('editor.action.goToTypeDefinition')<CR>" })
 -- keymap("n", "gf", "<Cmd>call VSCodeNotify('editor.action.revealDeclaration')<CR>")
 keymap("n", "gs", { vscode = "<Cmd>call VSCodeNotify('workbench.action.gotoSymbol')<CR>" })
-keymap(
-  "n",
-  "<leader>x",
-  { vscode = "<Cmd>call VSCodeNotify('workbench.action.tasks.runTask', 'Run current file')<CR>" }
-)
+keymap("n", "<leader>x", {
+  neovim = function()
+    local run_in_terminal = require("configs.run_in_terminal")
+
+    local root_dir = vim.fn.expand("%:p:h")
+    for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
+      if vim.fn.isdirectory(dir .. "/.vscode") == 1 then
+        root_dir = dir
+        break
+      end
+    end
+
+    vim.cmd.write()
+    run_in_terminal("micromamba", {
+      "run",
+      "-n",
+      "myconfigs",
+      "build_project.py",
+      "--workspace-folder",
+      root_dir,
+      "--file-path",
+      vim.fn.expand("%:p"),
+    }, { cwd = root_dir })
+  end,
+  vscode = "<Cmd>call VSCodeNotify('workbench.action.tasks.runTask', 'Run current file')<CR>",
+})
 keymap("n", "<leader><space>", { neovim = require("telescope.builtin").buffers })
 keymap("n", "<leader>gc", { neovim = require("telescope.builtin").current_buffer_fuzzy_find })
 keymap("n", "<leader>gr", { neovim = require("telescope.builtin").resume })
