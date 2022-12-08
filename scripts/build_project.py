@@ -45,6 +45,27 @@ def cpp(file: Path, args: list, cwd: Path, extra_args: dict):
     if (cwd / "CMakeLists.txt").exists():
         cmake(file, args, cwd, extra_args)
         return
+    if (cwd / "conanbuildinfo.args").exists():
+        cmd = ["clang++", str(file), "-o", str(file.with_suffix(".out"))]
+        if shutil.which("mold"):
+            cmd.append("-fuse-ld=mold")
+        cmd.append("@conanbuildinfo.args")
+        if (
+            run_command(
+                cmd,
+                dry_run=False,
+                cwd=cwd,
+            )
+            != 0
+        ):
+            logging.error(f"Failed to build '{file}'")
+            return
+        run_command(
+            [str(file.with_suffix(".out"))] + args,
+            dry_run=False,
+            cwd=cwd,
+        )
+        return
     logging.error(f"Unsupported build system found for cpp file {file}")
 
 
