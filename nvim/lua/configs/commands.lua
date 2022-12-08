@@ -73,6 +73,14 @@ if not vim.g.vscode then
       vim.opt.spell = true
     end
   end, {})
+
+  vim.api.nvim_create_user_command("GenerateAllStubs", function()
+    require("configs.functions").generate_all_python_stubs()
+  end, {})
+
+  vim.api.nvim_create_user_command("GenerateStubs", function(params)
+    require("configs.functions").generate_python_stubs(params.fargs)
+  end, { nargs = "*" })
   vim.api.nvim_create_user_command("CESetup", function(opts)
     local options = {
       autocmd = {
