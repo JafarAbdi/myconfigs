@@ -91,6 +91,7 @@ return packer.startup({
         { "mtoohey31/cmp-fish", ft = "fish" },
       },
     })
+    use("krady21/compiler-explorer.nvim")
     -- Undo tree
     use({ "mbbill/undotree", cmd = "UndotreeToggle" })
     -- Go to files file.ex:row_number:col_number
