@@ -104,6 +104,13 @@ end
 alias gdbrun='gdb --ex run --args '
 alias colorless='sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g"'
 
+function lldb-attach
+  set -l pids (pid_picker)
+  if test (count $pids) -ne 0
+    lldb --attach-pid $pids[1]
+  end
+end
+
 function gdb-attach
   set -l pids (pid_picker)
   if test (count $pids) -ne 0
