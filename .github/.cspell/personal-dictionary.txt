@@ -122,7 +122,7 @@ fname
 forgit
 FORGIT
 forline
-forr
+for
 fsanitize
 fscanf
 fullscreen
@@ -328,7 +328,7 @@ seeions
 selfr
 serayuzgur
 settingsr
-settingss
+settings
 setxkbmap
 sharkdp
 shopt

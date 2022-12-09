@@ -50,7 +50,10 @@ repos:
     rev: v2.2.2
     hooks:
       - id: codespell
-        args: ['--write-changes', '--ignore-words=.codespell_words', '--exclude-file=.codespellignorelines']
+        args: ['--write-changes',
+               '--ignore-words=.codespell_words',
+               '--exclude-file=.codespellignorelines',
+               '--skip=.github/.cspell/*.txt']
   - repo: https://github.com/JohnnyMorganz/StyLua
     rev: v0.15.2
     hooks:
