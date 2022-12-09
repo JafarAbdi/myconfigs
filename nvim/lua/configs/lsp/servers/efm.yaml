@@ -92,7 +92,8 @@ languages:
     - format-command: 'stylua --config-path ~/myconfigs/linters/stylua.toml -'
       format-stdin: true
   =:
-    - lint-command: 'micromamba run -n nodejs cspell lint --no-color --no-summary --no-progress ${INPUT}'
+    - lint-command: 'micromamba run -n nodejs cspell lint --config ~/myconfigs/.cspell.json --no-color --no-summary --no-progress stdin'
       lint-formats:
-        - '%f:%l:%c - %m'
+        - '/:%l:%c - %m'
+      lint-stdin: true
       lint-severity: 4 # H

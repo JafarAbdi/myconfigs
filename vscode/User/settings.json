@@ -9,12 +9,9 @@
     "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
   },
   "breadcrumbs.enabled": false,
-  "cSpell.userWords": [
-    "conanbuildinfo",
-    "conda",
-    "Itertools",
-    "micromamba",
-    "numpy"
+  "cSpell.enabled": true,
+  "cSpell.import": [
+    "~/myconfigs/.cspell.json"
   ],
   "clangd.checkUpdates": true,
   "clangd.path": "/home/jafar/.config/Code - Insiders/User/globalStorage/llvm-vs-code-extensions.vscode-clangd/install/15.0.3/clangd_15.0.3/bin/clangd",

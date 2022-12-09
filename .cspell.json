@@ -1,0 +1,20 @@
+{
+  "version": "0.2",
+  "useGitignore": true,
+  "dictionaryDefinitions": [
+    {
+      "name": "personal-dictionary",
+      "path": "~/myconfigs/.github/.cspell/personal-dictionary.txt",
+      "addWords": true
+    },
+    {
+      "name": "nvim-dictionary",
+      "path": "~/myconfigs/.github/.cspell/nvim-dictionary.txt",
+      "addWords": true
+    }
+  ],
+  "dictionaries": [
+    "personal-dictionary",
+    "nvim-dictionary"
+  ]
+}
