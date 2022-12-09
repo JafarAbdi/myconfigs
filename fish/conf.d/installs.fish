@@ -648,7 +648,11 @@ end
 function install-vscode
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR
-  wget 'https://code.visualstudio.com/sha/download?build=insider&os=linux-deb-x64' -O vscode.deb
+  wget 'https://code.visualstudio.com/sha/download?os=linux-deb-x64' -O vscode.deb
   sudo apt install ./vscode.deb
+  read --array --null vscode_extensions < ~/myconfigs/vscode/extensions
+  for vscode_extension in $vscode_extensions
+    code --install-extension $vscode_extension --force
+  end
   cd -
 end
