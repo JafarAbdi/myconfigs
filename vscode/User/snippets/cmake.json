@@ -1,0 +1,80 @@
+{
+	"header_library": {
+		"body": [
+			"add_library(${1} INTERFACE)",
+			"target_include_directories(${1} INTERFACE ${2})"
+		],
+		"description": "Add header library",
+		"prefix": "header_library"
+	},
+	"print_all_variables": {
+		"body": [
+			"get_cmake_property(_variableNames VARIABLES)",
+			"list (SORT _variableNames)",
+			"foreach (_variableName \\${_variableNames})",
+			"\tmessage(STATUS \\${_variableName}=\\${\\${_variableName}})",
+			"endforeach()"
+		],
+		"description": "Code snippet for printing all cmake variables",
+		"prefix": "print_all_variables"
+	},
+	"print_target_properties": {
+		"body": [
+			"# Get all properties that cmake supports",
+			"execute_process(COMMAND cmake --help-property-list OUTPUT_VARIABLE CMAKE_PROPERTY_LIST)",
+			"# Convert command output into a CMake list",
+			"STRING(REGEX REPLACE \";\" \"\\\\;\" CMAKE_PROPERTY_LIST \"\\${CMAKE_PROPERTY_LIST}\")",
+			"STRING(REGEX REPLACE \"\n\" \";\" CMAKE_PROPERTY_LIST \"\\${CMAKE_PROPERTY_LIST}\")",
+			"function(print_properties)",
+			"  message (\"CMAKE_PROPERTY_LIST = \\${CMAKE_PROPERTY_LIST}\")",
+			"endfunction(print_properties)",
+			"function(print_target_properties tgt)",
+			"  if(NOT TARGET \\${tgt})",
+			"    message(\"There is no target named '\\${tgt}'\")",
+			"    return()",
+			"  endif()",
+			"  foreach (prop \\${CMAKE_PROPERTY_LIST})",
+			"    string(REPLACE \"<CONFIG>\" \"\\${CMAKE_BUILD_TYPE}\" prop \\${prop})",
+			"    # Fix https://stackoverflow.com/questions/32197663/how-can-i-remove-the-the-location-property-may-not-be-read-from-target-error-i",
+			"    if(prop STREQUAL \"LOCATION\" OR prop MATCHES \"^LOCATION_\" OR prop MATCHES \"_LOCATION\\$\")",
+			"      continue()",
+			"    endif()",
+			"    # message (\"Checking \\${prop}\")",
+			"    get_property(propval TARGET \\${tgt} PROPERTY \\${prop} SET)",
+			"    if (propval)",
+			"      get_target_property(propval \\${tgt} \\${prop})",
+			"      message (\"\\${tgt} \\${prop} = \\${propval}\")",
+			"    endif()",
+			"  endforeach(prop)",
+			"endfunction(print_target_properties)",
+			"print_target_properties(${0})"
+		],
+		"description": "Print target properties",
+		"prefix": "print_target_properties"
+	},
+	"ros2_install_lib": {
+		"body": [
+			"install(TARGETS $1",
+			"LIBRARY DESTINATION lib",
+			"ARCHIVE DESTINATION lib",
+			"RUNTIME DESTINATION lib/\\${PROJECT_NAME})"
+		],
+		"description": "Install ros2 libiraris",
+		"prefix": "ros2_install_lib"
+	},
+	"ros2_install_share": {
+		"body": [
+			"install(DIRECTORY $1",
+			"DESTINATION share/\\${PROJECT_NAME})"
+		],
+		"prefix": "ros2_install_share"
+	},
+	"sanitizer": {
+		"body": [
+			"target_compile_options(${1} INTERFACE -fsanitize=${2:address} -fno-omit-frame-pointer) # address, leak, undefined, thread, memory",
+			"target_link_options(${1} INTERFACE -fsanitize=$2 -fno-omit-frame-pointer)"
+		],
+		"description": "Add sanitizer to target",
+		"prefix": "sanitizer"
+	}
+}

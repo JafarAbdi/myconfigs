@@ -1,0 +1,11 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run current file",
+            "type": "shell",
+            "command": "micromamba run -n myconfigs build_project.py --workspace-folder ${workspaceFolder} --file-path ${relativeFile}",
+            "problemMatcher": []
+        }
+    ]
+}
