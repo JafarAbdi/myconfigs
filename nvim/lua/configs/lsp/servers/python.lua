@@ -17,7 +17,8 @@ lspconfig.jedi_language_server.setup({
       "setup.py",
       "setup.cfg",
       "requirements.txt",
-      "Pipfile"
+      "Pipfile",
+      "package.xml"
     )(startpath)
     return dir or vim.loop.cwd()
   end,

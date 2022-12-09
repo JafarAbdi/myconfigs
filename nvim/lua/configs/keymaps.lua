@@ -65,30 +65,33 @@ M.lsp = function(bufnr)
     end,
   }, bufnr)
   keymap("n", "K", { neovim = vim.lsp.buf.hover }, bufnr)
+  local lsp_action = function(callback)
+    return function()
+      -- Because tooling is c++ is horrible, we set the path to the directory of the file that called this callback
+      -- to use it later as a fallback when we can't find a settings file with the path to the compile_commands.json
+      local filetype = require("plenary.filetype")
+      if filetype.detect(vim.fn.expand("%:p")) == "cpp" then
+        vim.g.clangd_opening_dir = vim.fn.expand("%:p:h")
+      end
+      callback({ fname_width = 0.55 })
+    end
+  end
   keymap("n", "gi", {
     vscode = "<Cmd>call VSCodeNotify('editor.action.goToImplementation')<CR>",
-    neovim = function()
-      require("telescope.builtin").lsp_implementations({ fname_width = 0.55 })
-    end,
+    neovim = lsp_action(require("telescope.builtin").lsp_implementations),
   }, bufnr)
   keymap("n", "gr", {
     vscode = "<Cmd>call VSCodeNotify('editor.action.goToReferences')<CR>",
-    neovim = function()
-      require("telescope.builtin").lsp_references({ fname_width = 0.55 })
-    end,
+    neovim = lsp_action(require("telescope.builtin").lsp_references),
   }, bufnr)
   keymap("n", "gt", {
     vscode = "<Cmd>call VSCodeNotify('editor.action.goToTypeDefinition')<CR>",
-    neovim = function()
-      require("telescope.builtin").lsp_type_definitions({ fname_width = 0.55 })
-    end,
+    neovim = lsp_action(require("telescope.builtin").lsp_type_definitions),
   }, bufnr)
   -- keymap("n", "gf", "<Cmd>call VSCodeNotify('editor.action.revealDeclaration')<CR>")
   keymap("n", "gd", {
     vscode = "<Cmd>call VSCodeNotify('editor.action.revealDefinition')<CR>",
-    neovim = function()
-      require("telescope.builtin").lsp_definitions({ fname_width = 0.55 })
-    end,
+    neovim = lsp_action(require("telescope.builtin").lsp_definitions),
   }, bufnr)
   keymap("n", "gs", {
     vscode = "<Cmd>call VSCodeNotify('workbench.action.gotoSymbol')<CR>",
