@@ -103,15 +103,6 @@ return packer.startup({
     use("wsdjeg/vim-fetch")
     -- C++
     use("p00f/clangd_extensions.nvim")
-    use({
-      "theHamsta/nvim-semantic-tokens",
-      config = function()
-        require("nvim-semantic-tokens").setup({
-          preset = "default",
-          highlighters = { require("nvim-semantic-tokens.table-highlighter") },
-        })
-      end,
-    })
     -- Used to fix symlink files
     use("famiu/bufdelete.nvim")
     -- Heuristically set buffer options

@@ -29,7 +29,6 @@ end
 
 require("lspconfig").clangd.setup({
   on_attach = function(client, bufnr)
-    require("configs.commands").semantic_tokens_autocmd(bufnr)
     handlers.on_attach(client, bufnr)
   end,
   capabilities = handlers.capabilities,

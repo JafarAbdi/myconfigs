@@ -14,7 +14,6 @@ if not vim.g.vscode then
   ----------------
 
   vim.api.nvim_set_hl(0, "SpellBad", { fg = "red", undercurl = true })
-  vim.api.nvim_set_hl(0, "LspComment", { fg = "#454a54" })
   vim.api.nvim_set_hl(0, "SignColumn", { link = "LineNr" })
 
   -------------------
@@ -78,15 +77,6 @@ if not vim.g.vscode then
     group = general_group,
   })
 
-  M.semantic_tokens_autocmd = function(bufnr)
-    vim.api.nvim_create_autocmd({ "CursorHold", "InsertLeave" }, {
-      buffer = bufnr,
-      group = general_group,
-      callback = vim.lsp.buf.semantic_tokens_full,
-    })
-    -- fire it first time on load as well
-    vim.lsp.buf.semantic_tokens_full()
-  end
   --------------
   -- Commands --
   --------------
