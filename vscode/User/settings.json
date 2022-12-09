@@ -1,151 +1,151 @@
 {
-    "telemetry.telemetryLevel": "off",
-    "workbench.colorTheme": "One Dark Pro Mix",
-    "search.followSymlinks": false,
-    "window.customMenuBarAltFocus": false,
-    "window.menuBarVisibility": "hidden",
-    "window.titleBarStyle": "custom",
-    "window.restoreFullscreen": true,
-    "clangd.checkUpdates": true,
-    "editor.stickyScroll.enabled": true,
-    "remote.tunnels.alwaysUpdateCLI": true,
-    "C_Cpp.intelliSenseEngine": "disabled",
-    "cmake.buildDirectory": "/no_dir",
-    "cmake.copyCompileCommands": "",
-    "cmake.defaultVariants": {
-        "buildType": {
-            "description": "The build type.",
-            "choices": {
-                "debug": {
-                    "short": "Debug",
-                    "long": "Disable optimizations - include debug information.",
-                    "buildType": "Debug"
-                },
-                "release": {
-                    "short": "Release",
-                    "long": "Optimize for speed - exclude debug information.",
-                    "buildType": "Release"
-                },
-                "minsize": {
-                    "short": "MinSizeRel",
-                    "long": "Optimize for smallest binary size - exclude debug information.",
-                    "buildType": "MinSizeRel"
-                },
-                "reldeb": {
-                    "short": "RelWithDebInfo",
-                    "long": "Optimize for speed - include debug information.",
-                    "buildType": "RelWithDebInfo"
-                }
-            }
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "Lua.diagnostics.globals": [
+    "vim"
+  ],
+  "Lua.runtime.version": "LuaJIT",
+  "Lua.telemetry.enable": false,
+  "[cpp]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+  },
+  "breadcrumbs.enabled": false,
+  "cSpell.userWords": [
+    "conanbuildinfo",
+    "conda",
+    "Itertools",
+    "micromamba",
+    "numpy"
+  ],
+  "clangd.checkUpdates": true,
+  "clangd.path": "/home/jafar/.config/Code - Insiders/User/globalStorage/llvm-vs-code-extensions.vscode-clangd/install/15.0.3/clangd_15.0.3/bin/clangd",
+  "cmake.buildDirectory": "/no_dir",
+  "cmake.copyCompileCommands": "",
+  "cmake.defaultVariants": {
+    "buildType": {
+      "choices": {
+        "debug": {
+          "buildType": "Debug",
+          "long": "Disable optimizations - include debug information.",
+          "short": "Debug"
+        },
+        "minsize": {
+          "buildType": "MinSizeRel",
+          "long": "Optimize for smallest binary size - exclude debug information.",
+          "short": "MinSizeRel"
+        },
+        "reldeb": {
+          "buildType": "RelWithDebInfo",
+          "long": "Optimize for speed - include debug information.",
+          "short": "RelWithDebInfo"
+        },
+        "release": {
+          "buildType": "Release",
+          "long": "Optimize for speed - exclude debug information.",
+          "short": "Release"
         }
+      },
+      "description": "The build type."
+    }
+  },
+  "editor.inlayHints.enabled": "offUnlessPressed",
+  "editor.inlineSuggest.enabled": true,
+  "editor.lineNumbers": "relative",
+  "editor.minimap.enabled": false,
+  "editor.scrollbar.horizontal": "hidden",
+  "editor.scrollbar.horizontalScrollbarSize": 0,
+  "editor.scrollbar.vertical": "hidden",
+  "editor.scrollbar.verticalScrollbarSize": 0,
+  "editor.stickyScroll.enabled": true,
+  "editor.wordBasedSuggestionsMode": "allDocuments",
+  "extensions.experimental.affinity": {
+    "asvetliakov.vscode-neovim": 1
+  },
+  "files.simpleDialog.enable": true,
+  "files.trimTrailingWhitespace": true,
+  "git.enableStatusBarSync": false,
+  "jupyter.interactiveWindowMode": "perFile",
+  "python.formatting.provider": "black",
+  "python.linting.mypyEnabled": true,
+  "remote.SSH.remotePlatform": {
+    "mylaptop": "linux"
+  },
+  "remote.SSH.useLocalServer": false,
+  "remote.tunnels.alwaysUpdateCLI": true,
+  "ruff.args": [
+    "--config=/home/jafar/myconfigs/linters/ruff.toml"
+  ],
+  "rust-analyzer.checkOnSave.command": "clippy",
+  "rust-analyzer.completion.snippets.custom": {
+    "Arc::new": {
+      "body": "Arc::new(${receiver})",
+      "description": "Put the expression into an `Arc`",
+      "postfix": "arc",
+      "requires": "std::sync::Arc",
+      "scope": "expr"
     },
-    "workbench.startupEditor": "none",
-    "testMate.cpp.discovery.strictPattern": false,
-    "clangd.path": "/home/jafar/.config/Code - Insiders/User/globalStorage/llvm-vs-code-extensions.vscode-clangd/install/15.0.3/clangd_15.0.3/bin/clangd",
-    "python.formatting.provider": "black",
-    "python.linting.mypyEnabled": true,
-    "editor.lineNumbers": "relative",
-    "ruff.args": [
-        "--config=/home/jafar/myconfigs/linters/ruff.toml"
-    ],
-    "workbench.editor.tabCloseButton": "off",
-    "workbench.editor.tabSizing": "shrink",
-    "window.restoreWindows": "none",
-    "rust-analyzer.completion.snippets.custom": {
-        "main": {
-            "prefix": "main_result",
-            "body": [
-                "fn main() -> Result<(), Box<dyn Error>> {",
-                "\t${1:unimplemented!();}",
-                "\tOk(())",
-                "}",
-            ],
-            "requires": "std::error::Error",
-            "description": "main function with Result",
-            "scope": "item",
-        },
-        "Arc::new": {
-            "postfix": "arc",
-            "body": "Arc::new(${receiver})",
-            "requires": "std::sync::Arc",
-            "description": "Put the expression into an `Arc`",
-            "scope": "expr"
-        },
-        "Rc::new": {
-            "postfix": "rc",
-            "body": "Rc::new(${receiver})",
-            "requires": "std::rc::Rc",
-            "description": "Put the expression into an `Rc`",
-            "scope": "expr"
-        },
-        "Box::pin": {
-            "postfix": "pinbox",
-            "body": "Box::pin(${receiver})",
-            "requires": "std::boxed::Box",
-            "description": "Put the expression into a pinned `Box`",
-            "scope": "expr"
-        },
-        "Ok": {
-            "postfix": "ok",
-            "body": "Ok(${receiver})",
-            "description": "Wrap the expression in a `Result::Ok`",
-            "scope": "expr"
-        },
-        "Err": {
-            "postfix": "err",
-            "body": "Err(${receiver})",
-            "description": "Wrap the expression in a `Result::Err`",
-            "scope": "expr"
-        },
-        "Some": {
-            "postfix": "some",
-            "body": "Some(${receiver})",
-            "description": "Wrap the expression in an `Option::Some`",
-            "scope": "expr"
-        }
+    "Box::pin": {
+      "body": "Box::pin(${receiver})",
+      "description": "Put the expression into a pinned `Box`",
+      "postfix": "pinbox",
+      "requires": "std::boxed::Box",
+      "scope": "expr"
     },
-    "rust-analyzer.checkOnSave.command": "clippy",
-    "vscode-neovim.neovimExecutablePaths.linux": "/usr/bin/nvim",
-    "workbench.editor.decorations.badges": false,
-    "workbench.editor.decorations.colors": false,
-    "editor.minimap.enabled": false,
-    "vscode-neovim.neovimExecutablePaths.darwin": "",
-    "vscode-neovim.neovimInitVimPaths.linux": "~/.config/nvim/init.lua",
-    "extensions.experimental.affinity": {
-        "asvetliakov.vscode-neovim": 1
+    "Err": {
+      "body": "Err(${receiver})",
+      "description": "Wrap the expression in a `Result::Err`",
+      "postfix": "err",
+      "scope": "expr"
     },
-    "Lua.telemetry.enable": false,
-    "Lua.diagnostics.globals": [
-        "vim"
-    ],
-    "Lua.runtime.version": "LuaJIT",
-    "remote.SSH.useLocalServer": false,
-    "remote.SSH.remotePlatform": {
-        "mylaptop": "linux"
+    "Ok": {
+      "body": "Ok(${receiver})",
+      "description": "Wrap the expression in a `Result::Ok`",
+      "postfix": "ok",
+      "scope": "expr"
     },
-    "files.simpleDialog.enable": true,
-    "files.trimTrailingWhitespace": true,
-    "editor.scrollbar.vertical": "hidden",
-    "editor.scrollbar.horizontal": "hidden",
-    "editor.scrollbar.horizontalScrollbarSize": 0,
-    "editor.scrollbar.verticalScrollbarSize": 0,
-    "editor.wordBasedSuggestionsMode": "allDocuments",
-    "git.enableStatusBarSync": false,
-    "workbench.editor.revealIfOpen": true,
-    "editor.inlayHints.enabled": "offUnlessPressed",
-    "cSpell.userWords": [
-        "conanbuildinfo",
-        "conda",
-        "Itertools",
-        "micromamba",
-        "numpy"
-    ],
-    "editor.inlineSuggest.enabled": true,
-    "jupyter.interactiveWindowMode": "perFile",
-    "breadcrumbs.enabled": false,
-    "workbench.layoutControl.enabled": false,
-    "[cpp]": {
-        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+    "Rc::new": {
+      "body": "Rc::new(${receiver})",
+      "description": "Put the expression into an `Rc`",
+      "postfix": "rc",
+      "requires": "std::rc::Rc",
+      "scope": "expr"
     },
-    "workbench.activityBar.visible": false,
+    "Some": {
+      "body": "Some(${receiver})",
+      "description": "Wrap the expression in an `Option::Some`",
+      "postfix": "some",
+      "scope": "expr"
+    },
+    "main": {
+      "body": [
+        "fn main() -> Result<(), Box<dyn Error>> {",
+        "\t${1:unimplemented!();}",
+        "\tOk(())",
+        "}"
+      ],
+      "description": "main function with Result",
+      "prefix": "main_result",
+      "requires": "std::error::Error",
+      "scope": "item"
+    }
+  },
+  "search.followSymlinks": false,
+  "telemetry.telemetryLevel": "off",
+  "testMate.cpp.discovery.strictPattern": false,
+  "vscode-neovim.neovimExecutablePaths.darwin": "",
+  "vscode-neovim.neovimExecutablePaths.linux": "/usr/bin/nvim",
+  "vscode-neovim.neovimInitVimPaths.linux": "~/.config/nvim/init.lua",
+  "window.customMenuBarAltFocus": false,
+  "window.menuBarVisibility": "hidden",
+  "window.restoreFullscreen": true,
+  "window.restoreWindows": "none",
+  "window.titleBarStyle": "custom",
+  "workbench.activityBar.visible": false,
+  "workbench.colorTheme": "One Dark Pro Mix",
+  "workbench.editor.decorations.badges": false,
+  "workbench.editor.decorations.colors": false,
+  "workbench.editor.revealIfOpen": true,
+  "workbench.editor.tabCloseButton": "off",
+  "workbench.editor.tabSizing": "shrink",
+  "workbench.layoutControl.enabled": false,
+  "workbench.startupEditor": "none"
 }
