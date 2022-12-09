@@ -1,3 +1,5 @@
+local M = {}
+
 -- Debugging
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 
@@ -5,11 +7,16 @@ vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 
 -- https://github.com/vscode-neovim/vscode-neovim/tree/master/vim
-local keymap = function(mode, lhs, editor)
+local keymap = function(mode, lhs, editor, bufnr)
   if vim.g.vscode and editor.vscode then
     vim.keymap.set(mode, lhs, editor.vscode, { silent = true })
   elseif editor.neovim then
-    vim.keymap.set(mode, lhs, editor.neovim, { silent = true })
+    vim.keymap.set(
+      mode,
+      lhs,
+      editor.neovim,
+      bufnr and { silent = true, buffer = bufnr } or { silent = true }
+    )
   end
 end
 local del = vim.keymap.del
@@ -35,11 +42,65 @@ if vim.g.vscode then
   del({ "x", "n" }, "gD")
   del({ "x", "n" }, "gH")
 end
-keymap("n", "gi", { vscode = "<Cmd>call VSCodeNotify('editor.action.goToImplementation')<CR>" })
-keymap("n", "gr", { vscode = "<Cmd>call VSCodeNotify('editor.action.goToReferences')<CR>" })
-keymap("n", "gt", { vscode = "<Cmd>call VSCodeNotify('editor.action.goToTypeDefinition')<CR>" })
--- keymap("n", "gf", "<Cmd>call VSCodeNotify('editor.action.revealDeclaration')<CR>")
-keymap("n", "gs", { vscode = "<Cmd>call VSCodeNotify('workbench.action.gotoSymbol')<CR>" })
+M.lsp = function(bufnr)
+  if bufnr then
+    vim.api.nvim_buf_set_keymap(
+      bufnr,
+      "v",
+      "<leader>ca",
+      "<Esc><cmd>lua vim.lsp.buf.range_code_action()<CR>",
+      { noremap = true, silent = true }
+    )
+  end
+  keymap("n", "<C-k>", { neovim = vim.lsp.buf.signature_help }, bufnr)
+  keymap("n", "<leader>ca", { neovim = vim.lsp.buf.code_action }, bufnr)
+  keymap("n", "gw", {
+    vscode = "<Cmd>call VSCodeNotify('workbench.action.showAllSymbols')<CR>",
+    neovim = function()
+      require("telescope.builtin").lsp_dynamic_workspace_symbols({
+        symbol_width = 0.3,
+        fname_width = 0.6,
+        symbol_type_width = 0.1,
+      })
+    end,
+  }, bufnr)
+  keymap("n", "K", { neovim = vim.lsp.buf.hover }, bufnr)
+  keymap("n", "gi", {
+    vscode = "<Cmd>call VSCodeNotify('editor.action.goToImplementation')<CR>",
+    neovim = function()
+      require("telescope.builtin").lsp_implementations({ fname_width = 0.55 })
+    end,
+  }, bufnr)
+  keymap("n", "gr", {
+    vscode = "<Cmd>call VSCodeNotify('editor.action.goToReferences')<CR>",
+    neovim = function()
+      require("telescope.builtin").lsp_references({ fname_width = 0.55 })
+    end,
+  }, bufnr)
+  keymap("n", "gt", {
+    vscode = "<Cmd>call VSCodeNotify('editor.action.goToTypeDefinition')<CR>",
+    neovim = function()
+      require("telescope.builtin").lsp_type_definitions({ fname_width = 0.55 })
+    end,
+  }, bufnr)
+  -- keymap("n", "gf", "<Cmd>call VSCodeNotify('editor.action.revealDeclaration')<CR>")
+  keymap("n", "gd", {
+    vscode = "<Cmd>call VSCodeNotify('editor.action.revealDefinition')<CR>",
+    neovim = function()
+      require("telescope.builtin").lsp_definitions({ fname_width = 0.55 })
+    end,
+  }, bufnr)
+  keymap("n", "gs", {
+    vscode = "<Cmd>call VSCodeNotify('workbench.action.gotoSymbol')<CR>",
+    neovim = function()
+      require("telescope.builtin").lsp_document_symbols({
+        symbol_width = 0.9,
+        symbol_type_width = 0.1,
+      })
+    end,
+  }, bufnr)
+  keymap("n", "<F2>", { neovim = vim.lsp.buf.rename }, bufnr)
+end
 keymap("n", "<leader>x", {
   neovim = function()
     local run_in_terminal = require("configs.run_in_terminal")
@@ -181,3 +242,5 @@ keymap("", "<M-C-t>", {
     vim.cmd.startinsert({ bang = true })
   end,
 })
+
+return M

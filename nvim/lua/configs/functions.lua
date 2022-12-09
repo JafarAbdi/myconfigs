@@ -139,30 +139,6 @@ M.load_clangd_config = function(root_path)
   return vim.trim(Path:new(M.clangd_root_dir(root_path), ".clangd_config"):read())
 end
 
-M.clangd_root_dir = function(startpath)
-  local util = require("lspconfig.util")
-  local search_fn = util.root_pattern(".clangd_config")
-  -- If root directory not found set it to file's directory
-  local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
-  local build_system = "standalone"
-  if dir then
-    build_system = "cmake"
-    require("configs.keymaps").cmake_keymap()
-    require("configs.cmake").cmake_project(dir)
-  end
-  local is_scratches = util.root_pattern("conanfile.txt")
-  dir = dir
-    or vim.F.if_nil(is_scratches(startpath), is_scratches(vim.fn.expand("%:p:h")))
-    or vim.fn.getcwd()
-  vim.cmd.cd(dir)
-  local Project = require("projects").Project
-  require("projects").add_project(
-    dir,
-    Project:new({ language = "cpp", build_system = build_system })
-  )
-  return dir
-end
-
 M.is_buffer_exists = function(name)
   local buffers = vim.tbl_filter(function(b)
     if 1 ~= vim.fn.buflisted(b) then

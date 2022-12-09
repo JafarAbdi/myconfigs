@@ -32,6 +32,11 @@ cmp.setup.filetype("gitcommit", {
 })
 
 cmp.setup({
+  snippet = {
+    expand = function(args)
+      require("luasnip").lsp_expand(args.body)
+    end,
+  },
   view = "native",
   mapping = cmp.mapping.preset.insert({
     ["Tab"] = cmp.config.disable,
@@ -49,6 +54,7 @@ cmp.setup({
   sources = {
     { name = "nvim_lsp_signature_help", priority = 100 },
     { name = "nvim_lsp" },
+    { name = "luasnip", max_item_count = 20 },
     {
       name = "buffer",
       max_item_count = 20,
@@ -77,6 +83,7 @@ cmp.setup({
       vim_item.menu = ({
         buffer = "[Buffer]",
         nvim_lsp = "[LSP]",
+        luasnip = "[LuaSnip]",
         nvim_lua = "[Lua]",
         nvim_lsp_signature_help = "[Signature]",
         fish = "[Fish]",

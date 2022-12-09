@@ -1,3 +1,4 @@
+local M = {}
 local general_group = vim.api.nvim_create_augroup("GeneralCommands", {})
 
 -- Highlight on yank
@@ -19,6 +20,25 @@ if not vim.g.vscode then
   -------------------
   -- Auto-commands --
   -------------------
+
+  -- A terrible way to handle symlinks
+  vim.api.nvim_create_autocmd("BufWinEnter", {
+    callback = function(params)
+      local fname = params.file
+      local resolved_fname = vim.fn.resolve(fname)
+      if fname == resolved_fname or (vim.bo.filetype ~= "cpp" and vim.bo.filetype ~= "c") then
+        return
+      end
+      P("Symlink detected redirecting to '" .. resolved_fname .. "' instead")
+      vim.schedule(function()
+        local cursor = vim.api.nvim_win_get_cursor(0)
+        require("bufdelete").bufwipeout(params.buf, true)
+        vim.api.nvim_command("edit " .. resolved_fname)
+        vim.api.nvim_win_set_cursor(0, cursor)
+      end)
+    end,
+    group = general_group,
+  })
 
   vim.api.nvim_create_autocmd("TermOpen", {
     callback = function()
@@ -58,6 +78,15 @@ if not vim.g.vscode then
     group = general_group,
   })
 
+  M.semantic_tokens_autocmd = function(bufnr)
+    vim.api.nvim_create_autocmd({ "CursorHold", "InsertLeave" }, {
+      buffer = bufnr,
+      group = general_group,
+      callback = vim.lsp.buf.semantic_tokens_full,
+    })
+    -- fire it first time on load as well
+    vim.lsp.buf.semantic_tokens_full()
+  end
   --------------
   -- Commands --
   --------------
@@ -115,3 +144,5 @@ if not vim.g.vscode then
     end,
   })
 end
+
+return M

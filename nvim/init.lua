@@ -34,10 +34,12 @@ require("configs.autopairs")
 require("configs.treesitter")
 
 if not vim.g.vscode then
-  require("configs.functions")
   require("configs.plugins")
+  require("configs.functions")
   require("configs.colorscheme")
   require("configs.cmp")
+  require("configs.luasnip")
   require("configs.lualine")
+  require("configs.lsp")
   require("configs.telescope")
 end

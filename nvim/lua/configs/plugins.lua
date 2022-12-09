@@ -13,6 +13,7 @@ return packer.startup({
   function(use)
     -- Packer
     use("wbthomason/packer.nvim")
+    use("lewis6991/impatient.nvim")
 
     -- Neovim utilities
     use({
@@ -67,6 +68,8 @@ return packer.startup({
         })
       end,
     })
+    -- LSP clients configurations
+    use("neovim/nvim-lspconfig")
     -- Tree-sitter
     use({
       "nvim-treesitter/nvim-treesitter",
@@ -83,6 +86,8 @@ return packer.startup({
         "JafarAbdi/cmp-conan",
         "hrsh7th/cmp-nvim-lsp",
         "hrsh7th/cmp-buffer",
+        "saadparwaiz1/cmp_luasnip",
+        "L3MON4D3/LuaSnip",
         "hrsh7th/cmp-cmdline",
         "hrsh7th/cmp-nvim-lua",
         "hrsh7th/cmp-nvim-lsp-signature-help",
@@ -96,6 +101,19 @@ return packer.startup({
     use({ "mbbill/undotree", cmd = "UndotreeToggle" })
     -- Go to files file.ex:row_number:col_number
     use("wsdjeg/vim-fetch")
+    -- C++
+    use("p00f/clangd_extensions.nvim")
+    use({
+      "theHamsta/nvim-semantic-tokens",
+      config = function()
+        require("nvim-semantic-tokens").setup({
+          preset = "default",
+          highlighters = { require("nvim-semantic-tokens.table-highlighter") },
+        })
+      end,
+    })
+    -- Used to fix symlink files
+    use("famiu/bufdelete.nvim")
     -- Heuristically set buffer options
     use("tpope/vim-sleuth")
     use({

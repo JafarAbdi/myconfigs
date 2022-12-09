@@ -20,6 +20,7 @@ opt.autoindent = true
 opt.copyindent = true
 opt.cursorline = true
 opt.termguicolors = true
+opt.hlsearch = false
 opt.completeopt = "menuone,noselect,noinsert"
 opt.linebreak = true
 opt.autowrite = true
