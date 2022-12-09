@@ -646,13 +646,21 @@ function install-mold
 end
 
 function install-vscode
-  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-  cd $TMP_DIR
-  wget 'https://code.visualstudio.com/sha/download?os=linux-deb-x64' -O vscode.deb
-  sudo apt install ./vscode.deb
+  if ! command -q code &> /dev/null
+    set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+    cd $TMP_DIR
+    wget 'https://code.visualstudio.com/sha/download?os=linux-deb-x64' -O vscode.deb
+    sudo apt install ./vscode.deb
+  end
+  set -l installed_extensions (code --list-extensions 2> /dev/null)
   read --array --null vscode_extensions < ~/myconfigs/vscode/extensions
-  for vscode_extension in $vscode_extensions
-    code --install-extension $vscode_extension --force
+  set -l uninstall_extensions (comm -23 (printf "%s\n" $installed_extensions | sort | psub) (printf "%s\n" $vscode_extensions | sort | psub))
+  set -l install_extensions (comm -13 (printf "%s\n" $installed_extensions | sort | psub) (printf "%s\n" $vscode_extensions | sort | psub))
+  for vscode_extension in $install_extensions
+    code --install-extension $vscode_extension --force 2> /dev/null
+  end
+  for vscode_extension in $uninstall_extensions
+    code --uninstall-extension $vscode_extension
   end
   cd -
 end
