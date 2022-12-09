@@ -38,6 +38,9 @@ cmp.setup({
     end,
   },
   view = "native",
+  experimental = {
+    ghost_text = false, -- this feature conflict with copilot.vim's preview.
+  },
   mapping = cmp.mapping.preset.insert({
     ["Tab"] = cmp.config.disable,
     ["S-Tab"] = cmp.config.disable,
@@ -45,7 +48,13 @@ cmp.setup({
     ["<C-d>"] = cmp.mapping.scroll_docs(4),
     ["<C-u>"] = cmp.mapping.scroll_docs(-4),
     ["<C-Space>"] = cmp.mapping.complete(),
-    ["<C-e>"] = cmp.mapping.close(),
+    ["<C-e>"] = cmp.mapping(function(_fallback)
+      vim.api.nvim_feedkeys(
+        vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
+        "n",
+        true
+      )
+    end),
     ["<CR>"] = cmp.mapping.confirm({
       behavior = cmp.ConfirmBehavior.Replace,
       select = false,

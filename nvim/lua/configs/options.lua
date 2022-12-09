@@ -52,6 +52,9 @@ opt.spelllang:append("en")
 g.diagnostic_virtual_text = false
 
 vim.opt.iskeyword:append("-")
+g.copilot_no_tab_map = true
+g.copilot_assume_mapped = true
+g.copilot_tab_fallback = ""
 
 g.netrw_list_hide = [[,\(^\|\s\s\)\zs\.\S\+]]
 g.netrw_altv = 1
