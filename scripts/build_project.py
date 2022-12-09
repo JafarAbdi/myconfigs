@@ -14,6 +14,10 @@ from utils import call, run_command
 CMAKE_REPLY_DIR: Final = Path(".cmake") / "api" / "v1" / "reply"
 
 
+def fish(file: Path, args: list, cwd: Path, extra_args: dict):
+    run_command(["fish", str(file)] + args, dry_run=False, cwd=cwd)
+
+
 def python(file: Path, args: list, cwd: Path, extra_args: dict):
     cmd = []
     if micromamba_env := extra_args.get("micromamba"):
@@ -128,7 +132,7 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict):
     return True
 
 
-runners: Final = {".py": python, ".rs": rust, ".cpp": cpp}
+runners: Final = {".py": python, ".rs": rust, ".cpp": cpp, ".fish": fish}
 
 
 def main():
