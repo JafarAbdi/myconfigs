@@ -15,7 +15,7 @@ tools:
     lint-command: 'ruff --config ~/myconfigs/linters/ruff.toml --quiet ${INPUT}'
     lint-stdin: true
     lint-formats:
-        - '%f:%l:%c: %m'
+      - '%f:%l:%c: %m'
     # lint-formats:
     #     - '%f:%l:%c: %t%n %m'
     #     - '%f:%l:%c: %tNN%n %m'
@@ -91,3 +91,8 @@ languages:
   lua:
     - format-command: 'stylua --config-path ~/myconfigs/linters/stylua.toml -'
       format-stdin: true
+  =:
+    - lint-command: 'micromamba run -n nodejs cspell lint --no-color --no-summary --no-progress ${INPUT}'
+      lint-formats:
+        - '%f:%l:%c - %m'
+      lint-severity: 4 # H

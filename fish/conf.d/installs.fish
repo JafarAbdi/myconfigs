@@ -468,6 +468,7 @@ function install-json-lsp
   cd ~/.config/yaml-lsp
   micromamba run -n nodejs npm install -g vscode-langservers-extracted
   micromamba run -n nodejs npm install -g dockerfile-language-server-nodejs
+  micromamba run -n nodejs npm install -g cspell
   micromamba run -n nodejs yarn global add yaml-language-server --cwd ~/.config/yaml-lsp
 end
 
