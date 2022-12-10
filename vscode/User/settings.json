@@ -144,5 +144,7 @@
   "workbench.editor.tabCloseButton": "off",
   "workbench.editor.tabSizing": "shrink",
   "workbench.layoutControl.enabled": false,
-  "workbench.startupEditor": "none"
+  "workbench.startupEditor": "none",
+  "makefile.configureOnOpen": false,
+  "debug.internalConsoleOptions": "neverOpen",
 }

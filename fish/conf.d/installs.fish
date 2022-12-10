@@ -661,7 +661,7 @@ function install-vscode
     code --install-extension $vscode_extension --force 2> /dev/null
   end
   for vscode_extension in $uninstall_extensions
-    code --uninstall-extension $vscode_extension
+    code --uninstall-extension $vscode_extension 2> /dev/null
   end
   cd -
 end
