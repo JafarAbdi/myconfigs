@@ -135,8 +135,9 @@ keymap("n", "<leader>gc", { neovim = require("telescope.builtin").current_buffer
 keymap("n", "<leader>gr", { neovim = require("telescope.builtin").resume })
 keymap("n", "<leader>h", { neovim = require("telescope.builtin").help_tags })
 keymap("n", "<leader>gs", { neovim = require("telescope.builtin").grep_string })
-keymap("n", "<leader>gl", { neovim = require("telescope.builtin").live_grep })
+keymap("n", "<C-S-f>", { neovim = require("telescope.builtin").live_grep })
 keymap("n", "<C-p>", { neovim = require("telescope.builtin").find_files })
+keymap("n", "<C-S-p>", { neovim = require("telescope.builtin").commands })
 keymap("n", "<leader>ro", { neovim = require("telescope.builtin").oldfiles })
 keymap("n", "<leader>j", {
   neovim = function()

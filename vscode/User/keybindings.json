@@ -851,5 +851,10 @@
     "command": "-editor.action.marker.nextInFiles",
     "key": "f8",
     "when": "editorFocus"
+  },
+  {
+    "key": "ctrl+f",
+    "command": "-actions.find",
+    "when": "editorFocus || editorIsOpen"
   }
 ]
