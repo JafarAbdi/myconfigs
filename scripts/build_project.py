@@ -5,6 +5,7 @@ import json
 import logging
 import shutil
 import sys
+import os
 from pathlib import Path
 from typing import Final
 
@@ -12,6 +13,17 @@ import argcomplete
 from utils import call, run_command
 
 CMAKE_REPLY_DIR: Final = Path(".cmake") / "api" / "v1" / "reply"
+
+
+def lua(file: Path, args: list, cwd: Path, extra_args: dict):
+    env = os.environ.copy()
+    env.pop("NVIMRUNNING", None)
+    run_command(
+        ["nvim", "--headless", "-n", "-c", "source", str(file), "-c", "qall!"] + args,
+        dry_run=False,
+        cwd=cwd,
+        env=env,
+    )
 
 
 def fish(file: Path, args: list, cwd: Path, extra_args: dict):
@@ -132,7 +144,7 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict):
     return True
 
 
-runners: Final = {".py": python, ".rs": rust, ".cpp": cpp, ".fish": fish}
+runners: Final = {".lua": lua, ".py": python, ".rs": rust, ".cpp": cpp, ".fish": fish}
 
 
 def main():
