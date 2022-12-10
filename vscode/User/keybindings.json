@@ -858,25 +858,25 @@
     "when": "editorFocus || editorIsOpen"
   },
   {
-    "key": "ctrl+s",
-    "command": "-workbench.action.files.save"
+    "command": "-workbench.action.files.save",
+    "key": "ctrl+s"
   },
   {
-    "key": "s",
     "command": "-workbench.action.files.save",
+    "key": "s",
     "when": "notebookEditorFocused && !inputFocus"
   },
   {
-    "key": "ctrl+shift+s",
-    "command": "-workbench.action.files.saveAs"
+    "command": "-workbench.action.files.saveAs",
+    "key": "ctrl+shift+s"
   },
   {
-    "key": "ctrl+k s",
-    "command": "-workbench.action.files.saveWithoutFormatting"
+    "command": "-workbench.action.files.saveWithoutFormatting",
+    "key": "ctrl+k s"
   },
   {
-    "key": "ctrl+shift+s",
     "command": "-workbench.action.files.saveLocalFile",
+    "key": "ctrl+shift+s",
     "when": "remoteFileDialogVisible"
   }
 ]

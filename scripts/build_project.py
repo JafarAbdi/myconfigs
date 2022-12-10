@@ -175,7 +175,7 @@ def main():
     run_args = {}
     if (micromamba_file := settings_path / "micromamba").exists():
         with micromamba_file.open("r") as file:
-            run_args["micromamba"] = file.readline()
+            run_args["micromamba"] = file.read().splitlines()[0]
         logging.info(f"Using micromamba env {run_args['micromamba']}")
 
     runner(file_path, args, workspace_path, extra_args=run_args)
