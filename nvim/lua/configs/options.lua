@@ -33,7 +33,7 @@ opt.showmatch = true
 opt.title = true
 opt.wildmode = "list:longest,full"
 opt.relativenumber = true
-opt.titlestring = "NVIM: %{getcwd()} %a%r%m"
+opt.titlestring = "NVIM: %{substitute(getcwd(), $HOME, '~', '')} %a%r%m"
 
 g.mapleader = " "
 g.maplocalleader = " "
