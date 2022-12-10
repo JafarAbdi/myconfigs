@@ -853,8 +853,8 @@
     "when": "editorFocus"
   },
   {
-    "key": "ctrl+f",
     "command": "-actions.find",
+    "key": "ctrl+f",
     "when": "editorFocus || editorIsOpen"
   }
 ]

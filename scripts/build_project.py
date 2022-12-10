@@ -3,9 +3,9 @@
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
-import os
 from pathlib import Path
 from typing import Final
 
