@@ -222,6 +222,18 @@ keymap("", "<M-C-j>", { neovim = require("tmux").resize_bottom })
 keymap("", "<M-C-k>", { neovim = require("tmux").resize_top })
 keymap("", "<M-C-l>", { neovim = require("tmux").resize_right })
 
+-- Tab switching
+keymap("n", "<C-t>", { neovim = ":tabedit<CR>" })
+keymap("n", "<A-1>", { neovim = "1gt" })
+keymap("n", "<A-2>", { neovim = "2gt" })
+keymap("n", "<A-3>", { neovim = "3gt" })
+keymap("n", "<A-4>", { neovim = "4gt" })
+keymap("n", "<A-5>", { neovim = "5gt" })
+keymap("n", "<A-6>", { neovim = "6gt" })
+keymap("n", "<A-7>", { neovim = "7gt" })
+keymap("n", "<A-8>", { neovim = "8gt" })
+keymap("n", "<A-9>", { neovim = "9gt" })
+
 local is_win_exists = function(bufnr)
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     if vim.api.nvim_win_get_buf(win) == bufnr then
