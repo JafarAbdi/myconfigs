@@ -76,6 +76,7 @@ return packer.startup({
       run = ":TSUpdate",
       requires = {
         -- Highlights & Text selection
+        "nvim-treesitter/nvim-treesitter-context",
         "nvim-treesitter/nvim-treesitter-textobjects",
       },
     })

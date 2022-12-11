@@ -28,7 +28,6 @@ opt.inccommand = "nosplit"
 opt.scrolloff = 5
 opt.wrap = false
 opt.sidescrolloff = 10
-opt.path:append("**")
 opt.showmatch = true
 opt.title = true
 opt.wildmode = "list:longest,full"

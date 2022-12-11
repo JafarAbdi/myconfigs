@@ -38,6 +38,8 @@ def python(file: Path, args: list, cwd: Path, extra_args: dict):
     run_command(cmd + args, dry_run=False, cwd=cwd)
 
 
+# TODO: Support building with rustc directly
+# rustc file.rs -o file.out && ./file.out
 def rust(file: Path, args: list, cwd: Path, extra_args: dict):
     output = call(
         ["cargo", "metadata", "--format-version=1"], cwd=file.parent.resolve()
