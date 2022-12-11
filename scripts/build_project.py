@@ -170,7 +170,7 @@ def main():
     args = []
     if (args_file := settings_path / file_path.stem).exists():
         with args_file.open("r") as file:
-            args = file.readline().split(" ")
+            args = file.read().splitlines()[0].split(" ")
         logging.info(f"Load args file '{args_file} with {args}")
     run_args = {}
     if (micromamba_file := settings_path / "micromamba").exists():
