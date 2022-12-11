@@ -110,6 +110,9 @@ keymap("n", "<leader>x", {
 
     local root_dir = vim.fn.expand("%:p:h")
     for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
+      if vim.env.HOME == dir then
+        break
+      end
       if vim.fn.isdirectory(dir .. "/.vscode") == 1 then
         root_dir = dir
         break
