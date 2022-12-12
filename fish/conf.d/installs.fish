@@ -277,12 +277,12 @@ function install-cpp-lsp
 end
 
 function install-python-lsp
-  pip3 install -U jedi-language-server
-  pip3 install -U python-lsp-black
-  pip3 install -U pylsp-mypy
-  pip3 install -U pyls-isort
-  pip3 install -U pylsp-rope
-  pip3 install ruff
+  micromamba run -n python-lsp pip3 install -U jedi-language-server
+  micromamba run -n python-lsp pip3 install -U python-lsp-black
+  micromamba run -n python-lsp pip3 install -U pylsp-mypy
+  micromamba run -n python-lsp pip3 install -U pyls-isort
+  micromamba run -n python-lsp pip3 install -U pylsp-rope
+  micromamba run -n python-lsp pip3 install ruff
 
   # TODO: Add to efm
   # flake8 --extend-ignore D,E,F,C9
@@ -290,15 +290,15 @@ function install-python-lsp
   # C9 mccabe
   # F -> pyflakes
   # E ??
-  pip3 install -U flake8-bugbear
-  pip3 install -U flake8-builtins
-  pip3 install -U flake8-comprehensions
-  pip3 install -U flake8-debugger
-  pip3 install -U flake8-eradicate
-  python3 -m pip install --user --upgrade pynvim
-  pip3 install -U debugpy
-  pip3 install -U jupyterlab
-  pip3 install -U nbdev
+  # pip3 install -U flake8-bugbear
+  # pip3 install -U flake8-builtins
+  # pip3 install -U flake8-comprehensions
+  # pip3 install -U flake8-debugger
+  # pip3 install -U flake8-eradicate
+  # python3 -m pip install --user --upgrade pynvim
+  # pip3 install -U debugpy
+  # pip3 install -U jupyterlab
+  # pip3 install -U nbdev
 end
 
 function install-rust
