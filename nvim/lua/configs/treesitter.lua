@@ -114,7 +114,12 @@ ts_configs.setup({
   },
 })
 
-require("treesitter-context").setup({
+local ts_context_ok, ts_context = pcall(require, "treesitter-context")
+if not ts_context_ok then
+  return
+end
+
+ts_context.setup({
   enable = true, -- Enable this plugin (Can be enabled/disabled later via commands)
   disable = disable,
   max_lines = 0, -- How many lines the window should span. Values <= 0 mean no limit.
