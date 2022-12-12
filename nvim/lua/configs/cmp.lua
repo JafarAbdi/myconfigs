@@ -48,6 +48,7 @@ cmp.setup({
     ["<C-d>"] = cmp.mapping.scroll_docs(4),
     ["<C-u>"] = cmp.mapping.scroll_docs(-4),
     ["<C-Space>"] = cmp.mapping.complete(),
+    ["<C-c>"] = cmp.mapping.abort(),
     ["<C-e>"] = cmp.mapping(function(_fallback)
       vim.api.nvim_feedkeys(
         vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
@@ -80,6 +81,7 @@ cmp.setup({
       },
     },
     { name = "conan_recipes" },
+    { name = "path" },
     { name = "nvim_lua" },
     { name = "fish" },
     { name = "latex_symbols" },
@@ -93,6 +95,7 @@ cmp.setup({
         buffer = "[Buffer]",
         nvim_lsp = "[LSP]",
         luasnip = "[LuaSnip]",
+        path = "[Path]",
         nvim_lua = "[Lua]",
         nvim_lsp_signature_help = "[Signature]",
         fish = "[Fish]",
