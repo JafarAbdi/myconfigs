@@ -1,25 +1,42 @@
 local handlers = require("configs.lsp.handlers")
 local lspconfig = require("lspconfig")
+local Path = require("plenary.path")
 
+local workspace_root = lspconfig.util.root_pattern(
+  ".vscode",
+  "pyproject.toml",
+  "setup.py",
+  "setup.cfg",
+  "requirements.txt",
+  "Pipfile",
+  "package.xml"
+)
+local init_options = {
+  workspace = {
+    extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
+    environmentPath = "/usr/bin/python",
+  },
+}
 -- local cmd = { "jedi-language-server", "-vv", "--log-file", "/tmp/logging.txt" }
+local cmd = { "micromamba", "run", "-n", "python-lsp", "jedi-language-server" }
 lspconfig.jedi_language_server.setup({
-  -- cmd = cmd,
+  cmd = cmd,
   on_attach = handlers.on_attach,
   capabilities = handlers.capabilities,
-  init_options = {
-    workspace = {
-      extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
-    },
-  },
+  init_options = init_options,
+  on_new_config = function(new_config, new_root_dir)
+    local root = Path:new(workspace_root(new_root_dir))
+    local settings_dir = root:joinpath(".vscode", "settings.json")
+    if settings_dir:exists() then
+      local settings = vim.json.decode(settings_dir:read())
+      new_config.init_options.workspace.environmentPath = vim.env.HOME
+        .. "/micromamba/envs/"
+        .. settings["micromamba.env"]
+        .. "/bin/python"
+    end
+  end,
   root_dir = function(startpath)
-    local dir = lspconfig.util.root_pattern(
-      "pyproject.toml",
-      "setup.py",
-      "setup.cfg",
-      "requirements.txt",
-      "Pipfile",
-      "package.xml"
-    )(startpath)
+    local dir = workspace_root(startpath)
     return dir or vim.loop.cwd()
   end,
 })
