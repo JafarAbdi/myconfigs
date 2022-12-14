@@ -14,7 +14,7 @@ local workspace_root = lspconfig.util.root_pattern(
 local init_options = {
   workspace = {
     extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
-    environmentPath = "/usr/bin/python",
+    environmentPath = "/usr/bin/python3",
   },
 }
 -- local cmd = { "jedi-language-server", "-vv", "--log-file", "/tmp/logging.txt" }
