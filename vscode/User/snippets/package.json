@@ -2,6 +2,14 @@
   "contributes": {
     "snippets": [
       {
+        "language": [
+          "xml",
+          "urdf",
+          "xacro"
+        ],
+        "path": "./urdf.json"
+      },
+      {
         "language": "c",
         "path": "./c.json"
       },

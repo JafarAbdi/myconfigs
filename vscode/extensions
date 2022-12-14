@@ -9,12 +9,8 @@ cschlosser.doxdocgen
 GitHub.copilot-labs
 GitHub.copilot-nightly
 GitHub.remotehub
-hbenl.vscode-test-explorer
 jedeop.crates-completer
-littlefoxteam.vscode-python-test-adapter
 llvm-vs-code-extensions.vscode-clangd
-matepek.vscode-catch2-test-adapter
-ms-azuretools.vscode-docker
 ms-python.isort
 ms-python.python
 ms-python.vscode-pylance
@@ -37,11 +33,8 @@ ms-vscode.remote-server
 ms-vscode.test-adapter-converter
 pinage404.rust-extension-pack
 rust-lang.rust-analyzer
-serayuzgur.crates
-smilerobotics.urdf
 streetsidesoftware.code-spell-checker
 sumneko.lua
-Swellaby.vscode-rust-test-adapter
 twxs.cmake
 vadimcn.vscode-lldb
 zhuangtongfa.material-theme
