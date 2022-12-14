@@ -233,6 +233,36 @@ keymap("n", "<leader>dq", {
   end,
 })
 
+-- This will expand the current item or jump to the next item within the snippet.
+keymap({ "i", "s" }, "<c-j>", {
+  neovim = function()
+    local ls = require("luasnip")
+    if ls.expand_or_jumpable() then
+      ls.expand_or_jump()
+    end
+  end,
+})
+
+-- This always moves to the previous item within the snippet
+keymap({ "i", "s" }, "<c-k>", {
+  neovim = function()
+    local ls = require("luasnip")
+    if ls.jumpable(-1) then
+      ls.jump(-1)
+    end
+  end,
+})
+
+-- This is useful for choice nodes (introduced in the forthcoming episode 2)
+keymap("i", "<c-l>", {
+  neovim = function()
+    local ls = require("luasnip")
+    if ls.choice_active() then
+      ls.change_choice(1)
+    end
+  end,
+})
+
 keymap("", "<M-C-h>", { neovim = require("tmux").resize_left })
 keymap("", "<M-C-j>", { neovim = require("tmux").resize_bottom })
 keymap("", "<M-C-k>", { neovim = require("tmux").resize_top })
