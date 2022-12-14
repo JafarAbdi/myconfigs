@@ -8,7 +8,7 @@ function findreplace
 end
 
 function findreplacehidden
-  rg --files-with-matches --hidden "$argv[1]" | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
+  rg --files-with-matches --glob '!.git' --hidden "$argv[1]" | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
 end
 
 # get just the ip address
