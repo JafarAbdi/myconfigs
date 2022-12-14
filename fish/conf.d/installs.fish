@@ -201,7 +201,7 @@ function install-heaptrack
 end
 
 function install-hotspot
-  sudo apt install -y hotspot linux-cloud-tools-generic linux-tools-generic linux-tools-`uname -r`
+  sudo apt install -y hotspot linux-cloud-tools-generic linux-tools-generic linux-tools-(uname -r)
 end
 
 function install-bloaty
