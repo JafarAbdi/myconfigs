@@ -23,3 +23,5 @@ ls.config.set_config({
     },
   },
 })
+
+require("luasnip.loaders.from_vscode").load({ paths = { "~/myconfigs/vscode/User/snippets" } })
