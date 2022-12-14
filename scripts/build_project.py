@@ -15,7 +15,7 @@ from utils import call, run_command
 CMAKE_REPLY_DIR: Final = Path(".cmake") / "api" / "v1" / "reply"
 
 
-def lua(file: Path, args: list, cwd: Path, extra_args: dict):
+def lua(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
     env = os.environ.copy()
     env.pop("NVIMRUNNING", None)
     run_command(
@@ -26,11 +26,11 @@ def lua(file: Path, args: list, cwd: Path, extra_args: dict):
     )
 
 
-def fish(file: Path, args: list, cwd: Path, extra_args: dict):
+def fish(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
     run_command(["fish", str(file)] + args, dry_run=False, cwd=cwd)
 
 
-def python(file: Path, args: list, cwd: Path, extra_args: dict):
+def python(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
     cmd = []
     if micromamba_env := extra_args.get("micromamba"):
         cmd.extend(["micromamba", "run", "-n", micromamba_env])
@@ -40,7 +40,7 @@ def python(file: Path, args: list, cwd: Path, extra_args: dict):
 
 # TODO: Support building with rustc directly
 # rustc file.rs -o file.out && ./file.out
-def rust(file: Path, args: list, cwd: Path, extra_args: dict):
+def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
     output = call(
         ["cargo", "metadata", "--format-version=1"], cwd=file.parent.resolve()
     )
@@ -50,16 +50,23 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict):
         for target in package["targets"]:
             # TODO: Check kind, we should only run bin
             if resolved_file_path == target["src_path"]:
-                run_command(
-                    ["cargo", "run", "--bin", target["name"]] + args,
-                    dry_run=False,
-                    cwd=cwd,
-                )
+                if is_test:
+                    run_command(
+                        ["cargo", "test", "--bin", target["name"]] + args,
+                        dry_run=False,
+                        cwd=cwd,
+                    )
+                else:
+                    run_command(
+                        ["cargo", "run", "--bin", target["name"]] + args,
+                        dry_run=False,
+                        cwd=cwd,
+                    )
                 return
     logging.error(f"Can't find a target for {file.resolve()}")
 
 
-def cpp(file: Path, args: list, cwd: Path, extra_args: dict):
+def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
     if (cwd / "CMakeLists.txt").exists():
         cmake(file, args, cwd, extra_args)
         return
@@ -154,6 +161,7 @@ def main():
     # https://stackoverflow.com/a/26990349
     parser.add_argument("--workspace-folder", nargs="+", required=True)
     parser.add_argument("--file-path", nargs="+", required=True)
+    parser.add_argument("--test", action="store_true")
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
@@ -169,18 +177,22 @@ def main():
         sys.exit(1)
     logging.info(f"Executing '{file_path}'")
     settings_path = workspace_path / ".vscode"
-    args = []
+    settings_args = []
     if (args_file := settings_path / file_path.stem).exists():
         with args_file.open("r") as file:
-            args = file.read().splitlines()[0].split(" ")
-        logging.info(f"Load args file '{args_file} with {args}")
+            settings_args = file.read().splitlines()[0].split(" ")
+        logging.info(f"Load args file '{args_file} with {settings_args}")
     run_args = {}
+    # TODO: Refactor to use micromamba.env from settings.json
     if (micromamba_file := settings_path / "micromamba").exists():
         with micromamba_file.open("r") as file:
             run_args["micromamba"] = file.read().splitlines()[0]
         logging.info(f"Using micromamba env {run_args['micromamba']}")
 
-    runner(file_path, args, workspace_path, extra_args=run_args)
+    # TODO: Replace extra args with values from settings.json
+    runner(
+        file_path, settings_args, workspace_path, extra_args=run_args, is_test=args.test
+    )
 
 
 if __name__ == "__main__":

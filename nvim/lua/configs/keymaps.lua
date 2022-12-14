@@ -104,32 +104,45 @@ M.lsp = function(bufnr)
   }, bufnr)
   keymap("n", "<F2>", { neovim = vim.lsp.buf.rename }, bufnr)
 end
+local run_file = function(is_test)
+  local run_in_terminal = require("configs.run_in_terminal")
+
+  local root_dir = vim.fn.expand("%:p:h")
+  for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
+    if vim.env.HOME == dir then
+      break
+    end
+    if vim.fn.isdirectory(dir .. "/.vscode") == 1 then
+      root_dir = dir
+      break
+    end
+  end
+
+  vim.cmd.write()
+  local args = {
+    "run",
+    "-n",
+    "myconfigs",
+    "build_project.py",
+    "--workspace-folder",
+    root_dir,
+    "--file-path",
+    vim.fn.expand("%:p"),
+  }
+  if is_test then
+    table.insert(args, "--test")
+  end
+  run_in_terminal("micromamba", args, { cwd = root_dir })
+end
+keymap("n", "<leader>t", {
+  neovim = function()
+    run_file(true)
+  end,
+  vscode = "<Cmd>call VSCodeNotify('workbench.action.tasks.runTask', 'Run current file')<CR>",
+})
 keymap("n", "<leader>x", {
   neovim = function()
-    local run_in_terminal = require("configs.run_in_terminal")
-
-    local root_dir = vim.fn.expand("%:p:h")
-    for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
-      if vim.env.HOME == dir then
-        break
-      end
-      if vim.fn.isdirectory(dir .. "/.vscode") == 1 then
-        root_dir = dir
-        break
-      end
-    end
-
-    vim.cmd.write()
-    run_in_terminal("micromamba", {
-      "run",
-      "-n",
-      "myconfigs",
-      "build_project.py",
-      "--workspace-folder",
-      root_dir,
-      "--file-path",
-      vim.fn.expand("%:p"),
-    }, { cwd = root_dir })
+    run_file(false)
   end,
   vscode = "<Cmd>call VSCodeNotify('workbench.action.tasks.runTask', 'Run current file')<CR>",
 })
