@@ -37,7 +37,9 @@ ts_configs.setup({
   },
   highlight = {
     enable = not vim.g.vscode,
-    disable = disable,
+    disable = function(lang, buf)
+      return (lang == "html") or disable(lang, buf)
+    end,
   },
   -- TODO: Why this is not working in vscode?
   incremental_selection = {
