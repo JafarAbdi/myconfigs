@@ -89,6 +89,12 @@ if not vim.g.vscode then
   -- Commands --
   --------------
 
+  vim.api.nvim_create_autocmd({ "BufWritePost", "BufEnter", "BufLeave" }, {
+    group = vim.api.nvim_create_augroup("lint", { clear = true }),
+    callback = function()
+      require("lint").try_lint()
+    end,
+  })
   vim.api.nvim_create_user_command("CleanWhitespaces", function()
     require("configs.functions").clean_whitespaces()
   end, {})
