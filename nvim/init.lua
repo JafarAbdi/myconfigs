@@ -39,6 +39,7 @@ if not vim.g.vscode then
   require("configs.colorscheme")
   require("configs.cmp")
   require("configs.luasnip")
+  require("configs.dap")
   require("configs.lualine")
   require("configs.lsp")
   require("configs.telescope")

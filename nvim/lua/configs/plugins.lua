@@ -103,6 +103,15 @@ return packer.startup({
     use({ "mbbill/undotree", cmd = "UndotreeToggle" })
     -- Go to files file.ex:row_number:col_number
     use("wsdjeg/vim-fetch")
+    -- Debugger
+    use({
+      "mfussenegger/nvim-dap",
+      requires = {
+        "rcarriga/nvim-dap-ui",
+        "theHamsta/nvim-dap-virtual-text",
+        "mfussenegger/nvim-dap-python",
+      },
+    })
     -- C++
     use("p00f/clangd_extensions.nvim")
     -- Used to fix symlink files

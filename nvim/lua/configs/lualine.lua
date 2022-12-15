@@ -16,6 +16,13 @@ lualine.setup({
       "filename",
       "branch",
       "diff",
+      function()
+        local ok, dap = pcall(require, "dap")
+        if not ok then
+          return ""
+        end
+        return dap.status()
+      end,
     },
   },
 })
