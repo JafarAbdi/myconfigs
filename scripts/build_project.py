@@ -41,29 +41,45 @@ def python(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool
 # TODO: Support building with rustc directly
 # rustc file.rs -o file.out && ./file.out
 def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
-    output = call(
-        ["cargo", "metadata", "--format-version=1"], cwd=file.parent.resolve()
+    if (cwd / "Cargo.toml").exists():
+        output = call(
+            ["cargo", "metadata", "--format-version=1"], cwd=file.parent.resolve()
+        )
+        output = json.loads(output)
+        resolved_file_path = str(file.resolve())
+        for package in output["packages"]:
+            for target in package["targets"]:
+                # TODO: Check kind, we should only run bin
+                if resolved_file_path == target["src_path"]:
+                    if is_test:
+                        run_command(
+                            ["cargo", "test", "--bin", target["name"]] + args,
+                            dry_run=False,
+                            cwd=cwd,
+                        )
+                    else:
+                        run_command(
+                            ["cargo", "run", "--bin", target["name"]] + args,
+                            dry_run=False,
+                            cwd=cwd,
+                        )
+                    return
+        logging.error(f"Can't find a target for {file.resolve()}")
+    if (
+        run_command(
+            ["rustc", str(file), "-o", str(file.with_suffix(".out"))],
+            dry_run=False,
+            cwd=cwd,
+        )
+        != 0
+    ):
+        logging.error(f"Failed to build '{file}'")
+        return
+    run_command(
+        [str(file.with_suffix(".out"))] + args,
+        dry_run=False,
+        cwd=cwd,
     )
-    output = json.loads(output)
-    resolved_file_path = str(file.resolve())
-    for package in output["packages"]:
-        for target in package["targets"]:
-            # TODO: Check kind, we should only run bin
-            if resolved_file_path == target["src_path"]:
-                if is_test:
-                    run_command(
-                        ["cargo", "test", "--bin", target["name"]] + args,
-                        dry_run=False,
-                        cwd=cwd,
-                    )
-                else:
-                    run_command(
-                        ["cargo", "run", "--bin", target["name"]] + args,
-                        dry_run=False,
-                        cwd=cwd,
-                    )
-                return
-    logging.error(f"Can't find a target for {file.resolve()}")
 
 
 def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
