@@ -138,7 +138,7 @@ return packer.startup({
       end,
     })
     use("windwp/nvim-autopairs")
-    use({ "github/copilot.vim" })
+    use("github/copilot.vim")
     if vim.fn.empty(vim.fn.glob(compile_path)) > 0 then
       packer.compile()
     end
