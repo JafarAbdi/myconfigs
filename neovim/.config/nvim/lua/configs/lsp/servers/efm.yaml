@@ -12,7 +12,7 @@ tools:
     format-command: 'isort --quiet -'
     format-stdin: true
   python-ruff: &python-ruff
-    lint-command: 'ruff --config ~/myconfigs/linters/ruff.toml --quiet ${INPUT}'
+    lint-command: 'ruff --quiet ${INPUT}'
     lint-stdin: true
     lint-formats:
       - '%f:%l:%c: %m'
@@ -23,7 +23,7 @@ tools:
     #     - '%f:%l:%c: %tUF%n %m'
     #     - '%f:%l:%c: %tBT%n %m'
     #     - '%f:%l:%c: %tLE%n %m'
-    format-command: 'ruff --stdin-filename ${INPUT} --config ~/myconfigs/linters/ruff.toml --fix --exit-zero --quiet -'
+    format-command: 'ruff --stdin-filename ${INPUT} --fix --exit-zero --quiet -'
     format-stdin: true
     # lint-category-map:
     #   F: E  # pyflakes flake8-boolean-trap
@@ -86,10 +86,10 @@ languages:
       lint-formats:
         - '%f:%l:%c:%m'
   yaml:
-    - lint-command: 'yamllint -c ~/myconfigs/linters/yamllint.yaml -f parsable -'
+    - lint-command: 'yamllint -f parsable -'
       lint-stdin: true
   lua:
-    - format-command: 'stylua --config-path ~/myconfigs/linters/stylua.toml -'
+    - format-command: 'stylua --search-parent-directories -'
       format-stdin: true
   =:
     - lint-command: 'micromamba run -n nodejs cspell lint --config ~/myconfigs/.cspell.json --no-color --no-summary --no-progress stdin'

@@ -30,7 +30,7 @@
   ff = only
 [core]
   autoctrlf = input
-  excludesfile = ~/myconfigs/git/gitignore
+  excludesfile = ~/myconfigs/git/.gitignore
   pager = less -+FX
 [pack]
   threads = 6

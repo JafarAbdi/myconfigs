@@ -45,6 +45,7 @@ end
 function install-core
   sudo apt update
   sudo apt install -y python3-venv \
+                      stow \
                       software-properties-common \
                       git \
                       git-core \
@@ -272,7 +273,6 @@ function install-cpp-lsp
   rm -rf ~/.config/clangd-lsp
   mv clangd_snapshot_* ~/.config/clangd-lsp
   mkdir -p ~/.config/clangd
-  ln -s ~/myconfigs/clangd/config.yaml ~/.config/clangd/config.yaml
   cd -
 end
 
@@ -354,10 +354,7 @@ function install-nvim
   if test -e $config_path
     if test (readlink -f $config_path) != $HOME/myconfigs/nvim
       mv $config_path $config_path".bak"(date +_%Y_%m_%d)
-      ln -sf ~/myconfigs/nvim $config_path
     end
-  else
-    ln -sf ~/myconfigs/nvim $config_path
   end
   cd /tmp
   if set -q argv[1] && test $argv[1] = "stable"
@@ -654,7 +651,7 @@ function install-vscode
     sudo apt install ./vscode.deb
   end
   set -l installed_extensions (code --list-extensions 2> /dev/null)
-  read --array --null vscode_extensions < ~/myconfigs/vscode/extensions
+  read --array --null vscode_extensions < ~/.config/Code/extensions
   set -l uninstall_extensions (comm -23 (printf "%s\n" $installed_extensions | sort | psub) (printf "%s\n" $vscode_extensions | sort | psub))
   set -l install_extensions (comm -13 (printf "%s\n" $installed_extensions | sort | psub) (printf "%s\n" $vscode_extensions | sort | psub))
   for vscode_extension in $install_extensions

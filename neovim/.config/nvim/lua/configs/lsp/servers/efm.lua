@@ -3,7 +3,7 @@ lspconfig.efm.setup({
   cmd = {
     "efm-langserver",
     "-c",
-    vim.env.HOME .. "/myconfigs/nvim/lua/configs/lsp/servers/efm.yaml",
+    vim.env.HOME .. "/.config/nvim/lua/configs/lsp/servers/efm.yaml",
     -- "-logfile",
     -- "/tmp/efm-logging.txt",
     -- "-loglevel",
