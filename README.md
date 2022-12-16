@@ -27,6 +27,8 @@ stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow bazel \
                                                                  systemd \
                                                                  tmux \
                                                                  vscode \
+                                                                 fd \
+                                                                 ripgrep \
                                                                  yamllint
 sudo stow --target / --stow schroot
 ```

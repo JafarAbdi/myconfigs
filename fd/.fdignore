@@ -1,0 +1,8 @@
+**/build/*
+**/devel/*
+**/logs/*
+**/.git/*
+**/.idea/*
+__pycache__
+**/gems/*
+**/.mypy_cache/*
