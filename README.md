@@ -14,19 +14,19 @@
 ## Installation
 
 ```bash
-stow --target ~ --stow bazel \
-                       cargo \
-                       clangd \
-                       i3 \
-                       git \
-                       neovim \
-                       ruff \
-                       schroot \
-                       scripts \
-                       stylua \
-                       systemd \
-                       tmux \
-                       vscode \
-                       yamllint
+stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow bazel \
+                                                                 cargo \
+                                                                 clangd \
+                                                                 i3 \
+                                                                 git \
+                                                                 neovim \
+                                                                 ruff \
+                                                                 schroot \
+                                                                 scripts \
+                                                                 stylua \
+                                                                 systemd \
+                                                                 tmux \
+                                                                 vscode \
+                                                                 yamllint
 sudo stow --target / --stow schroot
 ```
