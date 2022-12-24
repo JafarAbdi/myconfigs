@@ -8,9 +8,6 @@ tools:
   python-black: &python-black
     format-command: 'black --quiet -'
     format-stdin: true
-  python-isort: &python-isort
-    format-command: 'isort --quiet -'
-    format-stdin: true
   python-ruff: &python-ruff
     lint-command: 'ruff --quiet ${INPUT}'
     lint-stdin: true
@@ -43,7 +40,6 @@ tools:
     #   M: E  # meta rules
 languages:
   python:
-    - <<: *python-isort
     - <<: *python-black
     - <<: *python-mypy
     - <<: *python-ruff

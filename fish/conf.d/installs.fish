@@ -280,7 +280,6 @@ function install-python-lsp
   micromamba run -n python-lsp pip3 install -U jedi-language-server
   micromamba run -n python-lsp pip3 install -U python-lsp-black
   micromamba run -n python-lsp pip3 install -U pylsp-mypy
-  micromamba run -n python-lsp pip3 install -U pyls-isort
   micromamba run -n python-lsp pip3 install -U pylsp-rope
   micromamba run -n python-lsp pip3 install ruff
 
