@@ -5,7 +5,7 @@ mkfifo $input
 mkfifo $output
 chmod 600 $input $output
 
-tmux popup -E "cat $input | ~/myconfigs/scripts/linkgrabber.sh | tee $output" & disown
+tmux popup -E "cat $input | ~/myconfigs/scripts/.local/bin/linkgrabber.sh | tee $output" & disown
 
 # handle ctrl+c outside child terminal window
 trap "kill $! 2>/dev/null; rm -f $input $output" EXIT
