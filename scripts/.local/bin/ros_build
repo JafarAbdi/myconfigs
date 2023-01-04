@@ -84,11 +84,11 @@ def main():
             cmd += ["--no-deps"]
         # TODO: Add skipping a package for catkin
         if args.skip:
-            raise RuntimeError("Skipping a package isn't supported yet for catkin")
+            errmsg = "Skipping a package isn't supported yet for catkin"
+            raise RuntimeError(errmsg)
         if args.jobs:
-            raise RuntimeError(
-                "Specifying the number of jobs isn't supported yet for catkin"
-            )
+            errmsg = "Specifying the number of jobs isn't supported yet for catkin"
+            raise RuntimeError(errmsg)
         cmd += [
             "--cmake-args",
             f"-DCMAKE_BUILD_TYPE={args.build_type}",
