@@ -21,7 +21,6 @@ stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow bazel \
                                                                  git \
                                                                  neovim \
                                                                  ruff \
-                                                                 schroot \
                                                                  scripts \
                                                                  stylua \
                                                                  systemd \
