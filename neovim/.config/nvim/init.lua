@@ -26,26 +26,24 @@ if not vim.g.vscode then
   end
 end
 
-if not vim.g.vscode then
-  require("configs.plugins")
-end
+require("config.lazy")
 
-require("configs.options")
-require("configs.commands")
-require("configs.disable_builtin")
-require("configs.keymaps")
-require("configs.autopairs")
-require("configs.treesitter")
+-- require("configs.options")
+-- require("configs.commands")
+-- require("configs.disable_builtin")
+-- require("configs.keymaps")
+-- require("configs.autopairs")
+-- require("configs.treesitter")
 
-if not vim.g.vscode then
-  require("configs.plugins")
-  require("configs.functions")
-  require("configs.colorscheme")
-  require("configs.cmp")
-  require("configs.luasnip")
-  require("configs.lint")
-  require("configs.dap")
-  require("configs.lualine")
-  require("configs.lsp")
-  require("configs.telescope")
-end
+-- if not vim.g.vscode then
+--   require("configs.plugins")
+--   require("configs.functions")
+--   require("configs.colorscheme")
+--   require("configs.cmp")
+--   require("configs.luasnip")
+--   require("configs.lint")
+--   require("configs.dap")
+--   require("configs.lualine")
+--   require("configs.lsp")
+--   require("configs.telescope")
+-- end
