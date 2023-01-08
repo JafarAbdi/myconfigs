@@ -187,7 +187,6 @@ function install-pre-commit
     sudo apt install -y pre-commit black cpplint cmake-format
   else
     pip3 install pre-commit
-    pip3 install black
     pip3 install cmakelang
     pip3 install cpplint
   end
@@ -279,9 +278,11 @@ end
 function install-python-lsp
   micromamba run -n python-lsp pip3 install -U jedi-language-server
   micromamba run -n python-lsp pip3 install -U python-lsp-black
-  micromamba run -n python-lsp pip3 install -U pylsp-mypy
   micromamba run -n python-lsp pip3 install -U pylsp-rope
-  micromamba run -n python-lsp pip3 install ruff
+
+  micromamba run -n linters pip3 install -U pylsp-mypy
+  micromamba run -n linters pip3 install -U ruff
+  micromamba run -n linters pip3 install -U black
 
   # TODO: Add to efm
   # flake8 --extend-ignore D,E,F,C9

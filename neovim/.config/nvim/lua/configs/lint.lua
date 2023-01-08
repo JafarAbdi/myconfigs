@@ -20,13 +20,28 @@ lint.linters.cspell.args = {
 }
 lint.linters.cspell.ignore_exitcode = true
 
+lint.linters.ruff.cmd = "micromamba"
 lint.linters.ruff.args = {
+  "run",
+  "-n",
+  "linters",
+  "ruff",
   "--config",
   vim.env.HOME .. "/myconfigs/linters/ruff.toml",
   "--quiet",
   "-",
 }
 -- lint.linters.cspell.ignore_exitcode = true
+
+lint.linters.mypy.cmd = "micromamba"
+lint.linters.mypy.args = {
+  "run",
+  "-n",
+  "linters",
+  "mypy",
+  "--quiet",
+  "-",
+}
 
 lint.linters_by_ft = {
   -- markdown = {'vale', 'markdownlint'},

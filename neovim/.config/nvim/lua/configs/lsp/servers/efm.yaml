@@ -1,9 +1,9 @@
 tools:
   python-black: &python-black
-    format-command: 'black --quiet -'
+    format-command: 'micromamba run -n linters black --quiet -'
     format-stdin: true
   python-ruff: &python-ruff
-    format-command: 'ruff --stdin-filename ${INPUT} --fix --exit-zero --quiet -'
+    format-command: 'micromamba run -n linters ruff --stdin-filename ${INPUT} --fix --exit-zero --quiet -'
     format-stdin: true
 languages:
   python:
