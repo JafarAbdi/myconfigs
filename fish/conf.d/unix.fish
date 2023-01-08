@@ -96,6 +96,7 @@ alias paste="xclip -sel clip -o"
 alias disk_usage="df -h"
 if command -v batcat &> /dev/null
   alias bat="batcat"
+  export BAT_PAGER="less -R"
 end
 if command -v difft &> /dev/null
   set -gx GIT_EXTERNAL_DIFF "difft --color=always --tab-width=2"

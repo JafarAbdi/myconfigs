@@ -9,6 +9,7 @@ local servers = {
   "rust",
   "cmake",
   "python",
+  "efm",
   "ts",
   "lua",
   "yaml",

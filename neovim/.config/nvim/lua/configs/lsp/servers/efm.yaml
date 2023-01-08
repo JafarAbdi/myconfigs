@@ -1,0 +1,26 @@
+tools:
+  python-black: &python-black
+    format-command: 'black --quiet -'
+    format-stdin: true
+  python-ruff: &python-ruff
+    format-command: 'ruff --stdin-filename ${INPUT} --fix --exit-zero --quiet -'
+    format-stdin: true
+languages:
+  python:
+    - <<: *python-black
+    - <<: *python-ruff
+  cmake:
+    - format-command: 'cmake-format -'
+      format-stdin: true
+  json:
+    - format-command: 'python3 -m json.tool'
+      format-stdin: true
+  markdown:
+    - format-command: 'pandoc -f markdown -t gfm -sp --tab-stop=2'
+      format-stdin: true
+  rst:
+    - format-command: 'pandoc -f rst -t rst -s --columns=79'
+      format-stdin: true
+  lua:
+    - format-command: 'stylua --search-parent-directories -'
+      format-stdin: true

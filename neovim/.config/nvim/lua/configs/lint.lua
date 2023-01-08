@@ -1,4 +1,7 @@
-local lint = require("lint")
+local ok, lint = pcall(require, "lint")
+if not ok then
+  return
+end
 
 lint.linters.cspell.cmd = "micromamba"
 lint.linters.cspell.args = {
@@ -17,17 +20,22 @@ lint.linters.cspell.args = {
 }
 lint.linters.cspell.ignore_exitcode = true
 
-lint.linters.ruff.args =
-  { "--config", vim.env.HOME .. "/myconfigs/linters/ruff.toml", "--quiet", "-" }
+lint.linters.ruff.args = {
+  "--config",
+  vim.env.HOME .. "/myconfigs/linters/ruff.toml",
+  "--quiet",
+  "-",
+}
 -- lint.linters.cspell.ignore_exitcode = true
 
 lint.linters_by_ft = {
   -- markdown = {'vale', 'markdownlint'},
   -- rst = {'vale'},
-  python = { "ruff" },
-  lua = { "cspell", "luacheck" },
+  -- cmake = { "cmakelint" },
+  -- tex = { "chktex" },
+  python = { "ruff" , "mypy" },
+  lua = { "luacheck" },
   sh = { "shellcheck" },
   yaml = { "yamllint" },
-  gitcommit = { "cspell" },
   dockerfile = { "hadolint" },
 }
