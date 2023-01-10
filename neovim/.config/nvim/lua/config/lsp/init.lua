@@ -3,7 +3,7 @@ if not status_ok then
   return
 end
 
-require("configs.lsp.handlers").setup()
+require("config.lsp.handlers").setup()
 local servers = {
   "cpp",
   "rust",
@@ -18,5 +18,5 @@ local servers = {
   "docker",
 }
 for _, server in pairs(servers) do
-  require("configs.lsp.servers." .. server)
+  require("config.lsp.servers." .. server)
 end

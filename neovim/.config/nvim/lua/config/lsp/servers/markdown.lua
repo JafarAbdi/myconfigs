@@ -1,4 +1,4 @@
-local handlers = require("configs.lsp.handlers")
+local handlers = require("config.lsp.handlers")
 local lspconfig = require("lspconfig")
 lspconfig.marksman.setup({
   -- cmd = { "marksman", "server", "--verbose", "5" },

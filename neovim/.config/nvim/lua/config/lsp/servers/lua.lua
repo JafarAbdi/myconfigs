@@ -4,7 +4,7 @@ table.insert(runtime_path, "lua/?.lua")
 table.insert(runtime_path, "lua/?/init.lua")
 
 lspconfig.sumneko_lua.setup({
-  on_attach = require("configs.lsp.handlers").on_attach,
+  on_attach = require("config.lsp.handlers").on_attach,
   settings = {
     Lua = {
       format = {

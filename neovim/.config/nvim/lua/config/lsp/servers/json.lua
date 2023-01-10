@@ -1,5 +1,5 @@
 -- Patterns from https://github.com/b0o/SchemaStore.nvim/blob/main/lua/schemastore/catalog.lua
-local handlers = require("configs.lsp.handlers")
+local handlers = require("config.lsp.handlers")
 require("lspconfig").jsonls.setup({
   -- ... -- other configuration for setup {}
   cmd = { "micromamba", "run", "-n", "nodejs", "vscode-json-language-server", "--stdio" },

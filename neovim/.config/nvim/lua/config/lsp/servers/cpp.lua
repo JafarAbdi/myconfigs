@@ -1,4 +1,4 @@
-local handlers = require("configs.lsp.handlers")
+local handlers = require("config.lsp.handlers")
 local Path = require("plenary.path")
 
 -- For testing inlayHints

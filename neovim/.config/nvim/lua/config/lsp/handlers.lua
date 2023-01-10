@@ -22,7 +22,7 @@ local capabilities = require("cmp_nvim_lsp").default_capabilities()
 M.capabilities = capabilities
 
 M.on_attach = function(_, bufnr)
-  require("configs.keymaps").lsp(bufnr)
+  require("config.keymaps").lsp(bufnr)
   -- TODO: Add support back
   -- if client.server_capabilities.documentHighlightProvider then
   -- end

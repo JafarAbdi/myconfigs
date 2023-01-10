@@ -1,4 +1,4 @@
-local handlers = require("configs.lsp.handlers")
+local handlers = require("config.lsp.handlers")
 
 require("lspconfig").rust_analyzer.setup({
   cmd = { vim.env.RUST_ANALYZER_BIN },
