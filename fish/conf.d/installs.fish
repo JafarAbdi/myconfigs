@@ -2,7 +2,6 @@ source ~/myconfigs/fish/conf.d/unix.fish
 
 function install-schroot
   sudo apt install -y schroot debootstrap
-  sudo ln -fs ~/myconfigs/schroot/jafar-default /etc/schroot/
 end
 
 function setup-ssh-keys
@@ -37,11 +36,6 @@ function install-ros-github-token
 }" | tee $HOME/.config/bloom
 end
 
-function github-setup
-  echo "Running github_setup"
-  git config --global include.path "$HOME/myconfigs/git/gitconfig"
-end
-
 function install-core
   sudo apt update
   sudo apt install -y python3-venv \
@@ -74,8 +68,6 @@ function install-core
                       libx11-dev
   pip3 install argcomplete==2.0.0
   python3 -m pip install --user pipx
-  ln -fs $HOME/myconfigs/.ignore ~/.ignore
-  github-setup
   install-ripgrep
   install-fd
 end
@@ -230,7 +222,6 @@ function install-i3
     sudo apt update
   end
   sudo apt install -y i3
-  ln -fs ~/myconfigs/i3 ~/.config/i3
   cd -
 end
 
@@ -445,7 +436,6 @@ function install-tmux
   # We need at least tmux3.3, the older versions have a bug with focus-events
   # https://github.com/tmux/tmux/releases
   mkdir -p ~/.config/tmux
-  ln -fs ~/myconfigs/tmux/tmux.conf ~/.config/tmux/tmux.conf
   sudo apt install -y libevent-dev libncurses-dev
   if set -q argv[1] && test $argv[1] = "unstable"
     set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
@@ -595,6 +585,7 @@ function install-podman
 end
 
 function install-dev-tools
+  install-luacheck
   install-gh
   install-nvim
   # LSP
@@ -617,7 +608,6 @@ end
 
 function install-full-system
   install-core
-  setup-ssh-keys
   install-schroot
   install-dev-tools
   # Dev

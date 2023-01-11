@@ -26,6 +26,10 @@ if not vim.g.vscode then
   end
 end
 
+if not vim.g.vscode then
+  require("configs.plugins")
+end
+
 require("configs.options")
 require("configs.commands")
 require("configs.disable_builtin")
