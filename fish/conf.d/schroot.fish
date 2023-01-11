@@ -1,6 +1,6 @@
 function schroot-new-config
   set -l chroot_dir "/etc/schroot/chroot.d"
-  read -P "Chroot name: " name
+  read -P "Chroot name (example jammy, focal, or bionic): " name
   read -P "Description: " description -c name
 
   if test -e "/etc/schroot/chroot.d/$name"
@@ -83,6 +83,7 @@ chsh -s `which fish`
   echo "\
 
 source ~/myconfigs/fish/conf.d/installs.fish
+stow-configs
 install-core
 config-fish
 install-difftastic

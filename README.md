@@ -14,20 +14,5 @@
 ## Installation
 
 ```bash
-stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow bazel \
-                                                                 cargo \
-                                                                 clangd \
-                                                                 i3 \
-                                                                 git \
-                                                                 neovim \
-                                                                 ruff \
-                                                                 scripts \
-                                                                 stylua \
-                                                                 systemd \
-                                                                 tmux \
-                                                                 vscode \
-                                                                 fd \
-                                                                 ripgrep \
-                                                                 yamllint
-sudo stow --target / --stow schroot
+stow-configs # Or stow-configs-host
 ```

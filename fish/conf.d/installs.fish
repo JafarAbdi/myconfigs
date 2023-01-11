@@ -652,3 +652,26 @@ function install-vscode
   end
   cd -
 end
+
+function stow-configs
+  stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow bazel \
+                                                                   cargo \
+                                                                   clangd \
+                                                                   i3 \
+                                                                   git \
+                                                                   neovim \
+                                                                   ruff \
+                                                                   scripts \
+                                                                   stylua \
+                                                                   systemd \
+                                                                   tmux \
+                                                                   vscode \
+                                                                   fd \
+                                                                   ripgrep \
+                                                                   yamllint
+end
+
+function stow-configs-host
+  stow-configs
+  sudo stow --target / --stow schroot
+end

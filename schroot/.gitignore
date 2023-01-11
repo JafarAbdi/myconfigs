@@ -1,7 +1,0 @@
-etc/schroot/buildd
-etc/schroot/default
-etc/schroot/desktop
-etc/schroot/minimal
-etc/schroot/sbuild
-etc/schroot/schroot.conf
-etc/schroot/setup.d
