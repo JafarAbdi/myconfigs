@@ -6,7 +6,7 @@ Type=simple
 TimeoutStartSec=infinity
 ExecStart=make dev EXTRA_ARGS='--language C++'
 ExecStop=/bin/true
-WorkingDirectory=/home/jafar/workspaces/compiler-explorer
+WorkingDirectory=/home/juruc/workspaces/compiler-explorer
 StandardOutput=file:/tmp/compiler-explorer.log
 StandardError=file:/tmp/compiler-explorer.log
 

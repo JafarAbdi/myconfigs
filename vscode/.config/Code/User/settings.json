@@ -14,7 +14,7 @@
     "~/myconfigs/.cspell.json"
   ],
   "clangd.checkUpdates": true,
-  "clangd.path": "/home/jafar/.config/Code - Insiders/User/globalStorage/llvm-vs-code-extensions.vscode-clangd/install/15.0.3/clangd_15.0.3/bin/clangd",
+  "clangd.path": "/home/juruc/.config/Code - Insiders/User/globalStorage/llvm-vs-code-extensions.vscode-clangd/install/15.0.3/clangd_15.0.3/bin/clangd",
   "cmake.buildDirectory": "/no_dir",
   "cmake.copyCompileCommands": "",
   "cmake.defaultVariants": {
@@ -71,7 +71,7 @@
   "remote.SSH.useLocalServer": false,
   "remote.tunnels.alwaysUpdateCLI": true,
   "ruff.args": [
-    "--config=/home/jafar/myconfigs/linters/ruff.toml"
+    "--config=/home/juruc/myconfigs/linters/ruff.toml"
   ],
   "rust-analyzer.checkOnSave.command": "clippy",
   "rust-analyzer.completion.snippets.custom": {

@@ -152,7 +152,7 @@ function set-timezone
 end
 
 function sfs
-  sshfs -o identityfile=/home/jafar/.ssh/id_rsa,allow_other,reconnect,default_permissions,auto_cache,no_readahead,Ciphers=chacha20-poly1305@openssh.com $argv[1] $argv[2]
+  sshfs -o identityfile=/home/juruc/.ssh/id_rsa,allow_other,reconnect,default_permissions,auto_cache,no_readahead,Ciphers=chacha20-poly1305@openssh.com $argv[1] $argv[2]
 end
 
 

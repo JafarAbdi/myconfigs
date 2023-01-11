@@ -11,8 +11,8 @@ function schroot-new-config
 description=$description
 type=directory
 directory=$SCHROOT_DIR/$name
-users=jafar
-groups=jafar
+users=juruc
+groups=juruc
 root-users=root
 root-groups=root
 union-type=overlay
@@ -53,7 +53,7 @@ function schroot-begin-session
   end
 
 echo "\
-chown jafar:jafar /home/jafar
+chown juruc:juruc /home/juruc
 apt update
 apt install -y lsb-release
 apt install -y sudo
