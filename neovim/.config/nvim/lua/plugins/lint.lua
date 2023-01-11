@@ -1,7 +1,7 @@
 return {
   {
     "mfussenegger/nvim-lint",
-    event = "VeryLazy",
+    event = "BufReadPre",
     config = function()
       local lint = require("lint")
       lint.linters.cspell.cmd = "micromamba"

@@ -35,7 +35,7 @@ return {
   },
   {
     "kylechui/nvim-surround",
-    keys = { "ys", "yss", "gs", "gS", "ds", "cs" },
+    event = "VeryLazy",
     opts = {
       keymaps = {
         insert = false,
@@ -56,7 +56,7 @@ return {
   "famiu/bufdelete.nvim",
   -- Heuristically set buffer options
   "tpope/vim-sleuth",
-  "tpope/vim-commentary",
-  "wsdjeg/vim-fetch",
+  { "tpope/vim-commentary", keys = { "gc", "gcc" } },
+  { "wsdjeg/vim-fetch", lazy = false },
   "nvim-lua/plenary.nvim",
 }
