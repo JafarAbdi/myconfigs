@@ -45,10 +45,12 @@ function schroot-begin-session
 
   # TODO: Is this needed??
   # Allow X11 clients to use the server outside the chroot
-  sudo cp -f "$HOME/.Xauthority" "$dir/" || true
-  echo "\
-export XAUTHORITY=/.Xauthority
-export DISPLAY=\"\${DISPLAY:-}\"" | sudo tee "$dir/etc/profile.d/x11.sh" > /dev/null
+  if test -e ~/.Xauthority && test -d $dir
+    sudo cp -f "$HOME/.Xauthority" "$dir/" || true
+    echo "\
+  export XAUTHORITY=/.Xauthority
+  export DISPLAY=\"\${DISPLAY:-}\"" | sudo tee "$dir/etc/profile.d/x11.sh" > /dev/null
+  end
 
 echo "\
 chown jafar:jafar /home/jafar

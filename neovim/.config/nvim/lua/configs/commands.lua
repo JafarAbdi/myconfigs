@@ -102,7 +102,7 @@ if not vim.g.vscode then
       group = lint_group,
       callback = function()
         -- lint.try_lint({"cspell", "codespell"})
-        if vim.bo.filetype ~= "help" then
+        if vim.bo.filetype ~= "help" and vim.bo.filetype ~= "" then
           lint.try_lint({ "cspell" })
         end
       end,

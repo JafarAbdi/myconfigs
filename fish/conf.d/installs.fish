@@ -215,8 +215,9 @@ end
 
 function install-i3
   if test (lsb_release -is) = "Ubuntu"
-    cd /tmp
-    /usr/lib/apt/apt-helper download-file https://debian.sur5r.net/i3/pool/main/s/sur5r-keyring/sur5r-keyring_2021.02.02_all.deb keyring.deb SHA256:cccfb1dd7d6b1b6a137bb96ea5b5eef18a0a4a6df1d6c0c37832025d2edaa710
+    set -l TMP_DIR (mktemp -d -p /tmp i3-XXXXXX)
+    cd $TMP_DIR
+    /usr/lib/apt/apt-helper download-file https://debian.sur5r.net/i3/pool/main/s/sur5r-keyring/sur5r-keyring_2022.02.17_all.deb keyring.deb SHA256:52053550c4ecb4e97c48900c61b2df4ec50728249d054190e8a0925addb12fc6
     sudo dpkg -i ./keyring.deb
     echo "deb [arch=amd64] http://debian.sur5r.net/i3/ " (grep '^DISTRIB_CODENAME=' /etc/lsb-release | cut -f2 -d=) " universe" | sudo tee /etc/apt/sources.list.d/sur5r-i3.list
     sudo apt update
@@ -347,7 +348,8 @@ function install-nvim
       mv $config_path $config_path".bak"(date +_%Y_%m_%d)
     end
   end
-  cd /tmp
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
   if set -q argv[1] && test $argv[1] = "stable"
     install-from-github neovim/neovim "v.*nvim-linux64.deb"
   else

@@ -28,7 +28,10 @@ lspconfig.jedi_language_server.setup({
     local root = Path:new(workspace_root(new_root_dir))
     local settings_dir = root:joinpath(".vscode", "settings.json")
     if settings_dir:exists() then
-      local settings = vim.json.decode(settings_dir:read())
+      local ok, settings = pcall(vim.json.decode, settings_dir:read())
+      if not ok then
+        vim.notify("Error parsing '" .. settings_dir.filename .. "'", vim.log.levels.WARN)
+      end
       new_config.init_options.workspace.environmentPath = vim.env.HOME
         .. "/micromamba/envs/"
         .. settings["micromamba.env"]
