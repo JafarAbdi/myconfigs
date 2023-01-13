@@ -39,8 +39,12 @@ lint.linters.mypy.args = {
   "-n",
   "linters",
   "mypy",
-  "--quiet",
-  "-",
+  "--show-column-numbers",
+  "--hide-error-codes",
+  "--hide-error-context",
+  "--no-color-output",
+  "--no-error-summary",
+  "--no-pretty",
 }
 
 lint.linters_by_ft = {
