@@ -688,3 +688,8 @@ function install-inkscape
   tar -vxzf TexText-Linux* -C . --strip-components=2
   python3 setup.py --skip-requirements-check --inkscape-executable (which inkscape)
 end
+
+function install-hadolint
+  wget https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64 -O ~/.local/bin/hadolint
+  chmod +x ~/.local/bin/hadolint
+end
