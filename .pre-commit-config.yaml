@@ -1,5 +1,5 @@
 ci:
-    skip: [refurb, luacheck]
+    skip: [refurb, luacheck, format-xmllint]
 
 exclude: ^(cookiecutter)/
 repos:
