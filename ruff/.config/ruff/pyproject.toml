@@ -72,5 +72,5 @@ extend-select = [
   "RUF",
 ]
 ignore = ["E501"]
-extend-ignore = ["ANN", "C90", "D"]
+extend-ignore = ["ANN", "C90", "D", "PLR2004"]
 exclude = ["cookiecutter"]
