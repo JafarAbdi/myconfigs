@@ -26,8 +26,6 @@ lint.linters.ruff.args = {
   "-n",
   "linters",
   "ruff",
-  "--config",
-  vim.env.HOME .. "/myconfigs/linters/ruff.toml",
   "--quiet",
   "-",
 }
