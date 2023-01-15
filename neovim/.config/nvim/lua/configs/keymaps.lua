@@ -142,6 +142,11 @@ keymap("n", "<leader>t", {
 })
 keymap("n", "<leader>x", {
   neovim = function()
+    local filetype = require("plenary.filetype")
+    if filetype.detect(vim.fn.expand("%:p")) == "markdown" then
+      vim.cmd.write()
+      return
+    end
     run_file(false)
   end,
   vscode = "<Cmd>call VSCodeNotify('workbench.action.tasks.runTask', 'Run current file')<CR>",

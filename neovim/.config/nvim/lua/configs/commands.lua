@@ -247,4 +247,79 @@ if not vim.g.vscode then
   })
 end
 
+local compile_md_group = vim.api.nvim_create_augroup("CompileMD", { clear = true })
+M.preview_jobs = {}
+
+M.compile_md = function(filename)
+  -- TODO: Add an option to select tmp/cwd
+  -- vim.fn.fnamemodify(filename, ":p:r") .. ".pdf"
+  local output_filename = M.preview_jobs[filename] and M.preview_jobs[filename].output_filename
+    or (vim.fn.tempname() .. ".pdf")
+  local Job = require("plenary.job")
+  local job = Job:new({
+    command = "pandoc",
+    args = {
+      filename,
+      "-V",
+      "geometry:margin=1cm",
+      "--filter=" .. debug.getinfo(1).source:match("@?(.*/)") .. "pandoc-svg.py",
+      "-o",
+      output_filename,
+    },
+    on_stderr = function(_, data)
+      P(data)
+    end,
+  })
+  if M.preview_jobs[filename] and M.preview_jobs[filename].job.is_shutdown then
+    M.preview_jobs[filename] = nil
+  end
+  if not M.preview_jobs[filename] then
+    local zathura_job = Job:new({
+      command = "zathura",
+      args = { output_filename },
+    })
+    job:and_then_on_success(zathura_job)
+    local autocmd_id = vim.api.nvim_create_autocmd({ "BufWritePost" }, {
+      group = compile_md_group,
+      buffer = vim.fn.bufnr("%"),
+      callback = function()
+        M.compile_md(filename)
+      end,
+    })
+    M.preview_jobs[filename] = {
+      job = zathura_job,
+      output_filename = output_filename,
+      autocmd_id = autocmd_id,
+    }
+  end
+  job:start()
+end
+
+vim.api.nvim_create_user_command("PandocPreview", function()
+  local filename = vim.fn.expand("%:p")
+  M.compile_md(filename)
+end, {})
+vim.api.nvim_create_user_command("PandocPreviewStop", function()
+  local filename = vim.fn.expand("%:p")
+  local pid = M.preview_jobs[filename] and M.preview_jobs[filename].job.pid
+  if M.preview_jobs[filename] then
+    vim.api.nvim_del_autocmd(M.preview_jobs[filename].autocmd_id)
+  end
+  if pid then
+    vim.loop.kill(pid, 9)
+    M.preview_jobs[filename] = nil
+  end
+end, {})
+vim.api.nvim_create_autocmd({ "VimLeavePre" }, {
+  group = compile_md_group,
+  callback = function()
+    for _, preview_job in pairs(M.preview_jobs) do
+      local pid = preview_job and preview_job.job and preview_job.job.pid
+      if pid then
+        vim.loop.kill(pid, 9)
+      end
+    end
+  end,
+})
+
 return M

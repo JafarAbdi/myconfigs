@@ -63,6 +63,7 @@ function install-core
                       ninja-build \
                       sshfs \
                       zathura \
+                      texlive-latex-extra \
                       # Needed for st
                       libxft-dev \
                       libx11-dev
