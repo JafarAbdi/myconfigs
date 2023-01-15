@@ -19,7 +19,8 @@ class RosVersions(Enum):
 
 def get_workspaces_yaml():
     file_name = Path(os.getenv("HOME") + "/.workspaces.yaml")
-    workspaces = yaml.safe_load(open(file_name)) if file_name.exists() else {}
+    with open(file_name) as f:
+        workspaces = yaml.safe_load(f) if file_name.exists() else {}
     if ROS_INSTALLATION_DIR.exists():
         for ros_distro in os.listdir(ROS_INSTALLATION_DIR):
             workspaces[ros_distro] = {"ros_distro": ros_distro}
