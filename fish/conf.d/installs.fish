@@ -677,3 +677,13 @@ function stow-configs-host
   stow-configs
   sudo stow --target / --stow schroot
 end
+
+function install-inkscape
+  sudo add-apt-repository ppa:inkscape.dev/stable
+  sudo apt install inkscape
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github textext/textext "TexText-Linux.*.tar.gz"
+  tar -vxzf TexText-Linux* -C . --strip-components=2
+  python3 setup.py --skip-requirements-check --inkscape-executable (which inkscape)
+end
