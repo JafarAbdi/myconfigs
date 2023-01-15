@@ -14,5 +14,13 @@
 ## Installation
 
 ```bash
+sudo apt-add-repository ppa:fish-shell/release-3
+sudo apt update
+sudo apt install -y fish
+setup-ssh-keys
+source ~/myconfigs/fish/config.fish
+install-fish
+install-full-system
+install-i3
 stow-configs # Or stow-configs-host
 ```
