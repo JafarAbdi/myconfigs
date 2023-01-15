@@ -31,15 +31,20 @@ def svg_to_any(key, value, fmt, meta):
             except OSError:
                 mtime = -1
             if mtime < os.path.getmtime(src):
-                cmd_line = ["inkscape", src, "--export-area-drawing", "--export-type=pdf", "--export-filename=" + eps_name]
+                cmd_line = [
+                    "inkscape",
+                    src,
+                    "--export-area-drawing",
+                    "--export-type=pdf",
+                    "--export-filename=" + eps_name,
+                ]
                 sys.stderr.write("Running %s\n" % " ".join(cmd_line))
                 subprocess.call(cmd_line, stdout=sys.stderr.fileno())
             if attrs:
                 return Image(attrs, alt, [eps_name, title])
-            else:
-                return Image(alt, [eps_name, title])
+            return Image(alt, [eps_name, title])
+    return None
 
 
 if __name__ == "__main__":
     toJSONFilter(svg_to_any)
-
