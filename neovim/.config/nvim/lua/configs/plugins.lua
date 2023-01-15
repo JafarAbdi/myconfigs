@@ -110,6 +110,8 @@ return packer.startup({
         "rcarriga/nvim-dap-ui",
         "theHamsta/nvim-dap-virtual-text",
         "mfussenegger/nvim-dap-python",
+        -- TODO: Test
+        -- https://github.com/rcarriga/cmp-dap
       },
     })
     -- C++
