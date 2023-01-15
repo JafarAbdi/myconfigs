@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Install luacheck
-        run: sudo apt-get install luarocks && sudo luarocks install luacheck
+        run: sudo apt-get install luarocks libxml2-utils && sudo luarocks install luacheck
       - name: Install micromamba environment
         uses: mamba-org/provision-with-micromamba@main
         with:
