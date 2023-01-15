@@ -1,5 +1,5 @@
 ci:
-    skip: [refurb, luacheck, format-xmllint]
+    skip: [refurb, luacheck]
 
 exclude: ^(cookiecutter)/
 repos:
@@ -73,6 +73,6 @@ repos:
     hooks:
       - id: hadolint-docker
   - repo: https://github.com/lsst-ts/pre-commit-xmllint
-    rev: 6f36260b537bf9a42b6ea5262c915ae50786296e
+    rev: v1.0.0
     hooks:
       - id: format-xmllint
