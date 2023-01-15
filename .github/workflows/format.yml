@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v2
-      - name: Install luacheck
-        run: sudo apt-get install luarocks && sudo luarocks install luacheck
+      - name: Install luacheck and xmllint
+        run: sudo apt-get install luarocks luacheck libxml2-utils
       - name: Install micromamba environment
         uses: mamba-org/provision-with-micromamba@main
         with:
