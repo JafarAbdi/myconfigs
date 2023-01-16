@@ -85,8 +85,8 @@ chsh -s `which fish`
   echo "\
 
 source ~/myconfigs/fish/conf.d/installs.fish
-stow-configs
 install-core
+stow-configs
 config-fish
 install-difftastic
 install-python-lsp

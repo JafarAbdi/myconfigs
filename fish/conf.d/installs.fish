@@ -66,6 +66,7 @@ function install-core
                       texlive-latex-extra \
                       # Needed for st
                       libxft-dev \
+                      pandoc \
                       libx11-dev
   pip3 install argcomplete==2.0.0
   python3 -m pip install --user pipx
@@ -349,14 +350,14 @@ function install-nvim
       mv $config_path $config_path".bak"(date +_%Y_%m_%d)
     end
   end
-  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  set -l TMP_DIR (mktemp -d -p /tmp nvim-XXXXXX)
   cd $TMP_DIR
   if set -q argv[1] && test $argv[1] = "stable"
     install-from-github neovim/neovim "v.*nvim-linux64.deb"
   else
     install-from-github neovim/neovim "nvim-linux64.deb"
   end
-  sudo apt install /tmp/nvim-linux64.deb
+  sudo apt install ./nvim-linux64.deb
   cd -
 end
 
@@ -656,22 +657,39 @@ function install-vscode
   cd -
 end
 
+function unstow-configs
+  stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --delete bazel \
+                                                                     cargo \
+                                                                     clangd \
+                                                                     i3 \
+                                                                     git \
+                                                                     neovim \
+                                                                     ruff \
+                                                                     scripts \
+                                                                     stylua \
+                                                                     systemd \
+                                                                     tmux \
+                                                                     vscode \
+                                                                     fd \
+                                                                     ripgrep \
+                                                                     yamllint
+end
 function stow-configs
-  stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow bazel \
-                                                                   cargo \
-                                                                   clangd \
-                                                                   i3 \
-                                                                   git \
+  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow bazel \
+                                                                                cargo \
+                                                                                clangd \
+                                                                                git \
+                                                                                ruff \
+                                                                                scripts \
+                                                                                stylua \
+                                                                                systemd \
+                                                                                tmux \
+                                                                                fd \
+                                                                                ripgrep \
+                                                                                yamllint
+  stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                    neovim \
-                                                                   ruff \
-                                                                   scripts \
-                                                                   stylua \
-                                                                   systemd \
-                                                                   tmux \
-                                                                   vscode \
-                                                                   fd \
-                                                                   ripgrep \
-                                                                   yamllint
+                                                                   vscode
 end
 
 function stow-configs-host
@@ -692,4 +710,39 @@ end
 function install-hadolint
   wget https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64 -O ~/.local/bin/hadolint
   chmod +x ~/.local/bin/hadolint
+end
+
+function install-ros2
+  if test (count $argv) -ne 1
+    echo "install-ros2 expects 1 argument for the distribution name"
+    return 1
+  end
+
+  set -l distros "foxy" "galactic" "humble" "rolling"
+  if ! contains $argv[1] $distros
+    echo "Invalid distro '"$argv[1]"'"
+    return 1
+  end
+
+  locale  # check for UTF-8
+  sudo apt update && sudo apt install locales
+  sudo locale-gen en_US en_US.UTF-8
+  sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+  export LANG=en_US.UTF-8
+  locale  # verify settings
+
+  sudo apt install software-properties-common
+  sudo add-apt-repository universe
+
+  sudo apt update && sudo apt install curl
+  sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+
+  echo "deb [arch="(dpkg --print-architecture)" signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu "(export (cat /etc/os-release |xargs -L 1) && echo $UBUNTU_CODENAME)" main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+  sudo apt update
+  sudo apt upgrade
+  sudo apt install ros-$argv[1]-desktop
+  sudo apt install ros-dev-tools
+
+  install-colcon
 end
