@@ -10,7 +10,7 @@ function fish_prompt
     echo -n -s (set_color 877960 --italics) "(ssh)" (set_color normal)
   end
   if test -e /.dockerenv
-    echo -n -s "(🐳)"
+    echo -n -s "[D]"
   end
   if set -q SCHROOT_SESSION_ID
     echo -n -s (set_color 85C1E9) "($SCHROOT_SESSION_ID)" (set_color normal)
