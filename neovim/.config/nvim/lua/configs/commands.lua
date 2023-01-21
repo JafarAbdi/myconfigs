@@ -71,7 +71,7 @@ if not vim.g.vscode then
       vim.api.nvim_command(":luafile " .. vim.fn.expand("<afile>"))
       vim.api.nvim_command(":PackerCompile")
     end,
-    pattern = vim.env.HOME .. "/myconfigs/nvim/lua/**.lua",
+    pattern = vim.env.HOME .. "/.config/nvim/lua/**.lua",
     group = general_group,
   })
 

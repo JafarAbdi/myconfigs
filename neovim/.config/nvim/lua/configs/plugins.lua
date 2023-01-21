@@ -115,7 +115,7 @@ return packer.startup({
       },
     })
     -- C++
-    use("p00f/clangd_extensions.nvim")
+    use({ "p00f/clangd_extensions.nvim", ft = "cpp" })
     -- Used to fix symlink files
     use("famiu/bufdelete.nvim")
     -- Heuristically set buffer options

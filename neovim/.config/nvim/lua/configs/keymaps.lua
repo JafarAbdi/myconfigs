@@ -268,10 +268,26 @@ keymap("i", "<c-l>", {
   end,
 })
 
-keymap("", "<M-C-h>", { neovim = require("tmux").resize_left })
-keymap("", "<M-C-j>", { neovim = require("tmux").resize_bottom })
-keymap("", "<M-C-k>", { neovim = require("tmux").resize_top })
-keymap("", "<M-C-l>", { neovim = require("tmux").resize_right })
+keymap("", "<M-C-h>", {
+  neovim = function()
+    require("tmux").resize_left()
+  end,
+})
+keymap("", "<M-C-j>", {
+  neovim = function()
+    require("tmux").resize_bottom()
+  end,
+})
+keymap("", "<M-C-k>", {
+  neovim = function()
+    require("tmux").resize_top()
+  end,
+})
+keymap("", "<M-C-l>", {
+  neovim = function()
+    require("tmux").resize_right()
+  end,
+})
 
 -- Tab switching
 keymap("n", "<C-t>", { neovim = ":tabedit<CR>" })
