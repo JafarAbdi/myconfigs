@@ -115,7 +115,7 @@ def create_vscode_config(build_dir, output_dir=None):
     import json
 
     if output_dir is None:
-        output_dir = Path(".")
+        output_dir = Path()
     vscode_dir = Path(output_dir) / Path(".vscode")
     settings_file = "settings.json"
     vscode_dir.mkdir(parents=True, exist_ok=True)
