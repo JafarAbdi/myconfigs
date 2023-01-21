@@ -56,7 +56,7 @@ return {
   "famiu/bufdelete.nvim",
   -- Heuristically set buffer options
   "tpope/vim-sleuth",
-  { "tpope/vim-commentary", keys = { "gc", "gcc" } },
+  { "tpope/vim-commentary", keys = { { "gc", mode = "v" }, "gcc" } },
   { "wsdjeg/vim-fetch", lazy = false },
   "nvim-lua/plenary.nvim",
 }

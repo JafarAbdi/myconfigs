@@ -1,5 +1,5 @@
+--    use("github/copilot.vim")
 --    -- LSP clients configurations
---    use("neovim/nvim-lspconfig")
 --    use("krady21/compiler-explorer.nvim")
 --    -- Debugger
 --    use({
@@ -10,6 +10,3 @@
 --        "mfussenegger/nvim-dap-python",
 --      },
 --    })
---    -- C++
---    use("p00f/clangd_extensions.nvim")
---    use("github/copilot.vim")

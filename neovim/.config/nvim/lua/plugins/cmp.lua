@@ -31,7 +31,7 @@ return {
   },
   {
     "hrsh7th/nvim-cmp",
-    event = "InsertEnter",
+    event = { "InsertEnter", "CmdlineEnter" },
     dependencies = {
       "JafarAbdi/cmp-conan",
       "hrsh7th/cmp-nvim-lsp",

@@ -79,6 +79,10 @@
     "branch": "master",
     "commit": "57a52fce9b4a045f0b371a4ca5cbb535b9db0bdd"
   },
+  "nvim-lspconfig": {
+    "branch": "master",
+    "commit": "2df0fbdadd947cd2995566a0117b8802a9ba74f4"
+  },
   "nvim-surround": {
     "branch": "main",
     "commit": "a06dea11e7fdcf338776fa51fa5277163ffb048d"

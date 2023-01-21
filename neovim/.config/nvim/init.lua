@@ -26,12 +26,4 @@ if not vim.g.vscode then
   end
 end
 
--- require("config.options")
 require("config.lazy")
-require("config.commands")
-require("config.keymaps")
-
--- if not vim.g.vscode then
--- require("config.functions")
--- require("config.colorscheme")
--- end
