@@ -3,6 +3,10 @@
     "branch": "master",
     "commit": "563827f00bb4fe43269e3be653deabc0005f1302"
   },
+  "bufdelete.nvim": {
+    "branch": "master",
+    "commit": "f79e9d186b42fba5f1b1362006e7c70240db97a4"
+  },
   "cmp-buffer": {
     "branch": "main",
     "commit": "3022dbc9166796b644a841a02de8dd1cc1d311fa"
@@ -46,6 +50,18 @@
   "cmp_luasnip": {
     "branch": "master",
     "commit": "18095520391186d634a0045dacaa346291096566"
+  },
+  "compiler-explorer.nvim": {
+    "branch": "master",
+    "commit": "c9ce6476e4b481c64d13939c6696043b8e21dd43"
+  },
+  "copilot.vim": {
+    "branch": "release",
+    "commit": "8c8416488ef21483dd5d2922ea194c05e9a3baaf"
+  },
+  "gitsigns.nvim": {
+    "branch": "main",
+    "commit": "bb808fc7376ed7bac0fbe8f47b83d4bf01738167"
   },
   "indent-blankline.nvim": {
     "branch": "master",
@@ -91,6 +107,10 @@
     "branch": "master",
     "commit": "2df0fbdadd947cd2995566a0117b8802a9ba74f4"
   },
+  "nvim-surround": {
+    "branch": "main",
+    "commit": "a06dea11e7fdcf338776fa51fa5277163ffb048d"
+  },
   "nvim-treesitter": {
     "branch": "master",
     "commit": "69388e84c34d40c3d5c7d2f310db13276f2179e1"
@@ -107,6 +127,10 @@
     "branch": "main",
     "commit": "f2445369f2790ceb8fa6c2cff9bbfc2b4fcce276"
   },
+  "plenary.nvim": {
+    "branch": "master",
+    "commit": "9d81624fbcedd3dd43b38d7e13a1e7b3f873d8cd"
+  },
   "telescope-fzf-native.nvim": {
     "branch": "main",
     "commit": "fab3e2212e206f4f8b3bbaa656e129443c9b802e"
@@ -118,5 +142,29 @@
   "telescope.nvim": {
     "branch": "master",
     "commit": "c1a2af0af69e80e14e6b226d3957a064cd080805"
+  },
+  "tmux.nvim": {
+    "branch": "main",
+    "commit": "4e746b3707d4e499acc50d4e64c2fc4f0faf9a44"
+  },
+  "undotree": {
+    "branch": "master",
+    "commit": "1a23ea84bd02c34f50d8e10a8b4bfc89597ffe4e"
+  },
+  "vim-commentary": {
+    "branch": "master",
+    "commit": "34976d96b61d49cafce624cdd947317111c43bd8"
+  },
+  "vim-easy-align": {
+    "branch": "master",
+    "commit": "0db4ea6132110631ec678a99a82aa49a0686ae65"
+  },
+  "vim-fetch": {
+    "branch": "master",
+    "commit": "0b6e2b6464e0bc326d8330c03ead5d53efa4bf71"
+  },
+  "vim-sleuth": {
+    "branch": "master",
+    "commit": "1d25e8e5dc4062e38cab1a461934ee5e9d59e5a8"
   }
 }
