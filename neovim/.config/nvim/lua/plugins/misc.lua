@@ -54,7 +54,7 @@ return {
 
   -- Used to fix symlink files
   "famiu/bufdelete.nvim",
-  "github/copilot.vim",
+  { "github/copilot.vim", event = "VeryLazy" },
   {
     "krady21/compiler-explorer.nvim",
     event = "VeryLazy",

@@ -55,7 +55,7 @@ local jedi_cmd = { "micromamba", "run", "-n", "python-lsp", "jedi-language-serve
 return {
   {
     "neovim/nvim-lspconfig",
-    event = "BufReadPre",
+    lazy = false,
     ---@class PluginLspOpts
     opts = {
       -- options for vim.diagnostic.config()
