@@ -12,7 +12,6 @@ return {
       },
       sections = {
         lualine_b = {
-          "filename",
           "branch",
           "diff",
           function()

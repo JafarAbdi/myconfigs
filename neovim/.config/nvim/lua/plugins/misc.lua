@@ -54,6 +54,11 @@ return {
 
   -- Used to fix symlink files
   "famiu/bufdelete.nvim",
+  "github/copilot.vim",
+  {
+    "krady21/compiler-explorer.nvim",
+    event = "VeryLazy",
+  },
   -- Heuristically set buffer options
   "tpope/vim-sleuth",
   { "tpope/vim-commentary", keys = { { "gc", mode = "v" }, "gcc" } },
