@@ -61,17 +61,9 @@ if not vim.g.vscode then
     callback = function()
       -- Deletes all trailing whitespaces in a file if it's not binary nor a diff.
       if not vim.o.binary and vim.o.filetype ~= "diff" then
-        require("configs.functions").clean_whitespaces()
+        require("config.functions").clean_whitespaces()
       end
     end,
-    group = general_group,
-  })
-  vim.api.nvim_create_autocmd("BufWritePost", {
-    callback = function()
-      vim.api.nvim_command(":luafile " .. vim.fn.expand("<afile>"))
-      vim.api.nvim_command(":PackerCompile")
-    end,
-    pattern = vim.env.HOME .. "/.config/nvim/lua/**.lua",
     group = general_group,
   })
 
@@ -109,7 +101,7 @@ if not vim.g.vscode then
     })
   end
   vim.api.nvim_create_user_command("CleanWhitespaces", function()
-    require("configs.functions").clean_whitespaces()
+    require("config.functions").clean_whitespaces()
   end, {})
 
   vim.api.nvim_create_user_command("SpellToggle", function()
@@ -172,7 +164,7 @@ if not vim.g.vscode then
   end, {})
 
   vim.api.nvim_create_user_command("DapLaunch", function()
-    require("dap").run(require("configs.dap").launch_in_terminal)
+    require("dap").run(require("config.dap").launch_in_terminal)
   end, {})
 
   vim.api.nvim_create_user_command("DapLaunchPython", function()
@@ -206,11 +198,11 @@ if not vim.g.vscode then
   end, {})
 
   vim.api.nvim_create_user_command("GenerateAllStubs", function()
-    require("configs.functions").generate_all_python_stubs()
+    require("config.functions").generate_all_python_stubs()
   end, {})
 
   vim.api.nvim_create_user_command("GenerateStubs", function(params)
-    require("configs.functions").generate_python_stubs(params.fargs)
+    require("config.functions").generate_python_stubs(params.fargs)
   end, { nargs = "*" })
   vim.api.nvim_create_user_command("CESetup", function(opts)
     local options = {

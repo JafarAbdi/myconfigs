@@ -105,7 +105,7 @@ M.lsp = function(bufnr)
   keymap("n", "<F2>", { neovim = vim.lsp.buf.rename }, bufnr)
 end
 local run_file = function(is_test)
-  local run_in_terminal = require("configs.run_in_terminal")
+  local run_in_terminal = require("config.run_in_terminal")
 
   local root_dir = vim.fn.expand("%:p:h")
   for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
@@ -311,7 +311,7 @@ end
 
 keymap("", "<M-C-t>", {
   neovim = function()
-    local bufnr = require("configs.functions").is_buffer_exists("[Terminal]")
+    local bufnr = require("config.functions").is_buffer_exists("[Terminal]")
     if bufnr then
       local win = is_win_exists(bufnr)
       if win then

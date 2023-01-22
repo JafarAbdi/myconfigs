@@ -36,10 +36,6 @@ opt.titlestring = "NVIM: %{substitute(getcwd(), $HOME, '~', '')}%a%r%m "
 
 g.mapleader = " "
 g.maplocalleader = " "
-g.indent_blankline_char = "┊"
-g.indent_blankline_filetype_exclude = { "help", "packer" }
-g.indent_blankline_buftype_exclude = { "terminal", "nofile" }
-g.indent_blankline_show_trailing_blankline_indent = false
 
 --Spell
 opt.spell = false
