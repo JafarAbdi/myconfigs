@@ -101,6 +101,14 @@ return {
             -- "-loglevel",
             -- "6",
           },
+          filetypes = {
+            "python",
+            "cmake",
+            "json",
+            "markdown",
+            "rst",
+            "lua",
+          },
           root_dir = function(dir)
             return require("lspconfig").util.find_git_ancestor(dir) or vim.loop.cwd()
           end,
