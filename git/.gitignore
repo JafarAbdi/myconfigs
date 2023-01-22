@@ -47,6 +47,7 @@ Cargo.lock
 # Neovim
 .mypy_cache/
 .clangd_config
+.clangd
 nvim/plugin/*
 .ropeproject/
 .neovim.json

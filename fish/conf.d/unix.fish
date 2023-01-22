@@ -268,3 +268,4 @@ end
 
 complete -c sfs -w sshfs
 complete -c set-timezone -a "(timedatectl list-timezones)"
+export DOTNET_CLI_TELEMETRY_OPTOUT=1

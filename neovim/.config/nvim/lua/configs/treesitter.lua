@@ -13,6 +13,7 @@ ts_configs.setup({
     "c",
     "cmake",
     "cpp",
+    "c_sharp",
     "dockerfile",
     "fish",
     "help",
