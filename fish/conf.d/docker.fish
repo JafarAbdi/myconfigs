@@ -106,3 +106,6 @@ function start_docker -d "Start docker image with myconfigs & gpu support"
   docker exec -it $cid fish
   xhost -local:root 1>/dev/null 2>&1
 end
+
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
