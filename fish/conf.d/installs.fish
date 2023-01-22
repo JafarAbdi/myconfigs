@@ -69,6 +69,7 @@ function install-core
                       pandoc \
                       libx11-dev
   pip3 install argcomplete==2.0.0
+  pip3 install pandocfilters
   python3 -m pip install --user pipx
   install-ripgrep
   install-fd
@@ -345,11 +346,6 @@ end
 
 function install-nvim
   set -l config_path ~/.config/nvim
-  if test -e $config_path
-    if test (readlink -f $config_path) != $HOME/myconfigs/nvim
-      mv $config_path $config_path".bak"(date +_%Y_%m_%d)
-    end
-  end
   set -l TMP_DIR (mktemp -d -p /tmp nvim-XXXXXX)
   cd $TMP_DIR
   if set -q argv[1] && test $argv[1] = "stable"
@@ -426,11 +422,13 @@ function install-docker
   # It uses the latest stable version, there's release for sid
   # https://docs.docker.com/engine/install/debian/
   # https://nickjanetakis.com/blog/docker-tip-77-installing-docker-on-debian-unstable
-  export distribution=(export (cat /etc/os-release |xargs -L 1);echo $ID$VERSION_ID) \
-    && curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -  \
-    && curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-  sudo apt-get update
-  sudo apt-get install -y nvidia-docker2
+  if ! command -q nvidia-docker &> /dev/null
+    export distribution=(export (cat /etc/os-release |xargs -L 1);echo $ID$VERSION_ID) \
+      && curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -  \
+      && curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+    sudo apt-get update
+    sudo apt-get install -y nvidia-docker2
+  end
   sudo systemctl restart docker
   wget https://raw.githubusercontent.com/docker/cli/master/contrib/completion/fish/docker.fish -O ~/.config/fish/completions/docker.fish
   wget https://raw.githubusercontent.com/docker/compose/master/contrib/completion/fish/docker-compose.fish -O ~/.config/fish/completions/docker-compose.fish
@@ -457,6 +455,7 @@ function install-json-lsp
   install-mamba
   git clone --depth=1 git@github.com:redhat-developer/yaml-language-server.git ~/.config/yaml-lsp
   cd ~/.config/yaml-lsp
+  micromamba run -n nodejs npm install -g yarn
   micromamba run -n nodejs npm install -g vscode-langservers-extracted
   micromamba run -n nodejs npm install -g dockerfile-language-server-nodejs
   micromamba run -n nodejs npm install -g cspell
@@ -686,10 +685,10 @@ function stow-configs
                                                                                 tmux \
                                                                                 fd \
                                                                                 ripgrep \
-                                                                                yamllint
+                                                                                yamllint \
+                                                                                vscode
   stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
-                                                                   neovim \
-                                                                   vscode
+                                                                   neovim
 end
 
 function stow-configs-host
