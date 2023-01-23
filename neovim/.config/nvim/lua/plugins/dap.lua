@@ -32,7 +32,12 @@ return {
         },
       },
       "theHamsta/nvim-dap-virtual-text",
-      "mfussenegger/nvim-dap-python",
+      {
+        "mfussenegger/nvim-dap-python",
+        config = function()
+          require("dap-python").setup("python3")
+        end,
+      },
     },
     config = function()
       local dap = require("dap")
