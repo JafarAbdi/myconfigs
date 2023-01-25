@@ -27,8 +27,6 @@ return {
         "-n",
         "linters",
         "ruff",
-        "--config",
-        vim.env.HOME .. "/myconfigs/linters/ruff.toml",
         "--quiet",
         "-",
       }
@@ -40,8 +38,12 @@ return {
         "-n",
         "linters",
         "mypy",
-        "--quiet",
-        "-",
+        "--show-column-numbers",
+        "--hide-error-codes",
+        "--hide-error-context",
+        "--no-color-output",
+        "--no-error-summary",
+        "--no-pretty",
       }
 
       lint.linters_by_ft = {
