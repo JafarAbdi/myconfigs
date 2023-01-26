@@ -577,7 +577,6 @@ end
 
 function stow-configs-host
   stow-configs
-  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow alacritty
   sudo stow --target / --stow schroot
 end
 
