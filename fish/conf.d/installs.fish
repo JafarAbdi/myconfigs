@@ -566,7 +566,6 @@ function stow-configs
                                                                                 scripts \
                                                                                 stylua \
                                                                                 systemd \
-                                                                                tmux \
                                                                                 fd \
                                                                                 ripgrep \
                                                                                 yamllint \
@@ -577,7 +576,12 @@ end
 
 function stow-configs-host
   stow-configs
+  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow tmux-host
   sudo stow --target / --stow schroot
+end
+
+function stow-configs-tmux
+  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow tmux
 end
 
 ##################
