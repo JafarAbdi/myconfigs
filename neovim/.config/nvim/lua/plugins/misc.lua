@@ -60,7 +60,7 @@ return {
     event = "VeryLazy",
   },
   -- Heuristically set buffer options
-  "tpope/vim-sleuth",
+  { "tpope/vim-sleuth", lazy = false },
   { "tpope/vim-commentary", keys = { { "gc", mode = "v" }, "gcc" } },
   { "wsdjeg/vim-fetch", lazy = false },
   "nvim-lua/plenary.nvim",

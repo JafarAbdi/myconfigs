@@ -14,13 +14,17 @@
 ## Installation
 
 ```bash
-sudo apt-add-repository ppa:fish-shell/release-3
-sudo apt update
+sudo apt install -y software-properties-common && sudo apt-add-repository -y ppa:fish-shell/release-3
 sudo apt install -y fish
-setup-ssh-keys
-source ~/myconfigs/fish/config.fish
-install-fish
-install-full-system
-install-i3
-stow-configs # Or stow-configs-host
+fish
+source ~/myconfigs/fish/conf.d/install.fish
+config-fish
+# Host machine
+# setup-ssh-keys
+install-core
+myconfigs && stow-configs # Or stow-configs-host
+install-nvim stable
+install-mamba
+install-python-lsp
+install-efm-lsp
 ```

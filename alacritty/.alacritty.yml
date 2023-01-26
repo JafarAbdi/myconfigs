@@ -10,6 +10,7 @@
 # to the user's home directory starting with `~/`.
 import:
   - ~/.alacritty.keys.yml
+  - ~/.alacritty.local.yml
 
 # Any items in the `env` entry below will be added as
 # environment variables. Some entries may override variables
@@ -105,7 +106,7 @@ scrolling:
   #multiplier: 3
 
 # Font configuration
-font:
+# font:
   # Normal (roman) font face
   #normal:
     # Font family
@@ -151,7 +152,7 @@ font:
     #style: Bold Italic
 
   # Point size
-  size: 8.0
+  # size: 8.0
 
   # Offset is the extra space around each character. `offset.y` can be thought
   # of as modifying the line spacing, and `offset.x` as modifying the letter
@@ -757,7 +758,7 @@ hints:
 # If the same trigger is assigned to multiple actions, all of them are executed
 # in the order they were defined in.
 key_bindings:
-  - {key: Return, mods: Control|Shift, action: CreateNewWindow}
+  - {key: T, mods: Control|Shift, action: SpawnNewInstance}
   #- { key: Paste,                                       action: Paste          }
   #- { key: Copy,                                        action: Copy           }
   #- { key: L,         mods: Control,                    action: ClearLogNotice }

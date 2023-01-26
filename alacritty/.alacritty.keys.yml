@@ -53,7 +53,8 @@ key_bindings:
   - { key: Q, mods: Control|Shift, chars: "\x1b[81;6u" }
   - { key: R, mods: Control|Shift, chars: "\x1b[82;6u" }
   - { key: S, mods: Control|Shift, chars: "\x1b[83;6u" }
-  - { key: T, mods: Control|Shift, chars: "\x1b[84;6u" }
+  # Conflicts with keymap to spawn a new instance
+  # - { key: T, mods: Control|Shift, chars: "\x1b[84;6u" }
   - { key: W, mods: Control|Shift, chars: "\x1b[87;6u" }
   - { key: X, mods: Control|Shift, chars: "\x1b[88;6u" }
   - { key: Y, mods: Control|Shift, chars: "\x1b[89;6u" }
