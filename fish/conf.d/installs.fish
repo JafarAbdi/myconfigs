@@ -310,8 +310,12 @@ function install-fd
 end
 
 function install-mamba
-  curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C ~/.local/bin/ --strip-components=1 bin/micromamba
-  micromamba shell init --shell=fish --prefix=$HOME/micromamba
+  if ! command -q nvidia-docker &> /dev/null
+    curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C ~/.local/bin/ --strip-components=1 bin/micromamba
+    micromamba shell init --shell=fish --prefix=$HOME/micromamba
+  else
+    micromamba self-update
+  end
   myconfigsr
   fd --glob '*.yml' ~/myconfigs/micromamba --exec test ! -e ~/micromamba/envs/{/.} \; --exec micromamba create -y -f {}
 end
