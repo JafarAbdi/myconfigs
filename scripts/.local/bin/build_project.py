@@ -19,7 +19,7 @@ def lua(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
     env = os.environ.copy()
     env.pop("NVIMRUNNING", None)
     run_command(
-        ["nvim", "--headless", "-n", "-c", "source", str(file), "-c", "qall!"] + args,
+        ["nvim", "--headless", "-n", "-c", "source", str(file), "-c", "qall!", *args],
         dry_run=False,
         cwd=cwd,
         env=env,
@@ -27,7 +27,7 @@ def lua(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
 
 
 def fish(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
-    run_command(["fish", str(file)] + args, dry_run=False, cwd=cwd)
+    run_command(["fish", str(file), *args], dry_run=False, cwd=cwd)
 
 
 def python(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
@@ -43,7 +43,8 @@ def python(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool
 def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
     if (cwd / "Cargo.toml").exists():
         output = call(
-            ["cargo", "metadata", "--format-version=1"], cwd=file.parent.resolve()
+            ["cargo", "metadata", "--format-version=1"],
+            cwd=file.parent.resolve(),
         )
         output = json.loads(output)
         resolved_file_path = str(file.resolve())
@@ -53,13 +54,13 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
                 if resolved_file_path == target["src_path"]:
                     if is_test:
                         run_command(
-                            ["cargo", "test", "--bin", target["name"]] + args,
+                            ["cargo", "test", "--bin", target["name"], *args],
                             dry_run=False,
                             cwd=cwd,
                         )
                     else:
                         run_command(
-                            ["cargo", "run", "--bin", target["name"]] + args,
+                            ["cargo", "run", "--bin", target["name"], *args],
                             dry_run=False,
                             cwd=cwd,
                         )
@@ -76,7 +77,7 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
         logging.error(f"Failed to build '{file}'")
         return
     run_command(
-        [str(file.with_suffix(".out"))] + args,
+        [str(file.with_suffix(".out")), *args],
         dry_run=False,
         cwd=cwd,
     )
@@ -102,7 +103,7 @@ def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
             logging.error(f"Failed to build '{file}'")
             return
         run_command(
-            [str(file.with_suffix(".out"))] + args,
+            [str(file.with_suffix(".out")), *args],
             dry_run=False,
             cwd=cwd,
         )
@@ -162,7 +163,7 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict):
         logging.error(f"Failed to build '{target_info['name']}'")
         return False
     run_command(
-        [str(target_info["path"])] + args,
+        [str(target_info["path"]), *args],
         dry_run=False,
         cwd=cwd,
     )
@@ -207,7 +208,11 @@ def main():
 
     # TODO: Replace extra args with values from settings.json
     runner(
-        file_path, settings_args, workspace_path, extra_args=run_args, is_test=args.test
+        file_path,
+        settings_args,
+        workspace_path,
+        extra_args=run_args,
+        is_test=args.test,
     )
 
 

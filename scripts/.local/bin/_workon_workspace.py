@@ -14,10 +14,13 @@ from utils import (
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--workspace-exists", help="Check if a workspace is defined in ~/.workspaces.yaml"
+    "--workspace-exists",
+    help="Check if a workspace is defined in ~/.workspaces.yaml",
 )
 parser.add_argument(
-    "--workspaces", action="store_true", help="Get the list of the available workspaces"
+    "--workspaces",
+    action="store_true",
+    help="Get the list of the available workspaces",
 )
 parser.add_argument(
     "--workspace-name",
@@ -51,7 +54,7 @@ elif args.workspace_name:
             commands.append(f"source {home_dir}/{underlay_path}/install/setup.bash")
         else:
             commands.append(
-                f"source {home_dir}/{underlay_path}/install/local_setup.bash"
+                f"source {home_dir}/{underlay_path}/install/local_setup.bash",
             )
     workspace_path = get_workspace_path(workspace)
     if workspace_path:
@@ -59,7 +62,7 @@ elif args.workspace_name:
             commands.append(f"source {home_dir}/{workspace_path}/devel/setup.bash")
         else:
             commands.append(
-                f"source {home_dir}/{workspace_path}/install/local_setup.bash"
+                f"source {home_dir}/{workspace_path}/install/local_setup.bash",
             )
     print(" && ".join(commands))
 elif args.ros_package_path:

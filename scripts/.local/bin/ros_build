@@ -20,14 +20,14 @@ from utils import (
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pkg", nargs="+").completer = PackagesCompleter(
-        get_ros_packages(os.path.abspath(os.curdir) + "/src")
+        get_ros_packages(Path(os.curdir).resolve() / "src"),
     )
     parser.add_argument("--skip", nargs="+").completer = PackagesCompleter(
-        get_ros_packages(os.path.abspath(os.curdir) + "/src")
+        get_ros_packages(Path(os.curdir).resolve() / "src"),
     )
     # Configuring neovim-cmake
-    workspace_dir = os.path.abspath(os.curdir)
-    src_dir = workspace_dir + "/src"
+    workspace_dir = Path(os.curdir).resolve()
+    src_dir = workspace_dir / "src"
     if not Path(src_dir).exists():
         print(f"{workspace_dir} is not a workspace directory")
         return
@@ -59,7 +59,9 @@ def main():
         help="Force linker to solve references at linking stage (Force GCC to notify about undefined references in shared libraries)",
     )
     parser.add_argument(
-        "--jobs", type=int, choices=range(1, multiprocessing.cpu_count() + 1)
+        "--jobs",
+        type=int,
+        choices=range(1, multiprocessing.cpu_count() + 1),
     )
     parser.add_argument("--verbose", action="store_true", help="")
 

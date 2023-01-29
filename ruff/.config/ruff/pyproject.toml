@@ -11,12 +11,12 @@ extend-select = [
   "C90",
   # isort
   "I",
+  # pep8-naming
+  "N",
   # pydocstyle
   "D",
   # pyupgrade
   "UP",
-  # pep8-naming
-  "N",
   # flake8-2020
   "YTT",
   # flake8-annotations
@@ -31,16 +31,28 @@ extend-select = [
   "B",
   # flake8-builtins
   "A",
+  # flake8-commas
+  "COM",
   # flake8-comprehensions
   "C4",
+  # flake8-datetimez
+  "DTZ",
   # flake-debugger
   "T10",
   # flake8-errmsg
   "EM",
+  # flake8-executable
+  "EXE",
   # lake8-implicit-str-concat
   "ISC",
   # lake8-import-conventions
   "ICN",
+  # flake8-logging-format
+  "G",
+  # flake8-no-pep420
+  "INP",
+  # flake8-no-pep420
+  "INP",
   # flake8-print
   # "T20",
   # flake8-pytest-style
@@ -53,10 +65,12 @@ extend-select = [
   "SIM",
   # flake8-tidy-imports
   "TID",
+  # flake8-type-checking
+  "TCH",
   # flake8-unused-arguments
   # "ARG",
-  # flake8-datetimez
-  "DTZ",
+  # flake8-use-pathlib
+  "PTH",
   # eradicate
   "ERA",
   # pandas-vet
@@ -72,5 +86,5 @@ extend-select = [
   "RUF",
 ]
 ignore = ["E501"]
-extend-ignore = ["ANN", "C90", "D", "PLR2004"]
+extend-ignore = ["ANN", "C90", "D", "PLR2004", "G004"]
 exclude = ["cookiecutter"]

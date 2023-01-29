@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+# noqa: INP001
 """
 Pandoc filter to convert svg files to pdf as suggested at:
 https://github.com/jgm/pandoc/issues/265#issuecomment-27317316
@@ -24,7 +24,7 @@ def svg_to_any(key, value, fmt, meta):
         mimet, _ = mimetypes.guess_type(src)
         option = fmt_to_option.get(fmt)
         if mimet == "image/svg+xml" and option:
-            base_name, _ = os.path.splitext(src)
+            base_name, _ = os.path.splitext(src)  # noqa: PTH122
             eps_name = base_name + "." + option[1]
             try:
                 mtime = os.path.getmtime(eps_name)

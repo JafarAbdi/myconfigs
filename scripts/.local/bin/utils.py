@@ -1,4 +1,3 @@
-#!/usr/bin/python3
 import os
 import pathlib
 import subprocess
@@ -19,7 +18,7 @@ class RosVersions(Enum):
 
 def get_workspaces_yaml():
     file_name = Path(os.getenv("HOME") + "/.workspaces.yaml")
-    with open(file_name) as f:
+    with Path(file_name).open() as f:
         workspaces = (yaml.safe_load(f) or {}) if file_name.exists() else {}
     if ROS_INSTALLATION_DIR.exists():
         for ros_distro in os.listdir(ROS_INSTALLATION_DIR):
@@ -54,7 +53,7 @@ def get_workspace_underlays(workspace):
 def get_package_paths(package_name):
     import rospkg
 
-    workspace_dir = os.path.abspath(os.curdir)
+    workspace_dir = Path(os.curdir).resolve()
     rospack = rospkg.RosPack([workspace_dir + "/src"])
     return (
         rospack.get_path(package_name),
