@@ -245,8 +245,10 @@ M.preview_jobs = {}
 M.compile_md = function(filename)
   -- TODO: Add an option to select tmp/cwd
   -- vim.fn.fnamemodify(filename, ":p:r") .. ".pdf"
+  -- local output_filename = M.preview_jobs[filename] and M.preview_jobs[filename].output_filename
+  --   or (vim.fn.tempname() .. ".pdf")
   local output_filename = M.preview_jobs[filename] and M.preview_jobs[filename].output_filename
-    or (vim.fn.tempname() .. ".pdf")
+    or (vim.fn.fnamemodify(filename, ":p:r") .. ".pdf")
   local Job = require("plenary.job")
   local job = Job:new({
     command = "pandoc",
@@ -260,6 +262,8 @@ M.compile_md = function(filename)
       "geometry:right=1cm",
       "-V",
       "geometry:bottom=2cm",
+      "--highlight-style",
+      "tango",
       "--filter=" .. debug.getinfo(1).source:match("@?(.*/)") .. "pandoc-svg.py",
       "-o",
       output_filename,
