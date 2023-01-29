@@ -313,11 +313,11 @@ function install-mamba
   if ! command -q nvidia-docker &> /dev/null
     curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C ~/.local/bin/ --strip-components=1 bin/micromamba
     micromamba shell init --shell=fish --prefix=$HOME/micromamba
+    fd --glob '*.yml' ~/myconfigs/micromamba-envs --exec test ! -e ~/micromamba/envs/{/.} \; --exec micromamba create -y -f {}
   else
     micromamba self-update
   end
   myconfigsr
-  fd --glob '*.yml' ~/myconfigs/micromamba --exec test ! -e ~/micromamba/envs/{/.} \; --exec micromamba create -y -f {}
 end
 
 function install-mold
@@ -559,6 +559,7 @@ function unstow-configs
                                                                      vscode \
                                                                      fd \
                                                                      ripgrep \
+                                                                     micromamba \
                                                                      yamllint
 end
 function stow-configs
@@ -572,6 +573,7 @@ function stow-configs
                                                                                 systemd \
                                                                                 fd \
                                                                                 ripgrep \
+                                                                                micromamba \
                                                                                 yamllint \
                                                                                 vscode
   stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
