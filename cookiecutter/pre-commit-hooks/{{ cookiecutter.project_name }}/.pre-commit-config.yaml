@@ -51,7 +51,7 @@ repos:
     rev: v0.0.237
     hooks:
       - id: ruff
-        args: ['--show-source', '--fix', '--config', '.ruff.toml']
+        args: ['--show-source', '--fix', '--config', 'ruff.toml']
   # Spelling
   # TODO: Add config files
   - repo: https://github.com/codespell-project/codespell
@@ -59,9 +59,8 @@ repos:
     hooks:
       - id: codespell
         args: ['--write-changes',
-               '--ignore-words=.codespell_words',
-               '--exclude-file=.codespellignorelines',
-               '--skip=.github/.cspell/*.txt']
+               '--ignore-words=.pre-commit/codespell_words',
+               '--exclude-file=.pre-commit/codespellignorelines']
   - repo: https://github.com/streetsidesoftware/cspell-cli
     rev: v6.2.0
     hooks:

@@ -134,7 +134,7 @@ function cookiecutter-file
   if test (count $template_name) -eq 1
     set -l temporary_directory (mktemp -d -p /tmp cookiecutter-XXXXX)
     cookiecutter $template_directory/$template_name --output-dir $temporary_directory project_name=$template_name
-    fd --hidden --glob '*' $temporary_directory --exec mv {} .
+    fd --hidden --max-depth 1 --glob '*' $temporary_directory --exec mv {} .
   end
 end
 
@@ -250,19 +250,19 @@ function gstaged
   git status --short | grep 'UA' | awk '{print $2}' | fzf-inline
 end
 
-function gstaged
+function git-staged
   git status --short | grep 'M  ' | awk '{print $2}' | fzf-inline
 end
 
-function gmodified
+function git-modified
   git status --short | grep ' M ' | awk '{print $2}' | fzf-inline
 end
 
-function gconflicts
+function git-conflicts
   git status --short | grep 'UU' | awk '{print $2}' | fzf-inline
 end
 
-function guntracked
+function git-untracked
   git status --short | rg '\??' | awk '{print $2}' | fzf-inline
 end
 
