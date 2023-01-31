@@ -1,7 +1,7 @@
 ci:
     skip: [refurb, luacheck]
 
-# TODO: Add cpp (Maybe a check for the language??)
+# TODO: Maybe a check for the language??
 repos:
   # Standard hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -35,8 +35,9 @@ repos:
       - id: requirements-txt-fixer
       - id: sort-simple-yaml
       - id: trailing-whitespace
+  # Python
   - repo: https://github.com/psf/black
-    rev: 22.10.0
+    rev: 22.12.0
     hooks:
       - id: black
   - repo: local
@@ -45,31 +46,50 @@ repos:
         name: refurb
         language: system
         pass_filenames: false
-        entry: micromamba run --name refurb refurb scripts
+        entry: micromamba run --name refurb refurb
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.0.237
+    hooks:
+      - id: ruff
+        args: ['--show-source', '--fix', '--config', '.ruff.toml']
+  # Spelling
+  # TODO: Add config files
   - repo: https://github.com/codespell-project/codespell
     rev: v2.2.2
     hooks:
       - id: codespell
-        args: ['--write-changes', '--ignore-words=.codespell_words', '--exclude-file=.codespellignorelines']
+        args: ['--write-changes',
+               '--ignore-words=.codespell_words',
+               '--exclude-file=.codespellignorelines',
+               '--skip=.github/.cspell/*.txt']
+  - repo: https://github.com/streetsidesoftware/cspell-cli
+    rev: v6.2.0
+    hooks:
+      - id: cspell
+  # Lua
+  # TODO: Add config file
   - repo: https://github.com/JohnnyMorganz/StyLua
-    rev: v0.15.2
+    rev: v0.15.3
     hooks:
       - id: stylua-github
-        args: ['--config-path', 'linters/stylua.toml']
+        args: ['--config-path', 'stylua/.config/stylua/.stylua.toml']
   - repo: https://github.com/Calinou/pre-commit-luacheck
     rev: v1.0.0
     hooks:
       - id: luacheck
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.0.141
-    hooks:
-      - id: ruff
-        args: ['--show-source', '--fix', '--config', 'linters/ruff.toml']
+  # Docker
   - repo: https://github.com/hadolint/hadolint
     rev: v2.12.1-beta
     hooks:
       - id: hadolint-docker
+  # XML
   - repo: https://github.com/lsst-ts/pre-commit-xmllint
-    rev: 6f36260b537bf9a42b6ea5262c915ae50786296e
+    rev: v1.0.0
     hooks:
       - id: format-xmllint
+  # C++
+  # TODO: Add config file?
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v15.0.7
+    hooks:
+    -   id: clang-format
