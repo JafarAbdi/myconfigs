@@ -1,5 +1,19 @@
 return {
   {
+    "danymat/neogen",
+    cmd = "Neogen",
+    opts = {
+      snippet_engine = "luasnip",
+      languages = {
+        python = {
+          template = {
+            annotation_convention = "google_docstrings",
+          },
+        },
+      },
+    },
+  },
+  {
     "aserowy/tmux.nvim",
     event = "VeryLazy",
     opts = {
