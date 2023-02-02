@@ -18,8 +18,8 @@ jobs:
       - name: Install luacheck
         run: sudo apt-get install luarocks libxml2-utils && sudo luarocks install luacheck
       - name: Install micromamba environment
-        uses: mamba-org/provision-with-micromamba@main
+        uses: mamba-org/provision-with-micromamba@v15
         with:
-          environment-file: micromamba/refurb.yml
+          environment-file: micromamba-envs/refurb.yml
       - uses: actions/setup-python@v2
       - uses: pre-commit/action@v2.0.3
