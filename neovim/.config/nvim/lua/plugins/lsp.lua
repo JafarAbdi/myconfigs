@@ -1,8 +1,9 @@
 local clangd_workspace_root = function(startpath)
   local util = require("lspconfig.util")
-  local search_fn = util.root_pattern(
+  local search_fn = util.root_pattern(".clangd")
+
+  local fallback_search_fn = util.root_pattern(
     ".vscode",
-    ".clangd",
     ".clang-tidy",
     ".clang-format",
     "compile_commands.json",
@@ -12,7 +13,7 @@ local clangd_workspace_root = function(startpath)
   )
   -- If root directory not found set it to file's directory
   local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
-    or search_fn(vim.g.clangd_opening_dir)
+    or fallback_search_fn(startpath)
     or vim.fn.getcwd()
   return dir
 end

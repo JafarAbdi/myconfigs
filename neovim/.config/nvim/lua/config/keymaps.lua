@@ -67,12 +67,6 @@ M.lsp = function(bufnr)
   keymap("n", "K", { neovim = vim.lsp.buf.hover }, bufnr)
   local lsp_action = function(callback)
     return function()
-      -- Because tooling is c++ is horrible, we set the path to the directory of the file that called this callback
-      -- to use it later as a fallback when we can't find a settings file with the path to the compile_commands.json
-      local filetype = require("plenary.filetype")
-      if filetype.detect(vim.fn.expand("%:p")) == "cpp" then
-        vim.g.clangd_opening_dir = vim.fn.expand("%:p:h")
-      end
       callback({ fname_width = 0.55 })
     end
   end

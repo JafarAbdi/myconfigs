@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import argcomplete
+import yaml
 from utils import (
     PackagesCompleter,
     RosVersions,
@@ -31,25 +32,33 @@ def main():
     if not Path(src_dir).exists():
         print(f"{workspace_dir} is not a workspace directory")
         return
-    clangd_path = Path(workspace_dir) / ".clangd"
-    if not clangd_path.exists():
-        with clangd_path.open("w", encoding="utf-8") as file:
-            file.write("CompileFlags:\n\tAdd: [-std=c++17]")
     packages = get_ros_packages_path(src_dir)
     build_path = Path(workspace_dir) / "build"
+    clangd_configs = [{"CompileFlags": {"Add": ["-std=c++17"]}}]
     for package, path in packages:
         create_vscode_config(
             str((build_path / f"{package}").absolute()),
             Path(path),
         )
+        clangd_configs.append(
+            {
+                "If": {"PathMatch": [path + "/.*"]},
+                "CompileFlags": {
+                    "CompilationDatabase": str((build_path / f"{package}").absolute()),
+                },
+            },
+        )
+    clangd_path = Path(workspace_dir) / ".clangd"
+    with clangd_path.open("w") as stream:
+        yaml.safe_dump_all(clangd_configs, stream)
 
     # Configuring clangd
     parser.add_argument("--build-tests", action="store_true", help="")
     parser.add_argument("--dry-run", action="store_true", help="")
     parser.add_argument(
         "--build-type",
-        default="release",
-        const="release",
+        default="rel-with-deb-info",
+        const="rel-with-deb-info",
         nargs="?",
         choices=["debug", "min-size-rel", "release", "rel-with-deb-info"],
     )
