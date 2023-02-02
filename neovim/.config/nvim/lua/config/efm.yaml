@@ -8,7 +8,7 @@ tools:
 languages:
   python:
     - <<: *python-black
-    - <<: *python-ruff
+    # - <<: *python-ruff
   cmake:
     - format-command: 'cmake-format -'
       format-stdin: true

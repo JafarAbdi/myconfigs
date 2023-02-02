@@ -10,6 +10,7 @@
 - Create file named `~/.machine_name` inside it nameof_machine
 - Create file `~/myconfigs/i3/i3_$nameof_machine`
 - Disable 'Ctrl+Shift+u' binding: `ibus-setup` -> Emoji -> Unicode code point
+- Make sure to remove `sudo apt remove fonts-noto-color-emoji` if installed, otherwise st will segfault (See https://git.suckless.org/st/file/FAQ.html#l168).
 
 ## Installation
 

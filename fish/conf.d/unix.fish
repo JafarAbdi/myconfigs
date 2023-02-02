@@ -246,9 +246,9 @@ function fzf-inline -d "List files and put them under current cursor"
 end
 
 
-function gstaged
-  git status --short | grep 'UA' | awk '{print $2}' | fzf-inline
-end
+# function gstaged
+#   git status --short | grep 'UA' | awk '{print $2}' | fzf-inline
+# end
 
 function git-staged
   git status --short | grep 'M  ' | awk '{print $2}' | fzf-inline
