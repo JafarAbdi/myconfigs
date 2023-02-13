@@ -10,3 +10,4 @@ dependencies:
   - python=3.11.0
   - requests
   - cookiecutter
+  - argcomplete
