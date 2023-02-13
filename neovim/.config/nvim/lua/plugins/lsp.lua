@@ -1,22 +1,4 @@
-local clangd_workspace_root = function(startpath)
-  local util = require("lspconfig.util")
-  local search_fn = util.root_pattern(".clangd")
-
-  local fallback_search_fn = util.root_pattern(
-    ".vscode",
-    ".clang-tidy",
-    ".clang-format",
-    "compile_commands.json",
-    "compile_flags.txt",
-    "configure.ac",
-    ".git"
-  )
-  -- If root directory not found set it to file's directory
-  local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
-    or fallback_search_fn(startpath)
-    or vim.fn.getcwd()
-  return dir
-end
+local root_dirs = require("config.functions").root_dirs
 
 -- For testing inlayHints
 local clangd_cmd = {
@@ -27,23 +9,12 @@ local clangd_cmd = {
 -- clangd_cmd = vim.deepcopy(clangd_debug_cmd)
 
 -- local cmake_cmd = { "cmake-language-server", "-vv", "--log-file", "/tmp/cmake-lsp.txt" }
--- local cmake_cmd = { "cmake-language-server" }
+local cmake_cmd = { "cmake-language-server" }
 
 local runtime_path = vim.split(package.path, ";")
 table.insert(runtime_path, "lua/?.lua")
 table.insert(runtime_path, "lua/?/init.lua")
 
-local jedi_workspace_root = function(startpath)
-  return require("lspconfig.util").root_pattern(
-    ".vscode",
-    "pyproject.toml",
-    "setup.py",
-    "setup.cfg",
-    "requirements.txt",
-    "Pipfile",
-    "package.xml"
-  )(startpath)
-end
 local jedi_init_options = {
   workspace = {
     extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
@@ -67,7 +38,6 @@ return {
         severity_sort = true,
       },
       -- LSP Server Settings
-      ---@type lspconfig.options
       servers = {
         tsserver = {},
         clangd = {
@@ -82,14 +52,14 @@ return {
           on_new_config = function(new_config, new_root_dir)
             local Path = require("plenary.path")
             new_config.cmd = vim.deepcopy(clangd_cmd)
-            local root = Path:new(clangd_workspace_root(new_root_dir))
+            local root = Path:new(root_dirs.cpp(new_root_dir))
             local settings_dir = root:joinpath(".vscode", "settings.json")
             if settings_dir:exists() then
               local settings = vim.json.decode(settings_dir:read())
               vim.list_extend(new_config.cmd, settings["clangd.arguments"])
             end
           end,
-          root_dir = clangd_workspace_root,
+          root_dir = root_dirs.cpp,
           single_file_support = true,
         },
         efm = {
@@ -305,17 +275,28 @@ return {
             },
           },
         },
-        -- cmake = {
-        --   cmd = cmake_cmd,
-        --   on_new_config = function(new_config, new_root_dir)
-        --     new_config.cmd = cmake_cmd
-        --     new_config.init_options = {
-        --       buildDirectory = require("config.functions").load_clangd_config(new_root_dir),
-        --     }
-        --   end,
-        --   root_dir = require("config.functions").clangd_root_dir,
-        --   single_file_support = true,
-        -- },
+        cmake = {
+          cmd = cmake_cmd,
+          on_new_config = function(new_config, new_root_dir)
+            new_config.cmd = cmake_cmd
+            local Path = require("plenary.path")
+            local root = Path:new(root_dirs.cmake(new_root_dir))
+            local build_dir = nil
+            local settings_dir = root:joinpath(".vscode", "settings.json")
+            if settings_dir:exists() then
+              local ok, settings = pcall(vim.json.decode, settings_dir:read())
+              if not ok then
+                vim.notify("Error parsing '" .. settings_dir.filename .. "'", vim.log.levels.WARN)
+              end
+              build_dir = settings["cmake.buildDirectory"]
+            end
+            new_config.init_options = {
+              buildDirectory = build_dir,
+            }
+          end,
+          root_dir = root_dirs.cmake,
+          single_file_support = true,
+        },
         dockerls = {
           cmd = { "micromamba", "run", "-n", "nodejs", "docker-langserver", "--stdio" },
         },
@@ -324,7 +305,7 @@ return {
           init_options = jedi_init_options,
           on_new_config = function(new_config, new_root_dir)
             local Path = require("plenary.path")
-            local root = Path:new(jedi_workspace_root(new_root_dir))
+            local root = Path:new(root_dirs.python(new_root_dir))
             local settings_dir = root:joinpath(".vscode", "settings.json")
             if settings_dir:exists() then
               local ok, settings = pcall(vim.json.decode, settings_dir:read())
@@ -338,7 +319,7 @@ return {
             end
           end,
           root_dir = function(startpath)
-            local dir = jedi_workspace_root(startpath)
+            local dir = root_dirs.python(startpath)
             return dir or vim.loop.cwd()
           end,
         },

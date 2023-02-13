@@ -99,25 +99,36 @@ M.lsp = function(bufnr)
   keymap("n", "<F2>", { neovim = vim.lsp.buf.rename }, bufnr)
 end
 local run_file = function(is_test)
-  local run_in_terminal = require("config.run_in_terminal")
+  local filetype = require("plenary.filetype").detect(vim.fn.expand("%:p"))
+  if filetype == "markdown" then
+    vim.cmd.write()
+    return
+  end
 
-  local root_dir = vim.fn.expand("%:p:h")
-  for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
-    if vim.env.HOME == dir then
-      break
-    end
-    if vim.fn.isdirectory(dir .. "/.vscode") == 1 then
-      root_dir = dir
-      break
+  local dirname = vim.fn.expand("%:p:h")
+  local root_dir = require("config.functions").root_dirs[filetype]
+  if root_dir then
+    root_dir = root_dir(dirname) or dirname
+  else
+    root_dir = dirname
+    for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
+      if vim.env.HOME == dir then
+        break
+      end
+      if vim.fn.isdirectory(dir .. "/.vscode") == 1 then
+        root_dir = dir
+        break
+      end
     end
   end
 
   vim.cmd.write()
   local args = {
-    -- "run",
-    -- "-n",
-    -- "myconfigs",
-    -- "build_project.py",
+    "run",
+    "-n",
+    "myconfigs",
+    "python3",
+    "~/.local/bin/build_project.py",
     "--workspace-folder",
     root_dir,
     "--file-path",
@@ -126,8 +137,9 @@ local run_file = function(is_test)
   if is_test then
     table.insert(args, "--test")
   end
-  -- run_in_terminal("micromamba", args, { cwd = root_dir })
-  run_in_terminal("build_project.py", args, { cwd = root_dir })
+  local run_in_terminal = require("config.run_in_terminal")
+  run_in_terminal("micromamba", args, { cwd = root_dir })
+  -- run_in_terminal("build_project.py", args, { cwd = root_dir })
 end
 keymap("n", "<leader>t", {
   neovim = function()
@@ -137,11 +149,6 @@ keymap("n", "<leader>t", {
 })
 keymap("n", "<leader>x", {
   neovim = function()
-    local filetype = require("plenary.filetype")
-    if filetype.detect(vim.fn.expand("%:p")) == "markdown" then
-      vim.cmd.write()
-      return
-    end
     run_file(false)
   end,
   vscode = "<Cmd>call VSCodeNotify('workbench.action.tasks.runTask', 'Run current file')<CR>",
@@ -151,6 +158,16 @@ keymap("n", "<leader>gc", { neovim = require("telescope.builtin").current_buffer
 keymap("n", "<leader>gr", { neovim = require("telescope.builtin").resume })
 keymap("n", "<leader>h", { neovim = require("telescope.builtin").help_tags })
 keymap("n", "<C-S-s>", { neovim = require("telescope.builtin").grep_string })
+keymap("n", "<C-M-s>", {
+  neovim = function()
+    require("telescope.builtin").grep_string({ grep_open_files = true })
+  end,
+})
+keymap("n", "<C-M-f>", {
+  neovim = function()
+    require("telescope.builtin").live_grep({ grep_open_files = true })
+  end,
+})
 keymap("n", "<C-S-f>", { neovim = require("telescope.builtin").live_grep })
 keymap("n", "<C-p>", { neovim = require("telescope.builtin").find_files })
 keymap("n", "<C-S-p>", { neovim = require("telescope.builtin").commands })

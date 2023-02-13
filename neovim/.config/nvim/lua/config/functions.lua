@@ -1,12 +1,48 @@
-local ok, _ = pcall(require, "plenary")
-if not ok then
-  return
-end
-
-local Path = require("plenary.path")
-local Job = require("plenary.job")
-
 local M = {}
+
+M.root_dirs = {
+  python = function(startpath)
+    return require("lspconfig.util").root_pattern(
+      ".vscode",
+      "pyproject.toml",
+      "setup.py",
+      "setup.cfg",
+      "requirements.txt",
+      "Pipfile",
+      "package.xml"
+    )(startpath)
+  end,
+  cmake = function(startpath)
+    return require("lspconfig.util").root_pattern(".vscode", "package.xml", ".git")(startpath)
+  end,
+  cpp = function(startpath)
+    local util = require("lspconfig.util")
+    local search_fn = util.root_pattern(".clangd")
+
+    local fallback_search_fn = util.root_pattern(
+      ".vscode",
+      ".clang-tidy",
+      ".clang-format",
+      "compile_commands.json",
+      "compile_flags.txt",
+      "configure.ac",
+      ".git"
+    )
+    -- If root directory not found set it to file's directory
+    local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
+      or fallback_search_fn(startpath)
+      or vim.fn.getcwd()
+    return dir
+  end,
+  rust = function(startpath)
+    local search_fn =
+      require("lspconfig.util").root_pattern("Cargo.toml", "rust-project.json", ".vscode", ".git")
+    local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
+      or vim.fn.getcwd()
+    return dir
+  end,
+}
+M.root_dirs.c = M.root_dirs.cpp
 
 M.clean_whitespaces = function()
   local current_view = vim.fn.winsaveview()
@@ -20,6 +56,7 @@ P = function(v)
 end
 
 M.generate_all_python_stubs = function()
+  local Job = require("plenary.job")
   local job = Job
     :new({
       command = "python3",
@@ -60,6 +97,7 @@ M.generate_python_stubs = function(missing_packages)
     return
   end
 
+  local Path = require("plenary.path")
   local stubs_dir = Path.new(vim.env.HOME, ".cache", "python-stubs", "stubs")
 
   if #missing_packages == 0 then
@@ -100,6 +138,7 @@ M.generate_python_stubs = function(missing_packages)
     end
   end
 
+  local Job = require("plenary.job")
   local job = Job:new({
     command = "stubgen",
     args = vim.tbl_flatten({
@@ -137,6 +176,7 @@ end
 -- TODO: I don't think this's used anymore
 M.load_clangd_config = function(root_path)
   assert(type(root_path) == "string", "root_path have to be a string")
+  local Path = require("plenary.path")
   return vim.trim(Path:new(M.clangd_root_dir(root_path), ".clangd_config"):read())
 end
 
@@ -160,6 +200,7 @@ end
 M.is_parent = function(parent, path)
   assert(type(parent) == "string")
   assert(type(path) == "string")
+  local Path = require("plenary.path")
   parent = Path:new(parent):normalize("/")
   path = Path:new(path):normalize("/")
   if path:len() < parent:len() then

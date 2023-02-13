@@ -38,6 +38,8 @@ return {
         "-n",
         "linters",
         "mypy",
+        "--install-types",
+        "--non-interactive",
         "--show-column-numbers",
         "--hide-error-codes",
         "--hide-error-context",

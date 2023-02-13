@@ -42,7 +42,9 @@ def main():
         )
         clangd_configs.append(
             {
-                "If": {"PathMatch": [path + "/.*"]},
+                "If": {
+                    "PathMatch": [str(Path(path).relative_to(workspace_dir)) + "/.*"]
+                },
                 "CompileFlags": {
                     "CompilationDatabase": str((build_path / f"{package}").absolute()),
                 },

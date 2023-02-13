@@ -46,6 +46,7 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
         )
         output = json.loads(output)
         resolved_file_path = str(file.resolve())
+        workspace_root = output["workspace_root"]
         for package in output["packages"]:
             for target in package["targets"]:
                 # TODO: Check kind, we should only run bin
@@ -54,16 +55,26 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
                         run_command(
                             ["cargo", "test", "--bin", target["name"], *args],
                             dry_run=False,
-                            cwd=cwd,
+                            cwd=workspace_root,
                         )
-                    else:
-                        run_command(
-                            ["cargo", "run", "--bin", target["name"], *args],
-                            dry_run=False,
-                            cwd=cwd,
-                        )
+                    match target["kind"]:
+                        case ["bin"]:
+                            run_command(
+                                ["cargo", "run", "--bin", target["name"], *args],
+                                dry_run=False,
+                                cwd=workspace_root,
+                            )
+                        case ["example"]:
+                            run_command(
+                                ["cargo", "run", "--example", target["name"], *args],
+                                dry_run=False,
+                                cwd=workspace_root,
+                            )
+                        case _:
+                            logging.error(f"Unsupported target kind {target['kind']}")
                     return
         logging.error(f"Can't find a target for {file.resolve()}")
+        return
     if (
         run_command(
             ["rustc", str(file), "-o", str(file.with_suffix(".out"))],
@@ -168,7 +179,22 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict):
     return True
 
 
-runners: Final = {".lua": lua, ".py": python, ".rs": rust, ".cpp": cpp, ".fish": fish}
+def xacro(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
+    run_command(
+        ["curl", "-X", "POST", "http://127.0.0.1:7777/set_reload_request"],
+        dry_run=False,
+    )
+
+
+runners: Final = {
+    ".lua": lua,
+    ".py": python,
+    ".rs": rust,
+    ".cpp": cpp,
+    ".fish": fish,
+    ".xacro": xacro,
+    ".urdf": xacro,
+}
 
 
 def main():
