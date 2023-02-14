@@ -20,6 +20,6 @@ jobs:
       - name: Install micromamba environment
         uses: mamba-org/provision-with-micromamba@v15
         with:
-          environment-file: micromamba-envs/refurb.yml
+          environment-file: environment.yml
       - uses: actions/setup-python@v2
       - uses: pre-commit/action@v2.0.3
