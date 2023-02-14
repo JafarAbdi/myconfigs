@@ -18,7 +18,7 @@ from utils import (
 )
 
 
-def main():
+def main():  # noqa: PLR0912, PLR0915
     parser = argparse.ArgumentParser()
     parser.add_argument("--pkg", nargs="+").completer = PackagesCompleter(
         get_ros_packages(Path(os.curdir).resolve() / "src"),

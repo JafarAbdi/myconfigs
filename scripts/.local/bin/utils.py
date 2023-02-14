@@ -144,6 +144,8 @@ def get_ros_version():
 def call(*args, **kwargs):
     try:
         kwargs["encoding"] = "utf-8"
-        return subprocess.check_output(*args, **kwargs)
+        output = subprocess.check_output(*args, **kwargs)
     except subprocess.CalledProcessError:
-        return ""
+        output = ""
+    else:
+        return output

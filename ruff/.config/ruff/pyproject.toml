@@ -39,6 +39,8 @@ extend-select = [
   "DTZ",
   # flake-debugger
   "T10",
+  # flake8-django
+  "DJ",
   # flake8-errmsg
   "EM",
   # flake8-executable
@@ -51,16 +53,22 @@ extend-select = [
   "G",
   # flake8-no-pep420
   "INP",
-  # flake8-no-pep420
-  "INP",
+  # flake8-pie
+  "PIE",
   # flake8-print
   # "T20",
+  # flake8-pyi
+  "PYI",
   # flake8-pytest-style
   "PT",
   # flake8-quotes
   "Q",
+  # flake8-raise
+  "RSE",
   # flake8-return
   "RET",
+  # flake8-self
+  "SLF",
   # flake8-simplify
   "SIM",
   # flake8-tidy-imports
@@ -82,9 +90,12 @@ extend-select = [
   "PLE",
   "PLR",
   "PLW",
+  # tryceratops
+  "TRY",
   # Ruff-specific rules
   "RUF",
 ]
 ignore = ["E501"]
 extend-ignore = ["ANN", "C90", "D", "PLR2004", "G004"]
 exclude = ["cookiecutter"]
+target-version = "py311"
