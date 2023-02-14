@@ -263,7 +263,7 @@ function git-conflicts
 end
 
 function git-untracked
-  git status --short | rg '\??' | awk '{print $2}' | fzf-inline
+  git status --short | rg '\?\?' | awk '{print $2}' | fzf-inline
 end
 
 complete -c sfs -w sshfs

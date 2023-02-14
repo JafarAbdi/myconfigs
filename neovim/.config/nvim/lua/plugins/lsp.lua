@@ -84,7 +84,7 @@ return {
             return require("lspconfig").util.find_git_ancestor(dir) or vim.loop.cwd()
           end,
         },
-        sumneko_lua = {
+        lua_ls = {
           settings = {
             Lua = {
               format = {
