@@ -78,7 +78,11 @@ return {
             "json",
             "markdown",
             "rst",
+            "sh",
+            "tex",
+            "yaml",
             "lua",
+            "dockerfile",
           },
           root_dir = function(dir)
             return require("lspconfig").util.find_git_ancestor(dir) or vim.loop.cwd()
