@@ -55,6 +55,7 @@ languages:
     - lint-command: 'cmake-lint'
       lint-formats:
         - '%f:%l,%c: %m'
+      lint-severity: 2
     - format-command: 'cmake-format -'
       format-stdin: true
   json:

@@ -1,7 +1,6 @@
 # noqa: INP001
-"""
-Pandoc filter to convert svg files to pdf as suggested at:
-https://github.com/jgm/pandoc/issues/265#issuecomment-27317316
+"""Pandoc filter to convert svg files to pdf as suggested at:
+https://github.com/jgm/pandoc/issues/265#issuecomment-27317316.
 """
 
 import mimetypes

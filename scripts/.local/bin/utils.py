@@ -84,7 +84,7 @@ def get_ros_packages(directory):
 
 
 class PackagesCompleter:
-    def __init__(self, choices):
+    def __init__(self, choices) -> None:
         self.choices = choices
 
     def __call__(self, **kwargs):

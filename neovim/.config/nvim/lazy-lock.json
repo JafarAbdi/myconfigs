@@ -5,7 +5,7 @@
   },
   "bufdelete.nvim": {
     "branch": "master",
-    "commit": "f79e9d186b42fba5f1b1362006e7c70240db97a4"
+    "commit": "8933abc09df6c381d47dc271b1ee5d266541448e"
   },
   "cmp-buffer": {
     "branch": "main",
@@ -13,7 +13,7 @@
   },
   "cmp-cmdline": {
     "branch": "main",
-    "commit": "23c51b2a3c00f6abc4e922dbd7c3b9aca6992063"
+    "commit": "8fcc934a52af96120fe26358985c10c035984b53"
   },
   "cmp-conan": {
     "branch": "main",
@@ -57,11 +57,11 @@
   },
   "copilot.vim": {
     "branch": "release",
-    "commit": "c7d166ebda265370f38cec374e33f02eeec2f857"
+    "commit": "9e869d29e62e36b7eb6fb238a4ca6a6237e7d78b"
   },
   "gitsigns.nvim": {
     "branch": "main",
-    "commit": "5f1451ea7d9a9005b3f0bedeab20cef7a4c65993"
+    "commit": "f388995990aba04cfdc7c3ab870c33e280601109"
   },
   "indent-blankline.nvim": {
     "branch": "master",
@@ -69,7 +69,7 @@
   },
   "lazy.nvim": {
     "branch": "main",
-    "commit": "e916f41df26e33b01f1b3ebe28881090da3a7281"
+    "commit": "8186cc5db31bd5968b5be838a30c4cf1465cb3f9"
   },
   "lualine.nvim": {
     "branch": "master",
@@ -85,7 +85,7 @@
   },
   "nvim-cmp": {
     "branch": "main",
-    "commit": "208d69f233d65526a22c6497ed57d0c80d99fa5f"
+    "commit": "ea9eaff5739856f3187d228d2c1181ea49fd4697"
   },
   "nvim-dap": {
     "branch": "master",
@@ -113,7 +113,7 @@
   },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "b44871afb59e456bbff4113e416405c06c991cf5"
+    "commit": "b23856a88e04e1468e1603d6e0900f2372709e22"
   },
   "nvim-treesitter-context": {
     "branch": "master",
