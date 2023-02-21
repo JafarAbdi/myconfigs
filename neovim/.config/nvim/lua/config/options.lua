@@ -33,6 +33,18 @@ opt.title = true
 opt.wildmode = "list:longest,full"
 opt.relativenumber = true
 opt.titlestring = "NVIM: %{substitute(getcwd(), $HOME, '~', '')}%a%r%m "
+opt.shortmess:append("wIA")
+opt.matchtime = 2
+opt.matchpairs:append("<:>")
+opt.swapfile = false
+-- opt.complete:append("U")
+-- opt.complete:append("i")
+-- opt.complete:append("d")
+-- opt.wildmode = "longest:full,full"
+-- opt.wildignore:append({ "*.pyc", ".git", ".idea", "*.o" })
+-- if vim.fn.has("nvim-0.9") == 1 then
+--   opt.wildoptions = "pum,tagfile,fuzzy"
+-- end
 
 g.mapleader = " "
 g.maplocalleader = " "

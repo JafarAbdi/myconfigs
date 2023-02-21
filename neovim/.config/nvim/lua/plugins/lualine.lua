@@ -22,6 +22,9 @@ return {
             return dap.status()
           end,
         },
+        lualine_c = {
+          require("config.functions").file_or_lsp_status,
+        },
       },
     },
   },

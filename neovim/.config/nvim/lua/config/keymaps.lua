@@ -16,7 +16,9 @@ if not vim.g.vscode then
   vim.keymap.set("i", "<c-,>", function()
     return vim.fn["copilot#Previous"]()
   end, { expr = true })
-  vim.keymap.set("i", "<c-x>", function()
+  vim.keymap.set("i", "<c-c>", function()
+    -- Leave insert mode and cancel completion
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
     return vim.fn["copilot#Dismiss"]()
   end, { expr = true })
 end

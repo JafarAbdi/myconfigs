@@ -164,6 +164,7 @@ return {
         },
         rust_analyzer = {
           cmd = { vim.env.RUST_ANALYZER_BIN },
+          root_dir = root_dirs.rust,
           settings = {
             -- to enable rust-analyzer settings visit:
             -- https://github.com/rust-analyzer/rust-analyzer/blob/master/docs/user/generated_config.adoc

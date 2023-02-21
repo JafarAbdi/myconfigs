@@ -115,7 +115,7 @@ M.generate_python_stubs = function(missing_packages)
       ) or diagnostic.message:match(
         'Skipping analyzing "(.+)": module is installed, but missing library stubs or py.typed marker'
       ) or diagnostic.message:match('Library stubs not installed for "(.+)".+')
-      if package then
+      if package and package ~= "numpy" then
         local package_name = vim.split(package, ".", { plain = true })[1]
         missing_packages[#missing_packages + 1] = package_name
       end
@@ -218,6 +218,34 @@ M.is_parent = function(parent, path)
     end
   end
   return false
+end
+
+M.file_or_lsp_status = function()
+  local messages = vim.lsp.util.get_progress_messages()
+  local mode = vim.api.nvim_get_mode().mode
+  if mode ~= "n" or vim.tbl_isempty(messages) then
+    return vim.fn.fnamemodify(
+      vim.uri_to_fname(vim.uri_from_bufnr(vim.api.nvim_get_current_buf())),
+      ":."
+    )
+  end
+  local percentage
+  local result = {}
+  for _, msg in pairs(messages) do
+    if msg.message then
+      table.insert(result, msg.title .. ": " .. msg.message)
+    else
+      table.insert(result, msg.title)
+    end
+    if msg.percentage then
+      percentage = math.max(percentage or 0, msg.percentage)
+    end
+  end
+  if percentage then
+    return string.format("%03d: %s", percentage, table.concat(result, ", "))
+  else
+    return table.concat(result, ", ")
+  end
 end
 
 return M
