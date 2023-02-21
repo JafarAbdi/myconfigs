@@ -52,16 +52,6 @@ function install-core
   install-fd
 end
 
-function install-cpp-dev
-  sudo apt install -y clang-tools \
-                      clang-tidy \
-                      clang \
-                      gcc \
-                      cmake \
-                      dwarves
-  install-cpp-lsp
-end
-
 function config-fish
   rm -rf ~/.config/fish
   install-fzf
@@ -78,6 +68,12 @@ function config-fish
 end
 
 function install-cpp-lsp
+  sudo apt install -y clang-tools \
+                      clang-tidy \
+                      clang \
+                      gcc \
+                      cmake \
+                      dwarves
   sudo apt install -y bear
   set -l TMP_DIR (mktemp -d -p /tmp clangd-XXXXXX)
   cd $TMP_DIR
@@ -310,7 +306,7 @@ function install-fd
 end
 
 function install-mamba
-  if ! command -q nvidia-docker &> /dev/null
+  if ! command -q micromamba &> /dev/null
     curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C ~/.local/bin/ --strip-components=1 bin/micromamba
     micromamba shell init --shell=fish --prefix=$HOME/micromamba
     fd --glob '*.yml' ~/myconfigs/micromamba-envs --exec test ! -e ~/micromamba/envs/{/.} \; --exec micromamba create -y -f {}
@@ -721,5 +717,26 @@ function install-podman
   sudo apt install -y podman podman-toolbox podman-compose podman-docker
   sudo touch /etc/containers/nodocker
   podman completion -f ~/.config/fish/completions/podman.fish fish
-  podman-tui
+  install-podman-tui
+end
+
+function install-full-development
+  ## Utilities
+  install-difftastic
+  install-mold
+  install-libtree
+  install-gh
+  install-ccache
+  ## Linters
+  install-pre-commit
+  install-hadolint
+  install-cpp-analyzers
+  install-luacheck
+  ## LSP
+  install-markdown-lsp
+  install-lua-lsp
+  install-efm-lsp
+  install-rust-lsp
+  install-python-lsp
+  install-cpp-lsp
 end

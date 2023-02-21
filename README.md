@@ -26,7 +26,29 @@ config-fish
 install-core
 myconfigs && stow-configs # Or stow-configs-host
 install-nvim stable
+install-tmux unstable
 install-mamba
-install-python-lsp
+# Host machine
+install-schroot
+install-podman # Or install-docker
+
+install-full-development # Or
+## Utilities
+install-difftastic
+install-mold
+install-libtree
+install-gh
+install-ccache
+## Linters
+install-pre-commit
+install-hadolint
+install-cpp-analyzers
+install-luacheck
+## LSP
+install-markdown-lsp
+install-lua-lsp
 install-efm-lsp
+install-rust-lsp
+install-python-lsp
+install-cpp-lsp
 ```
