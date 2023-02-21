@@ -13,6 +13,15 @@ function install-from-github
     | wget -i -
 end
 
+function install-common-utils
+  sudo apt update
+  sudo apt install -y zathura \
+                      texlive-latex-extra \
+                      pandoc
+  pip3 install pandocfilters
+  python3 -m pip install --user pipx
+end
+
 function install-core
   sudo apt update
   sudo apt install -y python3-venv \
@@ -39,15 +48,10 @@ function install-core
                       lldb \
                       ninja-build \
                       sshfs \
-                      zathura \
-                      texlive-latex-extra \
                       # Needed for st
                       libxft-dev \
-                      pandoc \
                       libx11-dev
   pip3 install argcomplete==2.0.0
-  pip3 install pandocfilters
-  python3 -m pip install --user pipx
   install-ripgrep
   install-fd
 end
@@ -579,6 +583,9 @@ end
 function stow-configs-host
   stow-configs
   stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow tmux-host
+end
+
+function stow-schroot
   sudo stow --target / --stow schroot
 end
 

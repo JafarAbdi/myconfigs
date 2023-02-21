@@ -28,10 +28,13 @@ myconfigs && stow-configs # Or stow-configs-host
 install-nvim stable
 install-tmux unstable
 install-mamba
+
 # Host machine
 install-schroot
+stow-schroot
 install-podman # Or install-docker
 
+install-common-utils
 install-full-development # Or
 ## Utilities
 install-difftastic
