@@ -1,7 +1,7 @@
 {
   "LuaSnip": {
     "branch": "master",
-    "commit": "37ffce053d4e20236efd43cecf7800e8ef40a997"
+    "commit": "f7c845749aba6096f041a73a26ba64f3817bab99"
   },
   "bufdelete.nvim": {
     "branch": "master",
@@ -65,11 +65,11 @@
   },
   "indent-blankline.nvim": {
     "branch": "master",
-    "commit": "8299fe7703dfff4b1752aeed271c3b95281a952d"
+    "commit": "018bd04d80c9a73d399c1061fa0c3b14a7614399"
   },
   "lazy.nvim": {
     "branch": "main",
-    "commit": "7339145a223dab7e7ddccf0986ffbf9d2cb804e8"
+    "commit": "8077428e63feb0f3bf795d53b23ba1695b28ab0e"
   },
   "lualine.nvim": {
     "branch": "master",
@@ -77,15 +77,15 @@
   },
   "neogen": {
     "branch": "main",
-    "commit": "465af9d6c6fb7f360175991dcc23fc10917e3a06"
+    "commit": "93d997dbddfe084e77ba4541c54a7b8bfd754fb1"
   },
   "nvim-cmp": {
     "branch": "main",
-    "commit": "8202df9561b90102b41dbc1ad71945534ef4ea39"
+    "commit": "7cd39409e7378fa711624687d3b430b8a56c3af9"
   },
   "nvim-dap": {
     "branch": "master",
-    "commit": "049eebe3a1609547a5d2db5ba99585212836adf5"
+    "commit": "fd291e970aa7c46ba2c49448f7d2c94cc7828f4e"
   },
   "nvim-dap-python": {
     "branch": "master",
@@ -93,7 +93,7 @@
   },
   "nvim-dap-ui": {
     "branch": "master",
-    "commit": "bf9f0c4768ce8cb99ac0b99cf06ae6f91c906a1a"
+    "commit": "bdb94e3853d11b5ce98ec182e5a3719d5c0ef6fd"
   },
   "nvim-dap-virtual-text": {
     "branch": "master",
@@ -101,15 +101,15 @@
   },
   "nvim-lspconfig": {
     "branch": "master",
-    "commit": "f0d9150fe8486d0f74757ed9d8987bfc33c7ff44"
+    "commit": "69e2fe3d638566a812c39bc4ea1980f7b833e2fc"
   },
   "nvim-surround": {
     "branch": "main",
-    "commit": "9739e85547cb97d2f0497d2aedbab7d6f5c6654d"
+    "commit": "ebdd22d2040798d0b5a5e50d72d940e95f308121"
   },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "ce0dba96f47cd8bbd46b4c3ac8fd1b9502f1002a"
+    "commit": "83e2e22d9e25d739093c38f0663d547dfea00cf4"
   },
   "nvim-treesitter-context": {
     "branch": "master",
@@ -137,7 +137,7 @@
   },
   "telescope.nvim": {
     "branch": "master",
-    "commit": "f40e3e2304c633411ddf266075f7db5184b1db02"
+    "commit": "a486ac3e8fb2198f3636da1927ed57a28836fbd8"
   },
   "tmux.nvim": {
     "branch": "main",

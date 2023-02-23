@@ -58,7 +58,7 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
                             cwd=workspace_root,
                         )
                     # TODO: Remove once ruff support pattern matching
-                    match target["kind"]:  # noqa: E999
+                    match target["kind"]:
                         case ["bin"]:
                             run_command(
                                 ["cargo", "run", "--bin", target["name"], *args],

@@ -68,7 +68,7 @@ function config-fish
   # To be able to source bash scripts
   fisher install edc/bass
   # fisher install wfxr/forgit
-  chsh -s `which fish`
+  chsh -s /usr/bin/fish
 end
 
 function install-cpp-lsp
