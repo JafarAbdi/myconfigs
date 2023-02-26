@@ -428,7 +428,7 @@ function install-lua-lsp
   mkdir -p ~/.config/lua-lsp
   rm -r "~/.config/lua-lsp/*" 2> /dev/null
   cd ~/.config/lua-lsp
-  curl -s https://api.github.com/repos/sumneko/lua-language-server/releases \
+  curl -s https://api.github.com/repos/LuaLS/lua-language-server/releases \
      | grep "browser_download_url" \
      | grep "linux-x64" \
      | cut -d":" -f 2,3 \

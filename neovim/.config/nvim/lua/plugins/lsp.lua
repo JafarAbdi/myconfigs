@@ -89,6 +89,7 @@ return {
           end,
         },
         lua_ls = {
+          cmd = { vim.env.HOME .. "/.config/lua-lsp/bin/lua-language-server" },
           settings = {
             Lua = {
               format = {
