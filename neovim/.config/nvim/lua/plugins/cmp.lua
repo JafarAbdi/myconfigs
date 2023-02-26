@@ -70,11 +70,7 @@ return {
           ["<C-Space>"] = cmp.mapping.complete(),
           ["<C-c>"] = cmp.mapping.abort(),
           ["<C-e>"] = cmp.mapping(function(_fallback)
-            vim.api.nvim_feedkeys(
-              vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
-              "n",
-              true
-            )
+            require("copilot.suggestion").accept()
           end),
           ["<CR>"] = cmp.mapping.confirm({
             behavior = cmp.ConfirmBehavior.Insert,

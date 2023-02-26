@@ -6,22 +6,6 @@ vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 
-if not vim.g.vscode then
-  vim.keymap.set("i", "<C-e>", function()
-    return vim.fn["copilot#Accept"]()
-  end, { expr = true })
-  vim.keymap.set("i", "<c-;>", function()
-    return vim.fn["copilot#Next"]()
-  end, { expr = true })
-  vim.keymap.set("i", "<c-,>", function()
-    return vim.fn["copilot#Previous"]()
-  end, { expr = true })
-  vim.keymap.set("i", "<c-c>", function()
-    -- Leave insert mode and cancel completion
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
-    return vim.fn["copilot#Dismiss"]()
-  end, { expr = true })
-end
 -- https://github.com/vscode-neovim/vscode-neovim/tree/master/vim
 local keymap = function(mode, lhs, editor, bufnr)
   if vim.g.vscode and editor.vscode then
