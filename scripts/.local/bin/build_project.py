@@ -51,7 +51,12 @@ def fish(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) 
 
 
 def python(
-    file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool,
+    file: Path,
+    args: list,
+    cwd: Path,
+    extra_args: dict,
+    *,
+    is_test: bool,
 ) -> None:
     """Run a python file.
 
@@ -193,7 +198,7 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict) -> None:
     try:
         responses = index["reply"]["client-vscode"]["query.json"]["responses"]
     except KeyError:
-        logging.error("No response for client-vscode")
+        logging.exception("No response for client-vscode")
         return False
     targets = {}
     for response in responses:
