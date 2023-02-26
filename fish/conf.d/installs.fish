@@ -575,7 +575,8 @@ function stow-configs
                                                                                 ripgrep \
                                                                                 micromamba \
                                                                                 yamllint \
-                                                                                vscode
+                                                                                vscode \
+                                                                                podman
   stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                    neovim
 end
@@ -722,8 +723,8 @@ end
 function install-podman
   # TODO: https://podman.io/getting-started/installation#debian
   sudo apt install -y podman podman-toolbox podman-compose podman-docker
-  sudo touch /etc/containers/nodocker
   podman completion -f ~/.config/fish/completions/podman.fish fish
+  wget https://raw.githubusercontent.com/docker/cli/master/contrib/completion/fish/docker.fish -O ~/.config/fish/completions/docker.fish
   install-podman-tui
 end
 
