@@ -1,12 +1,14 @@
 # noqa: INP001
-"""Pandoc filter to convert svg files to pdf as suggested at:
-https://github.com/jgm/pandoc/issues/265#issuecomment-27317316.
+"""Pandoc filter to convert svg files to pdf as suggested at.
+
+https://github.com/jgm/pandoc/issues/265#issuecomment-27317316
 """
 
 import mimetypes
 import os
 import subprocess
 import sys
+from typing import Literal
 
 from pandocfilters import Image, toJSONFilter
 
@@ -17,7 +19,13 @@ fmt_to_option = {
 }
 
 
-def svg_to_any(key, value, fmt, meta):
+def svg_to_any(
+    key: str,
+    value: list,
+    fmt: Literal["latex", "docx"],
+    _: dict,
+) -> Image | None:
+    """Convert svg to pdf."""
     if key == "Image":
         attrs, alt, [src, title] = value
         mimet, _ = mimetypes.guess_type(src)

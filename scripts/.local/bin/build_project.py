@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+"""Run a file in a workspace."""
+
 
 import argparse
 import json
@@ -15,7 +17,16 @@ from utils import call, run_command
 CMAKE_REPLY_DIR: Final = Path(".cmake") / "api" / "v1" / "reply"
 
 
-def lua(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
+def lua(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
+    """Run a lua file.
+
+    Args:
+        file: File to run
+        args: Arguments to pass to the file when running it
+        cwd: Current working directory
+        extra_args: Generic arguments to be used by the runner
+        is_test: Whether the file is a test or not
+    """
     env = os.environ.copy()
     env.pop("NVIMRUNNING", None)
     run_command(
@@ -26,11 +37,31 @@ def lua(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
     )
 
 
-def fish(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
+def fish(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
+    """Run a fish file.
+
+    Args:
+        file: File to run
+        args: Arguments to pass to the file when running it
+        cwd: Current working directory
+        extra_args: Generic arguments to be used by the runner
+        is_test: Whether the file is a test or not
+    """
     run_command(["fish", str(file), *args], dry_run=False, cwd=cwd)
 
 
-def python(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
+def python(
+    file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool,
+) -> None:
+    """Run a python file.
+
+    Args:
+        file: File to run
+        args: Arguments to pass to the file when running it
+        cwd: Current working directory
+        extra_args: Generic arguments to be used by the runner
+        is_test: Whether the file is a test or not
+    """
     cmd = []
     if micromamba_env := extra_args.get("micromamba"):
         cmd.extend(["micromamba", "run", "-n", micromamba_env])
@@ -38,7 +69,16 @@ def python(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool
     run_command(cmd + args, dry_run=False, cwd=cwd)
 
 
-def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
+def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
+    """Run a rust file.
+
+    Args:
+        file: File to run
+        args: Arguments to pass to the file when running it
+        cwd: Current working directory
+        extra_args: Generic arguments to be used by the runner
+        is_test: Whether the file is a test or not
+    """
     if (cwd / "Cargo.toml").exists():
         output = call(
             ["cargo", "metadata", "--format-version=1"],
@@ -93,7 +133,16 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
     )
 
 
-def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
+def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
+    """Run a cpp file.
+
+    Args:
+        file: File to run
+        args: Arguments to pass to the file when running it
+        cwd: Current working directory
+        extra_args: Generic arguments to be used by the runner
+        is_test: Whether the file is a test or not
+    """
     if (cwd / "CMakeLists.txt").exists():
         cmake(file, args, cwd, extra_args)
         return
@@ -121,7 +170,15 @@ def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
     logging.error(f"Unsupported build system found for cpp file {file}")
 
 
-def cmake(file: Path, args: list, cwd: Path, extra_args: dict):
+def cmake(file: Path, args: list, cwd: Path, extra_args: dict) -> None:
+    """Run a cmake target associated with a file.
+
+    Args:
+        file: File to run the target for
+        args: Arguments to pass to the target when running it
+        cwd: Current working directory
+        extra_args: Generic arguments to be used by the runner
+    """
     settings_path = cwd / ".vscode" / "settings.json"
     with settings_path.open("r") as settings_file:
         settings = json.load(settings_file)
@@ -181,6 +238,15 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict):
 
 
 def xacro(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
+    """Run a urdf/xaacro file.
+
+    Args:
+        file: File to run
+        args: Arguments to pass to the file when running it
+        cwd: Current working directory
+        extra_args: Generic arguments to be used by the runner
+        is_test: Weather the file is a test or not
+    """
     run_command(
         ["curl", "-X", "POST", "http://127.0.0.1:7777/set_reload_request"],
         dry_run=False,
@@ -198,7 +264,8 @@ runners: Final = {
 }
 
 
-def main():
+def main() -> None:
+    """Main function to run the script."""
     parser = argparse.ArgumentParser()
     # https://stackoverflow.com/a/26990349
     parser.add_argument("--workspace-folder", nargs="+", required=True)
