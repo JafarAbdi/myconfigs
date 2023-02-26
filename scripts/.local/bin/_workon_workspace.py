@@ -40,7 +40,7 @@ workspaces = get_workspaces_yaml()
 ROS1_VERSIONS = ["melodic", "noetic"]
 # TODO: Should handle devel/install setup.bash
 if args.workspaces:
-    print(get_workspaces(" "))  # noqa: T201
+    print(get_workspaces(" "))
 elif args.workspace_name:
     workspace = args.workspace_name
     commands = []
@@ -64,7 +64,7 @@ elif args.workspace_name:
             commands.append(
                 f"source {home_dir}/{workspace_path}/install/local_setup.bash",
             )
-    print(" && ".join(commands))  # noqa: T201
+    print(" && ".join(commands))
 elif args.ros_package_path:
     workspace = args.ros_package_path
     if workspace not in get_workspaces():
@@ -74,13 +74,13 @@ elif args.ros_package_path:
     for underlay in get_workspace_underlays(workspace) or []:
         paths.append(f"{home_dir}/{get_workspace_path(underlay)}")
     paths.append(f"{home_dir}/{get_workspace_path(workspace)}")
-    print(" ".join(paths))  # noqa: T201
+    print(" ".join(paths))
 elif args.workspace_path:
     workspace_path = get_workspace_path(args.workspace_path)
     if workspace_path:
-        print("{}".format(home_dir + "/" + workspace_path))  # noqa: T201
+        print("{}".format(home_dir + "/" + workspace_path))
 elif args.workspace_exists:
     if args.workspace_exists in get_workspaces():
-        print("true")  # noqa: T201
+        print("true")
     else:
-        print("false")  # noqa: T201
+        print("false")
