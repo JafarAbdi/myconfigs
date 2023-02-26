@@ -12,3 +12,4 @@ dependencies:
   - cookiecutter
   - argcomplete
   - refurb
+  - pre-commit
