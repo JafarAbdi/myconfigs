@@ -68,41 +68,7 @@ return {
 
   -- Used to fix symlink files
   { "famiu/bufdelete.nvim", lazy = false },
-  {
-    "zbirenbaum/copilot.lua",
-    event = "VeryLazy",
-    opts = {
-      panel = {
-        enabled = false,
-      },
-      suggestion = {
-        enabled = true,
-        auto_trigger = true,
-        debounce = 75,
-        keymap = {
-          accept = "<C-e>",
-          accept_word = "<C-M-e>",
-          accept_line = "<C-M-l>",
-          next = "<C-;>",
-          prev = "<C-,>",
-          dismiss = "<C-c>",
-        },
-      },
-      filetypes = {
-        markdown = false,
-        help = false,
-        gitcommit = false,
-        gitrebase = false,
-        hgcommit = false,
-        svn = false,
-        cvs = false,
-        TelescopePrompt = false,
-        dapui_watches = false,
-        ["dap-repl"] = false,
-        ["."] = false,
-      },
-    },
-  },
+  { "github/copilot.vim", event = "InsertEnter" },
   {
     "krady21/compiler-explorer.nvim",
     event = "VeryLazy",
