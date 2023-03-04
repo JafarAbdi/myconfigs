@@ -133,14 +133,14 @@ function cookiecutter-file
                         fzf --preview='')
   if test (count $template_name) -eq 1
     set -l temporary_directory (mktemp -d -p /tmp cookiecutter-XXXXX)
-    cookiecutter $template_directory/$template_name --output-dir $temporary_directory project_name=$template_name
+    micromamba run -n myconfigs cookiecutter $template_directory/$template_name --output-dir $temporary_directory project_name=$template_name
     fd --hidden --max-depth 1 --glob '*' $temporary_directory --exec mv {} .
   end
 end
 
 function cookiecutter-file-template
   set -l template_directory $HOME/myconfigs/cookiecutter/
-  cookiecutter $template_directory/file-generator
+  micromamba run -n myconfigs $template_directory/file-generator
 end
 
 function restart-zerotier-one
