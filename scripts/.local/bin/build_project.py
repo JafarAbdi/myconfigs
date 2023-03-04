@@ -68,7 +68,7 @@ def python(
         is_test: Whether the file is a test or not
     """
     cmd = []
-    if micromamba_env := extra_args.get("micromamba"):
+    if micromamba_env := extra_args.get("micromamba.env"):
         cmd.extend(["micromamba", "run", "-n", micromamba_env])
     cmd.extend(["python3", str(file)])
     run_command(cmd + args, dry_run=False, cwd=cwd)
@@ -298,10 +298,11 @@ def main() -> None:
         logging.info(f"Load args file '{args_file} with {settings_args}")
     run_args = {}
     # TODO: Refactor to use micromamba.env from settings.json
-    if (micromamba_file := settings_path / "micromamba").exists():
+    if (micromamba_file := settings_path / "settings.json").exists():
         with micromamba_file.open("r") as file:
-            run_args["micromamba"] = file.read().splitlines()[0]
-        logging.info(f"Using micromamba env {run_args['micromamba']}")
+            run_args = json.load(file)
+        if micromamba_env := run_args.get("micromamba"):
+            logging.info(f"Using micromamba env {micromamba_env}")
 
     # TODO: Replace extra args with values from settings.json
     runner(
