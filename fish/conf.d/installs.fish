@@ -17,8 +17,8 @@ function install-common-utils
   sudo apt update
   sudo apt install -y zathura \
                       texlive-latex-extra \
-                      pandoc
-  pip3 install pandocfilters
+                      pandoc \
+                      pandocfilters
   python3 -m pip install --user pipx
 end
 
