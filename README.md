@@ -30,6 +30,7 @@ install-tmux unstable
 install-mamba
 
 # Host machine
+sudo apt install fonts-jetbrains-mono
 install-schroot
 stow-schroot
 install-podman # Or install-docker

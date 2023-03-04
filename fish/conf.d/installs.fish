@@ -583,7 +583,7 @@ end
 
 function stow-configs-host
   stow-configs
-  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow tmux-host
+  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow tmux-host alacritty
 end
 
 function stow-schroot
@@ -658,9 +658,8 @@ end
 ## Terminal ##
 
 function install-alacritty
-   cargo install alacritty
+   cargo install --git https://github.com/alacritty/alacritty.git --branch master
    wget https://github.com/alacritty/alacritty/releases/latest/download/alacritty.fish -O ~/.config/fish/completions/alacritty.fish
-   ln -fs ~/myconfigs/alacritty ~/.config/alacritty
    # wget https://github.com/alacritty/alacritty/releases/latest/download/alacritty.yml
    echo > ~/.alacritty.local.yml "\
 font:
