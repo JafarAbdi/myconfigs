@@ -40,7 +40,7 @@ function start_podman -d "Start a podman image with gpu support"
                      -e PODMAN_NAME=$podman_name \
                      -t \
                      --entrypoint=/bin/bash \
-                     --name "$argv[2]" \
+                     --name "$podman_name" \
                      $argv[1])
   if test $status -ne 0
     echo "Failed to start podman container"
@@ -52,6 +52,7 @@ function start_podman -d "Start a podman image with gpu support"
   podman exec --user root $cid bash -c "adduser $user sudo"
   podman exec --user root $cid bash -c "mkhomedir_helper $user"
   podman exec --user root $cid bash -c "chown $user:$user /home/$user"
+  podman exec --user root $cid bash -c "usermod -d /home/$user $user"
   podman exec --workdir /home/$user --user $user -it $cid bash
 end
 
