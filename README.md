@@ -16,43 +16,7 @@
 ## Installation
 
 ```bash
-sudo apt install -y software-properties-common && sudo apt-add-repository -y ppa:fish-shell/release-3
-sudo apt install -y fish
-fish
-source ~/myconfigs/fish/conf.d/install.fish
-config-fish
-# Host machine
-# setup-ssh-keys
-install-core
-myconfigs && stow-configs # Or stow-configs-host
-install-nvim stable
-install-tmux unstable
-install-mamba
-
-# Host machine
-sudo apt install fonts-jetbrains-mono
-install-schroot
-stow-schroot
-install-podman # Or install-docker
-
-install-common-utils
-install-full-development # Or
-## Utilities
-install-difftastic
-install-mold
-install-libtree
-install-gh
-install-ccache
-## Linters
-install-pre-commit
-install-hadolint
-install-cpp-analyzers
-install-luacheck
-## LSP
-install-markdown-lsp
-install-lua-lsp
-install-efm-lsp
-install-rust-lsp
-install-python-lsp
-install-cpp-lsp
+make setup-fish core
+make host # Host specific configs
+make dev
 ```

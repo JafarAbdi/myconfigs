@@ -19,7 +19,6 @@ function install-common-utils
                       texlive-latex-extra \
                       pandoc \
                       pandocfilters
-  python3 -m pip install --user pipx
 end
 
 function install-core
