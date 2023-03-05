@@ -60,22 +60,11 @@
   st = status
   sh = show --ext-diff
   discard = checkout HEAD --
-  abandon = checkout HEAD --
   pushf = push --force-with-lease
   diffs = diff --staged
   stash-all = stash save --include-untracked
   rlg = log --color --walk-reflogs --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %gs %Cgreen(%gD) %C(bold blue)<%an>%Creset' --abbrev-commit --date=format:'%a %d.%m.%Y %H:%M'
   grep-all-commits = "!f() { git grep \"$1\" $(git rev-list --all); }; f"
-  # New branch in a Worktree.
-  nw = "!f() { git worktree add $1 -b $1; }; f"
-  # New branch in a Worktree From a specified branch
-  nwf = "!f() { git worktree add $2 -b $2 $1; }; f"
-  # Existing branch in a Worktree.
-  ew = "!f() { git worktree add $1 $1; }; f"
-  # List Worktrees.
-  lw = "!f() { git worktree prune && git worktree list; }; f"
-  # Remove Worktree.
-  rw = "!f() { git worktree remove $1; }; f"
 [pager]
   branch = true
 [url "ssh://git@github.com/"]
