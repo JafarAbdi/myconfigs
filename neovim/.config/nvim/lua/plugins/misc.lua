@@ -71,7 +71,7 @@ return {
   { "github/copilot.vim", event = "InsertEnter" },
   {
     "krady21/compiler-explorer.nvim",
-    event = "VeryLazy",
+    cmd = { "CESetup", "CECompile", "CECompileLive" },
   },
   -- Heuristically set buffer options
   { "tpope/vim-sleuth", lazy = false },
