@@ -12,6 +12,9 @@ function fish_prompt
   if test -e /.dockerenv
     echo -n -s (set_color 85C1E9)"[D]"(set_color normal)
   end
+  if set -q PODMAN_NAME
+    echo -n -s (set_color 85C1E9) "($PODMAN_NAME)" (set_color normal)
+  end
   if set -q SCHROOT_SESSION_ID
     echo -n -s (set_color 85C1E9) "($SCHROOT_SESSION_ID)" (set_color normal)
   end

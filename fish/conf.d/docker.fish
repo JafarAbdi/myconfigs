@@ -1,17 +1,29 @@
-function start_docker -d "Start docker image with gpu support"
+function start_podman -d "Start a podman image with gpu support"
   set -l user juruc
   if test (count $argv) -eq 0 ||
      test $argv[1] = "-h" ||
      test $argv[1] = "--help"
-      echo "Usage: start_docker <image name> <optional container name>"
+      echo "Usage: start_podman <image name> <optional container name>"
     return
   end
-  if test -n $argv[2] && contains -- $argv[2] (docker container list --all --format "{{.Names}}")
-    echo "'$argv[2]' correspond to already existing container"
+  set -l podman_name
+  if test -z $argv[2]
+    while true
+      set podman_name (shuf -n1 /usr/share/dict/words | grep -v "'s\$" | string lower)
+      if test $podman_name
+        echo "No input for container name, using '$podman_name'"
+        break
+      end
+    end
+  else
+    set podman_name $argv[2]
+  end
+  if contains -- $podman_name (podman container list --all --format "{{.Names}}")
+    echo "'$podman_name' correspond to already existing container"
     echo "Make sure to stop/remove it"
     return
   end
-  set -l cid (docker run \
+  set -l cid (podman run \
                      --detach \
                      --interactive \
                      --gpus all \
@@ -25,21 +37,22 @@ function start_docker -d "Start docker image with gpu support"
                      -v $HOME/.ssh:$HOME/.ssh:ro \
                      -e HOME \
                      -e USER \
+                     -e PODMAN_NAME=$podman_name \
                      -t \
                      --entrypoint=/bin/bash \
                      --name "$argv[2]" \
                      $argv[1])
   if test $status -ne 0
-    echo "Failed to start docker container"
+    echo "Failed to start podman container"
     return
   end
-  docker exec --user root -it $cid bash -c "passwd $user"
-  docker exec --user root $cid bash -c "apt update"
-  docker exec --user root $cid bash -c "apt install -y sudo"
-  docker exec --user root $cid bash -c "adduser $user sudo"
-  docker exec --user root $cid bash -c "mkhomedir_helper $user"
-  docker exec --user root $cid bash -c "chown $user:$user /home/$user"
-  docker exec --workdir /home/$user --user $user -it $cid bash
+  podman exec --user root -it $cid bash -c "passwd $user"
+  podman exec --user root $cid bash -c "apt update"
+  podman exec --user root $cid bash -c "apt install -y sudo"
+  podman exec --user root $cid bash -c "adduser $user sudo"
+  podman exec --user root $cid bash -c "mkhomedir_helper $user"
+  podman exec --user root $cid bash -c "chown $user:$user /home/$user"
+  podman exec --workdir /home/$user --user $user -it $cid bash
 end
 
 export DOCKER_BUILDKIT=1
