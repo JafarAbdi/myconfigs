@@ -28,4 +28,3 @@ dev: core
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-nvim stable'
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-mamba'
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-full-development'
-
