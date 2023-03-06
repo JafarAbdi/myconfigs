@@ -6,7 +6,7 @@ return {
   {
     "nvim-treesitter/nvim-treesitter",
     build = ":TSUpdate",
-    event = "BufReadPost",
+    event = { "BufReadPost", "BufNewFile" },
     dependencies = {
       {
         "nvim-treesitter/nvim-treesitter-context",
