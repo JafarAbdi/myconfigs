@@ -92,7 +92,10 @@ return {
       highlight = {
         enable = not vim.g.vscode,
         disable = function(lang, buf)
-          return (lang == "html") or disable(lang, buf)
+          return (lang == "html")
+            or disable(lang, buf)
+            -- Disable highlighting for files without a filetype (telescope as an example)
+            or (vim.api.nvim_buf_get_option(buf, "filetype") == "")
         end,
       },
       -- TODO: Why this is not working in vscode?
