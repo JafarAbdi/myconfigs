@@ -6,17 +6,18 @@ function fish_title
         set -l ssh
         set -q SSH_TTY
         and set ssh "["(prompt_hostname | string sub -l 10 | string collect)"]"
+        set -l length 40
         # An override for the current command is passed as the first parameter.
         # This is used by `fg` to show the true process name, among others.
         if set -q argv[1]
-            echo -- $ssh (string sub -l 20 -- $argv[1])
+            echo -- $ssh (string sub -l $length -- $argv[1])
         else
             # Don't print "fish" because it's redundant
             set -l command (status current-command)
             if test "$command" = fish
                 set command
             end
-            echo -- $ssh (string sub -l 20 -- $command)
+            echo -- $ssh (string sub -l $length -- $command)
         end
     end
 end
