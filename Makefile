@@ -23,6 +23,8 @@ host: core
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-common-utils'
 	fish -c 'source ~/myconfigs/fish/config.fish && stow-configs-host'
 	sudo apt install fonts-jetbrains-mono
+	# Required for the st's ligatures patch
+	sudo apt install libharfbuzz-dev
 
 dev: core
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-nvim stable'
