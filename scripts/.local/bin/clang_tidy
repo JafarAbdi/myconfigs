@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+"""A script to run clang-tidy on a cmake project."""
+
 
 import argparse
 import pathlib
@@ -7,7 +9,8 @@ import argcomplete
 from utils import run_command
 
 
-def main():
+def main() -> None:
+    """Main function."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", default="build")
     parser.add_argument("--dry-run", action="store_true", help="")

@@ -24,7 +24,7 @@ def svg_to_any(
     value: list,
     fmt: Literal["latex", "docx"],
     _: dict,
-):
+) -> Image | None:
     """Convert svg to pdf."""
     if key == "Image":
         attrs, alt, [src, title] = value

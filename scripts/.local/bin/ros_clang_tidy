@@ -1,12 +1,14 @@
 #!/usr/bin/python3
+"""A script to run clang-tidy on a ROS package."""
+
 
 import argparse
+import logging
 import os
 import pathlib
 
 import argcomplete
 from utils import (
-    PackagesCompleter,
     RosVersions,
     get_ros_package_path,
     get_ros_packages,
@@ -14,11 +16,15 @@ from utils import (
     run_command,
 )
 
+logger = logging.getLogger(__name__)
 
-def main():
+
+def main() -> None:
+    """Main function."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pkg").completer = PackagesCompleter(
-        get_ros_packages(pathlib.Path(os.curdir).resolve() / "src"),
+    parser.add_argument(
+        "--pkg",
+        choices=get_ros_packages(pathlib.Path(os.curdir).resolve() / "src"),
     )
     parser.add_argument("--dry-run", action="store_true", help="")
     argcomplete.autocomplete(parser)
@@ -27,7 +33,7 @@ def main():
     package_build_path = (pathlib.Path(".") / f"build/{args.pkg}").resolve()
     package_path = get_ros_package_path(pathlib.Path(os.curdir) / "src", args.pkg)
     if not pathlib.Path(package_path).exists():
-        print(f"Package '{args.pkg}' doesn't exists")
+        logger.error(f"Package '{args.pkg}' doesn't exists")
         return
 
     cmd = []
@@ -37,7 +43,7 @@ def main():
         try:
             ros_version = RosVersions(int(ros_version))
         except ValueError:
-            print("Unknown ROS version")
+            logger.exception("Unknown ROS version")
             return
     if ros_version == RosVersions.ROS1:
         cmd += ["catkin", "build"]

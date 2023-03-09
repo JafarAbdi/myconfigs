@@ -1,14 +1,16 @@
 #!/usr/bin/python3
+"""A script to run tests on a ROS package using colcon/catkin."""
+
 
 import argparse
 import json
+import logging
 import os
 import re
 from pathlib import Path
 
 import argcomplete
 from utils import (
-    PackagesCompleter,
     RosVersions,
     call,
     get_package_paths,
@@ -17,10 +19,20 @@ from utils import (
     run_command,
 )
 
+logger = logging.getLogger(__name__)
+
 PATTERN = re.compile(r"\d* tests collected in \d*.\d*s")
 
 
-def get_tests(package_name):
+def get_tests(package_name: str) -> list[str]:
+    """Get tests for a package.
+
+    Args:
+        package_name: Package name to get tests from
+
+    Returns:
+        List of tests for the input package
+    """
     tests = []
     src_dir, build_dir = get_package_paths(package_name)
     parsed_output = json.loads(
@@ -40,14 +52,29 @@ def get_tests(package_name):
 
 
 class TestCompleter:
-    def __call__(self, prefix, parsed_args, **kwargs):
+    """A completer for tests."""
+
+    def __call__(self, prefix: str, parsed_args, **kwargs) -> list[str]:  # noqa: ANN001
+        """Call operator overload for TestCompleter.
+
+        Args:
+            prefix: Prefix from argparse
+            parsed_args: Parse args from argparse
+            **kwargs: Extra arguments
+
+        Returns:
+            List of tests for the package
+        """
         return get_tests(parsed_args.pkg[0])
 
 
-def main():
+def main() -> None:  # noqa: C901
+    """Main function."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pkg", nargs="+").completer = PackagesCompleter(
-        get_ros_packages(Path(os.curdir).resolve() / "src"),
+    parser.add_argument(
+        "--pkg",
+        nargs="+",
+        choices=get_ros_packages(Path(os.curdir).resolve() / "src"),
     )
     # nargs??? for ctest it's -L??
     parser.add_argument("--test").completer = TestCompleter()
@@ -59,7 +86,7 @@ def main():
     cmd = []
     ros_version = get_ros_version()
     if ros_version == RosVersions.UNKNOWN:
-        print("Unknown ROS version")
+        logger.error("Unknown ROS version")
         return
     if ros_version == RosVersions.ROS1:
         cmd += ["catkin", "build"]

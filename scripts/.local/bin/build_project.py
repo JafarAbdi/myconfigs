@@ -242,7 +242,14 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict) -> None:
     return True
 
 
-def xacro(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool):
+def xacro(
+    file: Path,
+    args: list,
+    cwd: Path,
+    extra_args: dict,
+    *,
+    is_test: bool,
+) -> None:
     """Run a urdf/xaacro file.
 
     Args:
