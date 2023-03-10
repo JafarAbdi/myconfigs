@@ -68,7 +68,7 @@ return {
 
   -- Used to fix symlink files
   { "famiu/bufdelete.nvim", lazy = false },
-  { "github/copilot.vim", event = "InsertEnter" },
+  { "github/copilot.vim", event = "VeryLazy" },
   {
     "krady21/compiler-explorer.nvim",
     cmd = { "CESetup", "CECompile", "CECompileLive" },

@@ -56,6 +56,7 @@ opt.spelllang:append("en")
 g.diagnostic_virtual_text = false
 
 vim.opt.iskeyword:append("-")
+g.copilot_node_command = vim.env.HOME .. "/micromamba/envs/nodejs/bin/node"
 g.copilot_no_tab_map = true
 g.copilot_no_maps = true
 g.copilot_assume_mapped = true
