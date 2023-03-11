@@ -89,7 +89,6 @@ install-core
 stow-configs
 config-fish
 install-difftastic
-install-python-lsp
 
 sudo apt install -y libglu1-mesa
 

@@ -373,32 +373,6 @@ function install-pre-commit
   end
 end
 
-function install-python-lsp
-  micromamba run -n python-lsp pip3 install -U jedi-language-server
-  micromamba run -n python-lsp pip3 install -U python-lsp-black
-  micromamba run -n python-lsp pip3 install -U pylsp-rope
-
-  micromamba run -n linters pip3 install -U pylsp-mypy
-  micromamba run -n linters pip3 install -U ruff
-  micromamba run -n linters pip3 install -U black
-
-  # TODO: Add to efm
-  # flake8 --extend-ignore D,E,F,C9
-  # D -> pycodestyle
-  # C9 mccabe
-  # F -> pyflakes
-  # E ??
-  # pip3 install -U flake8-bugbear
-  # pip3 install -U flake8-builtins
-  # pip3 install -U flake8-comprehensions
-  # pip3 install -U flake8-debugger
-  # pip3 install -U flake8-eradicate
-  # python3 -m pip install --user --upgrade pynvim
-  # pip3 install -U debugpy
-  # pip3 install -U jupyterlab
-  # pip3 install -U nbdev
-end
-
 function install-rust-lsp
   install-rust
   # rustup +nightly component add rust-analyzer-preview
@@ -743,6 +717,5 @@ function install-full-development
   install-lua-lsp
   install-efm-lsp
   install-rust-lsp
-  install-python-lsp
   install-cpp-lsp
 end

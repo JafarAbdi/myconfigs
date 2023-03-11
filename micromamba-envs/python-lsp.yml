@@ -4,3 +4,7 @@ channels:
 dependencies:
   - python=3.11.0
   - pip
+  - pip:
+    - jedi-language-server
+    - python-lsp-black
+    - pylsp-rope

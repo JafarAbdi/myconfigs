@@ -3,3 +3,8 @@ channels:
   - conda-forge
 dependencies:
   - python=3.11.0
+  - pip
+  - pip:
+    - pylsp-mypy
+    - ruff
+    - black
