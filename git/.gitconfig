@@ -1,6 +1,6 @@
 [user]
   name = JafarAbdi
-  email = cafer.abdi@gmail.com
+  email = jafar.uruc@gmail.com
 [color]
   ui = auto
 [color "branch"]
@@ -41,14 +41,6 @@
 
 [alias]
   last = log -1 HEAD
-  cc  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::checkout::commit'
-  cb  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::checkout::branch'
-  cf  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::checkout::file'
-  a   = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::add'
-  d   = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::diff'
-  ssh = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::stash::show'
-  lg  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::log'
-  rc  = !fish --no-config -c 'source ~/.config/fish/conf.d/forgit.plugin.fish && forgit::revert::commit'
   hist = log --pretty=\"%h %ad%d | %s\" --date=short --graph --branches --remotes
   squash = !git rebase -i `git rev-list HEAD --not --remotes | tail -1`~1
   greview = !git push origin HEAD:refs/for/master

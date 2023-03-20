@@ -220,10 +220,11 @@ set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inli
 set -xg FZF_CTRL_R_OPTS "--preview=''"
 
 set -xg FZF_CTRL_T_OPTS "--prompt='Files> '" \
-                        "--header='CTRL-D: Directories / CTRL-F: Files / CTRL-H: Show hidden files'" \
+                        "--header='CTRL-D: Directories / CTRL-F: Files / CTRL-H: Show hidden files / CTRL-N: no-ignore'" \
                         "--bind='ctrl-d:change-prompt(Directories> )+reload(fd --type d)'" \
                         "--bind='ctrl-f:change-prompt(Files> )+reload($FZF_DEFAULT_COMMAND)'" \
-                        "--bind='ctrl-h:change-prompt(Hidden files> )+reload($FZF_DEFAULT_COMMAND --hidden)'"
+                        "--bind='ctrl-h:change-prompt(Hidden files> )+reload($FZF_DEFAULT_COMMAND --hidden)'" \
+                        "--bind='ctrl-n:change-prompt(Do not respect .(git|fd)ignore file> )+reload($FZF_DEFAULT_COMMAND --no-ignore)'"
 set -xg FZF_CTRL_T_COMMAND "$FZF_DEFAULT_COMMAND"
 
 function fzf-inline -d "List files and put them under current cursor"

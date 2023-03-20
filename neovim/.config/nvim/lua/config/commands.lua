@@ -81,25 +81,6 @@ if not vim.g.vscode then
   -- Commands --
   --------------
 
-  local lint_ok, lint = pcall(require, "lint")
-  if lint_ok then
-    local lint_group = vim.api.nvim_create_augroup("lint", { clear = true })
-    vim.api.nvim_create_autocmd({ "BufWritePost", "BufEnter", "BufLeave" }, {
-      group = lint_group,
-      callback = function()
-        lint.try_lint()
-      end,
-    })
-    vim.api.nvim_create_autocmd({ "BufWritePost", "BufEnter", "BufLeave" }, {
-      group = lint_group,
-      callback = function()
-        -- lint.try_lint({"cspell", "codespell"})
-        if vim.bo.filetype ~= "help" and vim.bo.filetype ~= "" then
-          lint.try_lint({ "cspell" })
-        end
-      end,
-    })
-  end
   vim.api.nvim_create_user_command("CleanWhitespaces", function()
     require("config.functions").clean_whitespaces()
   end, {})

@@ -119,8 +119,6 @@ filesrp
 findreplace
 findreplacehidden
 fname
-forgit
-FORGIT
 forline
 for
 fsanitize

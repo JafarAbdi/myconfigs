@@ -21,6 +21,19 @@ if not vim.g.vscode then
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
     return vim.fn["copilot#Dismiss"]()
   end, { expr = true })
+  local function accept_word()
+    vim.fn["copilot#Accept"]("")
+    local bar = vim.fn["copilot#TextQueuedForInsertion"]()
+    return vim.fn.split(bar, [[[ .]\zs]])[1]
+  end
+  local function accept_line()
+    vim.fn["copilot#Accept"]("")
+    local bar = vim.fn["copilot#TextQueuedForInsertion"]()
+    return vim.fn.split(bar, [[[\n]\zs]])[1]
+  end
+
+  vim.keymap.set("i", "<C-M-l>", accept_line, { expr = true, remap = false })
+  vim.keymap.set("i", "<C-M-e>", accept_word, { expr = true, remap = false })
 end
 -- https://github.com/vscode-neovim/vscode-neovim/tree/master/vim
 local keymap = function(mode, lhs, editor, bufnr)
