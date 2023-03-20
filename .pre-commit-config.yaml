@@ -51,13 +51,13 @@ repos:
         pass_filenames: false
         entry: micromamba run --name myconfigs refurb scripts/.local/bin
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.0.254
+    rev: v0.0.257
     hooks:
       - id: ruff
         args: ['--show-source', '--fix', '--config', 'ruff/.config/ruff/pyproject.toml']
   # Spelling
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.2.2
+    rev: v2.2.4
     hooks:
       - id: codespell
         args: ['--write-changes',
@@ -65,7 +65,7 @@ repos:
                '--exclude-file=.pre-commit/codespellignorelines',
                '--skip=.github/.cspell/*.txt']
   - repo: https://github.com/JohnnyMorganz/StyLua
-    rev: v0.16.1
+    rev: v0.17.0
     hooks:
       - id: stylua-github
         args: ['--config-path', 'stylua/.config/stylua/.stylua.toml']
