@@ -198,7 +198,7 @@ keymap("n", "<C-M-f>", {
   end,
 })
 keymap("n", "<C-S-f>", { neovim = require("telescope.builtin").live_grep })
-keymap("n", "<C-p>", { neovim = require("telescope.builtin").find_files })
+keymap("n", "<M-o>", { neovim = require("telescope.builtin").find_files })
 keymap("n", "<C-S-p>", { neovim = require("telescope.builtin").commands })
 keymap("n", "<leader>ro", { neovim = require("telescope.builtin").oldfiles })
 keymap("n", "<C-S-e>", { neovim = vim.cmd.Lexplore })

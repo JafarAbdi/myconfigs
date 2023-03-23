@@ -1,3 +1,20 @@
+function setup_container
+  if test (count $argv) -eq 0 ||
+     test $argv[1] = "-h" ||
+     test $argv[1] = "--help"
+      echo "Usage: setup_container <container name>"
+    return
+  end
+  set -l container_name $argv[1]
+  set -l myconfigs_exists (docker exec $container_name sh -c 'if [ -d "$HOME/myconfigs" ]; then echo "1"; else echo "0"; fi')
+  if test $myconfigs_exists -eq 0
+    docker cp $HOME/myconfigs $container_name:$HOME/myconfigs
+  end
+  docker exec $container_name bash -c "cd ~/myconfigs && make setup-fish core dev"
+end
+
+complete -c setup_container -x -a '(__fish_print_docker_containers running)'
+
 function start_podman -d "Start a podman image with gpu support"
   set -l user juruc
   if test (count $argv) -eq 0 ||

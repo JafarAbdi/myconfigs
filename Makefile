@@ -3,10 +3,12 @@ UID := $(shell id -u)
 setup-fish:
 	if [ "$(UID)" -eq 0 ]; then \
 			echo "Installing packages without sudo..."; \
+			apt update; \
 			apt install -y software-properties-common curl wget && apt-add-repository -y ppa:fish-shell/release-3; \
 			apt install -y fish; \
 	else \
 			echo "Installing packages with sudo..."; \
+			sudo apt update; \
 			sudo apt install -y software-properties-common curl wget && sudo apt-add-repository -y ppa:fish-shell/release-3; \
 			sudo apt install -y fish; \
 	fi
