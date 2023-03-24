@@ -6,10 +6,12 @@ function fish_prompt
     set -l TOOLBOX_NAME (cat /run/.containerenv | grep -oP "(?<=name=\")[^\";]+")
     echo -n -s (set_color yellow) "($TOOLBOX_NAME)" (set_color normal)
   end
-  if set -q MACHINE_NAME
-    echo -n -s (set_color 877960 --italics) "($MACHINE_NAME)" (set_color normal)
-  else if set -q SSH_CONNECTION
-    echo -n -s (set_color 877960 --italics) "(ssh)" (set_color normal)
+  if set -q SSH_CONNECTION
+    if set -q MACHINE_NAME
+      echo -n -s (set_color 877960 --italics) "($MACHINE_NAME)" (set_color normal)
+    else
+      echo -n -s (set_color 877960 --italics) "(ssh)" (set_color normal)
+    end
   end
   if test -e /.dockerenv
     echo -n -s (set_color 85C1E9)"[D]"(set_color normal)
