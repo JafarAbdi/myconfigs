@@ -718,3 +718,9 @@ function install-full-development
   install-rust-lsp
   install-cpp-lsp
 end
+
+function install-wezterm
+   wget https://github.com/wez/wezterm/releases/download/nightly/WezTerm-nightly-Ubuntu20.04.AppImage -O ~/.local/bin/wezterm
+   chmod +x ~/.local/bin/wezterm
+   wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
+end
