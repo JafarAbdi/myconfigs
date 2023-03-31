@@ -720,7 +720,15 @@ function install-full-development
 end
 
 function install-wezterm
-   wget https://github.com/wez/wezterm/releases/download/nightly/WezTerm-nightly-Ubuntu20.04.AppImage -O ~/.local/bin/wezterm
-   chmod +x ~/.local/bin/wezterm
-   wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  # Detect if we are on Debian or Ubuntu
+  if test (lsb_release -si) = "Debian"
+   wget https://github.com/wez/wezterm/releases/download/nightly/wezterm-nightly.Debian11.deb
+  else
+   wget https://github.com/wez/wezterm/releases/download/nightly/wezterm-nightly.Ubuntu(lsb_release -sr).04.deb
+  end
+  sudo dpkg -i wezterm-nightly.*.deb
+  wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
+  cd -
 end
