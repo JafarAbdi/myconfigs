@@ -13,7 +13,7 @@ if not vim.g.vscode then
   -- Highlights --
   ----------------
 
-  vim.api.nvim_set_hl(0, "SpellBad", { fg = "red", undercurl = true })
+  vim.api.nvim_set_hl(0, "SpellBad", { sp = "red", underline = true })
   vim.api.nvim_set_hl(0, "SignColumn", { link = "LineNr" })
 
   -------------------

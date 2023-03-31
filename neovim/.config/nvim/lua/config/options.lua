@@ -50,7 +50,7 @@ g.mapleader = " "
 g.maplocalleader = " "
 
 --Spell
-opt.spell = false
+opt.spell = true
 opt.spelllang:append("en")
 --Diagnostic virtual text
 g.diagnostic_virtual_text = false
