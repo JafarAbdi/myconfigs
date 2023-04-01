@@ -7,11 +7,18 @@ if wezterm.config_builder then
   config = wezterm.config_builder()
 end
 
-config.term = "wezterm"
+-- Show which key table is active in the status area
+wezterm.on("update-right-status", function(window, _)
+  local name = window:active_key_table()
+  if name then
+    name = " - " .. name
+  end
+  window:set_right_status(window:active_workspace() .. (name or ""))
+end)
 
 config.use_fancy_tab_bar = false
+config.show_new_tab_button_in_tab_bar = false
 config.tab_max_width = 25
-config.hide_tab_bar_if_only_one_tab = true
 config.disable_default_key_bindings = true
 
 config.window_padding = {
@@ -23,6 +30,11 @@ config.window_padding = {
 
 config.leader = { key = "q", mods = "CTRL", timeout_milliseconds = 1000 }
 config.keys = {
+  {
+    key = "l",
+    mods = "LEADER",
+    action = wezterm.action.ShowLauncherArgs({ flags = "FUZZY|TABS|DOMAINS|WORKSPACES" }),
+  },
   { key = "Tab", mods = "CTRL", action = act.ActivateTabRelative(1) },
   { key = "Tab", mods = "SHIFT|CTRL", action = act.ActivateTabRelative(-1) },
   { key = "s", mods = "LEADER", action = act.SplitVertical({ domain = "CurrentPaneDomain" }) },
@@ -46,11 +58,19 @@ config.keys = {
   { key = "p", mods = "SHIFT|CTRL", action = act.ActivateCommandPalette },
   { key = "c", mods = "LEADER", action = act.SpawnTab("CurrentPaneDomain") },
   {
+    key = "r",
+    mods = "LEADER",
+    action = act.ActivateKeyTable({
+      name = "resize_pane",
+      one_shot = false,
+    }),
+  },
+  {
     key = "u",
     mods = "SHIFT|CTRL",
     action = act.CharSelect({ copy_on_select = true, copy_to = "ClipboardAndPrimarySelection" }),
   },
-  { key = "x", mods = "LEADER", action = act.CloseCurrentTab({ confirm = true }) },
+  { key = "x", mods = "LEADER", action = act.CloseCurrentPane({ confirm = true }) },
   { key = "x", mods = "SHIFT|CTRL", action = act.ActivateCopyMode },
   { key = "z", mods = "LEADER", action = act.TogglePaneZoomState },
   { key = "phys:Space", mods = "SHIFT|CTRL", action = act.QuickSelect },
@@ -70,6 +90,70 @@ config.keys = {
     key = "q",
     mods = "LEADER|CTRL",
     action = act.SendString("\x11"),
+  },
+}
+
+config.key_tables = {
+  resize_pane = {
+    { key = "LeftArrow", action = act.AdjustPaneSize({ "Left", 1 }) },
+    { key = "h", action = act.AdjustPaneSize({ "Left", 1 }) },
+
+    { key = "RightArrow", action = act.AdjustPaneSize({ "Right", 1 }) },
+    { key = "l", action = act.AdjustPaneSize({ "Right", 1 }) },
+
+    { key = "UpArrow", action = act.AdjustPaneSize({ "Up", 1 }) },
+    { key = "k", action = act.AdjustPaneSize({ "Up", 1 }) },
+
+    { key = "DownArrow", action = act.AdjustPaneSize({ "Down", 1 }) },
+    { key = "j", action = act.AdjustPaneSize({ "Down", 1 }) },
+    -- Cancel the mode by pressing escape
+    { key = "Escape", action = "PopKeyTable" },
+  },
+  copy_mode = {
+    { key = "Escape", mods = "NONE", action = act.CopyMode("Close") },
+    { key = "$", mods = "SHIFT", action = act.CopyMode("MoveToEndOfLineContent") },
+    { key = ",", mods = "NONE", action = act.CopyMode("JumpReverse") },
+    { key = "0", mods = "NONE", action = act.CopyMode("MoveToStartOfLine") },
+    { key = ";", mods = "NONE", action = act.CopyMode("JumpAgain") },
+    { key = "F", mods = "NONE", action = act.CopyMode({ JumpBackward = { prev_char = false } }) },
+    { key = "G", mods = "NONE", action = act.CopyMode("MoveToScrollbackBottom") },
+    { key = "O", mods = "NONE", action = act.CopyMode("MoveToSelectionOtherEndHoriz") },
+    { key = "T", mods = "NONE", action = act.CopyMode({ JumpBackward = { prev_char = true } }) },
+    { key = "Space", mods = "NONE", action = act.CopyMode({ SetSelectionMode = "Cell" }) },
+    { key = "V", mods = "NONE", action = act.CopyMode({ SetSelectionMode = "Line" }) },
+    { key = "^", mods = "SHIFT", action = act.CopyMode("MoveToStartOfLineContent") },
+    { key = "b", mods = "NONE", action = act.CopyMode("MoveBackwardWord") },
+    { key = "b", mods = "CTRL", action = act.CopyMode("PageUp") },
+    { key = "c", mods = "CTRL", action = act.CopyMode("Close") },
+    { key = "d", mods = "CTRL", action = act.CopyMode({ MoveByPage = 0.5 }) },
+    { key = "e", mods = "NONE", action = act.CopyMode("MoveForwardWordEnd") },
+    { key = "f", mods = "NONE", action = act.CopyMode({ JumpForward = { prev_char = false } }) },
+    { key = "f", mods = "CTRL", action = act.CopyMode("PageDown") },
+    { key = "g", mods = "NONE", action = act.CopyMode("MoveToScrollbackTop") },
+    { key = "h", mods = "NONE", action = act.CopyMode("MoveLeft") },
+    { key = "j", mods = "NONE", action = act.CopyMode("MoveDown") },
+    { key = "k", mods = "NONE", action = act.CopyMode("MoveUp") },
+    { key = "l", mods = "NONE", action = act.CopyMode("MoveRight") },
+    { key = "m", mods = "ALT", action = act.CopyMode("MoveToStartOfLineContent") },
+    { key = "o", mods = "NONE", action = act.CopyMode("MoveToSelectionOtherEnd") },
+    { key = "q", mods = "NONE", action = act.CopyMode("Close") },
+    { key = "t", mods = "NONE", action = act.CopyMode({ JumpForward = { prev_char = true } }) },
+    { key = "u", mods = "CTRL", action = act.CopyMode({ MoveByPage = -0.5 }) },
+    { key = "v", mods = "NONE", action = act.CopyMode({ SetSelectionMode = "Cell" }) },
+    { key = "v", mods = "CTRL", action = act.CopyMode({ SetSelectionMode = "Block" }) },
+    { key = "w", mods = "NONE", action = act.CopyMode("MoveForwardWord") },
+    {
+      key = "y",
+      mods = "NONE",
+      action = act.Multiple({
+        { CopyTo = "ClipboardAndPrimarySelection" },
+        { CopyMode = "Close" },
+      }),
+    },
+    { key = "LeftArrow", mods = "NONE", action = act.CopyMode("MoveLeft") },
+    { key = "RightArrow", mods = "NONE", action = act.CopyMode("MoveRight") },
+    { key = "UpArrow", mods = "NONE", action = act.CopyMode("MoveUp") },
+    { key = "DownArrow", mods = "NONE", action = act.CopyMode("MoveDown") },
   },
 }
 
