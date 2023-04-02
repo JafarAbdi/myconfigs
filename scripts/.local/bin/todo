@@ -1,0 +1,149 @@
+#!/bin/bash
+set -e
+
+# A slightly modified version of https://github.com/arrow2nd/gh-todo
+
+if ! type -p fzf >/dev/null; then
+  echo "error: fzf not found on the system" >&2
+  exit 1
+fi
+
+repo="$(gh config get -h github.com user)/todo"
+
+function usage {
+  cat << EOS
+GitHub CLI extension for managing Todo in GitHub Issues
+
+USAGE:
+  todo [action] [flag]
+
+ACTIONS:
+  add [title]   Add new todo
+
+FLAGS:
+  --help        Show this help
+
+EXAMPLES:
+  todo
+  todo add stroke a cat
+EOS
+}
+
+function select_issue_with_fzf {
+  local preview_cmd="gh issue view -R $repo --json labels,milestone,createdAt,body --template"
+  preview_cmd+=' "CREATED AT: {{.createdAt | timefmt \"2006-01-02 15:04 MST\"}}
+MILESTONE : {{and .milestone .milestone.title}}
+LABELS    : {{range .labels}}[ {{.name}} ] {{end}}
+
+----
+
+{{.body}}"'
+  preview_cmd+=' $(echo {} | cut -d " " -f 1)'
+
+  gh issue list -R $repo --json number,title,updatedAt --template\
+    '{{range .}}{{tablerow (printf "#%v" .number) .title (timeago .updatedAt)}}{{end}}'\
+    | fzf --preview "$preview_cmd" --header="ctrl-t: Add todo" --bind "ctrl-t:execute(todo add < /dev/tty > /dev/tty 2>&1)"
+}
+
+function get_date {
+  case "$1" in
+    today)
+      date +"%Y/%m/%d"
+      ;;
+    "this month")
+      date +"%Y/%m"
+      ;;
+    tomorrow)
+      date -d "1 day" +"%Y/%m/%d"
+      ;;
+    "next month")
+      date -d "i month" +"%Y/%m"
+      ;;
+  esac
+}
+
+function add {
+  local date_str=""
+
+  PS3='Please select a todo date: '
+  select d in "today" "tomorrow" "this month" "next month" "skip"
+  do
+    date_str=$(get_date "$d")
+    if [[ -z $date_str ]]; then
+      echo "Skipped date selection."
+    fi
+    break
+  done
+
+  local title=""
+  if [[ -n $1 ]]; then
+    title="$1"
+  fi
+
+  if [[ -z $title ]]; then
+    echo -n "Title: "
+    read -e -r title
+    if [[ -z $title ]]; then
+      echo "error: title is required" >&2
+      exit 1
+    fi
+  fi
+
+  if [[ -n $date_str ]]; then
+    title="[$date_str] $title"
+  fi
+
+  gh issue create -R $repo -t "$title"
+}
+
+case "$1" in
+  -h | --help)
+    usage
+    exit 0;;
+  add)
+    args=""
+    if [[ -n "$2" ]]; then
+      shift
+      args="$*"
+    fi
+    add "$args"
+    exit 0;;
+esac
+
+selected_issue=$(select_issue_with_fzf)
+if [[ -z selected_issue ]]; then
+  exit 0
+fi
+
+echo $selected_issue
+echo
+
+issue_id=$(echo ${selected_issue%% *})
+
+PS3='Please select action: '
+select action in "comment" "edit" "done" "view" "browse" "quit"
+do
+  echo
+  case $action in
+    comment)
+      gh issue comment -R $repo -e $issue_id
+      exit 0;;
+    edit)
+      gh issue edit -R $repo $issue_id
+      exit 0;;
+    done)
+      gh issue close -R $repo $issue_id
+      exit 0;;
+    view)
+      gh issue view -R $repo -c $issue_id
+      exit 0;;
+    browse)
+      gh issue view -R $repo --web $issue_id
+      exit 0;;
+    quit)
+      exit 0;;
+    *)
+      echo "error: not valid, input again" >&2
+      ;;
+  esac
+done

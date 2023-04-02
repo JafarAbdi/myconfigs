@@ -1,7 +1,7 @@
 local wezterm = require("wezterm")
 local mux = wezterm.mux
 local act = wezterm.action
-local os = require("os")
+-- local os = require("os")
 
 local config = {}
 
@@ -14,7 +14,7 @@ wezterm.on("nvim-todos", function(window, pane)
     act.SwitchToWorkspace({
       name = "notes",
       spawn = {
-        args = { "nvim", os.getenv("HOME") .. "/mynotes/todo.md" },
+        args = { "todo" },
       },
     }),
     pane
