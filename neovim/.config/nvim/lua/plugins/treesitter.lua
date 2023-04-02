@@ -90,7 +90,7 @@ return {
         "yaml",
       },
       highlight = {
-        enable = not vim.g.vscode,
+        enable = true,
         disable = function(lang, buf)
           return (lang == "html")
             or disable(lang, buf)
@@ -98,7 +98,6 @@ return {
             or (vim.api.nvim_buf_get_option(buf, "filetype") == "")
         end,
       },
-      -- TODO: Why this is not working in vscode?
       incremental_selection = {
         enable = true,
         disable = disable,

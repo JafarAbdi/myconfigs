@@ -174,7 +174,6 @@ return {
               checkOnSave = {
                 command = "clippy",
               },
-              -- TODO: How to use the snippets from VSCode?
               completion = {
                 snippets = {
                   custom = {
