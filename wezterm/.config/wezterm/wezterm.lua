@@ -1,12 +1,25 @@
 local wezterm = require("wezterm")
 local mux = wezterm.mux
 local act = wezterm.action
+local os = require("os")
 
 local config = {}
 
 if wezterm.config_builder then
   config = wezterm.config_builder()
 end
+
+wezterm.on("nvim-todos", function(window, pane)
+  window:perform_action(
+    act.SwitchToWorkspace({
+      name = "notes",
+      spawn = {
+        args = { "nvim", os.getenv("HOME") .. "/mynotes/todo.md" },
+      },
+    }),
+    pane
+  )
+end)
 
 -- Show which key table is active in the status area
 wezterm.on("update-right-status", function(window, _)
@@ -24,7 +37,7 @@ config.show_new_tab_button_in_tab_bar = false
 config.tab_max_width = 25
 config.disable_default_key_bindings = true
 
-config.launch_menu = { { args = { "nvim" } }, { args = { "htop" } } }
+config.launch_menu = { { args = { "htop" } } }
 config.window_padding = {
   left = 0,
   right = 0,
@@ -34,6 +47,12 @@ config.window_padding = {
 
 config.leader = { key = "q", mods = "CTRL", timeout_milliseconds = 1000 }
 config.keys = {
+  {
+    key = "n",
+    mods = "ALT",
+    action = act.EmitEvent("nvim-todos"),
+  },
+
   {
     key = "l",
     mods = "LEADER",
@@ -63,6 +82,7 @@ config.keys = {
   { key = "l", mods = "SHIFT|CTRL", action = act.ShowDebugOverlay },
   { key = "p", mods = "SHIFT|CTRL", action = act.ActivateCommandPalette },
   { key = "c", mods = "LEADER", action = act.SpawnTab("CurrentPaneDomain") },
+  { key = "a", mods = "LEADER", action = act.ActivateLastTab },
   {
     key = "r",
     mods = "LEADER",
