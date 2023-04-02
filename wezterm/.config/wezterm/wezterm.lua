@@ -1,4 +1,5 @@
 local wezterm = require("wezterm")
+local mux = wezterm.mux
 local act = wezterm.action
 
 local config = {}
@@ -13,7 +14,9 @@ wezterm.on("update-right-status", function(window, _)
   if name then
     name = " - " .. name
   end
-  window:set_right_status(window:active_workspace() .. (name or ""))
+  window:set_right_status(
+    window:active_workspace() .. "/" .. #mux.get_workspace_names() .. (name or "")
+  )
 end)
 
 config.use_fancy_tab_bar = false
@@ -21,6 +24,7 @@ config.show_new_tab_button_in_tab_bar = false
 config.tab_max_width = 25
 config.disable_default_key_bindings = true
 
+config.launch_menu = { { args = { "nvim" } }, { args = { "htop" } } }
 config.window_padding = {
   left = 0,
   right = 0,
@@ -33,7 +37,9 @@ config.keys = {
   {
     key = "l",
     mods = "LEADER",
-    action = wezterm.action.ShowLauncherArgs({ flags = "FUZZY|TABS|DOMAINS|WORKSPACES" }),
+    action = wezterm.action.ShowLauncherArgs({
+      flags = "LAUNCH_MENU_ITEMS|FUZZY|TABS|DOMAINS|WORKSPACES",
+    }),
   },
   { key = "Tab", mods = "CTRL", action = act.ActivateTabRelative(1) },
   { key = "Tab", mods = "SHIFT|CTRL", action = act.ActivateTabRelative(-1) },
@@ -84,6 +90,9 @@ config.keys = {
   { key = "j", mods = "ALT", action = act.ActivatePaneDirection("Down") },
   -- { key = "Insert", mods = "SHIFT", action = act.PasteFrom("PrimarySelection") },
   -- { key = "Insert", mods = "CTRL", action = act.CopyTo("PrimarySelection") },
+  { key = "k", mods = "ALT|SHIFT", action = act.SwitchWorkspaceRelative(1) },
+  { key = "j", mods = "ALT|SHIFT", action = act.SwitchWorkspaceRelative(-1) },
+  { key = "n", mods = "ALT|SHIFT", action = act.SwitchToWorkspace },
   { key = "Copy", mods = "NONE", action = act.CopyTo("Clipboard") },
   { key = "Paste", mods = "NONE", action = act.PasteFrom("Clipboard") },
   {
@@ -161,6 +170,7 @@ config.warn_about_missing_glyphs = false
 
 config.force_reverse_video_cursor = true
 config.font = wezterm.font("JetBrains Mono")
+config.term = "wezterm"
 -- Same colors as st's onedark theme
 config.colors = {
   -- The default text color
