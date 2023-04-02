@@ -550,20 +550,17 @@ function stow-configs
                                                                                 vscode \
                                                                                 podman
   stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
-                                                                   neovim
+                                                                   neovim \
+                                                                   tmux
 end
 
 function stow-configs-host
   stow-configs
-  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow tmux-host alacritty
+  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow alacritty
 end
 
 function stow-schroot
   sudo stow --target / --stow schroot
-end
-
-function stow-configs-tmux
-  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow tmux
 end
 
 ##################
