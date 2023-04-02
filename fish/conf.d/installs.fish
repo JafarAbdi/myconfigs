@@ -554,11 +554,6 @@ function stow-configs
                                                                    tmux
 end
 
-function stow-configs-host
-  stow-configs
-  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow alacritty
-end
-
 function stow-schroot
   sudo stow --target / --stow schroot
 end
@@ -622,17 +617,6 @@ function install-inkscape
   install-from-github textext/textext "TexText-Linux.*.tar.gz"
   tar -vxzf TexText-Linux* -C . --strip-components=2
   python3 setup.py --skip-requirements-check --inkscape-executable (which inkscape)
-end
-
-## Terminal ##
-
-function install-alacritty
-   cargo install --git https://github.com/alacritty/alacritty.git --branch master
-   wget https://github.com/alacritty/alacritty/releases/latest/download/alacritty.fish -O ~/.config/fish/completions/alacritty.fish
-   # wget https://github.com/alacritty/alacritty/releases/latest/download/alacritty.yml
-   echo > ~/.alacritty.local.yml "\
-font:
-  size: 11.0"
 end
 
 ## Virtualization ##
