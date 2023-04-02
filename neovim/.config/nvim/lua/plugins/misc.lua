@@ -13,23 +13,6 @@ return {
       },
     },
   },
-  {
-    "aserowy/tmux.nvim",
-    event = "VeryLazy",
-    opts = {
-      copy_sync = {
-        enable = false,
-      },
-      navigation = {
-        cycle_navigation = false,
-        enable_default_keybindings = false,
-        persist_zoom = true,
-      },
-      resize = {
-        enable_default_keybindings = false,
-      },
-    },
-  },
   { "junegunn/vim-easy-align", cmd = "EasyAlign" },
   { "mbbill/undotree", cmd = "UndotreeToggle" },
 

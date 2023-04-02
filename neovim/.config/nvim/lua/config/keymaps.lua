@@ -208,59 +208,6 @@ keymap("n", "<leader>j", {
   end,
 })
 
-keymap("t", "<A-h>", {
-  neovim = function()
-    require("tmux").move_left()
-    vim.cmd.checktime()
-  end,
-})
-keymap("t", "<A-j>", {
-  neovim = function()
-    require("tmux").move_bottom()
-    vim.cmd.checktime()
-  end,
-})
-keymap("t", "<A-k>", {
-  neovim = function()
-    require("tmux").move_top()
-    vim.cmd.checktime()
-  end,
-})
-keymap("t", "<A-l>", {
-  neovim = function()
-    require("tmux").move_right()
-    vim.cmd.checktime()
-  end,
-})
-keymap("n", "<A-h>", {
-  neovim = function()
-    require("tmux").move_left()
-    vim.cmd.checktime()
-  end,
-  vscode = "<Cmd>call VSCodeNotify('workbench.action.navigateLeft')<CR>",
-})
-keymap("n", "<A-j>", {
-  neovim = function()
-    require("tmux").move_bottom()
-    vim.cmd.checktime()
-  end,
-  vscode = "<Cmd>call VSCodeNotify('workbench.action.navigateDown')<CR>",
-})
-keymap("n", "<A-k>", {
-  neovim = function()
-    require("tmux").move_top()
-    vim.cmd.checktime()
-  end,
-  vscode = "<Cmd>call VSCodeNotify('workbench.action.navigateUp')<CR>",
-})
-keymap("n", "<A-l>", {
-  neovim = function()
-    require("tmux").move_right()
-    vim.cmd.checktime()
-  end,
-  vscode = "<Cmd>call VSCodeNotify('workbench.action.navigateRight')<CR>",
-})
-
 -- Diagnostic keymaps
 keymap("n", "<leader>df", { neovim = vim.diagnostic.open_float })
 keymap("n", "<leader>d<Up>", {
@@ -306,27 +253,6 @@ keymap("i", "<c-l>", {
     if ls.choice_active() then
       ls.change_choice(1)
     end
-  end,
-})
-
-keymap("", "<M-C-h>", {
-  neovim = function()
-    require("tmux").resize_left()
-  end,
-})
-keymap("", "<M-C-j>", {
-  neovim = function()
-    require("tmux").resize_bottom()
-  end,
-})
-keymap("", "<M-C-k>", {
-  neovim = function()
-    require("tmux").resize_top()
-  end,
-})
-keymap("", "<M-C-l>", {
-  neovim = function()
-    require("tmux").resize_right()
   end,
 })
 
