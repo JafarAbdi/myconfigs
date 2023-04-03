@@ -707,7 +707,7 @@ function install-wezterm
   if test (lsb_release -si) = "Debian"
    wget https://github.com/wez/wezterm/releases/download/nightly/wezterm-nightly.Debian11.deb
   else
-   wget https://github.com/wez/wezterm/releases/download/nightly/wezterm-nightly.Ubuntu(lsb_release -sr).04.deb
+   wget https://github.com/wez/wezterm/releases/download/nightly/wezterm-nightly.Ubuntu(lsb_release -sr).deb
   end
   sudo dpkg -i wezterm-nightly.*.deb
   wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish

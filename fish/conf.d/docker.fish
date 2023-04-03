@@ -10,7 +10,7 @@ function setup_container
   if test $myconfigs_exists -eq 0
     docker cp $HOME/myconfigs $container_name:$HOME/myconfigs
   end
-  docker exec $container_name bash -c "cd ~/myconfigs && make setup-fish core dev"
+  docker exec -it $container_name bash -c "cd ~/myconfigs && make setup-fish core dev"
 end
 
 complete -c setup_container -x -a '(__fish_print_docker_containers running)'
