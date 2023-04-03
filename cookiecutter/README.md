@@ -1,4 +1,4 @@
-# Cookiecutter ROS2 Package
+# Cookiecutter for files generation
 
 [Cookiecutter](https://github.com/cookiecutter/cookiecutter) templates for generating files I use frequently.
 

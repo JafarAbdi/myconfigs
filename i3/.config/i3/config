@@ -200,4 +200,3 @@ bindsym Print exec gnome-screenshot
 
 for_window [class="st"] border pixel 1
 for_window [class="wezterm"] border pixel 1
-# include ~/myconfigs/i3/i3_$MACHINE_NAME.conf
