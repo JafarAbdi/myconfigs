@@ -22,13 +22,21 @@ wezterm.on("nvim-todos", function(window, pane)
 end)
 
 -- Show which key table is active in the status area
-wezterm.on("update-right-status", function(window, _)
+wezterm.on("update-right-status", function(window, pane)
   local name = window:active_key_table()
   if name then
     name = " - " .. name
   end
+  local zoomed = ""
+  local panes = window:active_tab():panes_with_info()
+  for _, p in ipairs(panes) do
+    if p.pane:pane_id() == pane:pane_id() and p.is_zoomed then
+      zoomed = " - [Z]"
+    end
+  end
+
   window:set_right_status(
-    window:active_workspace() .. "/" .. #mux.get_workspace_names() .. (name or "")
+    window:active_workspace() .. "/" .. #mux.get_workspace_names() .. (name or "") .. zoomed
   )
 end)
 
