@@ -40,7 +40,7 @@ repos:
       - id: trailing-whitespace
   # Python
   - repo: https://github.com/psf/black
-    rev: 23.1.0
+    rev: 23.3.0
     hooks:
       - id: black
   - repo: local
@@ -51,7 +51,7 @@ repos:
         pass_filenames: false
         entry: micromamba run --name myconfigs refurb scripts/.local/bin
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.0.259
+    rev: v0.0.260
     hooks:
       - id: ruff
         args: ['--show-source', '--fix', '--config', 'ruff/.config/ruff/pyproject.toml']
@@ -65,7 +65,7 @@ repos:
                '--exclude-file=.pre-commit/codespellignorelines',
                '--skip=.github/.cspell/*.txt']
   - repo: https://github.com/JohnnyMorganz/StyLua
-    rev: v0.17.0
+    rev: v0.17.1
     hooks:
       - id: stylua-github
         args: ['--config-path', 'stylua/.config/stylua/.stylua.toml']
