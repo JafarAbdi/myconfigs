@@ -28,15 +28,25 @@ wezterm.on("update-right-status", function(window, pane)
     name = " - " .. name
   end
   local zoomed = ""
+  local domain = pane:get_domain_name()
   local panes = window:active_tab():panes_with_info()
   for _, p in ipairs(panes) do
-    if p.pane:pane_id() == pane:pane_id() and p.is_zoomed then
-      zoomed = " - [Z]"
+    if p.pane:pane_id() == pane:pane_id() then
+      if p.is_zoomed then
+        zoomed = " - [Z]"
+      end
     end
   end
 
   window:set_right_status(
-    window:active_workspace() .. "/" .. #mux.get_workspace_names() .. (name or "") .. zoomed
+    window:active_workspace()
+      .. "/"
+      .. #mux.get_workspace_names()
+      .. " - ("
+      .. domain
+      .. ")"
+      .. (name or "")
+      .. zoomed
   )
 end)
 
