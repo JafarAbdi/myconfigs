@@ -23,7 +23,6 @@ end
 set -g fish_function_path $fish_function_path $MYCONFIGS_DIR/fish/functions
 
 set -x EDITOR 'nvim'
-set -x TERMINAL '/usr/local/bin/st'
 set -x WORKSPACE_DIR ~/workspaces
 set -x ROS2_WS_DIR $WORKSPACE_DIR/ros2
 set -x ROS_WS_DIR $WORKSPACE_DIR/ros
@@ -181,4 +180,8 @@ if set -q SCHROOT_SESSION_ID
   if test ! -e /run/user/$SCHROOT_UID || test ! -w /run/user/$SCHROOT_UID
     set -e XDG_RUNTIME_DIR
   end
+end
+
+if test -e ~/.terminfo/w/wezterm
+  export TERM=wezterm
 end

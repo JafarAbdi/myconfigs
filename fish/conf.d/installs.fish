@@ -43,6 +43,7 @@ function install-core
                       wget \
                       bat \
                       curl \
+                      file \
                       lld \
                       lldb \
                       ninja-build \
@@ -532,6 +533,7 @@ function unstow-configs
                                                                      vscode \
                                                                      fd \
                                                                      ripgrep \
+                                                                     wezterm \
                                                                      micromamba \
                                                                      yamllint
 end
@@ -551,6 +553,7 @@ function stow-configs
                                                                                 vscode \
                                                                                 podman
   stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
+                                                                   wezterm \
                                                                    neovim \
                                                                    tmux
 end
