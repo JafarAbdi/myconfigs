@@ -189,7 +189,7 @@ function install-ccache
 end
 
 function install-conan
-  pip3 install conan
+  pip install conan==1.59.0
 end
 
 function setup-cpp-screatches
@@ -199,6 +199,7 @@ function setup-cpp-screatches
   git clone https://github.com/JafarAbdi/cpp-scratches.git scratches
   cd scratches
   # TODO: Move to a script in cpp-scratches repo
+  conan profile detect
   conan install --build=missing .
   cp conanbuildinfo.args compile_flags.txt
   sed -i 's/ /\n/g' compile_flags.txt
