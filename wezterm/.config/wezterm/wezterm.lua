@@ -1,7 +1,6 @@
 local wezterm = require("wezterm")
 local mux = wezterm.mux
 local act = wezterm.action
--- local os = require("os")
 
 local config = {}
 
@@ -91,9 +90,6 @@ config.keys = {
   { key = "6", mods = "LEADER", action = act.ActivateTab(5) },
   { key = "7", mods = "LEADER", action = act.ActivateTab(6) },
   { key = "8", mods = "LEADER", action = act.ActivateTab(7) },
-  -- { key = "+", mods = "CTRL", action = act.IncreaseFontSize },
-  -- { key = "-", mods = "CTRL", action = act.DecreaseFontSize },
-  -- { key = "0", mods = "CTRL", action = act.ResetFontSize },
   { key = "c", mods = "SHIFT|CTRL", action = act.CopyTo("Clipboard") },
   { key = "v", mods = "SHIFT|CTRL", action = act.PasteFrom("Clipboard") },
   { key = "f", mods = "SHIFT|CTRL", action = act.Search("CurrentSelectionOrEmptyString") },
@@ -126,8 +122,6 @@ config.keys = {
   { key = "l", mods = "ALT", action = act.ActivatePaneDirection("Right") },
   { key = "k", mods = "ALT", action = act.ActivatePaneDirection("Up") },
   { key = "j", mods = "ALT", action = act.ActivatePaneDirection("Down") },
-  -- { key = "Insert", mods = "SHIFT", action = act.PasteFrom("PrimarySelection") },
-  -- { key = "Insert", mods = "CTRL", action = act.CopyTo("PrimarySelection") },
   { key = "k", mods = "ALT|SHIFT", action = act.SwitchWorkspaceRelative(1) },
   { key = "j", mods = "ALT|SHIFT", action = act.SwitchWorkspaceRelative(-1) },
   { key = "n", mods = "ALT|SHIFT", action = act.SwitchToWorkspace },
@@ -171,7 +165,14 @@ config.key_tables = {
     { key = "^", mods = "SHIFT", action = act.CopyMode("MoveToStartOfLineContent") },
     { key = "b", mods = "NONE", action = act.CopyMode("MoveBackwardWord") },
     { key = "b", mods = "CTRL", action = act.CopyMode("PageUp") },
-    { key = "c", mods = "CTRL", action = act.CopyMode("Close") },
+    {
+      key = "c",
+      mods = "CTRL",
+      action = act.Multiple({
+        { CopyTo = "ClipboardAndPrimarySelection" },
+        { CopyMode = "Close" },
+      }),
+    },
     { key = "d", mods = "CTRL", action = act.CopyMode({ MoveByPage = 0.5 }) },
     { key = "e", mods = "NONE", action = act.CopyMode("MoveForwardWordEnd") },
     { key = "f", mods = "NONE", action = act.CopyMode({ JumpForward = { prev_char = false } }) },
