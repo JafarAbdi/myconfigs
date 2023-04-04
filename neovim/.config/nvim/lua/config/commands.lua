@@ -12,7 +12,7 @@ vim.api.nvim_create_autocmd({ "TextYankPost" }, {
 -- Highlights --
 ----------------
 
-vim.api.nvim_set_hl(0, "SpellBad", { sp = "red", underline = true })
+vim.api.nvim_set_hl(0, "SpellBad", { sp = "gray", undercurl = true })
 vim.api.nvim_set_hl(0, "SignColumn", { link = "LineNr" })
 
 -------------------
