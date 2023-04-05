@@ -125,6 +125,34 @@ config.keys = {
   { key = "k", mods = "ALT|SHIFT", action = act.SwitchWorkspaceRelative(1) },
   { key = "j", mods = "ALT|SHIFT", action = act.SwitchWorkspaceRelative(-1) },
   { key = "n", mods = "ALT|SHIFT", action = act.SwitchToWorkspace },
+  {
+    key = "N",
+    mods = "CTRL|SHIFT",
+    action = act.PromptInputLine({
+      description = wezterm.format({
+        { Attribute = { Intensity = "Bold" } },
+        { Foreground = { AnsiColor = "Fuchsia" } },
+        { Text = "Enter name for new workspace" },
+      }),
+      action = wezterm.action_callback(function(window, pane, line)
+        -- line will be `nil` if they hit escape without entering anything
+        -- An empty string if they just hit enter
+        -- Or the actual line of text they wrote
+        if line then
+          if line ~= "" then
+            window:perform_action(
+              act.SwitchToWorkspace({
+                name = line,
+              }),
+              pane
+            )
+          else
+            window:perform_action(act.SwitchToWorkspace({ name = nil }), pane)
+          end
+        end
+      end),
+    }),
+  },
   { key = "Copy", mods = "NONE", action = act.CopyTo("Clipboard") },
   { key = "Paste", mods = "NONE", action = act.PasteFrom("Clipboard") },
   {
