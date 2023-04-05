@@ -52,6 +52,7 @@ vim.api.nvim_create_autocmd("TermOpen", {
     vim.opt_local.number = false
     vim.opt_local.relativenumber = false
     vim.opt_local.winbar = "%#lualine_a_terminal#%=%f%="
+    vim.opt_local.spell = false
   end,
   group = general_group,
 })
@@ -71,7 +72,7 @@ vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = gene
 vim.api.nvim_create_autocmd("FileType", {
   pattern = { "qf", "git", "gitAnnotate", "Outline", "diff", "help" },
   callback = function()
-    vim.o.spell = false
+    vim.opt_local.spell = false
   end,
   group = general_group,
 })

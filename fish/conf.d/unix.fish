@@ -224,7 +224,7 @@ set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inli
                          --bind='alt-k:preview-up'
                          --bind='alt-j:preview-down'
                          --bind='f2:toggle-preview' \
-                         --bind='f3:execute(nvim (echo {} | cut -d':' -f1,2) < /dev/tty > /dev/tty 2>&1)'"
+                         --bind='f3:become(nvim {+1} < /dev/tty > /dev/tty 2>&1)'"
 
 set -xg FZF_CTRL_R_OPTS "--preview=''"
 

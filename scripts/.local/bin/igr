@@ -19,7 +19,7 @@ IFS=: read -ra selected < <(
       --bind "change:reload:sleep 0.1; $RG_PREFIX {q} || true" \
       --bind "ctrl-f:unbind(change,ctrl-f)+change-prompt(2. fzf> )+enable-search+clear-query+rebind(ctrl-r)" \
       --bind "ctrl-r:unbind(ctrl-r)+change-prompt(1. ripgrep> )+disable-search+reload($RG_PREFIX {q} || true)+rebind(change,ctrl-f)" \
-      --bind='f3:execute(nvim {1}:{2} < /dev/tty > /dev/tty 2>&1)' \
+      --bind='f3:become(nvim {1}:{2} < /dev/tty > /dev/tty 2>&1)' \
       --prompt '1. Ripgrep> ' \
       --delimiter : \
       --header '╱ ctrl-r (Ripgrep mode) ╱ ctrl-f (fzf mode) ╱' \

@@ -35,17 +35,14 @@ return {
     "hrsh7th/nvim-cmp",
     event = { "InsertEnter", "CmdlineEnter" },
     dependencies = {
-      "JafarAbdi/cmp-conan",
       "hrsh7th/cmp-nvim-lsp",
       "hrsh7th/cmp-buffer",
       "saadparwaiz1/cmp_luasnip",
-      "hrsh7th/cmp-path",
       "L3MON4D3/LuaSnip",
       "hrsh7th/cmp-cmdline",
       "hrsh7th/cmp-nvim-lua",
       "hrsh7th/cmp-nvim-lsp-signature-help",
       "lukas-reineke/cmp-under-comparator",
-      "kdheepak/cmp-latex-symbols",
       { "mtoohey31/cmp-fish", ft = "fish" },
     },
     opts = function()
@@ -100,11 +97,8 @@ return {
               end,
             },
           },
-          { name = "conan_recipes" },
-          { name = "path" },
           { name = "nvim_lua" },
           { name = "fish" },
-          { name = "latex_symbols" },
         },
         formatting = {
           format = function(entry, vim_item)
@@ -115,12 +109,9 @@ return {
               buffer = "[Buffer]",
               nvim_lsp = "[LSP]",
               luasnip = "[LuaSnip]",
-              path = "[Path]",
               nvim_lua = "[Lua]",
               nvim_lsp_signature_help = "[Signature]",
               fish = "[Fish]",
-              latex_symbols = "[Latex]",
-              conan_recipes = "[Conan]",
             })[entry.source.name]
             local label = vim_item.abbr
             -- https://github.com/hrsh7th/nvim-cmp/discussions/609

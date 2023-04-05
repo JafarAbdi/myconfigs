@@ -15,31 +15,6 @@ tools:
       - '%f:%l:%c: %m'
     # Warning
     lint-severity: 2
-    # lint-formats:
-    #     - '%f:%l:%c: %t%n %m'
-    #     - '%f:%l:%c: %tNN%n %m'
-    #     - '%f:%l:%c: %tTT%n %m'
-    #     - '%f:%l:%c: %tUF%n %m'
-    #     - '%f:%l:%c: %tBT%n %m'
-    #     - '%f:%l:%c: %tLE%n %m'
-    # lint-category-map:
-    #   F: E  # pyflakes flake8-boolean-trap
-    #   E: E  # pycodestyle
-    #   I: H  # isort flake8-tidy-imports
-    #   D: W  # pydocstyle
-    #   U: W  # pyupgrade
-    #   N: W  # pep8-naming
-    #   S: W  # flake8-bandit
-    #   C: E  # flake8-comprehensions mccabe
-    #   B: E  # flake8-bugbear flake8-blind-except
-    #   A: E  # flake8-builtins flake8-annotations
-    #   T: E  # flake8-print
-    #   Q: E  # flake8-quotes
-    #   Y: E  # flake8-2020
-    #   R: E  # ruff-specific rules
-    #   M: E  # meta rules
-    # format-command: 'micromamba run -n linters ruff --stdin-filename ${INPUT} --fix --exit-zero --quiet -'
-    # format-stdin: true
   dockerfile-hadolint: &dockerfile-hadolint
     lint-command: 'hadolint --no-color'
     lint-formats:

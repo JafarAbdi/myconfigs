@@ -6,7 +6,6 @@ return {
       { "nvim-telescope/telescope-fzf-native.nvim", build = "make" },
     },
     config = function()
-      -- TODO: Pretty sure _ will be telescope which remove the requirement to run require("telescope......")
       local actions_layout = require("telescope.actions.layout")
       local actions = require("telescope.actions")
       local finders = require("telescope.finders")
