@@ -52,6 +52,7 @@ function start_podman -d "Start a podman image with gpu support"
                      -v $HOME/workspaces:$HOME/workspaces \
                      -v $HOME/myconfigs:$HOME/myconfigs:ro \
                      -v $HOME/.ssh:$HOME/.ssh:ro \
+                     -v $HOME/.config/gh:$HOME/.config/gh:ro \
                      -e HOME \
                      -e USER \
                      -e PODMAN_NAME=$podman_name \
@@ -69,6 +70,7 @@ function start_podman -d "Start a podman image with gpu support"
   podman exec --user root $cid bash -c "adduser $user sudo"
   podman exec --user root $cid bash -c "mkhomedir_helper $user"
   podman exec --user root $cid bash -c "chown $user:$user /home/$user"
+  podman exec --user root $cid bash -c "chown $user:$user /home/$user/.config"
   podman exec --user root $cid bash -c "usermod -d /home/$user $user"
   podman exec --workdir /home/$user --user $user -it $cid bash
 end

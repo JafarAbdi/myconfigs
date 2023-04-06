@@ -313,10 +313,14 @@ function install-mamba
   if ! command -q micromamba &> /dev/null
     curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C ~/.local/bin/ --strip-components=1 bin/micromamba
     micromamba shell init --shell=fish --prefix=$HOME/micromamba
-    fd --glob '*.yml' ~/myconfigs/micromamba-envs --exec test ! -e ~/micromamba/envs/{/.} \; --exec micromamba create -y -f {}
   else
     micromamba self-update
   end
+  # micromamba creates a temporary file in cwd when install the pip dependencies,
+  # so we need to be in a writable directory (not the case for docker containers)
+  set -l TMP_DIR (mktemp -d -p /tmp mamba-envs-XXXXXX)
+  cp ~/myconfigs/micromamba-envs/* $TMP_DIR
+  fd --glob '*.yml' $TMP_DIR --threads=1 --exec test ! -e ~/micromamba/envs/{/.} \; --exec micromamba create -y -f {}
   myconfigsr
 end
 
@@ -676,7 +680,7 @@ function install-podman
   install-podman-tui
 end
 
-function install-full-development
+function install-dev-core
   ## Utilities
   install-difftastic
   install-mold
@@ -686,14 +690,21 @@ function install-full-development
   ## Linters
   install-pre-commit
   install-hadolint
-  install-cpp-analyzers
-  install-luacheck
-  ## LSP
+end
+
+function install-full-development
+  # Markdown
   install-markdown-lsp
+  # Lua
   install-lua-lsp
+  install-luacheck
+  # Python
   install-efm-lsp
+  # Rust
   install-rust-lsp
+  # C/C++
   install-cpp-lsp
+  install-cpp-analyzers
 end
 
 function install-wezterm
