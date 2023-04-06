@@ -28,7 +28,6 @@ set -x ROS2_WS_DIR $WORKSPACE_DIR/ros2
 set -x ROS_WS_DIR $WORKSPACE_DIR/ros
 set fish_greeting
 set MAMBA_LEFT_PROMPT
-set -x SCHROOT_DIR /srv/chroot
 set -x CPP_SCREATCHES_DIR $HOME/workspaces/cpp/scratches
 set -x RUST_SCREATCHES_DIR $HOME/workspaces/rust/scratches/src/bin
 set -x NPM_PACKAGES "$HOME/.npm-packages"
@@ -171,15 +170,6 @@ for file in $MYCONFIGS_DIR/fish/completions/*
 end
 for file in $HOME/.config/fish/completions/*
   source $file
-end
-
-# TODO: Remove
-# This fixes a bug before 1.6.13
-# Calling neovim serverstart() will print errors
-if set -q SCHROOT_SESSION_ID
-  if test ! -e /run/user/$SCHROOT_UID || test ! -w /run/user/$SCHROOT_UID
-    set -e XDG_RUNTIME_DIR
-  end
 end
 
 if test -e ~/.terminfo/w/wezterm

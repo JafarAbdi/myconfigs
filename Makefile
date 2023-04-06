@@ -20,12 +20,9 @@ core:
 host: core
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && setup-ssh-keys'
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-tmux unstable'
-	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-schroot && stow-schroot'
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-podman'
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-common-utils'
 	sudo apt install fonts-jetbrains-mono
-	# Required for the st's ligatures patch
-	sudo apt install libharfbuzz-dev
 
 dev: core
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-nvim stable'

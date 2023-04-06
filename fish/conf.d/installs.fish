@@ -558,10 +558,6 @@ function stow-configs
                                                                    tmux
 end
 
-function stow-schroot
-  sudo stow --target / --stow schroot
-end
-
 ##################
 ## Host Machine ##
 ##################
@@ -624,10 +620,6 @@ function install-inkscape
 end
 
 ## Virtualization ##
-
-function install-schroot
-  sudo apt install -y schroot debootstrap
-end
 
 function install-docker-compose
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)

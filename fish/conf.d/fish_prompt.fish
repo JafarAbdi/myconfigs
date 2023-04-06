@@ -1,7 +1,4 @@
 function fish_prompt
-  # if set -q VIRTUAL_ENV
-  #   echo -n -s (set_color brmagenta) "("(basename (echo $VIRTUAL_ENV))")" (set_color normal)
-  # end
   if test -f /run/.toolboxenv
     set -l TOOLBOX_NAME (cat /run/.containerenv | grep -oP "(?<=name=\")[^\";]+")
     echo -n -s (set_color yellow) "($TOOLBOX_NAME)" (set_color normal)
@@ -18,9 +15,6 @@ function fish_prompt
   end
   if set -q PODMAN_NAME
     echo -n -s (set_color 85C1E9) "($PODMAN_NAME)" (set_color normal)
-  end
-  if set -q SCHROOT_SESSION_ID
-    echo -n -s (set_color 85C1E9) "($SCHROOT_SESSION_ID)" (set_color normal)
   end
   if set -q CURRENT_ROS_WORKSPACE
     echo -n -s (set_color D68910) "($CURRENT_ROS_WORKSPACE)" (set_color normal)

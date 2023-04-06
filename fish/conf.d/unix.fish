@@ -1,5 +1,9 @@
 alias grep='grep --color=auto'
 
+alias gitst='git status'
+alias gitsub='git submodule update --init --recursive'
+alias gitlogcompare="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr)%Creset' --abbrev-commit --date=relative "
+
 # Find and replace string in all files in a directory
 #  param1 - old word
 #  param2 - new word
@@ -164,29 +168,13 @@ function sfs
   sshfs -o identityfile=/home/juruc/.ssh/id_rsa,uid=(id -u),gid=(id -g),allow_other,reconnect,default_permissions,auto_cache,no_readahead,Ciphers=chacha20-poly1305@openssh.com $argv[1] $argv[2]
 end
 
+function rs-scratch
+  nvim $RUST_SCREATCHES_DIR/$argv[1]
+end
 
-# TODO: Port to fish
-# repeat()
-# {
-#   if [[ "$1" == "--help" ]]; then
-#     echo "Usage: repeat [Number of time to repeat - default: 10] command"
-#     return
-#   fi
-# 	local n="10"
-# 	if [[ "$1" =~ ^[0-9]+$ ]]; then
-# 		n="$1"
-# 		shift
-# 	fi
-# 	echo "Running '$@' $n times"
-# 	for ((i=1; i<="$n"; i++))
-# 	do
-# 		echo "Iteration $i/$n"
-#     	"$@"
-#     	if [[ $? -eq 1 ]]; then
-# 			echo "Iteration $i failed"
-# 			break
-#     	fi
-#   	done
+function cpp-scratch
+  nvim $CPP_SCREATCHES_DIR/$argv[1]
+end
 
 # fzf settings
 # Options to fzf command
@@ -254,11 +242,6 @@ function fzf-inline -d "List files and put them under current cursor"
   end
   commandline -f repaint
 end
-
-
-# function gstaged
-#   git status --short | grep 'UA' | awk '{print $2}' | fzf-inline
-# end
 
 function git-staged
   git status --short | grep 'M  ' | awk '{print $2}' | fzf-inline
