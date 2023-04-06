@@ -1,6 +1,3 @@
-# Micromamba environment file
-# https://marketplace.visualstudio.com/items?itemName=corker.vscode-micromamba
-
 name: myconfigs
 
 channels:
