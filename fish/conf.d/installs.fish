@@ -16,9 +16,7 @@ end
 function install-common-utils
   sudo apt update
   sudo apt install -y zathura \
-                      texlive-latex-extra \
-                      pandoc \
-                      pandocfilters
+                      texlive-latex-extra
 end
 
 function install-core

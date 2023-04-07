@@ -8,18 +8,6 @@ if wezterm.config_builder then
   config = wezterm.config_builder()
 end
 
-wezterm.on("nvim-todos", function(window, pane)
-  window:perform_action(
-    act.SwitchToWorkspace({
-      name = "notes",
-      spawn = {
-        args = { "todo" },
-      },
-    }),
-    pane
-  )
-end)
-
 -- Show which key table is active in the status area
 wezterm.on("update-right-status", function(window, pane)
   local name = window:active_key_table()
@@ -64,12 +52,6 @@ config.window_padding = {
 
 config.leader = { key = "q", mods = "CTRL", timeout_milliseconds = 1000 }
 config.keys = {
-  {
-    key = "n",
-    mods = "ALT",
-    action = act.EmitEvent("nvim-todos"),
-  },
-
   {
     key = "l",
     mods = "LEADER",
