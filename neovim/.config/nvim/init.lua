@@ -12,8 +12,11 @@ if vim.fn.exists("$NVIMRUNNING") == 1 then
     unpack(vim.tbl_map(function(e)
       return vim.fn.fnamemodify(e, ":p")
     end, vim.fn.argv())),
+  }, {
+    on_exit = function()
+      vim.cmd.qall({ bang = true })
+    end,
   })
-  vim.cmd.qall({ bang = true })
 else
   vim.fn.setenv("NVIMRUNNING", vim.api.nvim_get_vvar("servername"))
 end

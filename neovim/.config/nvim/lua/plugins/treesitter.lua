@@ -1,3 +1,5 @@
+vim.treesitter.language.register("html", { "xml", "xacro", "urdf" })
+
 local disable = function(lang, bufnr) -- Disable in large C++ buffers
   return (lang == "cpp" or lang == "c") and vim.api.nvim_buf_line_count(bufnr) > 50000
 end
@@ -172,10 +174,6 @@ return {
     },
     config = function(_, opts)
       require("nvim-treesitter.configs").setup(opts)
-      local ft_to_parser = require("nvim-treesitter.parsers").filetype_to_parsername
-      ft_to_parser.xml = "html"
-      ft_to_parser.xacro = "html"
-      ft_to_parser.urdf = "html"
     end,
   },
 }

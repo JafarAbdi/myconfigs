@@ -114,16 +114,8 @@ function install-rust
 end
 
 function install-nvim
-  set -l config_path ~/.config/nvim
-  set -l TMP_DIR (mktemp -d -p /tmp nvim-XXXXXX)
-  cd $TMP_DIR
-  if set -q argv[1] && test $argv[1] = "stable"
-    install-from-github neovim/neovim "v.*nvim-linux64.deb"
-  else
-    install-from-github neovim/neovim "nvim-linux64.deb"
-  end
-  sudo apt install ./nvim-linux64.deb
-  cd -
+  rm ~/.local/bin/nvim || wget https://github.com/neovim/neovim/releases/latest/download/nvim.appimage -O ~/.local/bin/nvim
+  chmod +x ~/.local/bin/nvim
 end
 
 function install-tmux
