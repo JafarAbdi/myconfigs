@@ -663,6 +663,7 @@ end
 function install-podman
   sudo apt install -y podman podman-toolbox podman-compose podman-docker
   podman completion -f ~/.config/fish/completions/podman.fish fish
+  toolbox completion fish > ~/.config/fish/completions/toolbox.fish
   wget https://raw.githubusercontent.com/docker/cli/master/contrib/completion/fish/docker.fish -O ~/.config/fish/completions/docker.fish
   install-podman-tui
 end
