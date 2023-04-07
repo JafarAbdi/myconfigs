@@ -5,7 +5,6 @@ set HISTCONTROL ignoredups:ignorespace
 # https://cyb.org.uk/2021/05/03/bash-productivity.html
 set -x HISTIGNORE 'pwd:exit:fg:bg:top:clear:history:ls:uptime:df'
 # append to the history file, don't overwrite it
-# TODO: shopt -s histappend
 set -x HISTSIZE 100000
 set -x HISTFILESIZE 100000
 
@@ -159,7 +158,6 @@ register-argcomplete ros_clang_tidy
 register-argcomplete _workon_workspace.py
 register-argcomplete ros_build
 register-argcomplete ros_test
-# TODO: Push upstream
 register-argcomplete ros2
 register-argcomplete rosidl
 register-argcomplete ament_cmake

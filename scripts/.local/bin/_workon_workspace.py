@@ -38,7 +38,6 @@ home_dir = os.getenv("HOME")
 workspaces = get_workspaces_yaml()
 
 ROS1_VERSIONS = ["melodic", "noetic"]
-# TODO: Should handle devel/install setup.bash
 if args.workspaces:
     print(" ".join(get_workspaces()))  # noqa: T201
 elif args.workspace_name:

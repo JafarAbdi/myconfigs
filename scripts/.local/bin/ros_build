@@ -105,7 +105,6 @@ def main() -> None:  # noqa: PLR0912, PLR0915, C901
         if args.pkg:
             cmd += args.pkg
             cmd += ["--no-deps"]
-        # TODO: Add skipping a package for catkin
         if args.skip:
             errmsg = "Skipping a package isn't supported yet for catkin"
             raise RuntimeError(errmsg)

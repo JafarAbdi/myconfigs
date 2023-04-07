@@ -29,7 +29,6 @@ return {
         },
       }
 
-      -- TODO: Why multiple setup??
       require("telescope").setup({
         defaults = require("telescope.themes").get_dropdown(dropdown_configs),
       })

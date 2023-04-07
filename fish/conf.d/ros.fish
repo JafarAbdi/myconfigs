@@ -115,7 +115,6 @@ for pkg in rospack.list():
   end
 end
 
-# TODO: make this function receive a list of pkgs and return list of paths
 function ros_pkg_path
   python3 -c '
 import rospkg

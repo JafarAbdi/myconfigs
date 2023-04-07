@@ -197,7 +197,6 @@ function setup-cpp-screatches
   cd $CPP_SCREATCHES_DIR/..
   git clone https://github.com/JafarAbdi/cpp-scratches.git scratches
   cd scratches
-  # TODO: Move to a script in cpp-scratches repo
   conan profile detect
   conan install --build=missing .
   cp conanbuildinfo.args compile_flags.txt
@@ -645,7 +644,6 @@ function install-docker
   # Test:
   sudo docker run hello-world
   # Nvidia
-  # TODO: Debian support https://nvidia.github.io/nvidia-docker/
   # It uses the latest stable version, there's release for sid
   # https://docs.docker.com/engine/install/debian/
   # https://nickjanetakis.com/blog/docker-tip-77-installing-docker-on-debian-unstable
@@ -671,7 +669,6 @@ function install-podman-tui
 end
 
 function install-podman
-  # TODO: https://podman.io/getting-started/installation#debian
   sudo apt install -y podman podman-toolbox podman-compose podman-docker
   podman completion -f ~/.config/fish/completions/podman.fish fish
   wget https://raw.githubusercontent.com/docker/cli/master/contrib/completion/fish/docker.fish -O ~/.config/fish/completions/docker.fish

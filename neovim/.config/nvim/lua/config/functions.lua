@@ -66,7 +66,6 @@ M.generate_all_python_stubs = function()
 import os
 import pkg_resources
 for pkg in pkg_resources.working_set:
-    # TODO: Pass as parameter????
     if pkg.location.startswith(os.environ["HOME"] + "/workspaces") or pkg.location.startswith("/opt"):
         print(pkg.project_name.replace("-", "_"))
     ]],
@@ -157,7 +156,6 @@ M.generate_python_stubs = function(missing_packages)
     end
     vim.schedule(function()
       vim.api.nvim_command("silent! w")
-      -- TODO: Handle 'PKG_NAME: Failed to import, skipping'
       -- It return success so use job:result() to access the output
       -- Maybe use tbl_filter and output the names????
       if signal == 0 then
@@ -171,13 +169,6 @@ M.generate_python_stubs = function(missing_packages)
     end)
   end)
   job:start()
-end
-
--- TODO: I don't think this's used anymore
-M.load_clangd_config = function(root_path)
-  assert(type(root_path) == "string", "root_path have to be a string")
-  local Path = require("plenary.path")
-  return vim.trim(Path:new(M.clangd_root_dir(root_path), ".clangd_config"):read())
 end
 
 M.is_buffer_exists = function(name)

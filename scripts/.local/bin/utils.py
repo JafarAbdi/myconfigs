@@ -95,7 +95,6 @@ def get_workspace_underlays(workspace: str) -> list[str] | None:
     return get_workspace_parameters(workspace).get("underlays")
 
 
-# TODO: Refactor packages to be a dictionary of packages name to src/build directories
 def get_package_paths(package_name: str) -> tuple[str, Path]:
     """Get the source and build directories for a package.
 

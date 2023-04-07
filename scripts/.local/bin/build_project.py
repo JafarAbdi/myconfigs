@@ -94,7 +94,6 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) 
         workspace_root = output["workspace_root"]
         for package in output["packages"]:
             for target in package["targets"]:
-                # TODO: Check kind, we should only run bin
                 if resolved_file_path == target["src_path"]:
                     if is_test:
                         run_command(
@@ -102,7 +101,6 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) 
                             dry_run=False,
                             cwd=workspace_root,
                         )
-                    # TODO: Remove once ruff support pattern matching
                     match target["kind"]:
                         case ["bin"]:
                             run_command(
@@ -304,14 +302,12 @@ def main() -> None:
             settings_args = file.read().splitlines()[0].split(" ")
         logging.info(f"Load args file '{args_file} with {settings_args}")
     run_args = {}
-    # TODO: Refactor to use micromamba.env from settings.json
     if (micromamba_file := settings_path / "settings.json").exists():
         with micromamba_file.open("r") as file:
             run_args = json.load(file)
-        if micromamba_env := run_args.get("micromamba"):
+        if micromamba_env := run_args.get("micromamba.env"):
             logging.info(f"Using micromamba env {micromamba_env}")
 
-    # TODO: Replace extra args with values from settings.json
     runner(
         file_path,
         settings_args,

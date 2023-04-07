@@ -130,7 +130,6 @@ return {
             ["il"] = "@loop.inner",
           },
         },
-        -- TODO: https://www.reddit.com/r/neovim/comments/tlkieq/swapping_objects_with_nvimtreesittertextobjects/
         swap = {
           enable = true,
           disable = disable,

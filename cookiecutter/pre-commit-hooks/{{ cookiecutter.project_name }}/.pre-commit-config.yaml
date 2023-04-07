@@ -1,7 +1,6 @@
 ci:
     skip: [refurb, luacheck]
 
-# TODO: Maybe a check for the language??
 repos:
   # Standard hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -65,7 +64,6 @@ repos:
     hooks:
       - id: cspell
   # Lua
-  # TODO: Add config file
   - repo: https://github.com/JohnnyMorganz/StyLua
     rev: v0.16.1
     hooks:
@@ -86,7 +84,6 @@ repos:
     hooks:
       - id: format-xmllint
   # C++
-  # TODO: Add config file?
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v15.0.7
     hooks:
