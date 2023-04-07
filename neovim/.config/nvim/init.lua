@@ -15,13 +15,7 @@ if vim.fn.exists("$NVIMRUNNING") == 1 then
   })
   vim.cmd.qall({ bang = true })
 else
-  -- servername is empty inside schroots
-  -- TODO: is this a bug????
-  local servername = vim.api.nvim_get_vvar("servername")
-  if servername == "" then
-    servername = vim.fn.serverstart(vim.fn.tempname())
-  end
-  vim.fn.setenv("NVIMRUNNING", servername)
+  vim.fn.setenv("NVIMRUNNING", vim.api.nvim_get_vvar("servername"))
 end
 
 require("config.lazy")
