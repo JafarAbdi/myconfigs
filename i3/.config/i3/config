@@ -45,6 +45,10 @@ bindsym XF86AudioMicMute exec --no-startup-id pactl set-source-mute @DEFAULT_SOU
 # start a terminal
 # bindsym Control+Mod1+t exec st # -e tmux #i3-sensible-terminal
 
+exec --no-startup-id obsidian
+assign [class="obsidian"] $ws10
+bindsym $mod+n workspace number $ws10
+
 # kill focused window
 bindsym $mod+Shift+q kill
 
