@@ -259,6 +259,35 @@ function git-untracked
   git status --short | rg '\?\?' | awk '{print $2}' | fzf-inline
 end
 
+function wt
+  if test (count $argv) -ne 1
+    echo "Usage: wt <worktree branch name>"
+    return 1
+  end
+  set -l worktrees (git worktree list 2> /dev/null)
+  for worktree in $worktrees
+    set -l tokens (echo $worktree | string split " " --no-empty)
+    set -l path $tokens[1..-3] | string join " "
+    set -l branch_name (echo $tokens[-1] | string match -r '\[(.*)\]' --groups-only)
+    if test $branch_name = $argv[1]
+      cd $path
+      return 0
+    end
+  end
+end
+
+function __fish_git_worktrees
+    set -l worktrees (git worktree list 2> /dev/null)
+    for worktree in $worktrees
+      set -l tokens (echo $worktree | string split " " --no-empty)
+      set -l path $tokens[1..-3] | string join " "
+      set -l branch_name (echo $tokens[-1] | string match -r '\[(.*)\]' --groups-only)
+      echo $branch_name\t$path
+    end
+end
+
+complete -c wt -x -a "(__fish_git_worktrees)"
+
 complete -c sfs -w sshfs
 complete -c set-timezone -a "(timedatectl list-timezones)"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
