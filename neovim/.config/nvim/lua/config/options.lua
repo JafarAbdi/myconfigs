@@ -37,6 +37,7 @@ opt.shortmess:append("wIA")
 opt.matchtime = 2
 opt.matchpairs:append("<:>")
 opt.swapfile = false
+vim.opt.signcolumn = "number"
 -- opt.complete:append("U")
 -- opt.complete:append("i")
 -- opt.complete:append("d")

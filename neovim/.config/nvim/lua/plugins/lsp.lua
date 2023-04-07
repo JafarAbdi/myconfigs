@@ -36,6 +36,7 @@ return {
         update_in_insert = true,
         virtual_text = { severity = vim.diagnostic.severity.ERROR },
         severity_sort = true,
+        signs = false,
       },
       -- LSP Server Settings
       servers = {
