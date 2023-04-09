@@ -264,13 +264,12 @@ def xacro(
 
 
 runners: Final = {
-    ".lua": lua,
-    ".py": python,
-    ".rs": rust,
-    ".cpp": cpp,
-    ".fish": fish,
-    ".xacro": xacro,
-    ".urdf": xacro,
+    "lua": lua,
+    "python": python,
+    "rust": rust,
+    "cpp": cpp,
+    "fish": fish,
+    "xml": xacro,
 }
 
 
@@ -281,6 +280,7 @@ def main() -> None:
     parser.add_argument("--workspace-folder", nargs="+", required=True)
     parser.add_argument("--file-path", nargs="+", required=True)
     parser.add_argument("--test", action="store_true")
+    parser.add_argument("--filetype", required=True)
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
@@ -290,9 +290,9 @@ def main() -> None:
     if not file_path.exists():
         logging.error(f"File '{file_path}' doesn't exists.")
         sys.exit(1)
-    file_type = file_path.suffix
-    if (runner := runners.get(file_type)) is None:
-        logging.error(f"Unsupported language '{file_type}' for path '{file_path}'")
+
+    if (runner := runners.get(args.filetype)) is None:
+        logging.error(f"Unsupported language '{args.filetype}' for path '{file_path}'")
         sys.exit(1)
     logging.info(f"Executing '{file_path}'")
     settings_path = workspace_path / ".vscode"

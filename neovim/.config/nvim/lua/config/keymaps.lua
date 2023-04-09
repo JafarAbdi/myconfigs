@@ -116,6 +116,8 @@ local run_file = function(is_test)
     "~/.local/bin/build_project.py",
     "--workspace-folder",
     root_dir,
+    "--filetype",
+    filetype,
     "--file-path",
     vim.fn.expand("%:p"),
   }
