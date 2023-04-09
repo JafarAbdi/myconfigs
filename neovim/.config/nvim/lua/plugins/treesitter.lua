@@ -71,7 +71,7 @@ return {
         "c_sharp",
         "dockerfile",
         "fish",
-        "help",
+        "vimdoc",
         "html",
         "http",
         "javascript",

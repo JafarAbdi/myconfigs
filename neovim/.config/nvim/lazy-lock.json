@@ -1,7 +1,7 @@
 {
   "LuaSnip": {
     "branch": "master",
-    "commit": "bc8ec05022743d3f08bda7a76c6bb5e9a9024581"
+    "commit": "8fdb06d4601c019a9ee880473646364bdbed3206"
   },
   "bufdelete.nvim": {
     "branch": "master",
@@ -61,7 +61,7 @@
   },
   "lualine.nvim": {
     "branch": "master",
-    "commit": "c28a7427c3fb29322db136f0564ec58807b26747"
+    "commit": "84ffb80e452d95e2c46fa29a98ea11a240f7843e"
   },
   "neogen": {
     "branch": "main",
@@ -81,11 +81,11 @@
   },
   "nvim-dap-ui": {
     "branch": "master",
-    "commit": "56a2df0e96bfa64ebd6967e7cad877a1530633d5"
+    "commit": "286f682f366fbc652b38dff893569374e9433dd3"
   },
   "nvim-lspconfig": {
     "branch": "master",
-    "commit": "1ec6f5cbf6ffc44c84783d70039df5295ca22b4e"
+    "commit": "27e9e1d2638ffd133b06f314a49ac55825cb1017"
   },
   "nvim-surround": {
     "branch": "main",
@@ -93,7 +93,7 @@
   },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "584ccea56e2d37b31ba292da2b539e1a4bb411ca"
+    "commit": "fa9fe9a95ba481e26e11eede4657f8c5350a0eaa"
   },
   "nvim-treesitter-context": {
     "branch": "master",
@@ -121,7 +121,7 @@
   },
   "telescope.nvim": {
     "branch": "master",
-    "commit": "942fe5faef47b21241e970551eba407bc10d9547"
+    "commit": "7141515a7cabde46449675a403ed564416363887"
   },
   "undotree": {
     "branch": "master",
