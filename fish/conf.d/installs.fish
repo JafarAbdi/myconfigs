@@ -36,6 +36,9 @@ function install-core
                       htop \
                       python3-pip \
                       python3-argcomplete \
+                      # Two dependencies for using AppImages
+                      fuse3 \
+                      libfuse2 \
                       p7zip-full \
                       zip \
                       wget \
@@ -45,10 +48,7 @@ function install-core
                       lld \
                       lldb \
                       ninja-build \
-                      sshfs \
-                      # Needed for st
-                      libxft-dev \
-                      libx11-dev
+                      sshfs
   pip3 install argcomplete==2.0.0
   install-ripgrep
   install-fd
@@ -459,9 +459,11 @@ function install-catkin
 end
 
 function install-colcon
-  sudo apt install -y 'python3-colcon-*' python3-vcstool
+  sudo apt install -y 'python3-colcon-*' python3-vcstool python3-rosdep
   colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml
   colcon mixin update default
+  sudo rosdep init
+  rosdep update
 end
 
 function install-urdf-viz

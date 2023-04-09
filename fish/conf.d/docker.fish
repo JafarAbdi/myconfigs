@@ -16,7 +16,7 @@ end
 complete -c setup_container -x -a '(__fish_print_docker_containers running)'
 
 function start_podman -d "Start a podman image with gpu support"
-  set -l user juruc
+  set -l user $USER
   if test (count $argv) -eq 0 ||
      test $argv[1] = "-h" ||
      test $argv[1] = "--help"
@@ -40,6 +40,11 @@ function start_podman -d "Start a podman image with gpu support"
     echo "Make sure to stop/remove it"
     return
   end
+  podman pull $argv[1]
+  if test $status -ne 0
+    echo "Failed to pull image $argv[1]"
+    return
+  end
   set -l cid (podman run \
                      --detach \
                      --interactive \
@@ -47,6 +52,10 @@ function start_podman -d "Start a podman image with gpu support"
                      # --privileged \
                      # --cap-add=all \
                      # --cap-add sys_ptrace \
+                     # Next two lines fix an issue with using appimage in podman
+                     # https://github.com/s3fs-fuse/s3fs-fuse/issues/647#issuecomment-392697838
+                     --cap-add SYS_ADMIN \
+                     --device /dev/fuse \
                      --userns=keep-id \
                      -v /tmp/.X11-unix:/tmp/.X11-unix \
                      -v $HOME/workspaces:$HOME/workspaces \
