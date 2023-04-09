@@ -145,6 +145,7 @@ if python3 -m jedi &> /dev/null
   export PYTHONSTARTUP=(python3 -m jedi repl)
 end
 export MYPYPATH=$HOME/.cache/python-stubs/stubs
+export SHELL=fish
 
 register-argcomplete clang_tidy
 register-argcomplete config_clangd
