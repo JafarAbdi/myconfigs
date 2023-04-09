@@ -114,7 +114,8 @@ function install-rust
 end
 
 function install-nvim
-  rm ~/.local/bin/nvim || wget https://github.com/neovim/neovim/releases/latest/download/nvim.appimage -O ~/.local/bin/nvim
+  rm ~/.local/bin/nvim || true
+  wget https://github.com/neovim/neovim/releases/latest/download/nvim.appimage -O ~/.local/bin/nvim
   chmod +x ~/.local/bin/nvim
 end
 
@@ -514,8 +515,7 @@ end
 ## Configs ##
 
 function unstow-configs
-  stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --delete bazel \
-                                                                     cargo \
+  stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --delete cargo \
                                                                      clangd \
                                                                      i3 \
                                                                      git \
@@ -533,8 +533,7 @@ function unstow-configs
                                                                      yamllint
 end
 function stow-configs
-  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow bazel \
-                                                                                cargo \
+  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow cargo \
                                                                                 clangd \
                                                                                 git \
                                                                                 ruff \

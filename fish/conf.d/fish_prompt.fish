@@ -20,11 +20,13 @@ function fish_prompt
     echo -n -s (set_color D68910) "($CURRENT_ROS_WORKSPACE)" (set_color normal)
   end
 
-  set -l worktrees (git worktree list 2> /dev/null)
-  set -l worktrees_count (count $worktrees)
   set -l worktrees_string ""
-  if test $worktrees_count -gt 1
-    set worktrees_string "(W:$worktrees_count)"
+  if command -sq git
+    set -l worktrees (git worktree list 2> /dev/null)
+    set -l worktrees_count (count $worktrees)
+    if test $worktrees_count -gt 1
+      set worktrees_string "(W:$worktrees_count)"
+    end
   end
   set -l git (set_color green)$worktrees_string(fish_git_prompt | string trim)(set_color normal)
   set -l user (set_color ff99ff)"($USER)"(set_color normal)
