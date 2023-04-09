@@ -6,7 +6,9 @@
 - Add the following lines to `~/.profile` to configure the buttons
 
 ```bash
-my_wacon_id=$(xinput | grep "UC-Logic TABLET 1060N Pad pad" | sed 's/^.*id=\([0-9]*\)[ \t].*$/\1/')
+my_wacon_id=$(xinput | \
+              grep "UC-Logic TABLET 1060N Pad pad" | \
+              sed 's/^.*id=\([0-9]*\)[ \t].*$/\1/')
 xsetwacom --set $my_wacon_id Button 1 "key 1"
 xsetwacom --set $my_wacon_id Button 2 "key 2"
 xsetwacom --set $my_wacon_id Button 3 "key 5"
