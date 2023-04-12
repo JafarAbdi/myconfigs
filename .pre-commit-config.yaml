@@ -51,7 +51,7 @@ repos:
         pass_filenames: false
         entry: micromamba run --name myconfigs refurb scripts/.local/bin
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.0.260
+    rev: v0.0.261
     hooks:
       - id: ruff
         args: ['--show-source', '--fix', '--config', 'ruff/.config/ruff/pyproject.toml']
