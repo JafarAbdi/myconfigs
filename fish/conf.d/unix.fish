@@ -37,9 +37,9 @@ function ffmpeg-extract-images
   ffmpeg -i $argv[1] -vsync 0 %d.png
 end
 
-function ffmpeg-remove-autorotate
+function ffmpeg-remove-audio
   if test (count $argv) -ne 1
-    echo "ffmpeg-remove-autorotate expects one input ffmpeg-remove-autorotate filename"
+    echo "ffmpeg-remove-audio expects one input filename"
     return
   end
   ffmpeg -i $argv[1] -vcodec copy -an "no-audio-"$argv[1]
