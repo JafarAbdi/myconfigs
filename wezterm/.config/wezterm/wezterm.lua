@@ -41,6 +41,7 @@ config.use_fancy_tab_bar = false
 config.show_new_tab_button_in_tab_bar = false
 config.tab_max_width = 25
 config.disable_default_key_bindings = true
+config.default_gui_startup_args = { "start", "--always-new-process" }
 
 config.launch_menu = { { args = { "htop" } } }
 config.window_padding = {
