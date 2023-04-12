@@ -47,17 +47,8 @@ keymap("n", "<leader>f", function()
   vim.lsp.buf.format({ async = true })
 end)
 M.lsp = function(bufnr)
-  if bufnr then
-    vim.api.nvim_buf_set_keymap(
-      bufnr,
-      "v",
-      "<leader>ca",
-      "<Esc><cmd>lua vim.lsp.buf.range_code_action()<CR>",
-      { noremap = true, silent = true }
-    )
-  end
   keymap("n", "<C-k>", vim.lsp.buf.signature_help, bufnr)
-  keymap("n", "<leader>ca", vim.lsp.buf.code_action, bufnr)
+  keymap({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action, bufnr)
   keymap("n", "gw", function()
     require("telescope.builtin").lsp_dynamic_workspace_symbols({
       symbol_width = 0.3,
@@ -145,7 +136,7 @@ end)
 keymap("n", "<C-M-f>", function()
   require("telescope.builtin").live_grep({ grep_open_files = true })
 end)
-keymap("n", "<C-S-f>", require("telescope.builtin").live_grep)
+keymap("n", "<C-S-g>", require("telescope.builtin").live_grep)
 keymap("n", "<M-o>", require("telescope.builtin").find_files)
 keymap("n", "<C-S-p>", require("telescope.builtin").commands)
 keymap("n", "<leader>ro", require("telescope.builtin").oldfiles)
