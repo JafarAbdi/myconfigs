@@ -3,6 +3,7 @@ local root_dirs = require("config.functions").root_dirs
 -- For testing inlayHints
 local clangd_cmd = {
   vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
+  "--completion-style=detailed",
 }
 -- local clangd_debug_cmd = vim.deepcopy(clangd_cmd)
 -- table.insert(clangd_debug_cmd, "-log=verbose")

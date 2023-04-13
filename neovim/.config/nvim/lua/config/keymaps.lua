@@ -47,7 +47,7 @@ keymap("n", "<leader>f", function()
   vim.lsp.buf.format({ async = true })
 end)
 M.lsp = function(bufnr)
-  keymap("n", "<C-k>", vim.lsp.buf.signature_help, bufnr)
+  keymap({ "n", "i" }, "<C-k>", vim.lsp.buf.signature_help, bufnr)
   keymap({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action, bufnr)
   keymap("n", "gw", function()
     require("telescope.builtin").lsp_dynamic_workspace_symbols({
