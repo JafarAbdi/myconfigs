@@ -259,6 +259,29 @@ function git-untracked
   git status --short | rg '\?\?' | awk '{print $2}' | fzf-inline
 end
 
+function ros_wt
+  if test (count $argv) -lt 1 -o (count $argv) -gt 2
+    echo "Usage: ros_wt <worktree name> [branch name]"
+    return 1
+  end
+  if not contains -- $argv[1] (__fish_git_worktrees_names)
+    if test (count $argv) -eq 1
+      echo "Worktree $argv[1] does not exist and no branch name was provided."
+      return 1
+    else
+      git worktree add (dirname (git rev-parse --show-toplevel))/$argv[1] $argv[2]
+    end
+  end
+  for worktree in (__fish_git_worktree_paths)
+    if test (basename $worktree) = $argv[1]
+      cd $worktree
+      rm $worktree/COLCON_IGNORE 2> /dev/null || true
+    else
+      touch $worktree/COLCON_IGNORE
+    end
+  end
+end
+
 function wt
   if test (count $argv) -ne 1
     echo "Usage: wt <worktree branch name>"
@@ -276,6 +299,31 @@ function wt
   end
 end
 
+function __fish_git_worktree_paths
+  git worktree list --porcelain 2> /dev/null | string replace --regex --filter '^worktree\s*' ''
+end
+
+function __fish_git_worktrees_names
+  __fish_git_worktree_paths | xargs -n 1 basename 2> /dev/null
+end
+
+function __fish_ros_wt
+  set -l completions
+
+  # Get the current word being completed
+  set current_word (commandline -poc)
+
+  # If the cursor is on the first argument
+  if test (count $current_word) -eq 1
+    set completions (__fish_git_worktrees_names)
+  # If the cursor is on the second argument
+  else if test (count $current_word) -eq 2
+    set completions (git for-each-ref --format='%(refname:short)' refs/heads)
+  end
+
+  echo $completions | tr ' ' '\n'
+end
+
 function __fish_git_worktrees
     set -l worktrees (git worktree list 2> /dev/null)
     for worktree in $worktrees
@@ -287,6 +335,7 @@ function __fish_git_worktrees
 end
 
 complete -c wt -x -a "(__fish_git_worktrees)"
+complete -c ros_wt -x -a "(__fish_ros_wt)"
 
 complete -c sfs -w sshfs
 complete -c set-timezone -a "(timedatectl list-timezones)"
