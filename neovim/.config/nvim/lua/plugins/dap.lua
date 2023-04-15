@@ -75,8 +75,8 @@ return {
       end
       dap.defaults.fallback.terminal_win_cmd = "tabnew"
       dap.defaults.fallback.external_terminal = {
-        command = "/usr/local/bin/st",
-        args = { "-e" },
+        command = "wezterm",
+        args = { "--skip-config" },
       }
       local lldb_executable_name = "/usr/bin/lldb-vscode"
       local lldb_executables = vim.split(vim.fn.glob(lldb_executable_name .. "*"), "\n")

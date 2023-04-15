@@ -70,7 +70,20 @@ vim.api.nvim_create_autocmd("BufWritePost", {
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
 
 vim.api.nvim_create_autocmd("FileType", {
-  pattern = { "qf", "git", "gitAnnotate", "Outline", "diff", "help" },
+  pattern = {
+    "qf",
+    "git",
+    "gitAnnotate",
+    "Outline",
+    "diff",
+    "help",
+    "dapui_hover",
+    "dapui_scopes",
+    "dapui_stacks",
+    "dapui_watches",
+    "dapui_breakpoints",
+    "dapui_console",
+  },
   callback = function()
     vim.opt_local.spell = false
   end,
