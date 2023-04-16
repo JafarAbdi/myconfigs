@@ -14,6 +14,7 @@ import argcomplete
 import yaml
 from utils import (
     RosVersions,
+    create_cmake_query_files,
     create_vscode_config,
     get_ros_packages,
     get_ros_packages_path,
@@ -36,7 +37,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915, C901
         "--skip",
         nargs="+",
         choices=get_ros_packages(Path(os.curdir).resolve() / "src"),
-    )  # Configuring neovim-cmake
+    )
     workspace_dir = Path(os.curdir).resolve()
     src_dir = workspace_dir / "src"
     if not Path(src_dir).exists():
@@ -46,6 +47,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915, C901
     build_path = Path(workspace_dir) / "build"
     clangd_configs = [{"CompileFlags": {"Add": ["-std=c++17"]}}]
     for package, path in packages:
+        create_cmake_query_files(build_path / f"{package}")
         create_vscode_config(
             str((build_path / f"{package}").absolute()),
             Path(path),
