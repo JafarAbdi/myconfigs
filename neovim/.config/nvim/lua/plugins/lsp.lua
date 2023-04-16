@@ -341,6 +341,7 @@ return {
 
       local capabilities =
         require("cmp_nvim_lsp").default_capabilities(vim.lsp.protocol.make_client_capabilities())
+      capabilities.offsetEncoding = { "utf-16" }
       local on_attach = function(_, bufnr)
         require("config.keymaps").lsp(bufnr)
       end
