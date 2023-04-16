@@ -147,8 +147,17 @@ def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -
         extra_args: Generic arguments to be used by the runner
         is_test: Whether the file is a test or not
     """
-    if (cwd / "CMakeLists.txt").exists():
-        cmake(file, args, cwd, extra_args)
+
+    # Search for .vscode directory in the current directory and all parent directories
+    def find_vscode_rootdir(path: Path) -> Path:
+        if (path / ".vscode").exists():
+            return path
+        if path.parent == path:
+            return None
+        return find_vscode_rootdir(path.parent)
+
+    if vscode_dir := find_vscode_rootdir(file):
+        cmake(file, args, vscode_dir, extra_args)
         return
     if (cwd / "conanbuildinfo.args").exists():
         cmd = ["clang++", str(file), "-o", str(file.with_suffix(".out"))]
@@ -190,29 +199,24 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict) -> None:
     reply_dir = build_dir / CMAKE_REPLY_DIR
     indices = sorted(reply_dir.glob("index-*.json"))
     if not indices:
-        logging.error("No cmake reply")
+        logging.error(f"No cmake reply in {reply_dir}")
         return False
     with indices[-1].open() as fp:
         index = json.load(fp)
-    try:
-        responses = index["reply"]["client-vscode"]["query.json"]["responses"]
-    except KeyError:
-        logging.exception("No response for client-vscode")
-        return False
     targets = {}
-    for response in responses:
-        if response["kind"] == "codemodel":
-            with (reply_dir / response["jsonFile"]).open() as fp:
-                codemodel = json.load(fp)
-            config = codemodel["configurations"][0]
-            for target_config in config["targets"]:
-                with (reply_dir / target_config["jsonFile"]).open() as target_file:
-                    target = json.load(target_file)
-                    if target["type"] == "EXECUTABLE":
-                        targets[cwd / target["sources"][0]["path"]] = {
-                            "name": target["name"],
-                            "path": build_dir / target["artifacts"][0]["path"],
-                        }
+    response = index["reply"]["codemodel-v2"]
+    if response["kind"] == "codemodel":
+        with (reply_dir / response["jsonFile"]).open() as fp:
+            codemodel = json.load(fp)
+        config = codemodel["configurations"][0]
+        for target_config in config["targets"]:
+            with (reply_dir / target_config["jsonFile"]).open() as target_file:
+                target = json.load(target_file)
+                if target["type"] == "EXECUTABLE":
+                    targets[cwd / target["sources"][0]["path"]] = {
+                        "name": target["name"],
+                        "path": build_dir / target["artifacts"][0]["path"],
+                    }
     if (target_info := targets.get(file)) is None:
         logging.error(f"Can't find an executable corresponding to {file}")
         return False
