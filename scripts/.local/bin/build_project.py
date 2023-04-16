@@ -94,13 +94,14 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) 
         workspace_root = output["workspace_root"]
         for package in output["packages"]:
             for target in package["targets"]:
+                if target["kind"] == ["lib"] and is_test:
+                    run_command(
+                        ["cargo", "test", "--lib", *args],
+                        dry_run=False,
+                        cwd=workspace_root,
+                    )
+                    return
                 if resolved_file_path == target["src_path"]:
-                    if is_test:
-                        run_command(
-                            ["cargo", "test", "--bin", target["name"], *args],
-                            dry_run=False,
-                            cwd=workspace_root,
-                        )
                     match target["kind"]:
                         case ["bin"]:
                             run_command(
