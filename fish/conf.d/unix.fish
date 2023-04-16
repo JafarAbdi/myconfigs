@@ -259,22 +259,13 @@ function git-untracked
   git status --short | rg '\?\?' | awk '{print $2}' | fzf-inline
 end
 
-function ros_wt
-  if test (count $argv) -lt 1 -o (count $argv) -gt 2
-    echo "Usage: ros_wt <worktree name> [branch name]"
+function ros_setup_wt
+  if test (count $argv) -ne 1
+    echo "Usage: ros_setup_wt <worktree name>"
     return 1
-  end
-  if not contains -- $argv[1] (__fish_git_worktrees_names)
-    if test (count $argv) -eq 1
-      echo "Worktree $argv[1] does not exist and no branch name was provided."
-      return 1
-    else
-      git worktree add (dirname (git rev-parse --show-toplevel))/$argv[1] $argv[2]
-    end
   end
   for worktree in (__fish_git_worktree_paths)
     if test (basename $worktree) = $argv[1]
-      cd $worktree
       rm $worktree/COLCON_IGNORE 2> /dev/null || true
     else
       touch $worktree/COLCON_IGNORE
@@ -282,21 +273,26 @@ function ros_wt
   end
 end
 
+function ros_wt
+  wt $argv[1] $argv[2]
+  ros_setup_wt $argv[1]
+end
+
 function wt
-  if test (count $argv) -ne 1
-    echo "Usage: wt <worktree branch name>"
+  if test (count $argv) -lt 1 -o (count $argv) -gt 2
+    echo "Usage: ros_wt <worktree name> [branch name]"
     return 1
   end
-  set -l worktrees (git worktree list 2> /dev/null)
-  for worktree in $worktrees
-    set -l tokens (echo $worktree | string split " " --no-empty)
-    set -l path $tokens[1..-3] | string join " "
-    set -l branch_name (echo $tokens[-1] | string match -r '\[(.*)\]' --groups-only)
-    if test $branch_name = $argv[1]
-      cd $path
-      return 0
+  set -l root_dir (dirname (git rev-parse --show-toplevel))
+  if not contains -- $argv[1] (__fish_git_worktrees_names)
+    if test (count $argv) -eq 1
+      echo "Worktree $argv[1] does not exist and no branch name was provided."
+      return 1
+    else
+      git worktree add $root_dir/$argv[1] $argv[2]
     end
   end
+  cd $root_dir/$argv[1]
 end
 
 function __fish_git_worktree_paths
@@ -307,7 +303,7 @@ function __fish_git_worktrees_names
   __fish_git_worktree_paths | xargs -n 1 basename 2> /dev/null
 end
 
-function __fish_ros_wt
+function __fish_wt
   set -l completions
 
   # Get the current word being completed
@@ -334,8 +330,8 @@ function __fish_git_worktrees
     end
 end
 
-complete -c wt -x -a "(__fish_git_worktrees)"
-complete -c ros_wt -x -a "(__fish_ros_wt)"
+complete -c wt -x -a "(__fish_wt)"
+complete -c ros_wt -x -a "(__fish_wt)"
 
 complete -c sfs -w sshfs
 complete -c set-timezone -a "(timedatectl list-timezones)"
