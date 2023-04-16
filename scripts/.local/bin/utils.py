@@ -107,7 +107,7 @@ def get_package_paths(package_name: str) -> tuple[str, Path]:
     import rospkg
 
     workspace_dir = Path(os.curdir).resolve()
-    rospack = rospkg.RosPack([workspace_dir + "/src"])
+    rospack = rospkg.RosPack([workspace_dir / "src"])
     return (
         rospack.get_path(package_name),
         (Path(workspace_dir) / "build" / f"{package_name}").absolute(),
