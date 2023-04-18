@@ -723,3 +723,21 @@ function install-obsidian
   mv Obsidian-*.AppImage ~/.local/bin/obsidian
   cd -
 end
+
+function install-actionlint
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github rhysd/actionlint "actionlint_.*_linux_amd64.tar.gz"
+  ex actionlint*
+  mv actionlint ~/.local/bin
+  cd -
+end
+
+function install-stylua
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github "JohnnyMorganz/StyLua" "stylua-linux.zip"
+  ex stylua-linux.zip
+  mv stylua ~/.local/bin
+  cd -
+end

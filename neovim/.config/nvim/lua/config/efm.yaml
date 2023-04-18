@@ -21,6 +21,14 @@ tools:
       - '%f:%l %m'
     # Warning
     lint-severity: 2
+  actionlint-lint: &actionlint-lint
+    prefix: actionlint
+    lint-command: "bash -c \"[[ '${INPUT}' =~ \\\\.github/workflows/ ]]\" && actionlint -oneline -no-color -"
+    lint-stdin: true
+    lint-formats:
+      - '%f:%l:%c: %m'
+    root-markers:
+      - .github
 languages:
   python:
     - <<: *python-black
@@ -66,6 +74,7 @@ languages:
       lint-formats:
         - '%f:%l:%c:%m'
   yaml:
+    - <<: *actionlint-lint
     - lint-command: 'yamllint -f parsable -'
       lint-stdin: true
   lua:
