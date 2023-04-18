@@ -339,9 +339,18 @@ return {
     config = function(_, opts)
       vim.diagnostic.config(opts.diagnostics)
 
-      local capabilities =
-        require("cmp_nvim_lsp").default_capabilities(vim.lsp.protocol.make_client_capabilities())
-      capabilities.offsetEncoding = { "utf-16" }
+      local capabilities = vim.tbl_deep_extend(
+        "force",
+        require("cmp_nvim_lsp").default_capabilities(vim.lsp.protocol.make_client_capabilities()),
+        {
+          workspace = {
+            didChangeWatchedFiles = {
+              dynamicRegistration = true,
+            },
+          },
+          offsetEncoding = { "utf-16" },
+        }
+      )
       local on_attach = function(_, bufnr)
         require("config.keymaps").lsp(bufnr)
       end
