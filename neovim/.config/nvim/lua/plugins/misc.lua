@@ -16,14 +16,6 @@ return {
   { "junegunn/vim-easy-align", cmd = "EasyAlign" },
   { "mbbill/undotree", cmd = "UndotreeToggle" },
   {
-    "lewis6991/gitsigns.nvim",
-    event = "BufReadPre",
-    opts = {
-      numhl = true,
-      signcolumn = false,
-    },
-  },
-  {
     "kylechui/nvim-surround",
     event = "VeryLazy",
     opts = {

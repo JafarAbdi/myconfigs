@@ -47,10 +47,6 @@
     "branch": "release",
     "commit": "b6e5624351ba735e25eb8864d7d22819aad00606"
   },
-  "gitsigns.nvim": {
-    "branch": "main",
-    "commit": "372d5cb485f2062ac74abc5b33054abac21d8b58"
-  },
   "indent-blankline.nvim": {
     "branch": "master",
     "commit": "018bd04d80c9a73d399c1061fa0c3b14a7614399"
