@@ -10,7 +10,7 @@ local clangd_cmd = {
 -- clangd_cmd = vim.deepcopy(clangd_debug_cmd)
 
 -- local cmake_cmd = { "cmake-language-server", "-vv", "--log-file", "/tmp/cmake-lsp.txt" }
-local cmake_cmd = { "cmake-language-server" }
+local cmake_cmd = { "micromamba", "run", "-n", "cmake-lsp", "cmake-language-server" }
 
 local runtime_path = vim.split(package.path, ";")
 table.insert(runtime_path, "lua/?.lua")

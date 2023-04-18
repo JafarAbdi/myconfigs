@@ -418,12 +418,11 @@ function install-json-lsp
 end
 
 function install-cmake-lsp
-  cd ~/.config
-  pipx install poetry
-  git clone git@github.com:JafarAbdi/cmake-language-server.git
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  git clone git@github.com:JafarAbdi/cmake-language-server.git -b myconfigs
   cd cmake-language-server
-  poetry build
-  pip3 install ./dist/cmake_language_server-0.1.3.tar.gz
+  micromamba run -n cmake-lsp pip3 install .
   cd -
 end
 
