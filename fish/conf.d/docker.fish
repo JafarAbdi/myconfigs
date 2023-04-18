@@ -51,7 +51,7 @@ function start_podman -d "Start a podman image with gpu support"
                      --gpus all \
                      # --privileged \
                      # --cap-add=all \
-                     # --cap-add sys_ptrace \
+                     --cap-add SYS_PTRACE \
                      # Next two lines fix an issue with using appimage in podman
                      # https://github.com/s3fs-fuse/s3fs-fuse/issues/647#issuecomment-392697838
                      --cap-add SYS_ADMIN \
