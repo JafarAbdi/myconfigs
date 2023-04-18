@@ -1,8 +1,7 @@
 -- Copied from https://github.com/mfussenegger/dotfiles/
 local api = vim.api
 local M = {}
-local ns = api.nvim_create_namespace('gh')
-
+local ns = api.nvim_create_namespace("gh")
 
 function M.comments()
   local branch = vim.trim(vim.fn.system("git branch --show current"))
@@ -12,8 +11,10 @@ function M.comments()
     print("No PR found for branch " .. branch)
     return
   end
-  local comments_cmd = 'gh api "repos/{owner}/{repo}/pulls/' .. prs[1].number .. '/comments" --cache 30m'
-  local comments = vim.json.decode(vim.fn.system(comments_cmd), { luanil = { object = true }})
+  local comments_cmd = 'gh api "repos/{owner}/{repo}/pulls/'
+    .. prs[1].number
+    .. '/comments" --cache 30m'
+  local comments = vim.json.decode(vim.fn.system(comments_cmd), { luanil = { object = true } })
   assert(comments, "gh api ... should have json list result")
   local buf_diagnostic = vim.defaulttable()
   for _, comment in pairs(comments) do
@@ -25,7 +26,7 @@ function M.comments()
         lnum = comment.line - 1,
         col = 0,
         message = comment.body,
-        severity = vim.diagnostic.severity.WARN
+        severity = vim.diagnostic.severity.WARN,
       })
     end
   end
@@ -35,14 +36,12 @@ function M.comments()
     vim.list_extend(qflist, list)
     vim.diagnostic.set(ns, bufnr, diagnostic)
   end
-  vim.fn.setqflist(qflist, 'r')
+  vim.fn.setqflist(qflist, "r")
   vim.cmd.copen()
 end
-
 
 function M.clear()
   vim.diagnostic.reset(ns)
 end
-
 
 return M
