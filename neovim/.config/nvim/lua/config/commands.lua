@@ -231,4 +231,18 @@ end, {
   end,
 })
 
+vim.api.nvim_create_user_command("Gh", function(opts)
+  local gh = require("config.gh")
+  if opts.args == "comments" then
+    gh.comments()
+  elseif opts.args == "clear" then
+    gh.clear()
+  end
+end, {
+  nargs = 1,
+  complete = function()
+    return { "comments", "clear" }
+  end,
+})
+
 return M
