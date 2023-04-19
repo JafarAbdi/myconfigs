@@ -44,17 +44,6 @@ M.root_dirs = {
 }
 M.root_dirs.c = M.root_dirs.cpp
 
-M.clean_whitespaces = function()
-  local current_view = vim.fn.winsaveview()
-  vim.cmd([[keeppatterns %s/\s\+$//e]])
-  vim.fn.winrestview(current_view)
-end
-
-P = function(v)
-  print(vim.inspect(v))
-  return v
-end
-
 M.generate_all_python_stubs = function()
   local Job = require("plenary.job")
   local job = Job

@@ -56,16 +56,6 @@ vim.api.nvim_create_autocmd("TermOpen", {
   group = general_group,
 })
 
-vim.api.nvim_create_autocmd("BufWritePost", {
-  callback = function()
-    -- Deletes all trailing whitespaces in a file if it's not binary nor a diff.
-    if not vim.o.binary and vim.o.filetype ~= "diff" then
-      require("config.functions").clean_whitespaces()
-    end
-  end,
-  group = general_group,
-})
-
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
 
 vim.api.nvim_create_autocmd("FileType", {
@@ -92,10 +82,6 @@ vim.api.nvim_create_autocmd("FileType", {
 --------------
 -- Commands --
 --------------
-
-vim.api.nvim_create_user_command("CleanWhitespaces", function()
-  require("config.functions").clean_whitespaces()
-end, {})
 
 vim.api.nvim_create_user_command("SpellToggle", function()
   if vim.opt.spell:get() then
