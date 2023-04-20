@@ -219,7 +219,7 @@ config.key_tables = {
 config.warn_about_missing_glyphs = false
 
 config.force_reverse_video_cursor = true
-config.font = wezterm.font("JetBrains Mono")
+config.font = wezterm.font("JetBrains Mono", { weight = "ExtraLight" })
 config.term = "wezterm"
 -- Same colors as st's onedark theme
 config.colors = {

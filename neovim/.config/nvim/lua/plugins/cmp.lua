@@ -43,7 +43,6 @@ return {
       "hrsh7th/cmp-nvim-lua",
       "hrsh7th/cmp-nvim-lsp-signature-help",
       "lukas-reineke/cmp-under-comparator",
-      { "mtoohey31/cmp-fish", ft = "fish" },
     },
     opts = function()
       local cmp = require("cmp")
@@ -53,10 +52,6 @@ return {
           expand = function(args)
             require("luasnip").lsp_expand(args.body)
           end,
-        },
-        view = "native",
-        experimental = {
-          ghost_text = false, -- this feature conflict with copilot.vim's preview.
         },
         mapping = cmp.mapping.preset.insert({
           ["Tab"] = cmp.config.disable,
@@ -88,12 +83,6 @@ return {
             option = {
               get_bufnrs = function()
                 return vim.api.nvim_list_bufs()
-                -- local buf = vim.api.nvim_get_current_buf()
-                -- local byte_size = vim.api.nvim_buf_get_offset(buf, vim.api.nvim_buf_line_count(buf))
-                -- if byte_size > 1024 * 1024 then -- 1 Megabyte max
-                --   return {}
-                -- end
-                -- return { buf }
               end,
             },
           },
@@ -102,16 +91,12 @@ return {
         },
         formatting = {
           format = function(entry, vim_item)
-            -- Kind icons
-            -- vim_item.kind = string.format("%s", vim_item.kind) -- This concatenates the icons with the name of the item kind
-            -- Source
             vim_item.menu = ({
               buffer = "[Buffer]",
               nvim_lsp = "[LSP]",
               luasnip = "[LuaSnip]",
               nvim_lua = "[Lua]",
               nvim_lsp_signature_help = "[Signature]",
-              fish = "[Fish]",
             })[entry.source.name]
             local label = vim_item.abbr
             -- https://github.com/hrsh7th/nvim-cmp/discussions/609

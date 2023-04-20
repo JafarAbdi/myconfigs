@@ -1,7 +1,6 @@
 local opt = vim.opt -- global (vim.opt is better than vim.o)
 local g = vim.g -- global for let options
 local wo = vim.wo -- window local
--- local bo = vim.bo -- buffer local
 
 -- help options
 opt.number = true
@@ -21,16 +20,14 @@ opt.copyindent = true
 opt.cursorline = true
 opt.termguicolors = true
 opt.hlsearch = false
-opt.completeopt = "menuone,noselect,noinsert"
 opt.linebreak = true
 opt.autowrite = true
 opt.inccommand = "nosplit"
-opt.scrolloff = 5
+opt.scrolloff = 3
 opt.wrap = false
 opt.sidescrolloff = 10
 opt.showmatch = true
 opt.title = true
-opt.wildmode = "list:longest,full"
 opt.relativenumber = true
 opt.titlestring = "NVIM: %{substitute(getcwd(), $HOME, '~', '')}%a%r%m "
 opt.shortmess:append("wIA")
@@ -38,14 +35,14 @@ opt.matchtime = 2
 opt.matchpairs:append("<:>")
 opt.swapfile = false
 vim.opt.signcolumn = "number"
--- opt.complete:append("U")
--- opt.complete:append("i")
--- opt.complete:append("d")
--- opt.wildmode = "longest:full,full"
--- opt.wildignore:append({ "*.pyc", ".git", ".idea", "*.o" })
--- if vim.fn.has("nvim-0.9") == 1 then
---   opt.wildoptions = "pum,tagfile,fuzzy"
--- end
+
+opt.smartindent = true
+opt.pumheight = 20
+opt.completeopt = "menuone,noselect,noinsert"
+opt.complete:append({ "U", "i", "d" })
+opt.wildmode = "longest:full,full"
+opt.wildignore:append({ "*.pyc", ".git", ".idea", "*.o" })
+opt.wildoptions = "pum,tagfile,fuzzy"
 
 g.mapleader = " "
 g.maplocalleader = " "

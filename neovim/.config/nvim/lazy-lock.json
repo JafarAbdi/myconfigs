@@ -1,7 +1,7 @@
 {
   "LuaSnip": {
     "branch": "master",
-    "commit": "eb592e4be52fff5a514b7540d5341b55ca4c3226"
+    "commit": "8d6c0a93dec34900577ba725e91c44b8d3ca1f45"
   },
   "bufdelete.nvim": {
     "branch": "master",
@@ -14,10 +14,6 @@
   "cmp-cmdline": {
     "branch": "main",
     "commit": "8fcc934a52af96120fe26358985c10c035984b53"
-  },
-  "cmp-fish": {
-    "branch": "main",
-    "commit": "8ae7bfb1b3251d433c4adf4e64396ef929fbd91f"
   },
   "cmp-nvim-lsp": {
     "branch": "main",
