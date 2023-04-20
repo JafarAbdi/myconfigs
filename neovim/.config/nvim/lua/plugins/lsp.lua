@@ -2,6 +2,41 @@ local root_dirs = require("config.functions").root_dirs
 
 return {
   {
+    "L3MON4D3/LuaSnip",
+    lazy = false,
+    opts = function()
+      local types = require("luasnip.util.types")
+
+      return {
+        -- This tells LuaSnip to remember to keep around the last snippet.
+        -- You can jump back into it even if you move outside of the selection
+        history = true,
+        delete_check_events = "TextChanged",
+        -- This one is cool cause if you have dynamic snippets, it updates as you type!
+        updateevents = "TextChanged,TextChangedI",
+
+        -- Autosnippets:
+        enable_autosnippets = true,
+        store_selection_keys = "<Tab>",
+        ext_opts = {
+          [types.choiceNode] = {
+            active = {
+              virt_text = { { "choiceNode", "Comment" } },
+            },
+          },
+        },
+      }
+    end,
+    config = function(_, opts)
+      require("luasnip").config.set_config(opts)
+      require("luasnip.loaders.from_vscode").load({
+        paths = { "~/myconfigs/vscode/.config/Code/User/snippets" },
+      })
+      require("lsp_compl").expand_snippet = require("luasnip").lsp_expand
+    end,
+  },
+  { "mfussenegger/nvim-lsp-compl", lazy = false },
+  {
     "neovim/nvim-lspconfig",
     lazy = false,
     dependencies = {
@@ -332,7 +367,8 @@ return {
 
       local capabilities = vim.tbl_deep_extend(
         "force",
-        require("cmp_nvim_lsp").default_capabilities(vim.lsp.protocol.make_client_capabilities()),
+        vim.lsp.protocol.make_client_capabilities(),
+        require("lsp_compl").capabilities(),
         {
           workspace = {
             didChangeWatchedFiles = {
@@ -347,6 +383,7 @@ return {
           if client.name == "omnisharp" then
             client.server_capabilities.semanticTokensProvider = nil
           end
+          require("lsp_compl").attach(client, bufnr, { server_side_fuzzy_completion = true })
           require("config.keymaps").lsp(bufnr)
         end
       end

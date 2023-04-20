@@ -17,13 +17,29 @@ local edit_file = function(selection)
   end
 end
 
+vim.keymap.set({ "i", "s" }, "<ESC>", function()
+  require("luasnip").unlink_current()
+  return "<ESC>"
+end, { expr = true })
+
+vim.keymap.set({ "i", "s" }, "<Tab>", function()
+  return require("luasnip").jumpable(1) and "<Plug>luasnip-jump-next" or "<Tab>"
+end, { expr = true, silent = true })
+vim.keymap.set({ "i", "s" }, "<S-Tab>", function()
+  return require("luasnip").jumpable(-1) and "<Plug>luasnip-jump-prev" or "<S-Tab>"
+end, { expr = true, silent = true })
+
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 
 vim.keymap.set("i", "<C-e>", function()
-  return vim.fn["copilot#Accept"]()
+  return vim.api.nvim_feedkeys(
+    vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
+    "n",
+    true
+  )
 end, { expr = true })
 vim.keymap.set("i", "<c-;>", function()
   return vim.fn["copilot#Next"]()
@@ -46,6 +62,8 @@ local function accept_line()
   local bar = vim.fn["copilot#TextQueuedForInsertion"]()
   return vim.fn.split(bar, [[[\n]\zs]])[1]
 end
+
+vim.keymap.set("i", "<c-j>", require("config.snippet").maybe)
 
 vim.keymap.set("i", "<C-M-l>", accept_line, { expr = true, remap = false })
 vim.keymap.set("i", "<C-M-e>", accept_word, { expr = true, remap = false })
@@ -76,6 +94,12 @@ local set_clangd_opening_path = function(callback)
 end
 
 M.lsp = function(bufnr)
+  keymap("i", "<C-Space>", function()
+    require("lsp_compl").trigger_completion()
+  end, bufnr)
+  vim.keymap.set("i", "<CR>", function()
+    return require("lsp_compl").accept_pum() and "<c-y>" or "<CR>"
+  end, { expr = true, buffer = bufnr })
   keymap({ "n", "i" }, "<C-k>", vim.lsp.buf.signature_help, bufnr)
   keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, bufnr)
   keymap("n", "K", vim.lsp.buf.hover, bufnr)
@@ -219,30 +243,6 @@ keymap("n", "<leader>c", function()
   -- no quickfix buffer found so far, so show it
   win_pre_copen = api.nvim_get_current_win()
   api.nvim_command("botright copen")
-end)
-
--- This will expand the current item or jump to the next item within the snippet.
-keymap({ "i", "s" }, "<c-j>", function()
-  local ls = require("luasnip")
-  if ls.expand_or_jumpable() then
-    ls.expand_or_jump()
-  end
-end)
-
--- This always moves to the previous item within the snippet
-keymap({ "i", "s" }, "<c-k>", function()
-  local ls = require("luasnip")
-  if ls.jumpable(-1) then
-    ls.jump(-1)
-  end
-end)
-
--- This is useful for choice nodes (introduced in the forthcoming episode 2)
-keymap("i", "<c-l>", function()
-  local ls = require("luasnip")
-  if ls.choice_active() then
-    ls.change_choice(1)
-  end
 end)
 
 local center_screen = function(command)
