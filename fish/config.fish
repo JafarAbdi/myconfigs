@@ -132,18 +132,15 @@ if [ "$current_ros_workspace" != "" ]
   source_workspace $current_ros_workspace
 end
 
-if command -v rustup &> /dev/null
-  export RUST_ANALYZER_BIN=(rustup which rust-analyzer)
-end
+# if command -v rustup &> /dev/null
+#   export RUST_ANALYZER_BIN=(rustup which rust-analyzer)
+# end
 
 alias myconfigs "cd $MYCONFIGS_DIR"
 alias myconfigsr "source ~/.config/fish/config.fish"
 alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmake 'cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 
-if python3 -m jedi &> /dev/null
-  export PYTHONSTARTUP=(python3 -m jedi repl)
-end
 export MYPYPATH=$HOME/.cache/python-stubs/stubs
 export SHELL=fish
 

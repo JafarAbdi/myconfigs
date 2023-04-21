@@ -44,6 +44,11 @@ opt.wildmode = "longest:full,full"
 opt.wildignore:append({ "*.pyc", ".git", ".idea", "*.o" })
 opt.wildoptions = "pum,tagfile,fuzzy"
 
+if vim.fn.executable("rg") == 1 then
+  opt.grepprg = "rg --no-messages --vimgrep --no-heading --smart-case"
+  opt.grepformat = "%f:%l:%c:%m,%f:%l:%m"
+end
+
 g.mapleader = " "
 g.maplocalleader = " "
 
@@ -62,7 +67,6 @@ g.copilot_tab_fallback = ""
 g.copilot_filetypes = {
   ["*"] = true,
   gitcommit = false,
-  TelescopePrompt = false,
   ["dap-repl"] = false,
   dapui_watches = false,
 }

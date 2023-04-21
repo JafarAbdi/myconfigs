@@ -166,7 +166,9 @@ return {
           },
         },
         rust_analyzer = {
-          cmd = { vim.env.RUST_ANALYZER_BIN },
+          cmd = {
+            vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer",
+          },
           root_dir = root_dirs.rust,
           settings = {
             -- to enable rust-analyzer settings visit:

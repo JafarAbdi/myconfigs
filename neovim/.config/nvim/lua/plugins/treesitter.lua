@@ -46,7 +46,7 @@ return {
         disable = function(lang, buf)
           return (lang == "html")
             or disable(lang, buf)
-            -- Disable highlighting for files without a filetype (telescope as an example)
+            -- Disable highlighting for files without a filetype
             or (vim.api.nvim_buf_get_option(buf, "filetype") == "")
         end,
       },

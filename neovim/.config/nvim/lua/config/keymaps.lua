@@ -1,5 +1,17 @@
 local M = {}
 
+local fzy = require("fzy")
+fzy.command = function(opts)
+  return string.format(
+    'fzf --height %d --prompt "%s" --no-multi --preview=""',
+    -- 'fzf --height %d --prompt "%s" --preview-window="bottom,+{2}+3/3" --delimiter : --no-multi --ansi',
+    opts.height,
+    vim.F.if_nil(opts.prompt, "")
+  )
+end
+
+local q = require("qwahl")
+
 -- Debugging
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 
@@ -48,30 +60,13 @@ keymap("n", "<leader>f", function()
 end)
 M.lsp = function(bufnr)
   keymap({ "n", "i" }, "<C-k>", vim.lsp.buf.signature_help, bufnr)
-  keymap({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action, bufnr)
-  keymap("n", "gw", function()
-    require("telescope.builtin").lsp_dynamic_workspace_symbols({
-      symbol_width = 0.3,
-      fname_width = 0.6,
-      symbol_type_width = 0.1,
-    })
-  end, bufnr)
+  keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, bufnr)
   keymap("n", "K", vim.lsp.buf.hover, bufnr)
-  local lsp_action = function(callback)
-    return function()
-      callback({ fname_width = 0.55 })
-    end
-  end
-  keymap("n", "gi", lsp_action(require("telescope.builtin").lsp_implementations), bufnr)
-  keymap("n", "gr", lsp_action(require("telescope.builtin").lsp_references), bufnr)
-  keymap("n", "gt", lsp_action(require("telescope.builtin").lsp_type_definitions), bufnr)
-  keymap("n", "gd", lsp_action(require("telescope.builtin").lsp_definitions), bufnr)
-  keymap("n", "gs", function()
-    require("telescope.builtin").lsp_document_symbols({
-      symbol_width = 0.9,
-      symbol_type_width = 0.1,
-    })
-  end, bufnr)
+  keymap("n", "gi", vim.lsp.buf.implementation, bufnr)
+  keymap("n", "gr", vim.lsp.buf.references, bufnr)
+  keymap("n", "gt", vim.lsp.buf.type_definition, bufnr)
+  keymap("n", "gd", vim.lsp.buf.definition, bufnr)
+  keymap("n", "gs", q.lsp_tags, bufnr)
   keymap("n", "<F2>", vim.lsp.buf.rename, bufnr)
 end
 local run_file = function(is_test)
@@ -125,36 +120,46 @@ end)
 keymap("n", "<leader>x", function()
   run_file(false)
 end)
-keymap("n", "<leader><space>", require("telescope.builtin").buffers)
-keymap("n", "<leader>gc", require("telescope.builtin").current_buffer_fuzzy_find)
-keymap("n", "<leader>gr", require("telescope.builtin").resume)
-keymap("n", "<leader>h", require("telescope.builtin").help_tags)
-keymap("n", "<C-S-s>", require("telescope.builtin").grep_string)
+keymap("n", "<leader><space>", q.buffers)
+keymap("n", "<leader>gc", q.buf_lines)
 keymap("n", "<C-M-s>", function()
-  require("telescope.builtin").grep_string({ grep_open_files = true })
+  fzy.execute(
+    "rg --no-messages --no-heading --trim --line-number --smart-case" .. vim.fn.expand("<cword>"),
+    fzy.sinks.edit_live_grep
+  )
 end)
-keymap("n", "<C-M-f>", function()
-  require("telescope.builtin").live_grep({ grep_open_files = true })
+keymap("n", "<M-o>", function()
+  fzy.execute("fd --hidden --type f --ignore --strip-cwd-prefix", fzy.sinks.edit_file)
 end)
-keymap("n", "<C-S-g>", require("telescope.builtin").live_grep)
-keymap("n", "<M-o>", require("telescope.builtin").find_files)
-keymap("n", "<C-S-p>", require("telescope.builtin").commands)
-keymap("n", "<leader>ro", require("telescope.builtin").oldfiles)
-keymap("n", "<C-S-e>", vim.cmd.Lexplore)
-keymap("n", "<leader>j", function()
-  require("telescope.builtin").jumplist({ fname_width = 0.6 })
-end)
+keymap("n", "<leader>j", q.jumplist)
 
 -- Diagnostic keymaps
 keymap("n", "<leader>df", vim.diagnostic.open_float)
-keymap("n", "<leader>d<Up>", function()
-  vim.diagnostic.goto_prev({ severity = vim.diagnostic.severity.ERROR })
-end)
-keymap("n", "<leader>d<Down>", function()
-  vim.diagnostic.goto_next({ severity = vim.diagnostic.severity.ERROR })
-end)
+keymap("n", "<leader>q", q.quickfix)
 keymap("n", "<leader>dq", function()
-  require("telescope.builtin").diagnostics(vim.tbl_deep_extend("error", { bufnr = 0 }, {}))
+  q.diagnostic(0)
+end)
+local win_pre_copen = nil
+keymap("n", "<leader>c", function()
+  local api = vim.api
+  for _, win in pairs(api.nvim_list_wins()) do
+    local buf = api.nvim_win_get_buf(win)
+    if api.nvim_buf_get_option(buf, "buftype") == "quickfix" then
+      api.nvim_command("cclose")
+      if win_pre_copen then
+        local ok, w = pcall(api.nvim_win_get_number, win_pre_copen)
+        if ok and api.nvim_win_is_valid(w) then
+          api.nvim_set_current_win(w)
+        end
+        win_pre_copen = nil
+      end
+      return
+    end
+  end
+
+  -- no quickfix buffer found so far, so show it
+  win_pre_copen = api.nvim_get_current_win()
+  api.nvim_command("botright copen")
 end)
 
 -- This will expand the current item or jump to the next item within the snippet.
@@ -180,6 +185,17 @@ keymap("i", "<c-l>", function()
     ls.change_choice(1)
   end
 end)
+
+keymap("n", "]q", ":cnext<CR>")
+keymap("n", "[q", ":cprevious<CR>")
+keymap("n", "]Q", ":cfirst<CR>")
+keymap("n", "[Q", ":clast<CR>")
+keymap("n", "]l", ":lnext<CR>")
+keymap("n", "[l", ":lprevious<CR>")
+keymap("n", "]L", ":lfirst<CR>")
+keymap("n", "[L", ":llast<CR>")
+keymap("n", "]w", vim.diagnostic.goto_next)
+keymap("n", "[w", vim.diagnostic.goto_prev)
 
 -- Tab switching
 keymap("n", "<C-t>", ":tabedit<CR>")

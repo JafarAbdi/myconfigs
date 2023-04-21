@@ -7,32 +7,6 @@ return {
         theme = "onedark",
         globalstatus = true,
       },
-      winbar = {
-        lualine_a = {
-          function()
-            local ok, ts = pcall(require, "nvim-treesitter")
-            if not ok then
-              return ""
-            end
-            return ts.statusline({
-              indicator_size = 300,
-              separator = " | ",
-              type_patterns = {
-                "class",
-                "function",
-                "method",
-                "struct",
-                -- Rust
-                "trait_item",
-                "impl_item",
-                "enum",
-                -- C++
-                "namespace",
-              },
-            }) or ""
-          end,
-        },
-      },
       sections = {
         lualine_b = {
           "branch",

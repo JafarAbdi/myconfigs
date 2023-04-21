@@ -1,4 +1,6 @@
 return {
+  { "mfussenegger/nvim-qwahl" },
+  { "mfussenegger/nvim-fzy" },
   {
     "danymat/neogen",
     cmd = "Neogen",
