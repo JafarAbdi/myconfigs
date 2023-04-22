@@ -70,7 +70,16 @@ def python(
     cmd = []
     if micromamba_env := extra_args.get("micromamba.env"):
         cmd.extend(["micromamba", "run", "-n", micromamba_env])
-    cmd.extend(["python3", str(file)])
+    if is_test:
+        if not file.name.startswith("test_"):
+            logging.error(
+                f"Test file '{file}' doesn't start with 'test_' and will be ignored by pytest",
+            )
+            return
+        cmd.extend(["python3", "-m", "pytest", "--capture=no", str(file.name)])
+        cwd = file.parent
+    else:
+        cmd.extend(["python3", str(file)])
     run_command(cmd + args, dry_run=False, cwd=cwd)
 
 
