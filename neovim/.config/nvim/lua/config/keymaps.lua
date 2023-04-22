@@ -95,11 +95,6 @@ local run_file = function(is_test)
 
   vim.cmd.write()
   local args = {
-    "run",
-    "-n",
-    "myconfigs",
-    "python3",
-    "~/.local/bin/build_project.py",
     "--workspace-folder",
     root_dir,
     "--filetype",
@@ -107,12 +102,22 @@ local run_file = function(is_test)
     "--file-path",
     vim.fn.expand("%:p"),
   }
+  local cmd = "build_project.py"
+  if filetype ~= "python" then
+    cmd = "micromamba"
+    for _, v in
+      ipairs(
+        vim.fn.reverse({ "run", "-n", "myconfigs", "python3", "~/.local/bin/build_project.py" })
+      )
+    do
+      table.insert(args, 1, v)
+    end
+  end
   if is_test then
     table.insert(args, "--test")
   end
   local run_in_terminal = require("config.run_in_terminal")
-  run_in_terminal("micromamba", args, { cwd = root_dir })
-  -- run_in_terminal("build_project.py", args, { cwd = root_dir })
+  run_in_terminal(cmd, args, { cwd = root_dir })
 end
 keymap("n", "<leader>t", function()
   run_file(true)
