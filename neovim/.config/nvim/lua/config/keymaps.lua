@@ -125,6 +125,26 @@ end)
 keymap("n", "<leader>x", function()
   run_file(false)
 end)
+keymap("n", "<leader>h", function()
+  local files = vim.api.nvim_get_runtime_file("**/doc/tags", true)
+  local tags = {}
+  for _, file_path in ipairs(files) do
+    local file = io.open(file_path, "r")
+    if file then
+      for line in file:lines() do
+        -- Parse line with the format: tag-name<TAB>file-path<TAB>tag-address
+        local tag_name, _ = line:match("([^\t]+)\t([^\t]+)\t.*")
+        table.insert(tags, tag_name)
+      end
+      file:close()
+    end
+  end
+  fzy.pick_one(tags, "Help tags: ", nil, function(tag)
+    if tag then
+      vim.cmd.help(tag)
+    end
+  end)
+end)
 keymap("n", "<leader><space>", q.buffers)
 keymap("n", "<leader>gc", q.buf_lines)
 keymap("n", "<C-M-s>", function()
@@ -193,8 +213,8 @@ end)
 
 keymap("n", "]q", ":cnext<CR>")
 keymap("n", "[q", ":cprevious<CR>")
-keymap("n", "]Q", ":cfirst<CR>")
-keymap("n", "[Q", ":clast<CR>")
+keymap("n", "]Q", ":clast<CR>")
+keymap("n", "[Q", ":cfirst<CR>")
 keymap("n", "]l", ":lnext<CR>")
 keymap("n", "[l", ":lprevious<CR>")
 keymap("n", "]L", ":lfirst<CR>")
