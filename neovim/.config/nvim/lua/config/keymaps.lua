@@ -149,7 +149,7 @@ keymap("n", "<leader><space>", q.buffers)
 keymap("n", "<leader>gc", q.buf_lines)
 keymap("n", "<C-M-s>", function()
   fzy.execute(
-    "rg --no-messages --no-heading --trim --line-number --smart-case" .. vim.fn.expand("<cword>"),
+    "rg --no-messages --no-heading --trim --line-number --smart-case " .. vim.fn.expand("<cword>"),
     fzy.sinks.edit_live_grep
   )
 end)
