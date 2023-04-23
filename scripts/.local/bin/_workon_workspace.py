@@ -2,9 +2,11 @@
 import argparse
 import os
 import sys
+from pathlib import Path
 
 import argcomplete
 from utils import (
+    create_clangd_config,
     get_workspace_distro,
     get_workspace_path,
     get_workspace_underlays,
@@ -50,19 +52,24 @@ elif args.workspace_name:
     for underlay in get_workspace_underlays(workspace) or []:
         underlay_path = get_workspace_path(underlay)
         if is_ros1:
-            commands.append(f"source {home_dir}/{underlay_path}/install/setup.bash")
+            commands.append(
+                f"source {home_dir}/{underlay_path}/install_{rosdistro}/setup.bash",
+            )
         else:
             commands.append(
-                f"source {home_dir}/{underlay_path}/install/local_setup.bash",
+                f"source {home_dir}/{underlay_path}/install_{rosdistro}/local_setup.bash",
             )
     workspace_path = get_workspace_path(workspace)
     if workspace_path:
         if is_ros1:
-            commands.append(f"source {home_dir}/{workspace_path}/devel/setup.bash")
+            commands.append(
+                f"source {home_dir}/{workspace_path}/devel_{rosdistro}/setup.bash",
+            )
         else:
             commands.append(
-                f"source {home_dir}/{workspace_path}/install/local_setup.bash",
+                f"source {home_dir}/{workspace_path}/install_{rosdistro}/local_setup.bash",
             )
+        create_clangd_config(Path.home() / workspace_path, rosdistro)
     print(" && ".join(commands))  # noqa: T201
 elif args.ros_package_path:
     workspace = args.ros_package_path

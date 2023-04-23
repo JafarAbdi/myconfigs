@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:  # noqa: PLR0912, PLR0915, C901
     """Main function."""
+    if (ros_distro := os.environ.get("ROS_DISTRO")) is None:
+        logger.error("ROS_DISTRO is not set")
+        return
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--pkg",
@@ -44,13 +47,14 @@ def main() -> None:  # noqa: PLR0912, PLR0915, C901
         logger.error(f"{workspace_dir} is not a workspace directory")
         return
     packages = get_ros_packages_path(src_dir)
-    build_path = Path(workspace_dir) / "build"
+    build_path = Path(workspace_dir) / f"build_{ros_distro}"
     create_clangd_config(workspace_dir, ros_distro)
     for package, path in packages:
         create_cmake_query_files(build_path / f"{package}")
         create_vscode_config(
             str((build_path / f"{package}").absolute()),
             Path(path),
+            ros_distro,
         )
 
     # Configuring clangd
@@ -110,7 +114,15 @@ def main() -> None:  # noqa: PLR0912, PLR0915, C901
         cmd += ["-DCATKIN_ENABLE_TESTING=" + ("ON" if args.build_tests else "OFF")]
 
     elif ros_version == RosVersions.ROS2:
-        cmd += ["colcon", "build", "--symlink-install"]
+        cmd += [
+            "colcon",
+            "build",
+            "--symlink-install",
+            "--build-base",
+            f"build_{ros_distro}",
+            "--install-base",
+            f"install_{ros_distro}",
+        ]
         if args.pkg:
             cmd += ["--packages-select"]
             cmd += args.pkg

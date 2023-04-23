@@ -293,7 +293,12 @@ return {
               if not ok then
                 vim.notify("Error parsing '" .. settings_dir.filename .. "'", vim.log.levels.WARN)
               end
-              build_dir = settings["cmake.buildDirectory"]
+              local ros_distro = vim.env.ROS_DISTRO
+              if ros_distro then
+                build_dir = settings["cmake.buildDirectory." .. ros_distro]
+              else
+                build_dir = settings["cmake.buildDirectory"]
+              end
             end
             new_config.init_options = {
               buildDirectory = build_dir,
