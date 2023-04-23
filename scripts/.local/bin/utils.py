@@ -224,6 +224,34 @@ def create_vscode_config(build_dir: Path, output_dir: Path | None = None) -> Non
         json.dump(settings, f, ensure_ascii=True, indent=4)
 
 
+def create_clangd_config(workspace_dir: Path, ros_distro: str) -> None:
+    """Create a .clangd file for a list of packages.
+
+    This will use the ROS_DISTRO environment variable to determine the correct build paths.
+
+    Args:
+        workspace_dir: The workspace directory
+        ros_distro: The ROS distro to use for the build directory & clangd config
+    """
+    build_path = workspace_dir / f"build_{ros_distro}"
+    packages = get_ros_packages_path(workspace_dir / "src")
+    clangd_configs = [{"CompileFlags": {"Add": ["-std=c++17"]}}]
+    for package, path in packages:
+        clangd_configs.append(
+            {
+                "If": {
+                    "PathMatch": [str(Path(path).relative_to(workspace_dir)) + "/.*"],
+                },
+                "CompileFlags": {
+                    "CompilationDatabase": str((build_path / f"{package}").absolute()),
+                },
+            },
+        )
+    clangd_path = Path(workspace_dir) / ".clangd"
+    with clangd_path.open("w") as stream:
+        yaml.safe_dump_all(clangd_configs, stream)
+
+
 def get_ros_version() -> RosVersions:
     """Get the ROS version of the current directory.
 

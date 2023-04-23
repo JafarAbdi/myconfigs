@@ -11,9 +11,9 @@ import os
 from pathlib import Path
 
 import argcomplete
-import yaml
 from utils import (
     RosVersions,
+    create_clangd_config,
     create_cmake_query_files,
     create_vscode_config,
     get_ros_packages,
@@ -45,26 +45,13 @@ def main() -> None:  # noqa: PLR0912, PLR0915, C901
         return
     packages = get_ros_packages_path(src_dir)
     build_path = Path(workspace_dir) / "build"
-    clangd_configs = [{"CompileFlags": {"Add": ["-std=c++17"]}}]
+    create_clangd_config(workspace_dir, ros_distro)
     for package, path in packages:
         create_cmake_query_files(build_path / f"{package}")
         create_vscode_config(
             str((build_path / f"{package}").absolute()),
             Path(path),
         )
-        clangd_configs.append(
-            {
-                "If": {
-                    "PathMatch": [str(Path(path).relative_to(workspace_dir)) + "/.*"],
-                },
-                "CompileFlags": {
-                    "CompilationDatabase": str((build_path / f"{package}").absolute()),
-                },
-            },
-        )
-    clangd_path = Path(workspace_dir) / ".clangd"
-    with clangd_path.open("w") as stream:
-        yaml.safe_dump_all(clangd_configs, stream)
 
     # Configuring clangd
     parser.add_argument("--build-tests", action="store_true", help="")
