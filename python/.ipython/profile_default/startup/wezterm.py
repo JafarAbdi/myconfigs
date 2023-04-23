@@ -1,12 +1,10 @@
 import os
 
 
-
 if os.environ.get("MPLBACKEND", "") == "module://matplotlib_wezterm":
     import matplotlib
     import matplotlib.pyplot as plt
     import numpy as np
-
 
     def display_and_reset(*args):
         plt.show()
