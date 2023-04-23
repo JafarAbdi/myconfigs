@@ -5,6 +5,8 @@ local clangd_cmd = {
   vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
   "--completion-style=detailed",
 }
+local rust_analyzer_cmd =
+  { vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer" }
 -- local clangd_debug_cmd = vim.deepcopy(clangd_cmd)
 -- table.insert(clangd_debug_cmd, "-log=verbose")
 -- clangd_cmd = vim.deepcopy(clangd_debug_cmd)
@@ -51,15 +53,8 @@ return {
           init_options = {
             clangdFileStatus = true,
           },
-          on_new_config = function(new_config, new_root_dir)
-            local Path = require("plenary.path")
+          on_new_config = function(new_config, _)
             new_config.cmd = vim.deepcopy(clangd_cmd)
-            local root = Path:new(root_dirs.cpp(new_root_dir))
-            local settings_dir = root:joinpath(".vscode", "settings.json")
-            if settings_dir:exists() then
-              local settings = vim.json.decode(settings_dir:read())
-              vim.list_extend(new_config.cmd, settings["clangd.arguments"])
-            end
           end,
           root_dir = root_dirs.cpp,
           single_file_support = true,
@@ -166,9 +161,10 @@ return {
           },
         },
         rust_analyzer = {
-          cmd = {
-            vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer",
-          },
+          cmd = rust_analyzer_cmd,
+          on_new_config = function(new_config, _)
+            new_config.cmd = rust_analyzer_cmd
+          end,
           root_dir = root_dirs.rust,
           settings = {
             -- to enable rust-analyzer settings visit:
