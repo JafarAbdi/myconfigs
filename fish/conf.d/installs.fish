@@ -528,6 +528,7 @@ function unstow-configs
                                                                      fd \
                                                                      ripgrep \
                                                                      wezterm \
+                                                                     python \
                                                                      micromamba \
                                                                      yamllint
 end
@@ -544,6 +545,7 @@ function stow-configs
                                                                                 micromamba \
                                                                                 yamllint \
                                                                                 vscode \
+                                                                                python \
                                                                                 podman
   stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                    wezterm \

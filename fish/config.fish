@@ -140,6 +140,7 @@ alias myconfigs "cd $MYCONFIGS_DIR"
 alias myconfigsr "source ~/.config/fish/config.fish"
 alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmake 'cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
+alias repl 'MPLBACKEND="module://matplotlib_wezterm" micromamba run -n matplotlib-wezterm ptipython'
 
 export MYPYPATH=$HOME/.cache/python-stubs/stubs
 export SHELL=fish
