@@ -92,6 +92,8 @@ extend-select = [
   "PLW",
   # tryceratops
   "TRY",
+  # NumPy-specific rules
+  "NPY",
   # Ruff-specific rules
   "RUF",
 ]
