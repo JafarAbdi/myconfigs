@@ -35,7 +35,7 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
     if fname == resolved_fname or (vim.bo.filetype ~= "cpp" and vim.bo.filetype ~= "c") then
       return
     end
-    P("Symlink detected redirecting to '" .. resolved_fname .. "' instead")
+    vim.print("Symlink detected redirecting to '" .. resolved_fname .. "' instead")
     vim.schedule(function()
       local cursor = vim.api.nvim_win_get_cursor(0)
       require("bufdelete").bufwipeout(params.buf, true)

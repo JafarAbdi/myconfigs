@@ -145,7 +145,33 @@ keymap("n", "<leader>h", function()
     end
   end)
 end)
-keymap("n", "<leader><space>", q.buffers)
+keymap("n", "<leader><space>", function()
+  local bufs = vim.tbl_filter(function(b)
+    return vim.api.nvim_buf_is_loaded(b)
+      and vim.api.nvim_buf_get_option(b, "buftype") ~= "quickfix"
+      and vim.api.nvim_buf_get_option(b, "buftype") ~= "nofile"
+  end, vim.api.nvim_list_bufs())
+  local format_bufname = function(b)
+    local fullname = vim.api.nvim_buf_get_name(b)
+    local name
+    if #fullname == 0 then
+      name = "[No Name] (" .. vim.api.nvim_buf_get_option(b, "buftype") .. ")"
+    else
+      name = q.format_bufname(b)
+    end
+    local modified = vim.api.nvim_buf_get_option(b, "modified")
+    return modified and name .. " [+]" or name
+  end
+  local opts = {
+    prompt = "Buffer: ",
+    format_item = format_bufname,
+  }
+  vim.ui.select(bufs, opts, function(b)
+    if b then
+      vim.api.nvim_set_current_buf(b)
+    end
+  end)
+end)
 keymap("n", "<leader>gc", q.buf_lines)
 keymap("n", "<C-M-s>", function()
   fzy.execute(
@@ -219,8 +245,8 @@ keymap("n", "]l", ":lnext<CR>")
 keymap("n", "[l", ":lprevious<CR>")
 keymap("n", "]L", ":lfirst<CR>")
 keymap("n", "[L", ":llast<CR>")
-keymap("n", "]w", vim.diagnostic.goto_next)
-keymap("n", "[w", vim.diagnostic.goto_prev)
+keymap("n", "]d", vim.diagnostic.goto_next)
+keymap("n", "[d", vim.diagnostic.goto_prev)
 
 -- Tab switching
 keymap("n", "<C-t>", ":tabedit<CR>")
