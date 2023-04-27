@@ -181,7 +181,7 @@ def run_command(
     print(" ".join(cmd))  # noqa: T201
     if dry_run:
         return None
-    return subprocess.call(cmd, cwd=cwd, env=env)
+    return subprocess.call(cmd, cwd=cwd, env=env)  # noqa: S603
 
 
 def create_cmake_query_files(build_dir: Path) -> None:
@@ -284,7 +284,7 @@ def call(*args, **kwargs) -> str:
     """
     try:
         kwargs["encoding"] = "utf-8"
-        output = subprocess.check_output(*args, **kwargs)
+        output = subprocess.check_output(*args, **kwargs)  # noqa: S603
     except subprocess.CalledProcessError:
         output = ""
     return output
