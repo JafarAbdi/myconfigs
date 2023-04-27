@@ -174,10 +174,13 @@ keymap("n", "<leader><space>", function()
 end)
 keymap("n", "<leader>gc", q.buf_lines)
 keymap("n", "<C-M-s>", function()
-  fzy.execute(
-    "rg --no-messages --no-heading --trim --line-number --smart-case " .. vim.fn.expand("<cword>"),
-    fzy.sinks.edit_live_grep
-  )
+  local cword = vim.fn.expand("<cword>")
+  if cword ~= "" then
+    fzy.execute(
+      "rg --no-messages --no-heading --trim --line-number --smart-case " .. cword,
+      fzy.sinks.edit_live_grep
+    )
+  end
 end)
 keymap("n", "<M-o>", function()
   fzy.execute("fd --hidden --type f --ignore --strip-cwd-prefix", fzy.sinks.edit_file)
