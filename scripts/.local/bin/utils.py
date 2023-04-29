@@ -179,7 +179,7 @@ def run_command(
         Exit code of the command
     """
     print(" ".join(cmd))  # noqa: T201
-    return None if dry_run else subprocess.call(cmd, cwd=cwd, env=env)
+    return None if dry_run else subprocess.call(cmd, cwd=cwd, env=env)  # noqa: S603
 
 
 def create_cmake_query_files(build_dir: Path) -> None:
@@ -242,7 +242,7 @@ def create_clangd_config(workspace_dir: Path, ros_distro: str) -> None:
     clangd_configs = [{"CompileFlags": {"Add": ["-std=c++17"]}}]
     clangd_configs.extend(
         {
-            "If": {"PathMatch": [f"{str(Path(path).relative_to(workspace_dir))}/.*"]},
+            "If": {"PathMatch": [f"{Path(path).relative_to(workspace_dir)}/.*"]},
             "CompileFlags": {
                 "CompilationDatabase": str((build_path / f"{package}").absolute()),
             },
