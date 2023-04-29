@@ -99,3 +99,11 @@ repos:
     rev: v1.6.24
     hooks:
       - id: actionlint
+  - repo: https://github.com/sourcery-ai/sourcery
+    rev: v1.2.0
+    hooks:
+    - id: sourcery
+      # The best way to use Sourcery in a pre-commit hook:
+      # * review only changed lines:
+      # * omit the summary
+      args: [--diff=git diff HEAD, --enable=gpsg, --enable=default, --no-summary]

@@ -8,3 +8,4 @@ dependencies:
     - pylsp-mypy
     - ruff
     - black
+    - sourcery

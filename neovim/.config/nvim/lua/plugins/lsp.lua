@@ -13,6 +13,7 @@ local rust_analyzer_cmd =
 
 -- local cmake_cmd = { "cmake-language-server", "-vv", "--log-file", "/tmp/cmake-lsp.txt" }
 local cmake_cmd = { "micromamba", "run", "-n", "cmake-lsp", "cmake-language-server" }
+local sourcery_cmd = { "micromamba", "run", "-n", "myconfigs", "sourcery", "lsp" }
 
 local runtime_path = vim.split(package.path, ";")
 table.insert(runtime_path, "lua/?.lua")
@@ -309,6 +310,12 @@ return {
         },
         dockerls = {
           cmd = { "micromamba", "run", "-n", "nodejs", "docker-langserver", "--stdio" },
+        },
+        sourcery = {
+          cmd = sourcery_cmd,
+          on_new_config = function(new_config, _)
+            new_config.cmd = sourcery_cmd
+          end,
         },
         jedi_language_server = {
           cmd = jedi_cmd,

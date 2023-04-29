@@ -530,6 +530,7 @@ function unstow-configs
                                                                      wezterm \
                                                                      python \
                                                                      micromamba \
+                                                                     sourcery \
                                                                      yamllint
 end
 function stow-configs
@@ -550,6 +551,7 @@ function stow-configs
   stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                    wezterm \
                                                                    neovim \
+                                                                   sourcery \
                                                                    tmux
 end
 
