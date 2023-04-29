@@ -1,3 +1,7 @@
+if set -q NVIMRUNNING
+  source /home/juruc/myconfigs/fish/conf.d/unix.fish
+  return
+end
 # don't put duplicate lines in the history. See bash(1) for more options
 # ... or force ignoredups and ignorespace
 set HISTCONTROL ignoredups:ignorespace
