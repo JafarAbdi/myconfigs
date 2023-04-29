@@ -21,5 +21,8 @@ jobs:
         uses: mamba-org/provision-with-micromamba@v15
         with:
           environment-file: environment.yml
+      - run: |
+          micromamba run --name myconfigs pip install sourcery
+          micromamba run --name myconfigs sourcery login --token ${{ secrets.SOURCERY_TOKEN }}
       - uses: actions/setup-python@v2
       - uses: pre-commit/action@v2.0.3
