@@ -179,9 +179,7 @@ def run_command(
         Exit code of the command
     """
     print(" ".join(cmd))  # noqa: T201
-    if dry_run:
-        return None
-    return subprocess.call(cmd, cwd=cwd, env=env)  # noqa: S603
+    return None if dry_run else subprocess.call(cmd, cwd=cwd, env=env)
 
 
 def create_cmake_query_files(build_dir: Path) -> None:
@@ -242,17 +240,21 @@ def create_clangd_config(workspace_dir: Path, ros_distro: str) -> None:
     build_path = workspace_dir / f"build_{ros_distro}"
     packages = get_ros_packages_path(workspace_dir / "src")
     clangd_configs = [{"CompileFlags": {"Add": ["-std=c++17"]}}]
-    for package, path in packages:
-        clangd_configs.append(
-            {
-                "If": {
-                    "PathMatch": [str(Path(path).relative_to(workspace_dir)) + "/.*"],
-                },
-                "CompileFlags": {
-                    "CompilationDatabase": str((build_path / f"{package}").absolute()),
-                },
+    clangd_configs.extend(
+        {
+            "If": {
+                "PathMatch": [
+                    f"{str(Path(path).relative_to(workspace_dir))}/.*"
+                ]
             },
-        )
+            "CompileFlags": {
+                "CompilationDatabase": str(
+                    (build_path / f"{package}").absolute()
+                ),
+            },
+        }
+        for package, path in packages
+    )
     clangd_path = Path(workspace_dir) / ".clangd"
     with clangd_path.open("w") as stream:
         yaml.safe_dump_all(clangd_configs, stream)

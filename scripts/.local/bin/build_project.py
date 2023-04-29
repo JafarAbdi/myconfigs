@@ -161,9 +161,7 @@ def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -
     def find_vscode_rootdir(path: Path) -> Path:
         if (path / ".vscode").exists():
             return path
-        if path.parent == path:
-            return None
-        return find_vscode_rootdir(path.parent)
+        return None if path.parent == path else find_vscode_rootdir(path.parent)
 
     if vscode_dir := find_vscode_rootdir(file):
         cmake(file, args, vscode_dir, extra_args)

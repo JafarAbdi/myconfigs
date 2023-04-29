@@ -74,8 +74,7 @@ elif args.workspace_name:
                     / "local_setup.bash"
                 ).exists():
                     commands.append(f"source {local_setup_path}")
-    workspace_path = get_workspace_path(workspace)
-    if workspace_path:
+    if workspace_path := get_workspace_path(workspace):
         match rosdistro:
             case "melodic" | "noetic":
                 if (
@@ -108,13 +107,14 @@ elif args.ros_package_path:
         sys.exit(0)
     rosdistro = get_workspace_distro(workspace)
     paths = [f"/opt/ros/{rosdistro}"]
-    for underlay in get_workspace_underlays(workspace) or []:
-        paths.append(f"{home_dir}/{get_workspace_path(underlay)}")
+    paths.extend(
+        f"{home_dir}/{get_workspace_path(underlay)}"
+        for underlay in get_workspace_underlays(workspace) or []
+    )
     paths.append(f"{home_dir}/{get_workspace_path(workspace)}")
     print(" ".join(paths))  # noqa: T201
 elif args.workspace_path:
-    workspace_path = get_workspace_path(args.workspace_path)
-    if workspace_path:
+    if workspace_path := get_workspace_path(args.workspace_path):
         print(f"{home_dir / workspace_path}")  # noqa: T201
 elif args.workspace_exists:
     if args.workspace_exists in get_workspaces():
