@@ -242,15 +242,9 @@ def create_clangd_config(workspace_dir: Path, ros_distro: str) -> None:
     clangd_configs = [{"CompileFlags": {"Add": ["-std=c++17"]}}]
     clangd_configs.extend(
         {
-            "If": {
-                "PathMatch": [
-                    f"{str(Path(path).relative_to(workspace_dir))}/.*"
-                ]
-            },
+            "If": {"PathMatch": [f"{str(Path(path).relative_to(workspace_dir))}/.*"]},
             "CompileFlags": {
-                "CompilationDatabase": str(
-                    (build_path / f"{package}").absolute()
-                ),
+                "CompilationDatabase": str((build_path / f"{package}").absolute()),
             },
         }
         for package, path in packages
