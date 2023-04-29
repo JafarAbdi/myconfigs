@@ -33,7 +33,6 @@ def get_tests(package_name: str) -> list[str]:
     Returns:
         List of tests for the input package
     """
-    tests = []
     src_dir, build_dir = get_package_paths(package_name)
     parsed_output = json.loads(
         call(
@@ -45,10 +44,7 @@ def get_tests(package_name: str) -> list[str]:
             ],
         ),
     )
-    for test in parsed_output["tests"]:
-        tests.append(test["name"] + "@ctest")
-
-    return tests
+    return [test["name"] + "@ctest" for test in parsed_output["tests"]]
 
 
 class TestCompleter:
