@@ -34,7 +34,7 @@ def get_tests(package_name: str) -> list[str]:
         List of tests for the input package
     """
     src_dir, build_dir = get_package_paths(package_name)
-    parsed_output = json.loads(
+    ctest_parsed_output = json.loads(
         call(
             [
                 "ctest",
@@ -44,7 +44,22 @@ def get_tests(package_name: str) -> list[str]:
             ],
         ),
     )
-    return [test["name"] + "@ctest" for test in parsed_output["tests"]]
+
+    # TODO(Jafar): Why this doesn't return anything? Running the function outside the autocomplete works fine
+    #         "python",
+    #         "-m",
+    #         "pytest",
+    #         "--collect-only",
+    #         "--quiet",
+    #         "--disable-warnings",
+    #         src_dir,
+    # ).splitlines()
+
+    return [
+        f"{test_name}@ctest"
+        for test in ctest_parsed_output["tests"]
+        if (test_name := test.get("name"))
+    ]  # + [f"{test_name}@pytest" for test_name in pytest_parsed_output if len(test_name) and not PATTERN.match(test_name)]
 
 
 class TestCompleter:

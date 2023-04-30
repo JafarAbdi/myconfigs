@@ -110,7 +110,11 @@ def get_package_paths(package_name: str) -> tuple[str, Path]:
     rospack = rospkg.RosPack([workspace_dir / "src"])
     return (
         rospack.get_path(package_name),
-        (Path(workspace_dir) / "build" / f"{package_name}").absolute(),
+        (
+            Path(workspace_dir)
+            / f"build_{os.environ['ROS_DISTRO']}"
+            / f"{package_name}"
+        ).absolute(),
     )
 
 
