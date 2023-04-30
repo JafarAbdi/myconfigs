@@ -160,46 +160,6 @@ M.generate_python_stubs = function(missing_packages)
   job:start()
 end
 
-M.is_buffer_exists = function(name)
-  local buffers = vim.tbl_filter(function(b)
-    if 1 ~= vim.fn.buflisted(b) then
-      return false
-    end
-    if not vim.api.nvim_buf_is_loaded(b) then
-      return false
-    end
-    return true
-  end, vim.api.nvim_list_bufs())
-  for _, buf in ipairs(buffers) do
-    if vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t") == name then
-      return buf
-    end
-  end
-end
-
-M.is_parent = function(parent, path)
-  assert(type(parent) == "string")
-  assert(type(path) == "string")
-  local Path = require("plenary.path")
-  parent = Path:new(parent):normalize("/")
-  path = Path:new(path):normalize("/")
-  if path:len() < parent:len() then
-    return false
-  end
-  if parent == path then
-    return true
-  end
-  for dir in vim.fs.parents(Path:new(path):normalize()) do
-    if dir:len() < parent:len() then
-      break
-    end
-    if parent == dir then
-      return true
-    end
-  end
-  return false
-end
-
 M.file_or_lsp_status = function()
   local messages = vim.lsp.util.get_progress_messages()
   local mode = vim.api.nvim_get_mode().mode

@@ -1,3 +1,4 @@
+set fish_greeting
 if set -q NVIMRUNNING
   source /home/juruc/myconfigs/fish/conf.d/unix.fish
   return
@@ -29,7 +30,6 @@ set -x EDITOR 'nvim'
 set -x WORKSPACE_DIR ~/workspaces
 set -x ROS2_WS_DIR $WORKSPACE_DIR/ros2
 set -x ROS_WS_DIR $WORKSPACE_DIR/ros
-set fish_greeting
 set MAMBA_LEFT_PROMPT
 set -x CPP_SCREATCHES_DIR $HOME/workspaces/cpp/scratches
 set -x RUST_SCREATCHES_DIR $HOME/workspaces/rust/scratches/src/bin

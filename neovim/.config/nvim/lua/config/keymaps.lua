@@ -4,7 +4,6 @@ local fzy = require("fzy")
 fzy.command = function(opts)
   return string.format(
     'fzf --height %d --prompt "%s" --no-multi --preview=""',
-    -- 'fzf --height %d --prompt "%s" --preview-window="bottom,+{2}+3/3" --delimiter : --no-multi --ansi',
     opts.height,
     vim.F.if_nil(opts.prompt, "")
   )
@@ -66,7 +65,9 @@ M.lsp = function(bufnr)
   keymap("n", "gr", vim.lsp.buf.references, bufnr)
   keymap("n", "gt", vim.lsp.buf.type_definition, bufnr)
   keymap("n", "gd", vim.lsp.buf.definition, bufnr)
-  keymap("n", "gs", q.lsp_tags, bufnr)
+  keymap("n", "gs", function()
+    q.lsp_tags({ kind = { "Constructor", "Method", "Function" } })
+  end, bufnr)
   keymap("n", "<F2>", vim.lsp.buf.rename, bufnr)
 end
 local run_file = function(is_test)
@@ -116,8 +117,8 @@ local run_file = function(is_test)
   if is_test then
     table.insert(args, "--test")
   end
-  local run_in_terminal = require("config.run_in_terminal")
-  run_in_terminal(cmd, args, { cwd = root_dir })
+  local term = require("config.term")
+  term.run(cmd, args, { cwd = root_dir, auto_close = false })
 end
 keymap("n", "<leader>t", function()
   run_file(true)
@@ -262,29 +263,9 @@ keymap("n", "<A-6>", "6gt")
 keymap("n", "<A-7>", "7gt")
 keymap("n", "<A-8>", "8gt")
 keymap("n", "<A-9>", "9gt")
-
-local is_win_exists = function(bufnr)
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if vim.api.nvim_win_get_buf(win) == bufnr then
-      return win
-    end
-  end
-end
-
-keymap("", "<M-C-t>", function()
-  local bufnr = require("config.functions").is_buffer_exists("[Terminal]")
-  if bufnr then
-    local win = is_win_exists(bufnr)
-    if win then
-      vim.api.nvim_set_current_win(win)
-    else
-      vim.api.nvim_set_current_buf(bufnr)
-    end
-  else
-    vim.cmd.terminal()
-    vim.api.nvim_buf_set_name(0, "[Terminal]")
-  end
-  vim.cmd.startinsert({ bang = true })
+keymap({ "n", "t" }, "<M-C-t>", function()
+  local term = require("config.term")
+  term.toggle()
 end)
 
 return M
