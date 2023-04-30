@@ -546,12 +546,12 @@ function stow-configs
                                                                                 micromamba \
                                                                                 yamllint \
                                                                                 vscode \
+                                                                                sourcery \
                                                                                 python \
                                                                                 podman
   stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                    wezterm \
                                                                    neovim \
-                                                                   sourcery \
                                                                    tmux
 end
 
