@@ -166,7 +166,8 @@ def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -
 
     def compile_cpp(file: Path, extra_args: list | None = None) -> None:
         output = Path(
-            tempfile.gettempdir(), next(tempfile._get_candidate_names()),  # noqa: SLF001
+            tempfile.gettempdir(),
+            next(tempfile._get_candidate_names()),  # noqa: SLF001
         )
         cmd = ["clang++", str(file), "-o", str(output)]
         if shutil.which("mold"):
