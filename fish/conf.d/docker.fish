@@ -73,14 +73,16 @@ function start_podman -d "Start a podman image with gpu support"
     echo "Failed to start podman container"
     return
   end
-  podman exec --user root -it $cid bash -c "passwd $user"
-  podman exec --user root $cid bash -c "apt update"
-  podman exec --user root $cid bash -c "apt install -y sudo"
-  podman exec --user root $cid bash -c "adduser $user sudo"
-  podman exec --user root $cid bash -c "mkhomedir_helper $user"
-  podman exec --user root $cid bash -c "chown $user:$user /home/$user"
-  podman exec --user root $cid bash -c "chown $user:$user /home/$user/.config"
-  podman exec --user root $cid bash -c "usermod -d /home/$user $user"
+  podman exec --user root -it $cid bash -c "passwd $user" && \
+  podman exec --user root $cid bash -c "apt update" && \
+  podman exec --user root $cid bash -c "apt install -y sudo vim" && \
+  podman exec --user root $cid bash -c "adduser $user sudo" && \
+  podman exec --user root $cid bash -c "mkhomedir_helper $user" && \
+  podman exec --user root $cid bash -c "chown $user:$user /home/$user" && \
+  podman exec --user root $cid bash -c "chown $user:$user /home/$user/.config" && \
+  # TODO: Why this's no longer working?
+  # podman exec --user root $cid bash -c "usermod -d /home/$user $user"
+  podman exec --user root -it $cid bash -c "vim /etc/passwd" && \
   podman exec --workdir /home/$user --user $user -it $cid bash
 end
 
