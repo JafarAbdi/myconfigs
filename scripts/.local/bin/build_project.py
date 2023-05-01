@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Final
 
@@ -163,14 +164,15 @@ def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -
             return path
         return None if path.parent == path else find_vscode_rootdir(path.parent)
 
-    if vscode_dir := find_vscode_rootdir(file):
-        cmake(file, args, vscode_dir, extra_args)
-        return
-    if (cwd / "conanbuildinfo.args").exists():
-        cmd = ["clang++", str(file), "-o", str(file.with_suffix(".out"))]
+    def compile_cpp(file: Path, extra_args: list | None = None) -> None:
+        output = Path(
+            tempfile.gettempdir(), next(tempfile._get_candidate_names()),  # noqa: SLF001
+        )
+        cmd = ["clang++", str(file), "-o", str(output)]
         if shutil.which("mold"):
             cmd.append("-fuse-ld=mold")
-        cmd.append("@conanbuildinfo.args")
+        if extra_args is not None:
+            cmd.extend(extra_args)
         if (
             run_command(
                 cmd,
@@ -182,12 +184,18 @@ def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -
             logging.error(f"Failed to build '{file}'")
             return
         run_command(
-            [str(file.with_suffix(".out")), *args],
+            [str(output), *args],
             dry_run=False,
             cwd=cwd,
         )
-        return
-    logging.error(f"Unsupported build system found for cpp file {file}")
+        output.unlink()
+
+    if vscode_dir := find_vscode_rootdir(file):
+        cmake(file, args, vscode_dir, extra_args)
+    elif (cwd / "conanbuildinfo.args").exists():
+        compile_cpp(file, ["@conanbuildinfo.args"])
+    else:
+        compile_cpp(file)
 
 
 def cmake(file: Path, args: list, cwd: Path, extra_args: dict) -> None:
