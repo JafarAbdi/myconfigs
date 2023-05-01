@@ -180,18 +180,14 @@ function install-ccache
   sudo apt install -y ccache
 end
 
-function install-conan
-  pip install conan==1.59.0
-end
-
 function setup-cpp-screatches
-  install-conan
   mkdir -p $WORKSPACE_DIR/cpp
   cd $CPP_SCREATCHES_DIR/..
   git clone https://github.com/JafarAbdi/cpp-scratches.git scratches
   cd scratches
-  conan profile detect
-  conan install --build=missing .
+  micromamba create -f environment.yml -y
+  micromamba run -n conan conan profile detect
+  micromamba run -n conan conan install --build=missing .
   cp conanbuildinfo.args compile_flags.txt
   sed -i 's/ /\n/g' compile_flags.txt
 end
