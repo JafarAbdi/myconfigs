@@ -24,6 +24,7 @@ function install-core
   sudo apt install -y python3-venv \
                       stow \
                       software-properties-common \
+                      python-is-python3 \
                       git \
                       git-core \
                       git-lfs \
