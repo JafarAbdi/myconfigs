@@ -1,16 +1,13 @@
 local opt = vim.opt -- global (vim.opt is better than vim.o)
 local g = vim.g -- global for let options
-local wo = vim.wo -- window local
 
 -- help options
 opt.number = true
 opt.mouse = "a"
 opt.breakindent = true
-opt.undofile = true
 opt.ignorecase = true
 opt.smartcase = true
 opt.updatetime = 250
-wo.signcolumn = "yes"
 opt.tabstop = 2
 opt.softtabstop = 2
 opt.shiftwidth = 2
@@ -34,7 +31,7 @@ opt.shortmess:append("wIA")
 opt.matchtime = 2
 opt.matchpairs:append("<:>")
 opt.swapfile = false
-vim.opt.signcolumn = "number"
+opt.signcolumn = "number"
 
 opt.smartindent = true
 opt.pumheight = 20
@@ -51,12 +48,6 @@ end
 
 g.mapleader = " "
 g.maplocalleader = " "
-
---Spell
-opt.spell = true
-opt.spelllang:append("en")
---Diagnostic virtual text
-g.diagnostic_virtual_text = false
 
 vim.opt.iskeyword:append("-")
 g.copilot_node_command = vim.env.HOME .. "/micromamba/envs/nodejs/bin/node"

@@ -8,12 +8,6 @@ vim.api.nvim_create_autocmd({ "TextYankPost" }, {
     vim.highlight.on_yank()
   end,
 })
-----------------
--- Highlights --
-----------------
-
-vim.api.nvim_set_hl(0, "SpellBad", { sp = "gray", undercurl = true })
-vim.api.nvim_set_hl(0, "SignColumn", { link = "LineNr" })
 
 -------------------
 -- Auto-commands --
@@ -82,14 +76,6 @@ vim.api.nvim_create_autocmd("FileType", {
 --------------
 -- Commands --
 --------------
-
-vim.api.nvim_create_user_command("SpellToggle", function()
-  if vim.opt.spell:get() then
-    vim.opt.spell = false
-  else
-    vim.opt.spell = true
-  end
-end, {})
 
 vim.api.nvim_create_user_command("DapAttach", function()
   -- output format for ps ah

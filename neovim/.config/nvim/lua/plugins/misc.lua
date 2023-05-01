@@ -15,8 +15,6 @@ return {
       },
     },
   },
-  { "junegunn/vim-easy-align", cmd = "EasyAlign" },
-  { "mbbill/undotree", cmd = "UndotreeToggle" },
   {
     "kylechui/nvim-surround",
     event = "VeryLazy",

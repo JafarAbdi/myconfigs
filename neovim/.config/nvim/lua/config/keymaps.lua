@@ -11,7 +11,6 @@ end
 
 local q = require("qwahl")
 
--- Debugging
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 
 --Remap space as leader key
@@ -54,9 +53,6 @@ local keymap = function(mode, lhs, callback, bufnr)
   )
 end
 
-keymap("n", "<leader>f", function()
-  vim.lsp.buf.format({ async = true })
-end)
 M.lsp = function(bufnr)
   keymap({ "n", "i" }, "<C-k>", vim.lsp.buf.signature_help, bufnr)
   keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, bufnr)
@@ -69,7 +65,11 @@ M.lsp = function(bufnr)
     q.lsp_tags({ kind = { "Constructor", "Method", "Function" } })
   end, bufnr)
   keymap("n", "<F2>", vim.lsp.buf.rename, bufnr)
+  keymap("n", "<leader>f", function()
+    vim.lsp.buf.format({ async = true })
+  end, bufnr)
 end
+
 local run_file = function(is_test)
   local filetype = require("plenary.filetype").detect(vim.fn.expand("%:p"))
   if not filetype or filetype == "" then

@@ -39,7 +39,6 @@ return {
       "hrsh7th/cmp-buffer",
       "saadparwaiz1/cmp_luasnip",
       "L3MON4D3/LuaSnip",
-      "hrsh7th/cmp-cmdline",
       "hrsh7th/cmp-nvim-lua",
       "hrsh7th/cmp-nvim-lsp-signature-help",
       "lukas-reineke/cmp-under-comparator",
@@ -142,9 +141,6 @@ return {
     config = function(_, opts)
       local cmp = require("cmp")
 
-      -- https://github.com/hrsh7th/nvim-cmp/pull/1162
-      require("cmp.utils.misc").redraw.incsearch_redraw_keys = "<C-r><BS>"
-
       cmp.setup.filetype({
         "dapui_hover",
         "dapui_stacks",
@@ -161,35 +157,6 @@ return {
       })
 
       cmp.setup(opts)
-      local cmdline_mappings = cmp.mapping.preset.cmdline({
-        ["<C-e>"] = cmp.config.disable,
-        ["<C-c>"] = {
-          c = cmp.mapping.abort(),
-        },
-        ["<C-Space>"] = { c = cmp.mapping.complete() },
-        ["<Down>"] = {
-          c = cmp.mapping.select_next_item({ behavior = cmp.SelectBehavior.Insert }),
-        },
-        ["<Up>"] = {
-          c = cmp.mapping.select_prev_item({ behavior = cmp.SelectBehavior.Insert }),
-        },
-      })
-
-      -- Use buffer source for `/` (if you enabled `native_menu`, this won't work anymore).
-      cmp.setup.cmdline("/", {
-        mapping = cmdline_mappings,
-        sources = cmp.config.sources({
-          { name = "buffer" },
-        }),
-      })
-
-      -- Use cmdline & path source for ':' (if you enabled `native_menu`, this won't work anymore).
-      cmp.setup.cmdline(":", {
-        mapping = cmdline_mappings,
-        sources = cmp.config.sources({
-          { name = "cmdline" },
-        }),
-      })
     end,
   },
 }

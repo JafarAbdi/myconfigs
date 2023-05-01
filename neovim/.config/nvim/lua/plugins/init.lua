@@ -45,6 +45,8 @@ return {
       for semantic_tokens_group, treesitter_group in pairs(links) do
         vim.api.nvim_set_hl(0, semantic_tokens_group, { link = treesitter_group, default = true })
       end
+      vim.api.nvim_set_hl(0, "SpellBad", { sp = "gray", undercurl = true })
+      vim.api.nvim_set_hl(0, "SignColumn", { link = "LineNr" })
     end,
   },
 }
