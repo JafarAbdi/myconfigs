@@ -15,6 +15,11 @@ function M.close_term()
   vim.fn.jobwait({ jobid })
 end
 
+local new_window = function()
+  -- Why I can't call this by indexing vim.cmd???
+  vim.cmd("botright " .. math.floor(vim.opt.lines:get() / 4) .. " new")
+end
+
 function M.create_term(cmd, args, opts)
   if open_bufnr and vim.api.nvim_buf_is_valid(open_bufnr) then
     vim.api.nvim_buf_delete(open_bufnr, { force = true, unload = false })
@@ -25,8 +30,7 @@ function M.create_term(cmd, args, opts)
     focus_terminal = false,
   })
   args = args or {}
-  -- Why I can't call this by indexing vim.cmd???
-  vim.cmd("botright 15new")
+  new_window()
   bufnr = vim.api.nvim_win_get_buf(vim.fn.win_getid())
   bo("buftype", "nofile")
   bo("bufhidden", "wipe")
@@ -66,7 +70,7 @@ function M.toggle()
   if jobid then
     local winid = vim.fn.bufwinid(bufnr)
     if winid == -1 then
-      vim.cmd("botright 15new")
+      new_window()
       local empty_bufnr = vim.api.nvim_win_get_buf(vim.fn.win_getid())
       vim.api.nvim_set_current_buf(bufnr)
       require("bufdelete").bufdelete(empty_bufnr, true)
