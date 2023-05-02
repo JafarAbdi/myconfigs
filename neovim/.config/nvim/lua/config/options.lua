@@ -4,6 +4,7 @@ local g = vim.g -- global for let options
 -- help options
 opt.number = true
 opt.mouse = "a"
+opt.undofile = true
 opt.breakindent = true
 opt.ignorecase = true
 opt.smartcase = true
