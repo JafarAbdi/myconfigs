@@ -1,4 +1,14 @@
 return {
+  {
+    "lukas-reineke/indent-blankline.nvim",
+    event = "BufReadPre",
+    opts = {
+      char = "┊",
+      filetype_exclude = { "help", "alpha", "dashboard", "neo-tree", "Trouble", "lazy" },
+      show_trailing_blankline_indent = false,
+      show_current_context = false,
+    },
+  },
   { "mfussenegger/nvim-qwahl" },
   { "mfussenegger/nvim-fzy" },
   {
@@ -37,10 +47,6 @@ return {
   -- Used to fix symlink files
   { "famiu/bufdelete.nvim", lazy = false },
   { "github/copilot.vim", event = "VeryLazy" },
-  {
-    "krady21/compiler-explorer.nvim",
-    cmd = { "CESetup", "CECompile", "CECompileLive" },
-  },
   -- Heuristically set buffer options
   { "tpope/vim-sleuth", lazy = false },
   { "tpope/vim-commentary", keys = { { "gc", mode = "v" }, "gcc" } },
