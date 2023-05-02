@@ -160,15 +160,12 @@ M.generate_python_stubs = function(missing_packages)
   job:start()
 end
 
-M.file_or_lsp_status = function()
+M.lsp_status = function()
   local messages = vim.lsp.util.get_progress_messages()
-  local mode = vim.api.nvim_get_mode().mode
-  if mode ~= "n" or vim.tbl_isempty(messages) then
-    return vim.fn.fnamemodify(
-      vim.uri_to_fname(vim.uri_from_bufnr(vim.api.nvim_get_current_buf())),
-      ":."
-    )
+  if vim.tbl_isempty(messages) then
+    return ""
   end
+  local prefix = " | "
   local percentage
   local result = {}
   for _, msg in pairs(messages) do
@@ -182,9 +179,9 @@ M.file_or_lsp_status = function()
     end
   end
   if percentage then
-    return string.format("%03d: %s", percentage, table.concat(result, ", "))
+    return string.format(prefix .. "%03d: %s", percentage, table.concat(result, ", "))
   else
-    return table.concat(result, ", ")
+    return prefix .. table.concat(result, ", ")
   end
 end
 

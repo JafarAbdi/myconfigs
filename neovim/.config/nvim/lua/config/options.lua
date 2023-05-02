@@ -33,7 +33,8 @@ opt.matchtime = 2
 opt.matchpairs:append("<:>")
 opt.swapfile = false
 opt.signcolumn = "number"
-
+opt.laststatus = 3
+opt.statusline = [[%<%f%{luaeval("require('config.functions').lsp_status()")} %m%r%=]]
 opt.smartindent = true
 opt.pumheight = 20
 opt.completeopt = "menuone,noselect,noinsert"
@@ -50,7 +51,7 @@ end
 g.mapleader = " "
 g.maplocalleader = " "
 
-vim.opt.iskeyword:append("-")
+opt.iskeyword:append("-")
 g.copilot_node_command = vim.env.HOME .. "/micromamba/envs/nodejs/bin/node"
 g.copilot_no_tab_map = true
 g.copilot_no_maps = true
