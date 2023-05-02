@@ -40,7 +40,6 @@ return {
       "saadparwaiz1/cmp_luasnip",
       "L3MON4D3/LuaSnip",
       "hrsh7th/cmp-nvim-lua",
-      "hrsh7th/cmp-nvim-lsp-signature-help",
       "lukas-reineke/cmp-under-comparator",
     },
     opts = function()
