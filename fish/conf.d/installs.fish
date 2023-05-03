@@ -66,7 +66,10 @@ function config-fish
   curl -sL https://git.io/fisher | source && fisher install jorgebucaran/fisher
   # To be able to source bash scripts
   fisher install edc/bass
-  chsh -s /usr/bin/fish
+  # Skip setting fish as the default shell if we are in a docker or podman containers
+  if ! test -e /.dockerenv && test -z $PODMAN_NAME
+    chsh -s /usr/bin/fish
+  end
 end
 
 function install-cpp-lsp
