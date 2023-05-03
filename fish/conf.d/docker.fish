@@ -6,11 +6,17 @@ function setup_container
     return
   end
   set -l container_name $argv[1]
-  set -l myconfigs_exists (docker exec $container_name sh -c 'if [ -d "$HOME/myconfigs" ]; then echo "1"; else echo "0"; fi')
-  if test $myconfigs_exists -eq 0
+  if test (docker exec $container_name sh -c 'if [ -d "$HOME/myconfigs" ]; then echo "1"; else echo "0"; fi') -eq 0
     docker cp $HOME/myconfigs $container_name:$HOME/myconfigs
   end
-  docker exec -it $container_name bash -c "cd ~/myconfigs && make setup-fish core dev"
+  docker exec $container_name mkdir -p $HOME/.config
+  if test (docker exec $container_name sh -c 'if [ -d "$HOME/.config/gh" ]; then echo "1"; else echo "0"; fi') -eq 0
+    docker cp $HOME/.config/gh $container_name:$HOME/.config/gh
+  end
+  if test (docker exec $container_name sh -c 'if [ -d "$HOME/.config/github-copilot" ]; then echo "1"; else echo "0"; fi') -eq 0
+    docker cp $HOME/.config/github-copilot $container_name:$HOME/.config/github-copilot
+  end
+  docker exec -it $container_name bash -c "cd ~/myconfigs && make setup-fish core dev-core dev-cpp dev-python"
 end
 
 complete -c setup_container -x -a '(__fish_print_docker_containers running)'
