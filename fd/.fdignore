@@ -1,9 +1,10 @@
-**/build/*
-**/devel/*
-**/logs/*
-**/.git/*
-**/.idea/*
+build
+devel
+logs
+.git
+.idea
 __pycache__
-**/gems/*
-**/.mypy_cache/*
+gems
+.mypy_cache
+.ruff_cache
 micromamba
