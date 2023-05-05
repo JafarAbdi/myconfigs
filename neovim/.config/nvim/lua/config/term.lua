@@ -45,10 +45,14 @@ function M.create_term(cmd, args, opts)
           vim.api.nvim_buf_delete(bufnr, { force = true, unload = false })
         end
       else
-        assert(
-          open_bufnr == nil,
-          "open_bufnr should be nil -- you forgot to cleanup the previous terminal buffer"
-        )
+        if open_bufnr then
+          print(
+            string.format(
+              "open_bufnr: %s -- it should be nil you forgot to cleanup the previous terminal buffer",
+              open_bufnr
+            )
+          )
+        end
         open_bufnr = bufnr
       end
       bufnr = nil

@@ -187,7 +187,7 @@ keymap("n", "<C-M-s>", function()
   end
 end)
 keymap("n", "<M-o>", function()
-  fzy.execute("fd --hidden --type f --ignore --strip-cwd-prefix", fzy.sinks.edit_file)
+  fzy.execute("fd --hidden --type f --strip-cwd-prefix", fzy.sinks.edit_file)
 end)
 keymap("n", "<leader>j", q.jumplist)
 
@@ -244,16 +244,25 @@ keymap("i", "<c-l>", function()
   end
 end)
 
-keymap("n", "]q", ":cnext<CR>")
-keymap("n", "[q", ":cprevious<CR>")
-keymap("n", "]Q", ":clast<CR>")
-keymap("n", "[Q", ":cfirst<CR>")
-keymap("n", "]l", ":lnext<CR>")
-keymap("n", "[l", ":lprevious<CR>")
-keymap("n", "]L", ":lfirst<CR>")
-keymap("n", "[L", ":llast<CR>")
-keymap("n", "]d", vim.diagnostic.goto_next)
-keymap("n", "[d", vim.diagnostic.goto_prev)
+local center_screen = function(command)
+  return function()
+    local ok, _ = pcall(command)
+    if ok then
+      vim.cmd.normal("zz")
+    end
+  end
+end
+
+keymap("n", "]q", center_screen(vim.cmd.cnext))
+keymap("n", "[q", center_screen(vim.cmd.cprevious))
+keymap("n", "]Q", center_screen(vim.cmd.clast))
+keymap("n", "[Q", center_screen(vim.cmd.cfirst))
+keymap("n", "]l", center_screen(vim.cmd.lnext))
+keymap("n", "[l", center_screen(vim.cmd.lprevious))
+keymap("n", "]L", center_screen(vim.cmd.lfirst))
+keymap("n", "[L", center_screen(vim.cmd.llast))
+keymap("n", "]d", center_screen(vim.diagnostic.goto_next))
+keymap("n", "[d", center_screen(vim.diagnostic.goto_prev))
 
 -- Tab switching
 keymap("n", "<C-t>", ":tabedit<CR>")
