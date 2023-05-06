@@ -202,10 +202,6 @@ M.run_file = function(is_test)
   if not filetype or filetype == "" then
     return
   end
-  if filetype == "markdown" then
-    vim.cmd.write()
-    return
-  end
 
   local dirname = vim.fn.expand("%:p:h")
   local root_dir = M.root_dirs[filetype]
