@@ -34,7 +34,8 @@ opt.matchpairs:append("<:>")
 opt.swapfile = false
 opt.signcolumn = "number"
 opt.laststatus = 3
-opt.statusline = [[%<%f%{luaeval("require('config.functions').lsp_status()")} %m%r%=]]
+opt.statusline =
+  [[%<%f%{luaeval("require('config.functions').lsp_status()")} %m%r%= %{luaeval("require('config.functions').dap_status()")}]]
 opt.smartindent = true
 opt.pumheight = 20
 opt.completeopt = "menuone,noselect,noinsert"

@@ -185,4 +185,70 @@ M.lsp_status = function()
   end
 end
 
+M.dap_status = function()
+  local ok, dap = pcall(require, "dap")
+  if not ok then
+    return ""
+  end
+  local status = dap.status()
+  if status ~= "" then
+    return " | " .. status
+  end
+  return ""
+end
+
+M.run_file = function(is_test)
+  local filetype = require("plenary.filetype").detect(vim.fn.expand("%:p"))
+  if not filetype or filetype == "" then
+    return
+  end
+  if filetype == "markdown" then
+    vim.cmd.write()
+    return
+  end
+
+  local dirname = vim.fn.expand("%:p:h")
+  local root_dir = M.root_dirs[filetype]
+  if root_dir then
+    root_dir = root_dir(dirname) or dirname
+  else
+    root_dir = dirname
+    for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
+      if vim.env.HOME == dir then
+        break
+      end
+      if vim.fn.isdirectory(dir .. "/.vscode") == 1 then
+        root_dir = dir
+        break
+      end
+    end
+  end
+
+  vim.cmd.write()
+  local args = {
+    "--workspace-folder",
+    root_dir,
+    "--filetype",
+    filetype,
+    "--file-path",
+    vim.fn.expand("%:p"),
+  }
+  local cmd = "build_project.py"
+  if filetype ~= "python" then
+    cmd = "micromamba"
+    for _, v in
+      ipairs(
+        vim.fn.reverse({ "run", "-n", "myconfigs", "python3", "~/.local/bin/build_project.py" })
+      )
+    do
+      table.insert(args, 1, v)
+    end
+  end
+  if is_test then
+    table.insert(args, "--test")
+  end
+  local term = require("config.term")
+  term.run(cmd, args, { cwd = root_dir, auto_close = false })
+end
+
 return M
