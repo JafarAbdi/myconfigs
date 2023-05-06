@@ -682,6 +682,7 @@ function install-dev-core
   ## Linters
   install-pre-commit
   install-hadolint
+  install-actionlint
 end
 
 function install-full-development

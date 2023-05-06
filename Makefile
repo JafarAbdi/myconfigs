@@ -28,7 +28,7 @@ dev-core:
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-dev-core && install-nvim stable'
 
 dev-lua:
-	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-lua-lsp && install-luacheck'
+	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-lua-lsp && install-luacheck && install-stylua'
 
 dev-python:
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-mamba && install-efm-lsp'
