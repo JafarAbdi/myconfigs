@@ -60,12 +60,6 @@ vim.api.nvim_create_autocmd("FileType", {
     "Outline",
     "diff",
     "help",
-    "dapui_hover",
-    "dapui_scopes",
-    "dapui_stacks",
-    "dapui_watches",
-    "dapui_breakpoints",
-    "dapui_console",
   },
   callback = function()
     vim.opt_local.spell = false
@@ -100,38 +94,12 @@ vim.api.nvim_create_user_command("DapAttach", function()
   end)
 end, {})
 
-vim.api.nvim_create_user_command("DapLaunch", function()
-  require("dap").run(require("config.dap").launch_in_terminal)
+vim.api.nvim_create_user_command("DapLaunchLLDB", function()
+  require("dap").run(require("config.dap").launch_lldb_in_terminal)
 end, {})
 
 vim.api.nvim_create_user_command("DapLaunchPython", function()
-  require("dap").run({
-    type = "python",
-    request = "launch",
-    name = "Launch file with arguments",
-    program = function()
-      return vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
-    end,
-    args = function()
-      local args_string = vim.fn.input("Arguments: ")
-      return vim.split(args_string, " +")
-    end,
-    console = "integratedTerminal",
-    pythonPath = nil,
-    justMyCode = false,
-  })
-end, {})
-
-vim.api.nvim_create_user_command("DapBreakpointLogMessage", function(params)
-  require("dap").toggle_breakpoint(nil, nil, params.args, true)
-end, { nargs = "*" })
-
-vim.api.nvim_create_user_command("DapBreakpointConditional", function(params)
-  require("dap").toggle_breakpoint(params.args, nil, nil, true)
-end, { nargs = "*" })
-
-vim.api.nvim_create_user_command("DapRerunLast", function()
-  require("dap").run_last()
+  require("dap").run(require("config.dap").launch_python_in_terminal)
 end, {})
 
 vim.api.nvim_create_user_command("GenerateAllStubs", function()

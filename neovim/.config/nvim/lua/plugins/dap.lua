@@ -1,61 +1,55 @@
+local enrich_config = function(config, on_config)
+  -- TODO: Handle when the virtual environment is not activated and .vscode/settings.json exists
+  local venv_path = os.getenv("CONDA_PREFIX")
+  if venv_path then
+    config.pythonPath = venv_path .. "/bin/python"
+  else
+    config.pythonPath = vim.env.HOME .. "/micromamba/envs/myconfigs/bin/python"
+  end
+  config.console = "integratedTerminal"
+  on_config(config)
+end
+
+-- local function trigger_test()
+--   require("dap").run({
+--     name = "Run test",
+--     type = "python",
+--     request = "launch",
+--     module = "pytest",
+--     -- -s "allow output to stdout of test"
+--     args = { "-s", vim.fn.expand("%:p") },
+--   })
+-- end
+
 return {
   {
     "mfussenegger/nvim-dap",
-    dependencies = {
-      {
-        "rcarriga/nvim-dap-ui",
-        opts = {
-          layouts = {
-            {
-              elements = {
-                -- Elements can be strings or table with id and size keys.
-                { id = "scopes", size = 0.25 },
-                "breakpoints",
-                "stacks",
-                "watches",
-              },
-              size = 40, -- 40 columns
-              position = "left",
-            },
-            {
-              elements = {
-                "repl",
-              },
-              size = 0.25, -- 25% of total lines
-              position = "bottom",
-            },
-          },
-          expand_lines = false,
-          controls = {
-            enabled = false,
-          },
-        },
-      },
-      {
-        "mfussenegger/nvim-dap-python",
-        config = function()
-          require("dap-python").setup("python3")
-        end,
-      },
-    },
     config = function()
+      require("config.keymaps").dap()
       local dap = require("dap")
-      local dapui = require("dapui")
-      dap.listeners.after.event_initialized["dapui_config"] = function()
-        dapui.open()
-      end
-      dap.listeners.before.event_terminated["dapui_config"] = function()
-        dapui.close()
-      end
-      dap.listeners.before.event_exited["dapui_config"] = function()
-        dapui.close()
-      end
+      dap.defaults.fallback.switchbuf = "usetab,uselast"
+      dap.defaults.fallback.terminal_win_cmd = "tabnew"
+      dap.defaults.fallback.external_terminal = {
+        command = "wezterm",
+        args = { "--skip-config" },
+      }
+      local widgets = require("dap.ui.widgets")
+      local sidebar = widgets.sidebar(widgets.scopes)
+      vim.api.nvim_create_user_command("DapSidebar", sidebar.toggle, { nargs = 0 })
+      vim.api.nvim_create_user_command("DapBreakpoints", function()
+        dap.list_breakpoints(true)
+      end, { nargs = 0 })
+      local sessions_bar = widgets.sidebar(widgets.sessions, {}, "5 sp")
+      vim.api.nvim_create_user_command("DapSessions", sessions_bar.toggle, { nargs = 0 })
+
+      ------------------------
+      -- CPP/C/Rust configs --
+      ------------------------
       -- Fixes issues with lldb-vscode
       -- When it starts it doesn't report any threads
-      -- TODO: This's causing issues with dapui
-      -- dap.listeners.after.event_initialized["lldb-vscode"] = function(session)
-      --   session:update_threads()
-      -- end
+      dap.listeners.after.event_initialized["lldb-vscode"] = function(session)
+        session:update_threads()
+      end
       -- After pausing the threads could be wrong
       dap.listeners.after.pause["lldb-vscode"] = function(session)
         session:update_threads()
@@ -73,11 +67,6 @@ return {
           end
         end
       end
-      dap.defaults.fallback.terminal_win_cmd = "tabnew"
-      dap.defaults.fallback.external_terminal = {
-        command = "wezterm",
-        args = { "--skip-config" },
-      }
       local lldb_executable_name = "/usr/bin/lldb-vscode"
       local lldb_executables = vim.split(vim.fn.glob(lldb_executable_name .. "*"), "\n")
       if vim.fn.empty(lldb_executables) == 1 then
@@ -104,11 +93,69 @@ return {
       }
       local configs = {
         -- M.launch_console,
-        require("config.dap").launch_in_terminal,
+        require("config.dap").launch_lldb_in_terminal,
       }
       dap.configurations.c = configs
       dap.configurations.cpp = configs
       dap.configurations.rust = configs
+
+      ----------------------
+      --- Python configs ---
+      ----------------------
+      dap.adapters.python = function(cb, config)
+        if config.request == "attach" then
+          local port = (config.connect or config).port
+          local host = (config.connect or config).host or "127.0.0.1"
+          cb({
+            type = "server",
+            port = assert(port, "`connect.port` is required for a python `attach` configuration"),
+            host = host,
+            enrich_config = enrich_config,
+            options = {
+              source_filetype = "python",
+            },
+          })
+        else
+          cb({
+            type = "executable",
+            command = vim.env.HOME .. "/micromamba/envs/myconfigs/bin/python",
+            args = { "-m", "debugpy.adapter" },
+            enrich_config = enrich_config,
+            options = {
+              source_filetype = "python",
+            },
+          })
+        end
+      end
+
+      dap.configurations.python = {
+        {
+          type = "python",
+          request = "launch",
+          name = "Launch file",
+          program = "${file}",
+        },
+        require("config.dap").launch_python_in_terminal,
+        {
+          type = "python",
+          request = "attach",
+          name = "Attach remote",
+          connect = function()
+            local host = vim.fn.input("Host [127.0.0.1]: ")
+            host = host ~= "" and host or "127.0.0.1"
+            local port = tonumber(vim.fn.input("Port [5678]: ")) or 5678
+            return { host = host, port = port }
+          end,
+        },
+        {
+          type = "python",
+          request = "launch",
+          name = "Run doctests in file",
+          module = "doctest",
+          args = { "${file}" },
+          noDebug = true,
+        },
+      }
     end,
   },
 }

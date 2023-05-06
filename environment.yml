@@ -10,3 +10,4 @@ dependencies:
   - argcomplete
   - refurb
   - pre-commit
+  - debugpy

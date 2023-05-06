@@ -70,64 +70,41 @@ M.lsp = function(bufnr)
   end, bufnr)
 end
 
-local run_file = function(is_test)
-  local filetype = require("plenary.filetype").detect(vim.fn.expand("%:p"))
-  if not filetype or filetype == "" then
-    return
-  end
-  if filetype == "markdown" then
-    vim.cmd.write()
-    return
-  end
-
-  local dirname = vim.fn.expand("%:p:h")
-  local root_dir = require("config.functions").root_dirs[filetype]
-  if root_dir then
-    root_dir = root_dir(dirname) or dirname
-  else
-    root_dir = dirname
-    for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
-      if vim.env.HOME == dir then
-        break
-      end
-      if vim.fn.isdirectory(dir .. "/.vscode") == 1 then
-        root_dir = dir
-        break
-      end
-    end
-  end
-
-  vim.cmd.write()
-  local args = {
-    "--workspace-folder",
-    root_dir,
-    "--filetype",
-    filetype,
-    "--file-path",
-    vim.fn.expand("%:p"),
-  }
-  local cmd = "build_project.py"
-  if filetype ~= "python" then
-    cmd = "micromamba"
-    for _, v in
-      ipairs(
-        vim.fn.reverse({ "run", "-n", "myconfigs", "python3", "~/.local/bin/build_project.py" })
-      )
-    do
-      table.insert(args, 1, v)
-    end
-  end
-  if is_test then
-    table.insert(args, "--test")
-  end
-  local term = require("config.term")
-  term.run(cmd, args, { cwd = root_dir, auto_close = false })
+M.dap = function()
+  local dap = require("dap")
+  local widgets = require("dap.ui.widgets")
+  keymap("n", "<F5>", dap.continue)
+  keymap("n", "<leader>b", dap.toggle_breakpoint)
+  keymap("n", "<leader>db", function()
+    dap.toggle_breakpoint(vim.fn.input({ prompt = "Breakpoint Condition: " }), nil, nil, true)
+  end)
+  keymap("n", "<leader>dl", function()
+    dap.list_breakpoints(true)
+  end)
+  keymap("n", "<leader>dr", function()
+    dap.repl.toggle({ height = 15 })
+  end)
+  keymap("n", "<leader>dj", dap.down)
+  keymap("n", "<leader>dk", dap.up)
+  keymap("n", "<leader>dc", dap.run_to_cursor)
+  keymap("n", "<leader>dS", function()
+    widgets.centered_float(widgets.frames)
+  end)
+  keymap("n", "<leader>dt", function()
+    widgets.centered_float(widgets.threads)
+  end)
+  keymap("n", "<leader>ds", function()
+    widgets.centered_float(widgets.scopes)
+  end)
+  keymap({ "n", "v" }, "<leader>dh", widgets.hover)
+  keymap({ "n", "v" }, "<leader>dp", widgets.preview)
 end
+
 keymap("n", "<leader>t", function()
-  run_file(true)
+  require("config.functions").run_file(true)
 end)
 keymap("n", "<leader>x", function()
-  run_file(false)
+  require("config.functions").run_file(false)
 end)
 keymap("n", "<leader>h", function()
   local files = vim.api.nvim_get_runtime_file("**/doc/tags", true)
@@ -197,6 +174,7 @@ keymap("n", "<leader>q", q.quickfix)
 keymap("n", "<leader>dq", function()
   q.diagnostic(0)
 end)
+
 local win_pre_copen = nil
 keymap("n", "<leader>c", function()
   local api = vim.api

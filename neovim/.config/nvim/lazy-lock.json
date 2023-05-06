@@ -51,14 +51,6 @@
     "branch": "master",
     "commit": "6cedcb527e264c8f25e86afa8dae74c6692dee51"
   },
-  "nvim-dap-python": {
-    "branch": "master",
-    "commit": "972b8b8b65823c433ee834ed02a7f06edf590dfc"
-  },
-  "nvim-dap-ui": {
-    "branch": "master",
-    "commit": "749bfe12d1447703899fa823c1c075fbe2d42c24"
-  },
   "nvim-fzy": {
     "branch": "main",
     "commit": "a7a746f0e46f6e191c3ade52fd77d72a4239fe72"
