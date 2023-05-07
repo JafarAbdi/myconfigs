@@ -1,3 +1,7 @@
+build_humble
+install_humble
+build_rolling
+install_rolling
 build
 devel
 logs
