@@ -38,6 +38,19 @@ def lua(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -
     )
 
 
+def bash(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
+    """Run a sh file.
+
+    Args:
+        file: File to run
+        args: Arguments to pass to the file when running it
+        cwd: Current working directory
+        extra_args: Generic arguments to be used by the runner
+        is_test: Whether the file is a test or not
+    """
+    run_command(["bash", str(file), *args], dry_run=False, cwd=cwd)
+
+
 def fish(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
     """Run a fish file.
 
@@ -291,6 +304,8 @@ runners: Final = {
     "cpp": cpp,
     "fish": fish,
     "xml": xacro,
+    "sh": bash,
+    "bash": bash,
 }
 
 
