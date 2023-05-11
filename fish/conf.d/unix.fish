@@ -330,6 +330,14 @@ function __fish_git_worktrees
     end
 end
 
+function diffdir
+  if test (count $argv) -ne 2
+    echo "Usage: diffdir <dir1> <dir2>"
+    return 1
+  end
+  difft --skip-unchanged --color=always $argv[1] $argv[2] | less -R
+end
+
 complete -c wt -x -a "(__fish_wt)"
 complete -c ros_wt -x -a "(__fish_wt)"
 
