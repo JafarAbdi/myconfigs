@@ -27,7 +27,7 @@ return {
     config = function(_, opts)
       require("luasnip").config.set_config(opts)
       require("luasnip.loaders.from_vscode").load({
-        paths = { "~/myconfigs/vscode/.config/Code/User/snippets" },
+        paths = { "~/myconfigs/neovim/.config/nvim/lua/config/snippets" },
       })
     end,
   },
