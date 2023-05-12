@@ -81,7 +81,7 @@ function start_podman -d "Start a podman image with gpu support"
   end
   podman exec --user root -it $cid bash -c "passwd $user" && \
   podman exec --user root $cid bash -c "apt update" && \
-  podman exec --user root $cid bash -c "apt install -y sudo vim" && \
+  podman exec --user root $cid bash -c "apt install -y sudo vim adduser" && \
   podman exec --user root $cid bash -c "adduser $user sudo" && \
   podman exec --user root $cid bash -c "mkhomedir_helper $user" && \
   podman exec --user root $cid bash -c "chown $user:$user /home/$user" && \
