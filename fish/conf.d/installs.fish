@@ -189,7 +189,6 @@ function setup-cpp-screatches
   cd $CPP_SCREATCHES_DIR/..
   git clone https://github.com/JafarAbdi/cpp-scratches.git scratches
   cd scratches
-  micromamba create -f environment.yml -y
   micromamba run -n conan conan profile detect
   micromamba run -n conan conan install --build=missing .
   cp conanbuildinfo.args compile_flags.txt
@@ -310,6 +309,7 @@ function install-mamba
   # so we need to be in a writable directory (not the case for docker containers)
   set -l TMP_DIR (mktemp -d -p /tmp mamba-envs-XXXXXX)
   cp ~/myconfigs/micromamba-envs/* $TMP_DIR
+  cp ~/myconfigs/environment.yml $TMP_DIR
   fd --glob '*.yml' $TMP_DIR --threads=1 --exec test ! -e ~/micromamba/envs/{/.} \; --exec micromamba create -y -f {}
   myconfigsr
 end
