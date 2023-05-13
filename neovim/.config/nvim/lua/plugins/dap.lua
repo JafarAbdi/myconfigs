@@ -24,6 +24,7 @@ end
 return {
   {
     "mfussenegger/nvim-dap",
+    event = "VeryLazy",
     config = function()
       require("config.keymaps").dap()
       local dap = require("dap")

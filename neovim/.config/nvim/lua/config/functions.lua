@@ -186,6 +186,9 @@ M.lsp_status = function()
 end
 
 M.dap_status = function()
+  if require("lazy.core.config").plugins["nvim-dap"]._.loaded == nil then
+    return ""
+  end
   local ok, dap = pcall(require, "dap")
   if not ok then
     return ""

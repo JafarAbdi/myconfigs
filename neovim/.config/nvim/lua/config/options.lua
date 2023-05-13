@@ -62,7 +62,6 @@ g.copilot_filetypes = {
   ["*"] = true,
   gitcommit = false,
   ["dap-repl"] = false,
-  dapui_watches = false,
 }
 
 g.netrw_list_hide = [[,\(^\|\s\s\)\zs\.\S\+]]

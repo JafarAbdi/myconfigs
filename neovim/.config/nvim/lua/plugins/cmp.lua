@@ -140,15 +140,6 @@ return {
     config = function(_, opts)
       local cmp = require("cmp")
 
-      cmp.setup.filetype({
-        "dapui_hover",
-        "dapui_stacks",
-        "dapui_scopes",
-        "dapui_controls",
-        "dapui_breakpoints",
-        "neotest-summary",
-      }, {})
-
       cmp.setup.filetype("gitcommit", {
         sources = cmp.config.sources({
           { name = "buffer" },
