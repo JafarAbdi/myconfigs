@@ -55,7 +55,10 @@
   pushf = push --force-with-lease
   diffs = diff --staged
   stash-all = stash save --include-untracked
+  # https://git-scm.com/docs/pretty-formats
   rlg = log --color --walk-reflogs --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %gs %Cgreen(%gD) %C(bold blue)<%an>%Creset' --abbrev-commit --date=format:'%a %d.%m.%Y %H:%M'
+  rl = reflog --pretty=format:\"%Cred%h%Creset %C(auto)%gd%Creset %C(auto)%gs%C(reset) %C(green)(%cr)%C(reset) %C(bold blue)<%an>%Creset\" --abbrev-commit
+  sl = stash list --pretty=format:\"%C(red)%h%C(reset) - %C(bold magenta)%gd%C(reset) %<(70,trunc)%s %C(green)(%cr) %C(bold blue)<%an>%C(reset)\"
   grep-all-commits = "!f() { git grep \"$1\" $(git rev-list --all); }; f"
 [pager]
   branch = true
