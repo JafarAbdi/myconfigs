@@ -11,3 +11,6 @@ dependencies:
   - refurb
   - pre-commit
   - debugpy
+  - pip
+  - pip:
+    - jinja2_stringcase

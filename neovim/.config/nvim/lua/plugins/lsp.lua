@@ -336,6 +336,7 @@ return {
         marksman = {
           -- cmd = { "marksman", "server", "--verbose", "5" },
         },
+        lemminx = {},
       },
     },
     ---@param opts PluginLspOpts

@@ -663,6 +663,8 @@ function install-dev-core
 end
 
 function install-full-development
+  # XML
+  install-xml-lsp
   # Markdown
   install-markdown-lsp
   # Lua
@@ -720,5 +722,14 @@ function install-stylua
   install-from-github "JohnnyMorganz/StyLua" "stylua-linux.zip"
   ex stylua-linux.zip
   mv stylua ~/.local/bin
+  cd -
+end
+
+function install-xml-lsp
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github redhat-developer/vscode-xml lemminx-linux.zip
+  ex lemminx-linux.zip
+  mv lemminx-linux ~/.local/bin/lemminx
   cd -
 end

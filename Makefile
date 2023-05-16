@@ -39,4 +39,7 @@ dev-rust:
 dev-cpp:
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-cpp-lsp && install-cpp-analyzers'
 
-dev: core dev-core dev-lua dev-python dev-rust dev-cpp
+dev-xml:
+	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-xml-lsp'
+
+dev: core dev-core dev-lua dev-python dev-rust dev-cpp dev-xml
