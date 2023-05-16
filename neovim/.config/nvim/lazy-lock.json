@@ -37,7 +37,7 @@
   },
   "lazy.nvim": {
     "branch": "main",
-    "commit": "83a625f5c884a3ceee821ce54a812c8321ecba31"
+    "commit": "aba872ec78ffe7f7367764ab0fff6f0170421fde"
   },
   "neogen": {
     "branch": "main",
@@ -45,7 +45,7 @@
   },
   "nvim-cmp": {
     "branch": "main",
-    "commit": "1cad30fcffa282c0a9199c524c821eadc24bf939"
+    "commit": "768548bf4980fd6d635193a9320545bb46fcb6d8"
   },
   "nvim-dap": {
     "branch": "master",
@@ -57,7 +57,7 @@
   },
   "nvim-lspconfig": {
     "branch": "master",
-    "commit": "3bd4ca412982afa6f88bb7ef890660cee51c3e58"
+    "commit": "30a232052b3e1c0c51d190d5f5a12ad9b42c5ebc"
   },
   "nvim-qwahl": {
     "branch": "main",
@@ -69,11 +69,11 @@
   },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "39a78192fbcee43f0b9134d668663b0cfc1e082b"
+    "commit": "d2b78324f2191db72e9bc063ff435278c36bf06b"
   },
   "nvim-treesitter-textobjects": {
     "branch": "master",
-    "commit": "5632f926833493bf44de3d0c214169a062b068df"
+    "commit": "35a60f093fa15a303874975f963428a5cd24e4a0"
   },
   "onedark.nvim": {
     "branch": "main",
