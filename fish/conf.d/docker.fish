@@ -21,75 +21,94 @@ end
 
 complete -c setup_container -x -a '(__fish_print_docker_containers running)'
 
-function start_podman -d "Start a podman image with gpu support"
-  set -l user $USER
+function start_container -d "Start a podman|docker image with gpu support"
   if test (count $argv) -eq 0 ||
      test $argv[1] = "-h" ||
      test $argv[1] = "--help"
-      echo "Usage: start_podman <image name> <optional container name>"
+      echo "Usage: start_container <podman|docker> <image name> <optional container name>"
     return
   end
-  set -l podman_name
-  if test -z $argv[2]
+  if test $argv[1] = "podman"
+    set containerprg "podman"
+    set extra_args "--device nvidia.com/gpu=all --userns=keep-id"
+  else if test $argv[1] = "docker"
+    set containerprg "docker"
+    set extra_args "--runtime=nvidia --gpus=all --security-opt apparmor:unconfined"
+  else
+    echo "Usage: run_container <podman|docker> <image name> <optional container name>"
+    return
+  end
+  set -l container_name
+  if test -z $argv[3]
     while true
-      set podman_name (shuf -n1 /usr/share/dict/words | grep -v "'s\$" | string lower)
-      if test $podman_name
-        echo "No input for container name, using '$podman_name'"
+      set container_name (shuf -n1 /usr/share/dict/words | grep -v "'s\$" | string lower)
+      if test $container_name
+        echo "No input for container name, using '$container_name'"
         break
       end
     end
   else
-    set podman_name $argv[2]
+    set container_name $argv[3]
   end
-  if contains -- $podman_name (podman container list --all --format "{{.Names}}")
-    echo "'$podman_name' correspond to already existing container"
+  if contains -- $container_name (eval '$containerprg container list --all --format "{{.Names}}"')
+    echo "'$container_name' correspond to already existing container"
     echo "Make sure to stop/remove it"
     return
   end
-  podman pull $argv[1]
-  if test $status -ne 0
-    echo "Failed to pull image $argv[1]"
-    return
-  end
-  set -l cid (podman run \
+  set -l user $USER
+  # --privileged
+  # --cap-add=all
+  # --cap-add SYS_ADMIN --device /dev/fuse fixes an issue with using appimage in podman (+ --security-opt apparmor:unconfined for docker)
+  # https://github.com/s3fs-fuse/s3fs-fuse/issues/647#issuecomment-392697838
+  set -l run_command $containerprg run \
                      --detach \
                      --interactive \
-                     --gpus all \
-                     # --privileged \
-                     # --cap-add=all \
+                     --network host \
                      --cap-add SYS_PTRACE \
-                     # Next two lines fix an issue with using appimage in podman
-                     # https://github.com/s3fs-fuse/s3fs-fuse/issues/647#issuecomment-392697838
                      --cap-add SYS_ADMIN \
                      --device /dev/fuse \
-                     --userns=keep-id \
                      -v /tmp/.X11-unix:/tmp/.X11-unix \
                      -v $HOME/workspaces:$HOME/workspaces \
                      -v $HOME/myconfigs:$HOME/myconfigs:ro \
                      -v $HOME/.ssh:$HOME/.ssh:ro \
                      -v $HOME/.config/gh:$HOME/.config/gh:ro \
+                     -e QT_X11_NO_MITSHM=1 \
+                     -e DISPLAY \
+                     -e NVIDIA_VISIBLE_DEVICES=all \
+                     -e NVIDIA_DRIVER_CAPABILITIES=all \
                      -e HOME \
                      -e USER \
-                     -e PODMAN_NAME=$podman_name \
+                     -e CONTAINER_NAME=$container_name \
                      -t \
                      --entrypoint=/bin/bash \
-                     --name "$podman_name" \
-                     $argv[1])
+                     --name $container_name \
+                     $extra_args \
+                     $argv[2]
+
+  echo "Running '$run_command'"
+
+  set -l cid (eval $run_command)
+
   if test $status -ne 0
     echo "Failed to start podman container"
     return
   end
-  podman exec --user root -it $cid bash -c "passwd $user" && \
-  podman exec --user root $cid bash -c "apt update" && \
-  podman exec --user root $cid bash -c "apt install -y sudo vim adduser" && \
-  podman exec --user root $cid bash -c "adduser $user sudo" && \
-  podman exec --user root $cid bash -c "mkhomedir_helper $user" && \
-  podman exec --user root $cid bash -c "chown $user:$user /home/$user" && \
-  podman exec --user root $cid bash -c "chown $user:$user /home/$user/.config" && \
-  # TODO: Why this's no longer working?
-  # podman exec --user root $cid bash -c "usermod -d /home/$user $user"
-  podman exec --user root -it $cid bash -c "vim /etc/passwd" && \
-  podman exec --workdir /home/$user --user $user -it $cid bash
+  if test $containerprg = "docker"
+    docker exec --user root -it $cid bash -c "useradd -s /bin/bash -d /home/$user -m -G sudo $user"
+  end
+  eval '$containerprg exec --user root -it $cid bash -c "passwd $user"'
+  eval '$containerprg exec --user root $cid bash -c "apt update"'
+  eval '$containerprg exec --user root $cid bash -c "apt install -y sudo vim adduser"'
+  eval '$containerprg exec --user root $cid bash -c "adduser $user sudo"'
+  # podman exec --user root $cid bash -c "mkhomedir_helper $user" && \
+  eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user"'
+  eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user/.config"'
+  if test $containerprg = "podman"
+    # TODO: Why this's no longer working?
+    # podman exec --user root $cid bash -c "usermod -d /home/$user $user"
+    podman exec --user root -it $cid bash -c "vim /etc/passwd"
+  end
+  eval '$containerprg exec --workdir /home/$user --user $user -it $cid bash'
 end
 
 export DOCKER_BUILDKIT=1

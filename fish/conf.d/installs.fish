@@ -386,7 +386,6 @@ function install-lua-lsp
 end
 
 function install-json-lsp
-  install-mamba
   git clone --depth=1 git@github.com:redhat-developer/yaml-language-server.git ~/.config/yaml-lsp
   cd ~/.config/yaml-lsp
   micromamba run -n nodejs npm install -g yarn

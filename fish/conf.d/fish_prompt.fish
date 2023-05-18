@@ -10,11 +10,11 @@ function fish_prompt
       echo -n -s (set_color 877960 --italics) "(ssh)" (set_color normal)
     end
   end
-  if test -e /.dockerenv
+  if test -e /.dockerenv && ! set -q CONTAINER_NAME
     echo -n -s (set_color 85C1E9)"[D]"(set_color normal)
   end
-  if set -q PODMAN_NAME
-    echo -n -s (set_color 85C1E9) "($PODMAN_NAME)" (set_color normal)
+  if set -q CONTAINER_NAME
+    echo -n -s (set_color 85C1E9) "($CONTAINER_NAME)" (set_color normal)
   end
   if set -q CURRENT_ROS_WORKSPACE
     echo -n -s (set_color D68910) "($CURRENT_ROS_WORKSPACE)" (set_color normal)
