@@ -223,7 +223,11 @@ M.run_file = function(is_test)
     end
   end
 
-  vim.cmd.write()
+  if
+    not vim.api.nvim_buf_get_option(0, "readonly") and vim.api.nvim_buf_get_option(0, "modified")
+  then
+    vim.cmd.write()
+  end
   local args = {
     "--workspace-folder",
     root_dir,
