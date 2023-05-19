@@ -185,6 +185,33 @@ M.lsp_status = function()
   end
 end
 
+M.ts_status = function()
+  if require("lazy.core.config").plugins["nvim-treesitter"]._.loaded == nil then
+    return ""
+  end
+  local ok, ts = pcall(require, "nvim-treesitter")
+  if not ok then
+    return ""
+  end
+  return ts.statusline({
+    indicator_size = 100,
+    separator = " | ",
+    type_patterns = {
+      "class",
+      "function",
+      "method",
+      "struct",
+      -- Rust
+      "trait_item",
+      "impl_item",
+      "enum",
+      -- C++
+      "namespace",
+    },
+    allow_duplicates = false,
+  }) or ""
+end
+
 M.dap_status = function()
   if require("lazy.core.config").plugins["nvim-dap"]._.loaded == nil then
     return ""
