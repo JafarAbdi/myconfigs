@@ -146,7 +146,7 @@ function ros_ignore
 end
 
 function rcd
-  fd --prune --search-path $HOME --type file --glob package.xml --exec bash -c 'echo -e "\033[0;35m"$(xmllint --xpath "//name/text()" $1)"\033[0m":$(dirname {})' bash {} \
+  fd --prune --search-path $HOME --type file --glob package.xml --exec bash -c 'echo -e "\033[0;35m"$(xmllint --xpath "//name/text()" "$1")"\033[0m":$(dirname "{}")' bash {} \
     | fzf --preview '' --delimiter ':' --nth 1 --ansi --no-multi \
     | read --array --delimiter=':' selected
   if test -n $selected[2]
