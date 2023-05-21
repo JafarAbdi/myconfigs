@@ -24,27 +24,4 @@ require("lazy").setup({
     enabled = false,
     notify = false,
   },
-  performance = {
-    rtp = {
-      -- disable some rtp plugins
-      disabled_plugins = {
-        "gzip",
-        "zip",
-        "zipPlugin",
-        "tar",
-        "tarPlugin",
-        "getscript",
-        "getscriptPlugin",
-        "vimball",
-        "vimballPlugin",
-        "2html_plugin",
-        "matchit",
-        "matchparen",
-        "logiPat",
-        "rrhelper",
-        "tohtml",
-        "tutor",
-      },
-    },
-  },
 })

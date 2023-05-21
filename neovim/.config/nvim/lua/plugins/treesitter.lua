@@ -98,10 +98,7 @@ return {
           disable = disable,
           set_jumps = true, -- whether to set jumps in the jumplist
           goto_next_start = {
-            ["]p"] = "@parameter.inner",
             ["]f"] = "@function.outer",
-            ["]l"] = "@loop.outer",
-            ["]o"] = "@conditional.outer",
             ["]c"] = "@class.outer",
           },
           goto_next_end = {
@@ -109,10 +106,7 @@ return {
             ["]C"] = "@class.outer",
           },
           goto_previous_start = {
-            ["[p"] = "@parameter.inner",
             ["[f"] = "@function.outer",
-            ["[l"] = "@loop.outer",
-            ["[o"] = "@conditional.outer",
             ["[c"] = "@class.outer",
           },
           goto_previous_end = {
