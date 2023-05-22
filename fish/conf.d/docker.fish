@@ -33,7 +33,7 @@ function start_container -d "Start a podman|docker image with gpu support"
     set extra_args "--device nvidia.com/gpu=all --userns=keep-id"
   else if test $argv[1] = "docker"
     set containerprg "docker"
-    set extra_args "--runtime=nvidia --gpus=all --security-opt apparmor:unconfined"
+    set extra_args "--runtime=nvidia --gpus=all --privileged -v /dev:/dev"
   else
     echo "Usage: run_container <podman|docker> <image name> <optional container name>"
     return
