@@ -22,31 +22,18 @@ return {
     config = function()
       -- load the colorscheme here
       vim.cmd.colorscheme("onedark")
-      local links = {
-        ["@lsp.type.namespace"] = "@namespace",
-        ["@lsp.type.type"] = "@type",
-        ["@lsp.type.class"] = "@type",
-        ["@lsp.type.enum"] = "@type",
-        ["@lsp.type.interface"] = "@type",
-        ["@lsp.type.struct"] = "@type",
-        ["@lsp.type.parameter"] = "@parameter",
-        ["@lsp.type.variable"] = "@variable",
-        ["@lsp.type.property"] = "@property",
-        ["@lsp.type.enumMember"] = "@constant",
-        ["@lsp.type.function"] = "@function",
-        ["@lsp.type.method"] = "@method",
-        ["@lsp.type.macro"] = "@macro",
-        ["@lsp.type.decorator"] = "@function",
-        ["@lsp.type.keyword"] = "@keyword",
-        ["@lsp.type.operator"] = "@operator",
-        ["@lsp.type.string"] = "@string",
-        ["@lsp.type.number"] = "@number",
-      }
-      for semantic_tokens_group, treesitter_group in pairs(links) do
-        vim.api.nvim_set_hl(0, semantic_tokens_group, { link = treesitter_group, default = true })
-      end
       vim.api.nvim_set_hl(0, "SpellBad", { sp = "gray", undercurl = true })
       vim.api.nvim_set_hl(0, "SignColumn", { link = "LineNr" })
     end,
   },
+  { "mfussenegger/nvim-qwahl" },
+  { "mfussenegger/nvim-fzy" },
+  -- Used to fix symlink files
+  { "famiu/bufdelete.nvim", lazy = false },
+  { "github/copilot.vim", event = "VeryLazy" },
+  -- Heuristically set buffer options
+  { "tpope/vim-sleuth", lazy = false },
+  { "tpope/vim-commentary", keys = { { "gc", mode = "v" }, "gcc" } },
+  { "wsdjeg/vim-fetch", lazy = false },
+  "nvim-lua/plenary.nvim",
 }

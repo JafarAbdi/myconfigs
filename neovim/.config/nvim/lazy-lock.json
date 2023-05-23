@@ -1,7 +1,7 @@
 {
   "LuaSnip": {
     "branch": "master",
-    "commit": "b4bc24c4925aeb05fd47d2ee9b24b7f73f5d7e32"
+    "commit": "fcdaa4313305fe20d928551134c1ec2266e7af2a"
   },
   "bufdelete.nvim": {
     "branch": "master",
@@ -19,10 +19,6 @@
     "branch": "main",
     "commit": "f12408bdb54c39c23e67cab726264c10db33ada8"
   },
-  "cmp-under-comparator": {
-    "branch": "master",
-    "commit": "6857f10272c3cfe930cece2afa2406e1385bfef8"
-  },
   "cmp_luasnip": {
     "branch": "master",
     "commit": "18095520391186d634a0045dacaa346291096566"
@@ -31,25 +27,17 @@
     "branch": "release",
     "commit": "1358e8e45ecedc53daf971924a0541ddf6224faf"
   },
-  "indent-blankline.nvim": {
-    "branch": "master",
-    "commit": "018bd04d80c9a73d399c1061fa0c3b14a7614399"
-  },
   "lazy.nvim": {
     "branch": "main",
-    "commit": "aba872ec78ffe7f7367764ab0fff6f0170421fde"
-  },
-  "neogen": {
-    "branch": "main",
-    "commit": "c0fd3dc9e7cc91181ea5a345c4b01c865626c81e"
+    "commit": "761b8388af5bcb451e30d886163fcd129278e1d1"
   },
   "nvim-cmp": {
     "branch": "main",
-    "commit": "768548bf4980fd6d635193a9320545bb46fcb6d8"
+    "commit": "3ac8d6cd29c74ff482d8ea47d45e5081bfc3f5ad"
   },
   "nvim-dap": {
     "branch": "master",
-    "commit": "6cedcb527e264c8f25e86afa8dae74c6692dee51"
+    "commit": "56118cee6af15cb9ddba9d080880949d8eeb0c9f"
   },
   "nvim-fzy": {
     "branch": "main",
@@ -57,23 +45,19 @@
   },
   "nvim-lspconfig": {
     "branch": "master",
-    "commit": "30a232052b3e1c0c51d190d5f5a12ad9b42c5ebc"
+    "commit": "1c13e529bd5683b54a39b633a560d2f00fcb25af"
   },
   "nvim-qwahl": {
     "branch": "main",
     "commit": "11821557f6aa7cf438bf157e145b38908e1b1887"
   },
-  "nvim-surround": {
-    "branch": "main",
-    "commit": "219bd66585aa467b1c90fd01b54a2a423aaed4ab"
-  },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "d2b78324f2191db72e9bc063ff435278c36bf06b"
+    "commit": "f2778bd1a28b74adf5b1aa51aa57da85adfa3d16"
   },
   "nvim-treesitter-textobjects": {
     "branch": "master",
-    "commit": "35a60f093fa15a303874975f963428a5cd24e4a0"
+    "commit": "9c5237bab44a269677698245a30c7f0d669a8e7e"
   },
   "onedark.nvim": {
     "branch": "main",

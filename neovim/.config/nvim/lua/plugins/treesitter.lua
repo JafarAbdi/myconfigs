@@ -60,16 +60,12 @@ return {
           node_decremental = "<A-S-w>",
         },
       },
-      -- indent = {
-      --   enable = false,
-      -- },
       textobjects = {
         select = {
           enable = true,
           disable = disable,
           lookahead = true, -- Automatically jump forward to textobj, similar to targets.vim
           keymaps = {
-            -- You can use the capture groups defined in textobjects.scm
             ["af"] = "@function.outer",
             ["if"] = "@function.inner",
             ["ac"] = "@class.outer",
@@ -92,7 +88,6 @@ return {
             ["<leader>A"] = "@parameter.inner",
           },
         },
-        -- [ prev, ] --> next, lower > start, upper end
         move = {
           enable = true,
           disable = disable,
