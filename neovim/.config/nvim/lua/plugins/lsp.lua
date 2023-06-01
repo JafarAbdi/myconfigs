@@ -339,10 +339,10 @@ return {
                 .. "/bin/python"
             end
           end,
-          root_dir = function(startpath)
+          root_dir = lcd_root_dir(function(startpath)
             local dir = root_dirs.python(startpath)
             return dir or vim.loop.cwd()
-          end,
+          end),
         },
         marksman = {
           -- cmd = { "marksman", "server", "--verbose", "5" },
