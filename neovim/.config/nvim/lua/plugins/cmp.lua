@@ -73,10 +73,9 @@ return {
         sources = {
           { name = "nvim_lsp_signature_help", priority = 100 },
           { name = "nvim_lsp" },
-          { name = "luasnip", max_item_count = 2 },
+          { name = "luasnip" },
           {
             name = "buffer",
-            max_item_count = 20,
             option = {
               get_bufnrs = function()
                 return vim.api.nvim_list_bufs()
