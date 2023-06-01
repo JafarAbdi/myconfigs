@@ -119,7 +119,11 @@ end
 
 function install-nvim
   rm ~/.local/bin/nvim || true
-  wget https://github.com/neovim/neovim/releases/latest/download/nvim.appimage -O ~/.local/bin/nvim
+  if set -q argv[1] && test $argv[1] = "nightly"
+    wget https://github.com/neovim/neovim/releases/download/nightly/nvim.appimage -O ~/.local/bin/nvim
+  else
+    wget https://github.com/neovim/neovim/releases/latest/download/nvim.appimage -O ~/.local/bin/nvim
+  end
   chmod +x ~/.local/bin/nvim
 end
 
