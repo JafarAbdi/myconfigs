@@ -736,3 +736,10 @@ function install-xml-lsp
   mv lemminx-linux ~/.local/bin/lemminx
   cd -
 end
+
+function install-syncthing
+  sudo curl -o /usr/share/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg
+  echo "deb [signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable" | sudo tee /etc/apt/sources.list.d/syncthing.list
+  sudo apt-get update && sudo apt-get install -y syncthing
+  sudo systemctl enable syncthing@$USER.service && sudo systemctl start syncthing@$USER.service
+end
