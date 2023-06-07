@@ -16,6 +16,9 @@ function setup_container
   if test (docker exec $container_name sh -c 'if [ -d "$HOME/.config/github-copilot" ]; then echo "1"; else echo "0"; fi') -eq 0
     docker cp $HOME/.config/github-copilot $container_name:$HOME/.config/github-copilot
   end
+  if test (docker exec $container_name sh -c 'if [ -d "$HOME/.local/share/nvim" ]; then echo "1"; else echo "0"; fi') -eq 0
+    docker cp $HOME/.local/share/nvim $container_name:$HOME/.local/share/nvim
+  end
   docker exec -it $container_name bash -c "cd ~/myconfigs && make setup-fish core dev-core dev-cpp dev-python"
 end
 
@@ -72,6 +75,7 @@ function start_container -d "Start a podman|docker image with gpu support"
                      -v $HOME/myconfigs:$HOME/myconfigs:ro \
                      -v $HOME/.ssh:$HOME/.ssh:ro \
                      -v $HOME/.config/gh:$HOME/.config/gh:ro \
+                     -v $HOME/.local/share/nvim:$HOME/.local/share/nvim \
                      -e QT_X11_NO_MITSHM=1 \
                      -e DISPLAY \
                      -e NVIDIA_VISIBLE_DEVICES=all \
