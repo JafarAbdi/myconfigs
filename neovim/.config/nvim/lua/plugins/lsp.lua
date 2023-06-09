@@ -14,6 +14,13 @@ local rust_analyzer_cmd =
 -- local cmake_cmd = { "cmake-language-server", "-vv", "--log-file", "/tmp/cmake-lsp.txt" }
 local cmake_cmd = { "micromamba", "run", "-n", "cmake-lsp", "cmake-language-server" }
 
+local omnisharp_cmd = {
+  vim.env.HOME .. "/.config/omnisharp-roslyn/run",
+  "--languageserver",
+  "--hostPID",
+  tostring(vim.fn.getpid()),
+}
+
 local runtime_path = vim.split(package.path, ";")
 table.insert(runtime_path, "lua/?.lua")
 table.insert(runtime_path, "lua/?/init.lua")
@@ -343,6 +350,23 @@ return {
           -- cmd = { "marksman", "server", "--verbose", "5" },
         },
         lemminx = {},
+        -- https://github.com/neovim/nvim-lspconfig/blob/master/doc/server_configurations.md#omnisharp
+        -- TODO
+        -- https://github.com/Hoffs/omnisharp-extended-lsp.nvim/tree/main
+        omnisharp = {
+          cmd = omnisharp_cmd,
+          on_new_config = function(new_config, _)
+            new_config.cmd = vim.deepcopy(omnisharp_cmd)
+          end,
+          root_dir = root_dirs.csharp,
+          enable_editorconfig_support = true,
+          enable_ms_build_load_projects_on_demand = false,
+          enable_roslyn_analyzers = false,
+          organize_imports_on_format = false,
+          enable_import_completion = false,
+          sdk_include_prereleases = true,
+          analyze_open_documents_only = false,
+        },
       },
     },
     ---@param opts PluginLspOpts
@@ -361,8 +385,11 @@ return {
           offsetEncoding = { "utf-16" },
         }
       )
-      local on_attach = function(_, bufnr)
+      local on_attach = function(client, bufnr)
         require("config.keymaps").lsp(bufnr)
+        if client.name == "omnisharp" then
+          client.server_capabilities.semanticTokensProvider = nil
+        end
       end
       for server, server_opts in pairs(opts.servers) do
         require("lspconfig")[server].setup(

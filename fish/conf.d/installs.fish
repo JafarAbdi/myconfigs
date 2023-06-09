@@ -751,3 +751,31 @@ function install-flamegraph
   cargo install flamegraph
   flamegraph --completions fish > ~/.config/fish/completions/flamegraph.fish
 end
+
+function install-omnisharp
+  if test (lsb_release -si) = "Ubuntu"
+    sudo gpg --homedir /tmp --no-default-keyring --keyring /usr/share/keyrings/mono-official-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF
+    echo "deb [signed-by=/usr/share/keyrings/mono-official-archive-keyring.gpg] https://download.mono-project.com/repo/ubuntu stable-focal main" | sudo tee /etc/apt/sources.list.d/mono-official-stable.list
+    sudo apt update
+    sudo apt install -y mono-devel dotnet-sdk-7.0
+    rm -rf ~/.config/omnisharp-roslyn && mkdir -p ~/.config/omnisharp-roslyn
+    cd ~/.config/omnisharp-roslyn
+    install-from-github OmniSharp/omnisharp-roslyn "omnisharp-linux-x64.tar.gz"
+    ex omnisharp-linux-x64.tar.gz
+    cd -
+    # Needed to generate config files
+    install-vscode
+  else
+    echo "Not supported"
+  end
+end
+
+function install-vscode
+  if ! command -q code &> /dev/null
+    set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+    cd $TMP_DIR
+    wget 'https://code.visualstudio.com/sha/download?os=linux-deb-x64' -O vscode.deb
+    sudo apt install ./vscode.deb
+  end
+  cd -
+end
