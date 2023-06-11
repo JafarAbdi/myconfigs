@@ -743,3 +743,12 @@ function install-syncthing
   sudo apt-get update && sudo apt-get install -y syncthing
   sudo systemctl enable syncthing@$USER.service && sudo systemctl start syncthing@$USER.service
 end
+
+function install-rattler
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github "prefix-dev/rattler-build" "rattler-build-.*-x86_64-unknown-linux-gnu.tar.gz"
+  tar xzf rattler-build* --strip-components 1
+  mv rattler-build ~/.local/bin
+  sudo apt install -y patchelf
+end
