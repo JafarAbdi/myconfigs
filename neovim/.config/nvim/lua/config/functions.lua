@@ -161,28 +161,11 @@ M.generate_python_stubs = function(missing_packages)
 end
 
 M.lsp_status = function()
-  local messages = vim.lsp.util.get_progress_messages()
-  if vim.tbl_isempty(messages) then
+  local lsp_status = vim.lsp.status()
+  if lsp_status == "" then
     return ""
   end
-  local prefix = " | "
-  local percentage
-  local result = {}
-  for _, msg in pairs(messages) do
-    if msg.message then
-      table.insert(result, msg.title .. ": " .. msg.message)
-    else
-      table.insert(result, msg.title)
-    end
-    if msg.percentage then
-      percentage = math.max(percentage or 0, msg.percentage)
-    end
-  end
-  if percentage then
-    return string.format(prefix .. "%03d: %s", percentage, table.concat(result, ", "))
-  else
-    return prefix .. table.concat(result, ", ")
-  end
+  return " | " .. lsp_status
 end
 
 M.ts_status = function()

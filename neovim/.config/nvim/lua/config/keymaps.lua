@@ -162,7 +162,11 @@ keymap("n", "<C-M-s>", function()
   end
 end)
 keymap("n", "<M-o>", function()
-  fzy.execute("fd --hidden --type f --strip-cwd-prefix", fzy.sinks.edit_file)
+  fzy.execute("fd --hidden --type f --strip-cwd-prefix", function(selection)
+    if selection and vim.trim(selection) ~= "" then
+      vim.cmd.edit(vim.trim(selection))
+    end
+  end)
 end)
 keymap("n", "<leader>j", q.jumplist)
 

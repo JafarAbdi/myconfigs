@@ -2,6 +2,7 @@ local opt = vim.opt -- global (vim.opt is better than vim.o)
 local g = vim.g -- global for let options
 
 -- help options
+opt.cmdheight = 0
 opt.number = true
 opt.mouse = "a"
 opt.undofile = true
@@ -43,6 +44,7 @@ opt.complete:append({ "U", "i", "d" })
 opt.wildmode = "longest:full,full"
 opt.wildignore:append({ "*.pyc", ".git", ".idea", "*.o" })
 opt.wildoptions = "pum,tagfile,fuzzy"
+opt.suffixes:append({ ".pyc", ".tmp" })
 
 if vim.fn.executable("rg") == 1 then
   opt.grepprg = "rg --no-messages --vimgrep --no-heading --smart-case"

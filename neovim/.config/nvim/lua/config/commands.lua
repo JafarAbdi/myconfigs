@@ -40,6 +40,11 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
   group = general_group,
 })
 
+vim.api.nvim_create_autocmd("LspProgress", {
+  group = general_group,
+  command = "redrawstatus",
+})
+
 vim.api.nvim_create_autocmd("TermOpen", {
   callback = function()
     vim.opt_local.signcolumn = "no"
