@@ -2,7 +2,6 @@ local opt = vim.opt -- global (vim.opt is better than vim.o)
 local g = vim.g -- global for let options
 
 -- help options
-opt.cmdheight = 0
 opt.number = true
 opt.mouse = "a"
 opt.undofile = true
