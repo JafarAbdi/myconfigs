@@ -338,6 +338,41 @@ function diffdir
   difft --skip-unchanged --color=always $argv[1] $argv[2] | less -R
 end
 
+function micromamba-source
+  set -l scripts_path $argv[1]
+  set -l scripts (fd --type f --search-path $scripts_path --exec echo {.} | sort -u)
+  for script in $scripts
+    # .fish files are sourced automatically so we only source .sh files
+    if ! test -e $script".fish" -a -e $script".sh"
+      bass source $script".sh"
+    end
+  end
+end
+
+function micromamba-activate
+  set -l env_name $argv[1]
+  if set -q CONDA_PREFIX
+    echo "An environment is already active."
+    return
+  end
+  micromamba activate $env_name
+  micromamba-source "$CONDA_PREFIX/etc/conda/activate.d"
+end
+
+function micromamba-deactivate
+  if ! set -q CONDA_PREFIX
+    echo "No environment is currently active."
+    return
+  end
+  micromamba-source "$CONDA_PREFIX/etc/conda/deactivate.d"
+  micromamba deactivate
+  # micromamba deactivate does not clean up all the environment variables
+  # More of an issue with ROS setup.bash file than micromamba
+  # ./deactivate.d/ros-humble-ros-workspace_deactivate.sh
+  myconfigsr
+end
+
+complete -c micromamba-activate -x -a "(__fish_mamba_envs)"
 complete -c wt -x -a "(__fish_wt)"
 complete -c ros_wt -x -a "(__fish_wt)"
 
