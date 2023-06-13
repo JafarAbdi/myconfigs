@@ -95,18 +95,6 @@ function install-cpp-lsp
   cd -
 end
 
-function install-pyinstrument
-  pip3 install -U pyinstrument
-end
-
-function install-heaptrack
-  sudo apt install -y heaptrack heaptrack-gui
-end
-
-function install-hotspot
-  sudo apt install -y hotspot linux-cloud-tools-generic linux-tools-generic linux-tools-(uname -r)
-end
-
 function install-rust
   if ! command -q rustup &> /dev/null
     curl --proto '=https' --tlsv1.3 https://sh.rustup.rs -sSf | sh
@@ -174,14 +162,6 @@ function install-bloaty
   git submodule update --init --recursive
   mkdir build && cd build
   cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install .. && make install -j(nproc)
-end
-
-function install-easy-profiler
-  git clone git@github.com:yse/easy_profiler.git
-  cd easy_profiler
-  mkdir build && cd build
-  cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install ..
-  make install -j(nproc)
 end
 
 function install-ccache
@@ -751,4 +731,22 @@ function install-rattler
   tar xzf rattler-build* --strip-components 1
   mv rattler-build ~/.local/bin
   sudo apt install -y patchelf
+end
+
+# Profilers
+function install-pyinstrument
+  pip3 install -U pyinstrument
+end
+
+function install-heaptrack
+  sudo apt install -y heaptrack heaptrack-gui
+end
+
+function install-hotspot
+  sudo apt install -y hotspot linux-cloud-tools-generic linux-tools-generic linux-tools-(uname -r)
+end
+
+function install-flamegraph
+  cargo install flamegraph
+  flamegraph --completions fish > ~/.config/fish/completions/flamegraph.fish
 end
