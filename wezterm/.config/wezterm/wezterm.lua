@@ -81,6 +81,11 @@ config.keys = {
   { key = "c", mods = "LEADER", action = act.SpawnTab("CurrentPaneDomain") },
   { key = "a", mods = "LEADER", action = act.ActivateLastTab },
   {
+    key = "d",
+    mods = "LEADER",
+    action = act.DetachDomain("CurrentPaneDomain"),
+  },
+  {
     key = "r",
     mods = "LEADER",
     action = act.ActivateKeyTable({
