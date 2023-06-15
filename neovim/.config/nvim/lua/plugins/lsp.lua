@@ -337,6 +337,9 @@ return {
                 .. "/micromamba/envs/"
                 .. settings["micromamba.env"]
                 .. "/bin/python"
+            elseif vim.env.CONDA_PREFIX then
+              new_config.init_options.workspace.environmentPath = vim.env.CONDA_PREFIX
+                .. "/bin/python"
             end
           end,
           root_dir = lcd_root_dir(function(startpath)
