@@ -54,6 +54,9 @@
   discard = checkout HEAD --
   pushf = push --force-with-lease
   diffs = diff --staged
+  diffl = log -p --ext-diff
+  # TODO: Why difft doesn't work? It always shows XXXX-dirty
+  diffm = diff --submodule=diff --no-ext-diff
   stash-all = stash save --include-untracked
   # https://git-scm.com/docs/pretty-formats
   rlg = log --color --walk-reflogs --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %gs %Cgreen(%gD) %C(bold blue)<%an>%Creset' --abbrev-commit --date=format:'%a %d.%m.%Y %H:%M'

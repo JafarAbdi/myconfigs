@@ -244,19 +244,19 @@ function fzf-inline -d "List files and put them under current cursor"
 end
 
 function git-staged
-  git status --short | grep 'M  ' | awk '{print $2}' | fzf-inline
+  git status --porcelain | grep 'M  ' | awk '{print $2}' | fzf-inline
 end
 
 function git-modified
-  git status --short | grep ' M ' | awk '{print $2}' | fzf-inline
+  git status --porcelain | grep ' M ' | awk '{print $2}' | fzf-inline
 end
 
 function git-conflicts
-  git status --short | grep 'UU' | awk '{print $2}' | fzf-inline
+  git status --porcelain | grep 'UU' | awk '{print $2}' | fzf-inline
 end
 
 function git-untracked
-  git status --short | rg '\?\?' | awk '{print $2}' | fzf-inline
+  git status --porcelain | rg '\?\?' | awk '{print $2}' | fzf-inline
 end
 
 function ros_setup_wt
