@@ -659,7 +659,8 @@ function install-full-development
   install-rust-lsp
   # C/C++
   install-cpp-lsp
-  install-cpp-analyzers
+  # TODO: Add support by installing them to a virtualenv
+  # install-cpp-analyzers
 end
 
 function install-wezterm
