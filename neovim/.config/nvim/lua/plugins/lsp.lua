@@ -1,16 +1,5 @@
 local root_dirs = require("config.functions").root_dirs
 
--- Decorate root_dirs with lcd to change directory
-local lcd_root_dir = function(root_dir_fn)
-  return function(startpath)
-    local root_dir = root_dir_fn(startpath)
-    if root_dir then
-      vim.cmd.lcd(root_dir)
-    end
-    return root_dir
-  end
-end
-
 -- For testing inlayHints
 local clangd_cmd = {
   vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
@@ -67,7 +56,7 @@ return {
           on_new_config = function(new_config, _)
             new_config.cmd = vim.deepcopy(clangd_cmd)
           end,
-          root_dir = lcd_root_dir(root_dirs.cpp),
+          root_dir = root_dirs.cpp,
           single_file_support = true,
         },
         efm = {
@@ -176,7 +165,7 @@ return {
           on_new_config = function(new_config, _)
             new_config.cmd = rust_analyzer_cmd
           end,
-          root_dir = lcd_root_dir(root_dirs.rust),
+          root_dir = root_dirs.rust,
           settings = {
             -- to enable rust-analyzer settings visit:
             -- https://github.com/rust-analyzer/rust-analyzer/blob/master/docs/user/generated_config.adoc
@@ -315,7 +304,7 @@ return {
               buildDirectory = build_dir,
             }
           end,
-          root_dir = lcd_root_dir(root_dirs.cmake),
+          root_dir = root_dirs.cmake,
           single_file_support = true,
         },
         dockerls = {
@@ -342,10 +331,10 @@ return {
                 .. "/bin/python"
             end
           end,
-          root_dir = lcd_root_dir(function(startpath)
+          root_dir = function(startpath)
             local dir = root_dirs.python(startpath)
             return dir or vim.loop.cwd()
-          end),
+          end,
         },
         marksman = {
           -- cmd = { "marksman", "server", "--verbose", "5" },
