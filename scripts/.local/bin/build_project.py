@@ -82,7 +82,9 @@ def python(
         is_test: Whether the file is a test or not
     """
     cmd = []
-    if micromamba_env := extra_args.get("micromamba.env"):
+    if (micromamba_env := extra_args.get("micromamba.env")) or (
+        micromamba_env := os.environ.get("CONDA_DEFAULT_ENV")
+    ):
         cmd.extend(["micromamba", "run", "-n", micromamba_env])
     if is_test:
         if not file.name.startswith("test_"):
