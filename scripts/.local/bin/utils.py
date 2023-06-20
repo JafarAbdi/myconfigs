@@ -226,7 +226,7 @@ def create_vscode_config(
             }
         else:
             settings = {
-                f"cmake.buildDirectory.{ros_distro}": f"{build_dir}_{ros_distro}",
+                f"cmake.buildDirectory.{ros_distro}": f"{build_dir}",
             }
 
         json.dump(settings, f, ensure_ascii=True, indent=4)

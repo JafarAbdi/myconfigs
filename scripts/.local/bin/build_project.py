@@ -223,10 +223,15 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict) -> None:
         cwd: Current working directory
         extra_args: Generic arguments to be used by the runner
     """
+    ros_distro = os.environ.get("ROS_DISTRO")
     settings_path = cwd / ".vscode" / "settings.json"
     with settings_path.open("r") as settings_file:
         settings = json.load(settings_file)
-        build_dir = Path(settings["cmake.buildDirectory"])
+        build_dir = Path(
+            settings[f"cmake.buildDirectory.{ros_distro}"]
+            if ros_distro
+            else settings["cmake.buildDirectory"]
+        )
     reply_dir = build_dir / CMAKE_REPLY_DIR
     indices = sorted(reply_dir.glob("index-*.json"))
     if not indices:
