@@ -230,7 +230,7 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict) -> None:
         build_dir = Path(
             settings[f"cmake.buildDirectory.{ros_distro}"]
             if ros_distro
-            else settings["cmake.buildDirectory"]
+            else settings["cmake.buildDirectory"],
         )
     reply_dir = build_dir / CMAKE_REPLY_DIR
     indices = sorted(reply_dir.glob("index-*.json"))
