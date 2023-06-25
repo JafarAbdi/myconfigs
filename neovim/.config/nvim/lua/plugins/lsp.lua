@@ -89,6 +89,9 @@ return {
           cmd = { vim.env.HOME .. "/.config/lua-lsp/bin/lua-language-server" },
           settings = {
             Lua = {
+              hint = {
+                enable = true,
+              },
               format = {
                 enable = false,
               },

@@ -20,6 +20,13 @@ require("lazy").setup({
     lazy = true, -- every plugin is lazy-loaded by default
   },
   checker = { enabled = false }, -- automatically check for plugin updates
+  performance = {
+    rtp = {
+      disabled_plugins = {
+        "matchparen",
+      },
+    },
+  },
   change_detection = {
     enabled = false,
     notify = false,
