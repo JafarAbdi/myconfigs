@@ -66,7 +66,7 @@ M.lsp = function(bufnr)
   keymap("n", "<leader>f", function()
     vim.lsp.buf.format({ async = true })
   end, bufnr)
-  keymap({ "i", "n" }, "<c-i>", function()
+  keymap({ "i", "n" }, "<M-i>", function()
     return vim.lsp.buf.inlay_hint(0)
   end, bufnr)
 end

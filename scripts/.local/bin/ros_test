@@ -81,6 +81,9 @@ class TestCompleter:
 
 def main() -> None:  # noqa: C901
     """Main function."""
+    if (ros_distro := os.environ.get("ROS_DISTRO")) is None:
+        logger.error("ROS_DISTRO is not set")
+        return
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--pkg",
@@ -108,7 +111,14 @@ def main() -> None:  # noqa: C901
             cmd += ["--verbose"]
         cmd += ["--catkin-make-args", "run_tests"]
     elif ros_version == RosVersions.ROS2:
-        cmd += ["colcon", "test"]
+        cmd += [
+            "colcon",
+            "test",
+            "--build-base",
+            f"build_{ros_distro}",
+            "--install-base",
+            f"install_{ros_distro}",
+        ]
         if args.pkg:
             cmd += ["--packages-select"]
             cmd += args.pkg
