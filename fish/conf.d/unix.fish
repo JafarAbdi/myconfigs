@@ -165,7 +165,7 @@ end
 
 function sfs
   # We have to use allow_other if we want to mount it in a docker container. See https://stackoverflow.com/a/61686833
-  sshfs -o identityfile=/home/juruc/.ssh/id_rsa,uid=(id -u),gid=(id -g),allow_other,reconnect,default_permissions,auto_cache,no_readahead,Ciphers=chacha20-poly1305@openssh.com $argv[1] $argv[2]
+  sshfs -o identityfile=$HOME/.ssh/id_rsa,uid=(id -u),gid=(id -g),allow_other,reconnect,default_permissions,auto_cache,no_readahead,Ciphers=chacha20-poly1305@openssh.com $argv[1] $argv[2]
 end
 
 function rs-scratch
