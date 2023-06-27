@@ -43,3 +43,8 @@ Diagnostics:
              cppcoreguidelines-special-member-functions,
              cppcoreguidelines-avoid-non-const-global-variables]
   UnusedIncludes: Strict
+InlayHints:
+  Designators: No
+  Enabled: Yes
+  ParameterNames: Yes
+  DeducedTypes: Yes
