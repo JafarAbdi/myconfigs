@@ -17,7 +17,7 @@ function setup_container
     docker cp $HOME/.config/github-copilot $container_name:$HOME/.config/github-copilot
   end
   if test (docker exec $container_name sh -c 'if [ -d "$HOME/.local/share/nvim" ]; then echo "1"; else echo "0"; fi') -eq 0
-    docker cp $HOME/.local/share/nvim $container_name:$HOME/.local/share/nvim
+    docker exec -it $container_name bash -c "mkdir -p $HOME/.local/share" && docker cp $HOME/.local/share/nvim $container_name:$HOME/.local/share/nvim
   end
   docker exec -it $container_name bash -c "cd ~/myconfigs && make setup-fish core dev-core dev-cpp dev-python"
 end
