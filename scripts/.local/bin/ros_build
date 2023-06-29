@@ -13,7 +13,7 @@ from pathlib import Path
 import argcomplete
 from utils import (
     RosVersions,
-    create_clangd_config,
+    create_clangd_config_ros,
     create_cmake_query_files,
     create_vscode_config,
     get_ros_packages,
@@ -48,7 +48,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915, C901
         return
     packages = get_ros_packages_path(src_dir)
     build_path = Path(workspace_dir) / f"build_{ros_distro}"
-    create_clangd_config(workspace_dir, ros_distro)
+    create_clangd_config_ros(workspace_dir, ros_distro)
     for package, path in packages:
         create_cmake_query_files(build_path / f"{package}")
         create_vscode_config(

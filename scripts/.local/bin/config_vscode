@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 import argcomplete
-from utils import create_vscode_config
+from utils import create_vscode_config, create_cmake_query_files, create_clangd_config
 
 
 def main() -> None:
@@ -16,7 +16,11 @@ def main() -> None:
     parser.add_argument("--build-dir", default="build")
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
-    create_vscode_config(str((Path(os.curdir) / args.build_dir).absolute()))
+    current_dir = Path(os.curdir)
+    build_dir = current_dir / args.build_dir
+    create_clangd_config(current_dir, build_dir)
+    create_vscode_config(str(build_dir.absolute()))
+    create_cmake_query_files(build_dir)
 
 
 if __name__ == "__main__":
