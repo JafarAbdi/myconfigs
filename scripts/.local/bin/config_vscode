@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 import argcomplete
-from utils import create_vscode_config, create_cmake_query_files, create_clangd_config
+from utils import create_clangd_config, create_cmake_query_files, create_vscode_config
 
 
 def main() -> None:
