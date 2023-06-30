@@ -38,6 +38,9 @@ return {
   {
     "neovim/nvim-lspconfig",
     lazy = false,
+    dependencies = {
+      { "Hoffs/omnisharp-extended-lsp.nvim", lazy = false },
+    },
     ---@class PluginLspOpts
     opts = {
       -- options for vim.diagnostic.config()
@@ -392,6 +395,11 @@ return {
         end
       end
       for server, server_opts in pairs(opts.servers) do
+        if server == "omnisharp" then
+          server_opts.handlers = {
+            ["textDocument/definition"] = require("omnisharp_extended").handler,
+          }
+        end
         require("lspconfig")[server].setup(
           vim.tbl_deep_extend(
             "error",

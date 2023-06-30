@@ -1,11 +1,11 @@
 {
   "LuaSnip": {
     "branch": "master",
-    "commit": "c7984d1cca3d8615e4daefc196597872a0b8d590"
+    "commit": "105b5f7f72c13e682a3aa5d29eac2408ae513b22"
   },
   "bufdelete.nvim": {
     "branch": "master",
-    "commit": "8d15a0a3189b02ac7ad9dd6dc089cc62edf095c6"
+    "commit": "07d1f8ba79dec59d42b975a4df1c732b2e4e37b4"
   },
   "cmp-buffer": {
     "branch": "main",
@@ -29,7 +29,7 @@
   },
   "lazy.nvim": {
     "branch": "main",
-    "commit": "b7043f2983d7aead78ca902f3f2053907081859a"
+    "commit": "4c8b625bc873ca76b76eee0c28c98f1f7148f17f"
   },
   "nvim-cmp": {
     "branch": "main",
@@ -53,11 +53,15 @@
   },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "069cbad8d2938f18a423b4640d3ebfb65dda710d"
+    "commit": "adbabe9b5c75a32cff6d3cfc5ef2243c3352a3bb"
   },
   "nvim-treesitter-textobjects": {
     "branch": "master",
-    "commit": "83c59ed1eeae70a55605990993cf4d208948fdf7"
+    "commit": "52f1f3280d9092bfaee5c45be5962fabee3d9654"
+  },
+  "omnisharp-extended-lsp.nvim": {
+    "branch": "main",
+    "commit": "53edfb413a54c9e55dcddc9e9fa4977a897e4425"
   },
   "onedark.nvim": {
     "branch": "main",

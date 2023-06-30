@@ -762,6 +762,7 @@ function install-omnisharp
     cd ~/.config/omnisharp-roslyn
     install-from-github OmniSharp/omnisharp-roslyn "omnisharp-linux-x64.tar.gz"
     ex omnisharp-linux-x64.tar.gz
+    chmod +x run
     cd -
     # Needed to generate config files
     install-vscode
