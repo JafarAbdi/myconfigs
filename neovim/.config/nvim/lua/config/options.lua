@@ -36,7 +36,7 @@ opt.signcolumn = "number"
 opt.laststatus = 3
 opt.statusline =
   [[%<%f%{luaeval("require('config.functions').lsp_status()")} %m%r%= %{luaeval("require('config.functions').dap_status()")} %{luaeval("require('config.functions').ts_status()")}]]
-opt.smartindent = true
+opt.smartindent = false
 opt.pumheight = 20
 opt.completeopt = "menuone,noselect,noinsert"
 opt.complete:append({ "U", "i", "d" })
