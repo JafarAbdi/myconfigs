@@ -2,7 +2,7 @@ local M = {}
 
 M.root_dirs = {
   csharp = function(startpath)
-    return require("lspconfig.util").root_pattern(".sln", ".csproj", ".git")(startpath)
+    return require("lspconfig.util").root_pattern("*.sln", "*.csproj", ".git")(startpath)
   end,
   python = function(startpath)
     return require("lspconfig.util").root_pattern(

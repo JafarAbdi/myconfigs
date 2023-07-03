@@ -389,9 +389,11 @@ return {
         }
       )
       local on_attach = function(client, bufnr)
-        require("config.keymaps").lsp(bufnr)
-        if client.name == "omnisharp" then
-          client.server_capabilities.semanticTokensProvider = nil
+        if client.name ~= "copilot" then
+          if client.name == "omnisharp" then
+            client.server_capabilities.semanticTokensProvider = nil
+          end
+          require("config.keymaps").lsp(bufnr)
         end
       end
       for server, server_opts in pairs(opts.servers) do

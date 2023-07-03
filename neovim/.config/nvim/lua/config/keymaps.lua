@@ -65,8 +65,8 @@ local set_clangd_opening_path = function(callback)
           break
         end
       end
-      callback()
     end
+    callback()
   end
 end
 
