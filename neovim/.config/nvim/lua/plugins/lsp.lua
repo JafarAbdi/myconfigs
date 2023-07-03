@@ -16,9 +16,6 @@ local cmake_cmd = { "micromamba", "run", "-n", "cmake-lsp", "cmake-language-serv
 
 local omnisharp_cmd = {
   vim.env.HOME .. "/.config/omnisharp-roslyn/run",
-  "--languageserver",
-  "--hostPID",
-  tostring(vim.fn.getpid()),
 }
 
 local runtime_path = vim.split(package.path, ";")
@@ -358,9 +355,6 @@ return {
         -- https://github.com/Hoffs/omnisharp-extended-lsp.nvim/tree/main
         omnisharp = {
           cmd = omnisharp_cmd,
-          on_new_config = function(new_config, _)
-            new_config.cmd = vim.deepcopy(omnisharp_cmd)
-          end,
           root_dir = root_dirs.csharp,
           enable_editorconfig_support = true,
           enable_ms_build_load_projects_on_demand = false,
