@@ -84,7 +84,7 @@ M.lsp = function(bufnr)
     vim.lsp.buf.format({ async = true })
   end, bufnr)
   keymap({ "i", "n" }, "<M-i>", function()
-    return vim.lsp.buf.inlay_hint(0)
+    return vim.lsp.inlay_hint(0)
   end, bufnr)
 end
 
