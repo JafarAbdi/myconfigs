@@ -53,14 +53,31 @@ local keymap = function(mode, lhs, callback, bufnr)
   )
 end
 
+M.clangd_opening_root_dir = nil
+
+local set_clangd_opening_path = function(callback)
+  return function()
+    local ft = vim.api.nvim_get_option_value("filetype", {})
+    if ft == "cpp" or ft == "c" then
+      for _, client in pairs(vim.lsp.get_active_clients({ bufnr = 0 })) do
+        if client.name == "clangd" then
+          M.clangd_opening_root_dir = client.config.root_dir
+          break
+        end
+      end
+      callback()
+    end
+  end
+end
+
 M.lsp = function(bufnr)
   keymap({ "n", "i" }, "<C-k>", vim.lsp.buf.signature_help, bufnr)
   keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, bufnr)
   keymap("n", "K", vim.lsp.buf.hover, bufnr)
-  keymap("n", "gi", vim.lsp.buf.implementation, bufnr)
-  keymap("n", "gr", vim.lsp.buf.references, bufnr)
-  keymap("n", "gt", vim.lsp.buf.type_definition, bufnr)
-  keymap("n", "gd", vim.lsp.buf.definition, bufnr)
+  keymap("n", "gi", set_clangd_opening_path(vim.lsp.buf.implementation), bufnr)
+  keymap("n", "gr", set_clangd_opening_path(vim.lsp.buf.references), bufnr)
+  keymap("n", "gt", set_clangd_opening_path(vim.lsp.buf.type_definition), bufnr)
+  keymap("n", "gd", set_clangd_opening_path(vim.lsp.buf.definition), bufnr)
   keymap("n", "gs", q.lsp_tags, bufnr)
   keymap("n", "<F2>", vim.lsp.buf.rename, bufnr)
   keymap("n", "<leader>f", function()

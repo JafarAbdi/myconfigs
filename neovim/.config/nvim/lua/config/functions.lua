@@ -21,7 +21,6 @@ M.root_dirs = {
   cpp = function(startpath)
     local util = require("lspconfig.util")
     local search_fn = util.root_pattern(".clangd")
-
     local fallback_search_fn = util.root_pattern(
       ".vscode",
       ".clang-tidy",
@@ -32,9 +31,14 @@ M.root_dirs = {
       ".git"
     )
     -- If root directory not found set it to file's directory
-    local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
-      or fallback_search_fn(startpath)
+    local search = function(path)
+      return vim.F.if_nil(search_fn(path), search_fn(vim.fn.expand("%:p:h")))
+        or fallback_search_fn(path)
+    end
+    local dir = search(startpath)
+      or search(require("config.keymaps").clangd_opening_root_dir)
       or vim.fn.getcwd()
+    require("config.keymaps").clangd_opening_root_dir = nil
     return dir
   end,
   rust = function(startpath)
