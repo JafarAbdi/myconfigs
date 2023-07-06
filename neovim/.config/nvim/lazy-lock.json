@@ -59,13 +59,9 @@
     "branch": "main",
     "commit": "53edfb413a54c9e55dcddc9e9fa4977a897e4425"
   },
-  "onedark.nvim": {
-    "branch": "main",
-    "commit": "f2445369f2790ceb8fa6c2cff9bbfc2b4fcce276"
-  },
   "plenary.nvim": {
     "branch": "master",
-    "commit": "102c02903c74b93c705406bf362049383abc87c8"
+    "commit": "bda256fab0eb66a15e8190937e417e6a14ee5d72"
   },
   "vim-commentary": {
     "branch": "master",

@@ -85,3 +85,5 @@ vim.filetype.add({
     ["code-snippets"] = "json",
   },
 })
+
+vim.cmd.colorscheme("onedark")
