@@ -1,36 +1,5 @@
 local root_dirs = require("config.functions").root_dirs
 
--- For testing inlayHints
-local clangd_cmd = {
-  vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
-  "--completion-style=detailed",
-}
-local rust_analyzer_cmd =
-  { vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer" }
--- local clangd_debug_cmd = vim.deepcopy(clangd_cmd)
--- table.insert(clangd_debug_cmd, "-log=verbose")
--- clangd_cmd = vim.deepcopy(clangd_debug_cmd)
-
--- local cmake_cmd = { "cmake-language-server", "-vv", "--log-file", "/tmp/cmake-lsp.txt" }
-local cmake_cmd = { "micromamba", "run", "-n", "cmake-lsp", "cmake-language-server" }
-
-local omnisharp_cmd = {
-  vim.env.HOME .. "/.config/omnisharp-roslyn/run",
-}
-
-local runtime_path = vim.split(package.path, ";")
-table.insert(runtime_path, "lua/?.lua")
-table.insert(runtime_path, "lua/?/init.lua")
-
-local jedi_init_options = {
-  workspace = {
-    extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
-    environmentPath = "/usr/bin/python3",
-  },
-}
--- local jedi_cmd = { "jedi-language-server", "-vv", "--log-file", "/tmp/logging.txt" }
-local jedi_cmd = { "micromamba", "run", "-n", "python-lsp", "jedi-language-server" }
-
 return {
   {
     "neovim/nvim-lspconfig",
@@ -38,9 +7,7 @@ return {
     dependencies = {
       { "Hoffs/omnisharp-extended-lsp.nvim", lazy = false },
     },
-    ---@class PluginLspOpts
     opts = {
-      -- options for vim.diagnostic.config()
       diagnostics = {
         underline = false,
         update_in_insert = true,
@@ -48,21 +15,17 @@ return {
         severity_sort = true,
         signs = false,
       },
-      -- LSP Server Settings
       servers = {
         tsserver = {},
         clangd = {
-
-          -- local clangd_debug_cmd = vim.deepcopy(clangd_cmd)
-          -- table.insert(clangd_debug_cmd, "-log=verbose")
-          -- clangd_cmd = vim.deepcopy(clangd_debug_cmd)
-          cmd = clangd_cmd,
+          cmd = {
+            vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
+            "--completion-style=detailed",
+            -- "-log=verbose"
+          },
           init_options = {
             clangdFileStatus = true,
           },
-          on_new_config = function(new_config, _)
-            new_config.cmd = vim.deepcopy(clangd_cmd)
-          end,
           root_dir = root_dirs.cpp,
           single_file_support = true,
         },
@@ -89,7 +52,7 @@ return {
             "dockerfile",
           },
           root_dir = function(dir)
-            return require("lspconfig").util.find_git_ancestor(dir) or vim.loop.cwd()
+            return require("lspconfig").util.find_git_ancestor(dir) or vim.uv.cwd()
           end,
         },
         lua_ls = {
@@ -103,21 +66,15 @@ return {
                 enable = false,
               },
               runtime = {
-                -- Tell the language server which version of Lua you're using (most likely LuaJIT in the case of Neovim)
                 version = "LuaJIT",
-                -- Setup your lua path
-                path = runtime_path,
               },
               diagnostics = {
-                -- Get the language server to recognize the `vim` global
                 globals = { "vim" },
               },
               workspace = {
-                -- Make the server aware of Neovim runtime files
                 library = vim.api.nvim_get_runtime_file("", true),
                 checkThirdParty = false,
               },
-              -- Do not send telemetry data containing a randomized but unique identifier
               telemetry = {
                 enable = false,
               },
@@ -171,10 +128,9 @@ return {
           },
         },
         rust_analyzer = {
-          cmd = rust_analyzer_cmd,
-          on_new_config = function(new_config, _)
-            new_config.cmd = rust_analyzer_cmd
-          end,
+          cmd = {
+            vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer",
+          },
           root_dir = root_dirs.rust,
           settings = {
             -- to enable rust-analyzer settings visit:
@@ -291,9 +247,8 @@ return {
           },
         },
         cmake = {
-          cmd = cmake_cmd,
+          cmd = { "micromamba", "run", "-n", "cmake-lsp", "cmake-language-server" }, -- "-vv", "--log-file", "/tmp/cmake-lsp.txt"
           on_new_config = function(new_config, new_root_dir)
-            new_config.cmd = cmake_cmd
             local Path = require("plenary.path")
             local root = Path:new(root_dirs.cmake(new_root_dir))
             local build_dir = nil
@@ -321,8 +276,13 @@ return {
           cmd = { "micromamba", "run", "-n", "nodejs", "docker-langserver", "--stdio" },
         },
         jedi_language_server = {
-          cmd = jedi_cmd,
-          init_options = jedi_init_options,
+          cmd = { "micromamba", "run", "-n", "python-lsp", "jedi-language-server" }, -- "-vv", "--log-file", "/tmp/logging.txt"
+          init_options = {
+            workspace = {
+              extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
+              environmentPath = "/usr/bin/python3",
+            },
+          },
           on_new_config = function(new_config, new_root_dir)
             local Path = require("plenary.path")
             local root = Path:new(root_dirs.python(new_root_dir))
@@ -343,7 +303,7 @@ return {
           end,
           root_dir = function(startpath)
             local dir = root_dirs.python(startpath)
-            return dir or vim.loop.cwd()
+            return dir or vim.uv.cwd()
           end,
         },
         marksman = {
@@ -354,10 +314,11 @@ return {
         -- TODO
         -- https://github.com/Hoffs/omnisharp-extended-lsp.nvim/tree/main
         omnisharp = {
-          cmd = omnisharp_cmd,
+          cmd = {
+            vim.env.HOME .. "/.config/omnisharp-roslyn/run",
+          },
           root_dir = root_dirs.csharp,
           enable_editorconfig_support = true,
-          enable_ms_build_load_projects_on_demand = false,
           enable_roslyn_analyzers = false,
           organize_imports_on_format = false,
           enable_import_completion = false,
@@ -366,7 +327,6 @@ return {
         },
       },
     },
-    ---@param opts PluginLspOpts
     config = function(_, opts)
       vim.diagnostic.config(opts.diagnostics)
 

@@ -1,45 +1,42 @@
 return {
   {
-    "L3MON4D3/LuaSnip",
-    opts = function()
-      local types = require("luasnip.util.types")
-
-      return {
-        -- This tells LuaSnip to remember to keep around the last snippet.
-        -- You can jump back into it even if you move outside of the selection
-        history = true,
-        delete_check_events = "TextChanged",
-        -- This one is cool cause if you have dynamic snippets, it updates as you type!
-        updateevents = "TextChanged,TextChangedI",
-
-        -- Autosnippets:
-        enable_autosnippets = true,
-        store_selection_keys = "<Tab>",
-        ext_opts = {
-          [types.choiceNode] = {
-            active = {
-              virt_text = { { "choiceNode", "Comment" } },
-            },
-          },
-        },
-      }
-    end,
-    config = function(_, opts)
-      require("luasnip").config.set_config(opts)
-      require("luasnip.loaders.from_vscode").load({
-        paths = { "~/myconfigs/neovim/.config/nvim/lua/config/snippets" },
-      })
-    end,
-  },
-  {
     "hrsh7th/nvim-cmp",
     event = { "InsertEnter", "CmdlineEnter" },
     dependencies = {
       "hrsh7th/cmp-nvim-lsp",
       "hrsh7th/cmp-buffer",
       "saadparwaiz1/cmp_luasnip",
-      "L3MON4D3/LuaSnip",
-      "hrsh7th/cmp-nvim-lua",
+      {
+        "L3MON4D3/LuaSnip",
+        opts = function()
+          local types = require("luasnip.util.types")
+
+          return {
+            -- This tells LuaSnip to remember to keep around the last snippet.
+            -- You can jump back into it even if you move outside of the selection
+            history = true,
+            delete_check_events = "TextChanged",
+            -- This one is cool cause if you have dynamic snippets, it updates as you type!
+            updateevents = "TextChanged,TextChangedI",
+            -- Autosnippets:
+            enable_autosnippets = true,
+            store_selection_keys = "<Tab>",
+            ext_opts = {
+              [types.choiceNode] = {
+                active = {
+                  virt_text = { { "choiceNode", "Comment" } },
+                },
+              },
+            },
+          }
+        end,
+        config = function(_, opts)
+          require("luasnip").config.set_config(opts)
+          require("luasnip.loaders.from_vscode").load({
+            paths = { "~/myconfigs/neovim/.config/nvim/lua/config/snippets" },
+          })
+        end,
+      },
     },
     opts = function()
       local cmp = require("cmp")
@@ -71,7 +68,6 @@ return {
           }),
         }),
         sources = {
-          { name = "nvim_lsp_signature_help", priority = 100 },
           { name = "nvim_lsp" },
           { name = "luasnip" },
           {
@@ -82,8 +78,6 @@ return {
               end,
             },
           },
-          { name = "nvim_lua" },
-          { name = "fish" },
         },
         formatting = {
           format = function(entry, vim_item)
@@ -91,8 +85,6 @@ return {
               buffer = "[Buffer]",
               nvim_lsp = "[LSP]",
               luasnip = "[LuaSnip]",
-              nvim_lua = "[Lua]",
-              nvim_lsp_signature_help = "[Signature]",
             })[entry.source.name]
             local label = vim_item.abbr
             -- https://github.com/hrsh7th/nvim-cmp/discussions/609

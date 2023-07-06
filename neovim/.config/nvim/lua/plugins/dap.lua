@@ -10,17 +10,6 @@ local enrich_config = function(config, on_config)
   on_config(config)
 end
 
--- local function trigger_test()
---   require("dap").run({
---     name = "Run test",
---     type = "python",
---     request = "launch",
---     module = "pytest",
---     -- -s "allow output to stdout of test"
---     args = { "-s", vim.fn.expand("%:p") },
---   })
--- end
-
 return {
   {
     "mfussenegger/nvim-dap",

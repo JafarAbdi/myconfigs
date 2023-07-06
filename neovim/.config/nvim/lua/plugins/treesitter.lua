@@ -1,9 +1,5 @@
 vim.treesitter.language.register("html", { "xml", "xacro", "urdf" })
 
-local disable = function(lang, bufnr) -- Disable in large C++ buffers
-  return (lang == "cpp" or lang == "c") and vim.api.nvim_buf_line_count(bufnr) > 50000
-end
-
 return {
   {
     "nvim-treesitter/nvim-treesitter",
@@ -45,14 +41,12 @@ return {
         enable = true,
         disable = function(lang, buf)
           return (lang == "html")
-            or disable(lang, buf)
             -- Disable highlighting for files without a filetype
             or (vim.api.nvim_buf_get_option(buf, "filetype") == "")
         end,
       },
       incremental_selection = {
         enable = true,
-        disable = disable,
         keymaps = {
           init_selection = "<A-w>",
           node_incremental = "<A-w>",
@@ -63,7 +57,6 @@ return {
       textobjects = {
         select = {
           enable = true,
-          disable = disable,
           lookahead = true, -- Automatically jump forward to textobj, similar to targets.vim
           keymaps = {
             ["af"] = "@function.outer",
@@ -80,7 +73,6 @@ return {
         },
         swap = {
           enable = true,
-          disable = disable,
           swap_next = {
             ["<leader>a"] = "@parameter.inner",
           },
@@ -90,7 +82,6 @@ return {
         },
         move = {
           enable = true,
-          disable = disable,
           set_jumps = true, -- whether to set jumps in the jumplist
           goto_next_start = {
             ["]f"] = "@function.outer",
