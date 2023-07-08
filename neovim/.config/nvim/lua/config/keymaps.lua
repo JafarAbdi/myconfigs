@@ -11,6 +11,12 @@ end
 
 local q = require("qwahl")
 
+local edit_file = function(selection)
+  if selection and vim.trim(selection) ~= "" then
+    vim.cmd.edit(vim.trim(selection))
+  end
+end
+
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 
 --Remap space as leader key
@@ -182,11 +188,7 @@ keymap("n", "<C-M-s>", function()
   end
 end)
 keymap("n", "<M-o>", function()
-  fzy.execute("fd --hidden --type f --strip-cwd-prefix", function(selection)
-    if selection and vim.trim(selection) ~= "" then
-      vim.cmd.edit(vim.trim(selection))
-    end
-  end)
+  fzy.execute("fd --hidden --type f --strip-cwd-prefix", edit_file)
 end)
 keymap("n", "<leader>j", q.jumplist)
 
@@ -271,6 +273,17 @@ keymap("n", "[d", center_screen(vim.diagnostic.goto_prev))
 keymap({ "n", "t" }, "<M-C-t>", function()
   local term = require("config.term")
   term.toggle()
+end)
+
+keymap({ "n" }, "<leader>aa", function()
+  vim.cmd.argadd()
+  vim.cmd.argdedupe()
+end)
+keymap({ "n" }, "<leader>ad", function()
+  pcall(vim.cmd.argdelete)
+end)
+keymap({ "n" }, "<leader>al", function()
+  fzy.pick_one(vim.fn.argv(), "Arglist: ", nil, edit_file)
 end)
 
 return M
