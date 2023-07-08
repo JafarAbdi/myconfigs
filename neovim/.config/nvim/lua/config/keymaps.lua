@@ -285,5 +285,49 @@ end)
 keymap({ "n" }, "<leader>al", function()
   fzy.pick_one(vim.fn.argv(), "Arglist: ", nil, edit_file)
 end)
+keymap({ "n" }, "<leader>m", function()
+  local buffer_mark_names = "abcdefghijklmnopqrstuvwxyz"
+  local global_mark_names = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  local marks = {}
+  for i = 1, #buffer_mark_names do
+    local letter = buffer_mark_names:sub(i, i)
+    local ok, mark = pcall(vim.api.nvim_buf_get_mark, 0, letter) -- Returns (0, 0) if not set
+    if ok and not (mark[1] == 0 and mark[2] == 0) then
+      table.insert(marks, { name = letter, value = mark })
+    end
+  end
+  for i = 1, #global_mark_names do
+    local letter = global_mark_names:sub(i, i)
+    local ok, mark = pcall(vim.api.nvim_get_mark, letter, {}) -- Returns (0, 0, 0, "") if not set
+    if ok and not (mark[1] == 0 and mark[2] == 0 and mark[3] == 0 and mark[4] == "") then
+      table.insert(marks, { name = letter, value = mark })
+    end
+  end
+  vim.print(marks)
+  local current_bufnr = vim.api.nvim_get_current_buf()
+  fzy.pick_one(marks, "Mark: ", function(item)
+    if item == nil then
+      return
+    end
+    if #item.value == 4 then
+      return string.format(
+        "%s(%s): %s",
+        item.value[4],
+        item.name,
+        vim.api.nvim_buf_get_lines(item.value[3], item.value[1] - 1, item.value[1], true)[1]
+      )
+    end
+    return string.format(
+      "%s(%s): %s",
+      "Current Buffer",
+      item.name,
+      vim.api.nvim_buf_get_lines(current_bufnr, item.value[1] - 1, item.value[1], true)[1]
+    )
+  end, function(item)
+    if item ~= nil then
+      vim.cmd.normal("'" .. item.name)
+    end
+  end)
+end)
 
 return M
