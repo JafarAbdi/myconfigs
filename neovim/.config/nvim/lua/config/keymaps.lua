@@ -303,7 +303,6 @@ keymap({ "n" }, "<leader>m", function()
       table.insert(marks, { name = letter, value = mark })
     end
   end
-  vim.print(marks)
   local current_bufnr = vim.api.nvim_get_current_buf()
   fzy.pick_one(marks, "Mark: ", function(item)
     if item == nil then
