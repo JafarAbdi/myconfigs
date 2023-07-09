@@ -11,7 +11,7 @@ function fish_prompt
     end
   end
   if test -e /.dockerenv && ! set -q CONTAINER_NAME
-    echo -n -s (set_color 85C1E9)"[D]"(set_color normal)
+    echo -n -s (set_color 85C1E9)"🐳"(set_color normal)
   end
   if set -q CONTAINER_NAME
     echo -n -s (set_color 85C1E9) "($CONTAINER_NAME)" (set_color normal)
