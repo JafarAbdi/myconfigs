@@ -269,6 +269,8 @@ keymap("n", "]L", center_screen(vim.cmd.lfirst))
 keymap("n", "[L", center_screen(vim.cmd.llast))
 keymap("n", "]d", center_screen(vim.diagnostic.goto_next))
 keymap("n", "[d", center_screen(vim.diagnostic.goto_prev))
+keymap("n", "]t", center_screen(vim.cmd.tn))
+keymap("n", "[t", center_screen(vim.cmd.tp))
 
 keymap({ "n", "t" }, "<M-C-t>", function()
   local term = require("config.term")

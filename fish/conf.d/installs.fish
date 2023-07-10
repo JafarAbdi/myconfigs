@@ -49,7 +49,8 @@ function install-core
                       lld \
                       lldb \
                       ninja-build \
-                      sshfs
+                      sshfs \
+                      universal-ctags
   pip3 install argcomplete==2.0.0
   install-ripgrep
   install-fd
