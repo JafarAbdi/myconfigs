@@ -255,4 +255,93 @@ config.colors = {
   },
 }
 
+-- Docker domains
+
+local split_lines = function(s)
+  local lines = {}
+  for line in s:gmatch("[^\n]+") do
+    table.insert(lines, line)
+  end
+  return lines
+end
+
+local docker_list = function()
+  local success, stdout, _ =
+    wezterm.run_child_process({ "docker", "container", "ls", "--format", "{{.Names}}" })
+  if success then
+    return split_lines(stdout)
+  end
+  return {}
+end
+
+local make_docker_fixup_func = function(id)
+  return function(cmd)
+    cmd.args = cmd.args or { "fish" }
+    local wrapped = {
+      "docker",
+      "exec",
+      "-it",
+      "--user",
+      os.getenv("USER"),
+      id,
+    }
+    for _, arg in ipairs(cmd.args) do
+      table.insert(wrapped, arg)
+    end
+
+    cmd.args = wrapped
+    return cmd
+  end
+end
+
+local make_docker_label_func = function(id)
+  return function(_)
+    local success, stdout, _ = wezterm.run_child_process({
+      "docker",
+      "container",
+      "inspect",
+      "-f",
+      "{{.State.Status}}",
+      id,
+    })
+    if success then
+      local result = split_lines(stdout)[1]
+      if result == "running" then
+        return wezterm.format({
+          { Foreground = { AnsiColor = "Green" } },
+          { Text = "Running " .. id },
+        })
+      elseif result == "exited" then
+        return wezterm.format({
+          { Foreground = { AnsiColor = "Red" } },
+          { Text = "Stopped " .. id },
+        })
+      else
+        return wezterm.format({
+          { Foreground = { AnsiColor = "Yellow" } },
+          { Text = result .. " " .. id },
+        })
+      end
+    end
+    return wezterm.format({
+      { Foreground = { AnsiColor = "Red" } },
+      { Text = "Can't get state for " .. id },
+    })
+  end
+end
+
+local exec_domains = {}
+for _, name in pairs(docker_list()) do
+  table.insert(
+    exec_domains,
+    wezterm.exec_domain(
+      "docker: " .. name,
+      make_docker_fixup_func(name),
+      make_docker_label_func(name)
+    )
+  )
+end
+
+config.exec_domains = exec_domains
+
 return config
