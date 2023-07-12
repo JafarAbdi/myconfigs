@@ -9,25 +9,12 @@ return {
       {
         "L3MON4D3/LuaSnip",
         opts = function()
-          local types = require("luasnip.util.types")
-
           return {
             -- This tells LuaSnip to remember to keep around the last snippet.
             -- You can jump back into it even if you move outside of the selection
             history = true,
-            delete_check_events = "TextChanged",
-            -- This one is cool cause if you have dynamic snippets, it updates as you type!
-            updateevents = "TextChanged,TextChangedI",
             -- Autosnippets:
             enable_autosnippets = true,
-            store_selection_keys = "<Tab>",
-            ext_opts = {
-              [types.choiceNode] = {
-                active = {
-                  virt_text = { { "choiceNode", "Comment" } },
-                },
-              },
-            },
           }
         end,
         config = function(_, opts)
@@ -78,24 +65,6 @@ return {
               end,
             },
           },
-        },
-        formatting = {
-          format = function(entry, vim_item)
-            vim_item.menu = ({
-              buffer = "[Buffer]",
-              nvim_lsp = "[LSP]",
-              luasnip = "[LuaSnip]",
-            })[entry.source.name]
-            local label = vim_item.abbr
-            -- https://github.com/hrsh7th/nvim-cmp/discussions/609
-            local ELLIPSIS_CHAR = "…"
-            local MAX_LABEL_WIDTH = 100
-            local truncated_label = vim.fn.strcharpart(label, 0, MAX_LABEL_WIDTH)
-            if truncated_label ~= label then
-              vim_item.abbr = truncated_label .. ELLIPSIS_CHAR
-            end
-            return vim_item
-          end,
         },
         sorting = {
           comparators = {

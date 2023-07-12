@@ -23,14 +23,6 @@ return {
         command = "wezterm",
         args = { "--skip-config" },
       }
-      local widgets = require("dap.ui.widgets")
-      local sidebar = widgets.sidebar(widgets.scopes)
-      vim.api.nvim_create_user_command("DapSidebar", sidebar.toggle, { nargs = 0 })
-      vim.api.nvim_create_user_command("DapBreakpoints", function()
-        dap.list_breakpoints(true)
-      end, { nargs = 0 })
-      local sessions_bar = widgets.sidebar(widgets.sessions, {}, "5 sp")
-      vim.api.nvim_create_user_command("DapSessions", sessions_bar.toggle, { nargs = 0 })
 
       ------------------------
       -- CPP/C/Rust configs --

@@ -49,7 +49,6 @@ end
 
 vim.keymap.set("i", "<C-M-l>", accept_line, { expr = true, remap = false })
 vim.keymap.set("i", "<C-M-e>", accept_word, { expr = true, remap = false })
--- https://github.com/vscode-neovim/vscode-neovim/tree/master/vim
 local keymap = function(mode, lhs, callback, bufnr)
   vim.keymap.set(
     mode,
@@ -275,17 +274,6 @@ keymap("n", "[t", center_screen(vim.cmd.tp))
 keymap({ "n", "t" }, "<M-C-t>", function()
   local term = require("config.term")
   term.toggle()
-end)
-
-keymap({ "n" }, "<leader>aa", function()
-  vim.cmd.argadd()
-  vim.cmd.argdedupe()
-end)
-keymap({ "n" }, "<leader>ad", function()
-  pcall(vim.cmd.argdelete)
-end)
-keymap({ "n" }, "<leader>al", function()
-  fzy.pick_one(vim.fn.argv(), "Arglist: ", nil, edit_file)
 end)
 keymap({ "n" }, "<leader>m", function()
   local buffer_mark_names = "abcdefghijklmnopqrstuvwxyz"
