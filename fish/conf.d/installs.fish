@@ -791,3 +791,9 @@ function install-gcloud
   gcloud init
   gcloud auth application-default login
 end
+
+function install-pixi
+  wget https://github.com/prefix-dev/pixi/releases/latest/download/pixi-x86_64-unknown-linux-musl -O ~/.local/bin/pixi
+  chmod +x ~/.local/bin/pixi
+  pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
+end
