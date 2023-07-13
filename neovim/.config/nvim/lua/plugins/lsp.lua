@@ -5,8 +5,6 @@ return {
     "L3MON4D3/LuaSnip",
     lazy = false,
     opts = function()
-      local types = require("luasnip.util.types")
-
       return {
         -- This tells LuaSnip to remember to keep around the last snippet.
         -- You can jump back into it even if you move outside of the selection
@@ -14,17 +12,6 @@ return {
         delete_check_events = "TextChanged",
         -- This one is cool cause if you have dynamic snippets, it updates as you type!
         updateevents = "TextChanged,TextChangedI",
-
-        -- Autosnippets:
-        enable_autosnippets = true,
-        store_selection_keys = "<Tab>",
-        ext_opts = {
-          [types.choiceNode] = {
-            active = {
-              virt_text = { { "choiceNode", "Comment" } },
-            },
-          },
-        },
       }
     end,
     config = function(_, opts)
