@@ -383,7 +383,7 @@ return {
           if client.name == "omnisharp" then
             client.server_capabilities.semanticTokensProvider = nil
           end
-          require("lsp_compl").attach(client, bufnr, { server_side_fuzzy_completion = true })
+          require("lsp_compl").attach(client, bufnr)
           require("config.keymaps").lsp(bufnr)
         end
       end
