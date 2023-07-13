@@ -383,6 +383,9 @@ return {
           if client.name == "omnisharp" then
             client.server_capabilities.semanticTokensProvider = nil
           end
+          if client.server_capabilities.signatureHelpProvider then
+            client.server_capabilities.signatureHelpProvider.triggerCharacters = {}
+          end
           require("lsp_compl").attach(client, bufnr)
           require("config.keymaps").lsp(bufnr)
         end

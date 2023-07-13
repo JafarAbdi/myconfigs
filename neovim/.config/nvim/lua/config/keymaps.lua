@@ -94,13 +94,22 @@ local set_clangd_opening_path = function(callback)
 end
 
 M.lsp = function(bufnr)
-  keymap("i", "<C-Space>", function()
+  keymap("i", "<c-n>", function()
+    require("lsp_compl").trigger_completion()
+  end, bufnr)
+  keymap("i", "<c-space>", function()
     require("lsp_compl").trigger_completion()
   end, bufnr)
   vim.keymap.set("i", "<CR>", function()
     return require("lsp_compl").accept_pum() and "<c-y>" or "<CR>"
   end, { expr = true, buffer = bufnr })
-  keymap({ "n", "i" }, "<C-k>", vim.lsp.buf.signature_help, bufnr)
+  keymap({ "n", "i" }, "<C-k>", function()
+    local info = vim.fn.complete_info({ "pum_visible" })
+    if info.pum_visible == 1 then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<c-y>", true, false, true), "n", true)
+    end
+    vim.lsp.buf.signature_help()
+  end, bufnr)
   keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, bufnr)
   keymap("n", "K", vim.lsp.buf.hover, bufnr)
   keymap("n", "gi", set_clangd_opening_path(vim.lsp.buf.implementation), bufnr)
