@@ -391,6 +391,13 @@ return {
           )
         )
       end
+      local lsp_group = vim.api.nvim_create_augroup("lsp", {})
+      vim.api.nvim_create_autocmd("LspDetach", {
+        group = lsp_group,
+        callback = function(args)
+          pcall(require("lsp_compl").detach, args.data.client_id, args.buf)
+        end,
+      })
     end,
   },
 }
