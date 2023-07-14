@@ -104,8 +104,7 @@ M.lsp = function(bufnr)
     return require("lsp_compl").accept_pum() and "<c-y>" or "<CR>"
   end, { expr = true, buffer = bufnr })
   keymap({ "n", "i" }, "<C-k>", function()
-    local info = vim.fn.complete_info({ "pum_visible" })
-    if info.pum_visible == 1 then
+    if tonumber(vim.fn.pumvisible()) == 1 then
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<c-y>", true, false, true), "n", true)
     end
     vim.lsp.buf.signature_help()
