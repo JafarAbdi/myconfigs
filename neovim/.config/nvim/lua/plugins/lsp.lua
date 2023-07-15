@@ -392,6 +392,10 @@ return {
         )
       end
       local lsp_group = vim.api.nvim_create_augroup("lsp", {})
+      vim.api.nvim_create_autocmd(
+        "InsertEnter",
+        { group = lsp_group, callback = require("lsp_compl").trigger_completion }
+      )
       vim.api.nvim_create_autocmd("LspDetach", {
         group = lsp_group,
         callback = function(args)
