@@ -17,9 +17,6 @@ return {
   { "mfussenegger/nvim-qwahl" },
   { "mfussenegger/nvim-fzy" },
   { "github/copilot.vim", event = "VeryLazy" },
-  -- Heuristically set buffer options
-  { "tpope/vim-sleuth", lazy = false },
   { "tpope/vim-commentary", keys = { { "gc", mode = "v" }, "gcc" } },
-  { "wsdjeg/vim-fetch", lazy = false },
   "nvim-lua/plenary.nvim",
 }
