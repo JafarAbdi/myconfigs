@@ -77,7 +77,7 @@ function M.toggle()
       new_window()
       local empty_bufnr = vim.api.nvim_win_get_buf(vim.fn.win_getid())
       vim.api.nvim_set_current_buf(bufnr)
-      require("bufdelete").bufdelete(empty_bufnr, true)
+      vim.cmd.bdelete({ empty_bufnr, bang = true })
       vim.cmd.startinsert({ bang = true })
     else
       vim.api.nvim_win_hide(winid)

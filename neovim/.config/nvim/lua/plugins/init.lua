@@ -16,8 +16,6 @@ vim.api.nvim_create_autocmd("User", {
 return {
   { "mfussenegger/nvim-qwahl" },
   { "mfussenegger/nvim-fzy" },
-  -- Used to fix symlink files
-  { "famiu/bufdelete.nvim", lazy = false },
   { "github/copilot.vim", event = "VeryLazy" },
   -- Heuristically set buffer options
   { "tpope/vim-sleuth", lazy = false },

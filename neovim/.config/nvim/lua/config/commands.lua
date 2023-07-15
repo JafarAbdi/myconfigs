@@ -24,7 +24,7 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
     vim.print("Symlink detected redirecting to '" .. resolved_fname .. "' instead")
     vim.schedule(function()
       local cursor = vim.api.nvim_win_get_cursor(0)
-      require("bufdelete").bufwipeout(params.buf, true)
+      vim.cmd.bwipeout({ params.buf, bang = true })
       vim.api.nvim_command("edit " .. resolved_fname)
       vim.api.nvim_win_set_cursor(0, cursor)
     end)

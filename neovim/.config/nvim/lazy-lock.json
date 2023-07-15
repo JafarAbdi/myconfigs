@@ -3,10 +3,6 @@
     "branch": "master",
     "commit": "45a4e899ca8f54936fe32ead6bba65f2a8d42e12"
   },
-  "bufdelete.nvim": {
-    "branch": "master",
-    "commit": "07d1f8ba79dec59d42b975a4df1c732b2e4e37b4"
-  },
   "copilot.vim": {
     "branch": "release",
     "commit": "a4a6d6b3f9e284e7f5c849619e06cd228cad8abd"
