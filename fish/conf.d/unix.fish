@@ -4,6 +4,39 @@ alias gitst='git status'
 alias gitsub='git submodule update --init --recursive'
 alias gitlogcompare="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr)%Creset' --abbrev-commit --date=relative "
 
+function fzf-commit
+  set -l commit_hash "HEAD"
+  if test -n $argv[1]
+    set commit_hash $argv[1]
+  end
+  set -l header "Select commit"
+  if test -n $argv[2]
+    set header $argv[2]
+  end
+  git log --pretty=format:'%Cred%h%Creset: %C(yellow)%d%Creset %s %Cgreen(%cr)%Creset' --abbrev-commit --date=relative --color $commit_hash \
+    | fzf --preview '' --delimiter ':' --nth 2 --ansi --no-multi --header $header \
+    | read --array --delimiter ':' commit
+  if test -n "$commit[1]"
+    echo $commit[1]
+  end
+end
+
+function git-bisect
+  set -l good_commit (fzf-commit "HEAD" "Select good commit")
+  if test -z "$good_commit"
+    echo "No good commit selected"
+    return
+  end
+  set -l bad_commit (fzf-commit $good_commit "Select bad commit")
+  if test -z "$bad_commit"
+    echo "No bad commit selected"
+    return
+  end
+  git bisect start
+  git bisect new $good_commit
+  git bisect old $bad_commit
+end
+
 # Find and replace string in all files in a directory
 #  param1 - old word
 #  param2 - new word
