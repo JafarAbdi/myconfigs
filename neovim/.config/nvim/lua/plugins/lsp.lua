@@ -1,3 +1,11 @@
+local function read_file(path)
+  local fd = assert(vim.uv.fs_open(path, "r", 438))
+  local stat = assert(vim.uv.fs_fstat(fd))
+  local data = assert(vim.uv.fs_read(fd, stat.size, 0))
+  assert(vim.uv.fs_close(fd))
+  return data
+end
+
 local root_dirs = require("config.functions").root_dirs
 
 return {
@@ -249,12 +257,11 @@ return {
         cmake = {
           cmd = { "micromamba", "run", "-n", "cmake-lsp", "cmake-language-server" }, -- "-vv", "--log-file", "/tmp/cmake-lsp.txt"
           on_new_config = function(new_config, new_root_dir)
-            local Path = require("plenary.path")
-            local root = Path:new(root_dirs.cmake(new_root_dir))
+            local root = root_dirs.cmake(new_root_dir)
             local build_dir = nil
-            local settings_dir = root:joinpath(".vscode", "settings.json")
-            if settings_dir:exists() then
-              local ok, settings = pcall(vim.json.decode, settings_dir:read())
+            local settings_dir = vim.fs.joinpath(root, ".vscode", "settings.json")
+            if vim.uv.fs_state(settings_dir) then
+              local ok, settings = pcall(vim.json.decode, read_file(settings_dir))
               if not ok then
                 vim.notify("Error parsing '" .. settings_dir.filename .. "'", vim.log.levels.WARN)
               end
@@ -283,20 +290,8 @@ return {
               environmentPath = "/usr/bin/python3",
             },
           },
-          on_new_config = function(new_config, new_root_dir)
-            local Path = require("plenary.path")
-            local root = Path:new(root_dirs.python(new_root_dir))
-            local settings_dir = root:joinpath(".vscode", "settings.json")
-            if settings_dir:exists() then
-              local ok, settings = pcall(vim.json.decode, settings_dir:read())
-              if not ok then
-                vim.notify("Error parsing '" .. settings_dir.filename .. "'", vim.log.levels.WARN)
-              end
-              new_config.init_options.workspace.environmentPath = vim.env.HOME
-                .. "/micromamba/envs/"
-                .. settings["micromamba.env"]
-                .. "/bin/python"
-            elseif vim.env.CONDA_PREFIX then
+          on_new_config = function(new_config, _)
+            if vim.env.CONDA_PREFIX then
               new_config.init_options.workspace.environmentPath = vim.env.CONDA_PREFIX
                 .. "/bin/python"
             end

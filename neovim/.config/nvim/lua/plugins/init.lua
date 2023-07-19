@@ -18,5 +18,4 @@ return {
   { "mfussenegger/nvim-fzy" },
   { "github/copilot.vim", event = "VeryLazy" },
   { "tpope/vim-commentary", keys = { { "gc", mode = "v" }, "gcc" } },
-  "nvim-lua/plenary.nvim",
 }

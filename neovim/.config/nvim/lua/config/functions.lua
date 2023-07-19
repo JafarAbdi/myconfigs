@@ -218,7 +218,7 @@ M.dap_status = function()
 end
 
 M.run_file = function(is_test)
-  local filetype = require("plenary.filetype").detect(vim.fn.expand("%:p"))
+  local filetype = vim.filetype.match({ filename = vim.fn.expand("%:p") })
   if not filetype or filetype == "" then
     return
   end

@@ -55,10 +55,6 @@
     "branch": "main",
     "commit": "53edfb413a54c9e55dcddc9e9fa4977a897e4425"
   },
-  "plenary.nvim": {
-    "branch": "master",
-    "commit": "1a6a7c929628566cf406aa7da1d048a1ddc7e9a8"
-  },
   "vim-commentary": {
     "branch": "master",
     "commit": "e87cd90dc09c2a203e13af9704bd0ef79303d755"
