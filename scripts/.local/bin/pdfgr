@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+IFS=: read -ra selected < <(
+  pdfgrep --color=always --ignore-case --page-number --recursive --cache "${*:-}" 2> /dev/null | \
+    fzf --height=100% \
+        --ansi \
+        --delimiter : \
+        --preview "" \
+        --bind='f3:become(zathura {1} --page {2} < /dev/tty > /dev/tty 2>&1)' \
+)
+[ -n "${selected[0]}" ] && zathura "${selected[0]}" --page "${selected[1]}"

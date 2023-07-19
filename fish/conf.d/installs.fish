@@ -50,7 +50,8 @@ function install-core
                       lldb \
                       ninja-build \
                       sshfs \
-                      universal-ctags
+                      universal-ctags \
+                      pdfgrep
   pip3 install argcomplete==2.0.0
   install-ripgrep
   install-fd
@@ -493,7 +494,8 @@ function unstow-configs
                                                                      python \
                                                                      micromamba \
                                                                      sourcery \
-                                                                     yamllint
+                                                                     yamllint \
+                                                                     zathura
 end
 function stow-configs
   stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow cargo \
@@ -509,7 +511,8 @@ function stow-configs
                                                                                 yamllint \
                                                                                 sourcery \
                                                                                 python \
-                                                                                podman
+                                                                                podman \
+                                                                                zathura
   stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                    wezterm \
                                                                    neovim \
