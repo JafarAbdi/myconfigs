@@ -17,11 +17,6 @@ local edit_file = function(selection)
   end
 end
 
-vim.keymap.set({ "i", "s" }, "<ESC>", function()
-  require("luasnip").unlink_current()
-  return "<ESC>"
-end, { expr = true })
-
 vim.keymap.set({ "i", "s" }, "<Tab>", function()
   local ls = require("luasnip")
   return ls.jumpable(1) and ls.jump(1) or "<Tab>"
