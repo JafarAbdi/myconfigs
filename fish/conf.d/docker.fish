@@ -102,7 +102,8 @@ function start_container -d "Start a podman|docker image with gpu support"
   if test $containerprg = "docker"
     docker exec --user root -it $cid bash -c "useradd -s /bin/bash -d /home/$user -m -G sudo $user"
   end
-  eval '$containerprg exec --user root -it $cid bash -c "passwd $user"'
+  # Make the password empty
+  eval '$containerprg exec --user root -it $cid bash -c "passwd -d $user"'
   eval '$containerprg exec --user root $cid bash -c "apt update"'
   eval '$containerprg exec --user root $cid bash -c "apt install -y sudo vim adduser"'
   eval '$containerprg exec --user root $cid bash -c "adduser $user sudo"'
