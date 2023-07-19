@@ -23,10 +23,12 @@ vim.keymap.set({ "i", "s" }, "<ESC>", function()
 end, { expr = true })
 
 vim.keymap.set({ "i", "s" }, "<Tab>", function()
-  return require("luasnip").jumpable(1) and "<Plug>luasnip-jump-next" or "<Tab>"
+  local ls = require("luasnip")
+  return ls.jumpable(1) and ls.jump(1) or "<Tab>"
 end, { expr = true, silent = true })
 vim.keymap.set({ "i", "s" }, "<S-Tab>", function()
-  return require("luasnip").jumpable(-1) and "<Plug>luasnip-jump-prev" or "<S-Tab>"
+  local ls = require("luasnip")
+  return ls.jumpable(-1) and ls.jump(-1) or "<S-Tab>"
 end, { expr = true, silent = true })
 
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
@@ -35,11 +37,7 @@ vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 
 vim.keymap.set("i", "<C-e>", function()
-  return vim.api.nvim_feedkeys(
-    vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
-    "n",
-    true
-  )
+  return vim.fn["copilot#Accept"]()
 end, { expr = true })
 vim.keymap.set("i", "<c-;>", function()
   return vim.fn["copilot#Next"]()
@@ -62,8 +60,6 @@ local function accept_line()
   local bar = vim.fn["copilot#TextQueuedForInsertion"]()
   return vim.fn.split(bar, [[[\n]\zs]])[1]
 end
-
-vim.keymap.set("i", "<c-j>", require("config.snippet").maybe)
 
 vim.keymap.set("i", "<C-M-l>", accept_line, { expr = true, remap = false })
 vim.keymap.set("i", "<C-M-e>", accept_word, { expr = true, remap = false })
@@ -94,21 +90,7 @@ local set_clangd_opening_path = function(callback)
 end
 
 M.lsp = function(bufnr)
-  keymap("i", "<c-n>", function()
-    require("lsp_compl").trigger_completion()
-  end, bufnr)
-  keymap("i", "<c-space>", function()
-    require("lsp_compl").trigger_completion()
-  end, bufnr)
-  vim.keymap.set("i", "<CR>", function()
-    return require("lsp_compl").accept_pum() and "<c-y>" or "<CR>"
-  end, { expr = true, buffer = bufnr })
-  keymap({ "n", "i" }, "<C-k>", function()
-    if tonumber(vim.fn.pumvisible()) == 1 then
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<c-y>", true, false, true), "n", true)
-    end
-    vim.lsp.buf.signature_help()
-  end, bufnr)
+  keymap({ "n", "i" }, "<C-k>", vim.lsp.buf.signature_help, bufnr)
   keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, bufnr)
   keymap("n", "K", vim.lsp.buf.hover, bufnr)
   keymap("n", "gi", set_clangd_opening_path(vim.lsp.buf.implementation), bufnr)
