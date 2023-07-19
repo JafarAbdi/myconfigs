@@ -66,6 +66,24 @@ return {
             },
           },
         },
+        formatting = {
+          format = function(entry, vim_item)
+            vim_item.menu = ({
+              buffer = "[Buffer]",
+              nvim_lsp = "[LSP]",
+              luasnip = "[LuaSnip]",
+            })[entry.source.name]
+            local label = vim_item.abbr
+            -- https://github.com/hrsh7th/nvim-cmp/discussions/609
+            local ELLIPSIS_CHAR = "…"
+            local MAX_LABEL_WIDTH = math.floor(vim.o.columns * 0.4)
+            local truncated_label = vim.fn.strcharpart(label, 0, MAX_LABEL_WIDTH)
+            if truncated_label ~= label then
+              vim_item.abbr = truncated_label .. ELLIPSIS_CHAR
+            end
+            return vim_item
+          end,
+        },
         sorting = {
           comparators = {
             compare.offset,

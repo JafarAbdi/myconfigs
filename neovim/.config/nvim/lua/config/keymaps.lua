@@ -85,7 +85,13 @@ local set_clangd_opening_path = function(callback)
 end
 
 M.lsp = function(bufnr)
-  keymap({ "n", "i" }, "<C-k>", vim.lsp.buf.signature_help, bufnr)
+  keymap({ "n", "i" }, "<C-k>", function()
+    local cmp = require("cmp")
+    if cmp.visible() then
+      cmp.close()
+    end
+    vim.lsp.buf.signature_help()
+  end, bufnr)
   keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, bufnr)
   keymap("n", "K", vim.lsp.buf.hover, bufnr)
   keymap("n", "gi", set_clangd_opening_path(vim.lsp.buf.implementation), bufnr)
