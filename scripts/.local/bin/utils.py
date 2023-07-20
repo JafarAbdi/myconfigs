@@ -238,7 +238,6 @@ def create_clangd_config(source_dir: Path, build_dir: Path) -> None:
         yaml.safe_dump(
             {
                 "CompileFlags": {
-                    "Add": ["-std=c++17"],
                     "CompilationDatabase": str(build_dir.absolute()),
                 },
             },
