@@ -106,6 +106,7 @@ function start_container -d "Start a podman|docker image with gpu support"
     docker exec --user root -it $cid bash -c "groupadd --gid "(id -g)" $USER"
     docker exec --user root -it $cid bash -c "useradd --no-log-init --uid "(id -u)" --gid "(id -g)" -m $USER --groups sudo"
   end
+  eval '$containerprg exec --user root $cid bash -c "passwd -d $user"'
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user"'
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user/.config"'
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user/.local"'
