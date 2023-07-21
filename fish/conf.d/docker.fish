@@ -100,17 +100,15 @@ function start_container -d "Start a podman|docker image with gpu support"
     echo "Failed to start podman container"
     return
   end
-  if test $containerprg = "docker"
-    docker exec --user root -it $cid bash -c "useradd -s /bin/bash -d /home/$user -m -G sudo $user"
-  end
-  # Make the password empty
-  eval '$containerprg exec --user root -it $cid bash -c "passwd -d $user"'
   eval '$containerprg exec --user root $cid bash -c "apt update"'
   eval '$containerprg exec --user root $cid bash -c "apt install -y sudo vim adduser"'
-  eval '$containerprg exec --user root $cid bash -c "adduser $user sudo"'
-  # podman exec --user root $cid bash -c "mkhomedir_helper $user" && \
+  if test $containerprg = "docker"
+    docker exec --user root -it $cid bash -c "groupadd --gid "(id -g)" $USER"
+    docker exec --user root -it $cid bash -c "useradd --no-log-init --uid "(id -u)" --gid "(id -g)" -m $USER --groups sudo"
+  end
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user"'
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user/.config"'
+  eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user/.local"'
   if test $containerprg = "podman"
     # TODO: Why this's no longer working?
     # podman exec --user root $cid bash -c "usermod -d /home/$user $user"
