@@ -12,12 +12,11 @@ return {
       ensure_installed = {
         "bash",
         "c",
+        "c_sharp",
         "cmake",
         "cpp",
-        "c_sharp",
         "dockerfile",
         "fish",
-        "vimdoc",
         "html",
         "http",
         "javascript",
@@ -35,7 +34,9 @@ return {
         "toml",
         "typescript",
         "vim",
+        "vimdoc",
         "yaml",
+        "zig",
       },
       highlight = {
         enable = true,
