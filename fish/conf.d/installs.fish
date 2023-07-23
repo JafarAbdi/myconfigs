@@ -801,6 +801,19 @@ function install-pixi
   pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
 end
 
+function install-typst-lsp
+  wget https://github.com/nvarner/typst-lsp/releases/latest/download/typst-lsp-linux-x64  -O ~/.local/bin/typst-lsp
+  chmod +x ~/.local/bin/typst-lsp
+end
+
+function install-typst
+  cd (mktemp -d -p /tmp install-XXXXXX)
+  wget https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-musl.tar.xz
+  ex typst-x86_64-unknown-linux-musl.tar.xz
+  mv typst-x86_64-unknown-linux-musl/typst ~/.local/bin
+  cd -
+end
+
 function install-zig
   rm -rf ~/.config/zig && mkdir -p ~/.config/zig
   wget (curl https://ziglang.org/download/index.json | jq -r '.["master"]["x86_64-linux"]["tarball"]') -O zig.tar.xz
