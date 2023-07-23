@@ -1,5 +1,16 @@
+alias rsync 'rsync -aSHAXhP'
+alias ex 'atool -qx'
+alias df 'df -h'
+alias free 'free -h'
+alias server 'python3 -m http.server'
+alias xc="xclip" # copy
+alias xv="xclip -o" # paste
+alias pwdxc="pwd | xclip"
+alias copy="xclip -sel clip"
+alias paste="xclip -sel clip -o"
+alias disk_usage="df -h"
 alias grep='grep --color=auto'
-
+alias pgrep='pgrep -af'
 alias gitst='git status'
 alias gitsub='git submodule update --init --recursive'
 alias gitlogcompare="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr)%Creset' --abbrev-commit --date=relative "
@@ -92,53 +103,7 @@ function ffmpeg-convert
   end
 end
 
-function ex
-    if test -f $argv[1]
-        switch $argv[1]
-          case '*.tar.bz2'
-            tar xjf $argv[1]
-          case '*.tar.gz'
-            tar xzf $argv[1]
-          case '*.bz2'
-            bunzip2 $argv[1]
-          case '*.rar'
-            rar x $argv[1]
-          case '*.gz'
-            gunzip $argv[1]
-          case '*.tar'
-            tar xf $argv[1]
-          case '*.tbz'
-            tar xjf $argv[1]
-          case '*.tbz2'
-            tar xjf $argv[1]
-          case '*.tgz'
-            tar xzf $argv[1]
-          case '*.zip'
-            unzip $argv[1]
-          case '*.Z'
-            uncompress $argv[1]
-          case '*.7z'
-            7z x $argv[1]
-          case '*.tar.xz'
-            tar xf $argv[1]
-          case '*'
-            echo "'$argv[1]' cannot be extracted via extract()"
-        end
-    else
-        echo "'$argv[1]' is not a valid file"
-    end
-end
-
 # Clipboard
-alias df 'df -h'
-alias free 'free -h'
-alias server 'python3 -m http.server'
-alias xc="xclip" # copy
-alias xv="xclip -o" # paste
-alias pwdxc="pwd | xclip"
-alias copy="xclip -sel clip"
-alias paste="xclip -sel clip -o"
-alias disk_usage="df -h"
 if command -v batcat &> /dev/null
   alias bat="batcat"
   export BAT_PAGER="less -R"

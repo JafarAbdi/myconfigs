@@ -51,7 +51,8 @@ function install-core
                       ninja-build \
                       sshfs \
                       universal-ctags \
-                      pdfgrep
+                      pdfgrep \
+                      atool
   pip3 install argcomplete==2.0.0
   install-ripgrep
   install-fd

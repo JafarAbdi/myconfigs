@@ -148,6 +148,7 @@ alias myconfigsr "source ~/.config/fish/config.fish"
 alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmakerd 'cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias repl 'MPLBACKEND="module://matplotlib_wezterm" micromamba run -n matplotlib-wezterm ptipython'
+alias excalidraw 'docker run --rm -dit --name excalidraw -p 5000:80 excalidraw/excalidraw:latest'
 
 export MYPYPATH=$HOME/.cache/python-stubs/stubs
 export SHELL=fish
