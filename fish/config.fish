@@ -85,6 +85,9 @@ function get_path
     if test -d $HOME/.luarocks/bin
       set path $HOME/.luarocks/bin:$path
     end
+    if test -d $HOME/.config/zig
+      set path $HOME/.config/zig:$path
+    end
     if test -d $HOME/.config/mosek/10.0/tools/platform/linux64x86/bin
       set path $HOME/.config/mosek/10.0/tools/platform/linux64x86/bin:$path
       if test -f $HOME/mosek/mosek.lic

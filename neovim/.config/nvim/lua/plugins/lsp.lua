@@ -320,6 +320,7 @@ return {
           sdk_include_prereleases = true,
           analyze_open_documents_only = false,
         },
+        zls = {},
       },
     },
     config = function(_, opts)

@@ -800,3 +800,12 @@ function install-pixi
   chmod +x ~/.local/bin/pixi
   pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
 end
+
+function install-zig
+  rm -rf ~/.config/zig && mkdir -p ~/.config/zig
+  wget (curl https://ziglang.org/download/index.json | jq -r '.["master"]["x86_64-linux"]["tarball"]') -O zig.tar.xz
+  tar xvf zig.tar.xz --strip-components 1 -C ~/.config/zig
+  wget https://zig.pm/zls/downloads/x86_64-linux/bin/zls -O ~/.local/bin/zls
+  chmod +x ~/.local/bin/zls
+  cd -
+end
