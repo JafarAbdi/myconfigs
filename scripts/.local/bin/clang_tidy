@@ -18,7 +18,7 @@ def main() -> None:
     args = parser.parse_args()
 
     package_build_path = pathlib.Path(args.build_dir).resolve()
-    package_path = pathlib.Path(".").resolve()
+    package_path = pathlib.Path().resolve()
     cmd = ["cmake", "..", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
     run_command(cmd, args.dry_run, package_build_path)
 

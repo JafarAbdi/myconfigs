@@ -33,9 +33,7 @@ def main() -> None:
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
-    package_build_path = (
-        pathlib.Path(".") / f"build_{ros_distro}/{args.pkg}"
-    ).resolve()
+    package_build_path = (pathlib.Path() / f"build_{ros_distro}/{args.pkg}").resolve()
     package_path = get_ros_package_path(pathlib.Path(os.curdir) / "src", args.pkg)
     if not pathlib.Path(package_path).exists():
         logger.error(f"Package '{args.pkg}' doesn't exists")
