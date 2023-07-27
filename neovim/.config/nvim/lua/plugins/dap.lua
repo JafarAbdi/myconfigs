@@ -138,6 +138,25 @@ return {
           noDebug = true,
         },
       }
+
+      ----------------------
+      ------- CMake --------
+      ----------------------
+      dap.adapters.cmake = {
+        type = "pipe",
+        pipe = "${pipe}",
+        executable = {
+          command = "cmake",
+          args = { "--debugger", "--debugger-pipe", "${pipe}" },
+        },
+      }
+      dap.configurations.cmake = {
+        {
+          name = "Build",
+          type = "cmake",
+          request = "launch",
+        },
+      }
     end,
   },
 }

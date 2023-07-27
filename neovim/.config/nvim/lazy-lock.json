@@ -1,7 +1,7 @@
 {
   "LuaSnip": {
     "branch": "master",
-    "commit": "0b4950a237ce441a6a3a947d501622453f6860ea"
+    "commit": "e81cbe6004051c390721d8570a4a0541ceb0df10"
   },
   "cmp-buffer": {
     "branch": "main",
@@ -29,7 +29,7 @@
   },
   "nvim-dap": {
     "branch": "master",
-    "commit": "d17d1bba23ec72a157bd183c57840c39e323f515"
+    "commit": "2f28ea843bcdb378b171a66ddcd568516e431d55"
   },
   "nvim-fzy": {
     "branch": "main",
@@ -37,7 +37,7 @@
   },
   "nvim-lspconfig": {
     "branch": "master",
-    "commit": "6f426c34c8e21af2f934e56be9d1198a507ecc9f"
+    "commit": "b6091272422bb0fbd729f7f5d17a56d37499c54f"
   },
   "nvim-qwahl": {
     "branch": "main",
@@ -45,7 +45,7 @@
   },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "736a672afe852dbad4199002c89b7461b285c47f"
+    "commit": "6aababfca4e3d72cb1e8fbbdac4115a5f88107d0"
   },
   "nvim-treesitter-textobjects": {
     "branch": "master",
