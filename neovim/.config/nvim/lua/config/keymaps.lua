@@ -294,7 +294,9 @@ keymap({ "n" }, "<leader>m", function()
         "%s(%s): %s",
         item.value[4],
         item.name,
-        vim.api.nvim_buf_get_lines(item.value[3], item.value[1] - 1, item.value[1], true)[1]
+        item.value[3] ~= 0
+            and vim.api.nvim_buf_get_lines(item.value[3], item.value[1] - 1, item.value[1], true)[1]
+          or "Unloaded Buffer"
       )
     end
     return string.format(
