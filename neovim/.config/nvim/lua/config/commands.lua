@@ -91,6 +91,16 @@ vim.api.nvim_create_user_command("DapLaunchPython", function()
   require("dap").run(require("config.dap").launch_python_in_terminal)
 end, {})
 
+vim.api.nvim_create_user_command("DapLaunchPytest", function()
+  require("dap").run({
+    name = "Pytest: " .. vim.fn.expand("%:p"),
+    type = "python",
+    request = "launch",
+    module = "pytest",
+    args = { "-s", vim.fn.expand("%:p") },
+  })
+end, {})
+
 vim.api.nvim_create_user_command("GenerateAllStubs", function()
   require("config.functions").generate_all_python_stubs()
 end, {})
