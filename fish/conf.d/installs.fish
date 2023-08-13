@@ -6,7 +6,7 @@ function install-from-github
     return 1
   end
   curl -s https://api.github.com/repos/$argv[1]/releases \
-    | grep "https://github.com/$argv[1]/releases/download.*$argv[2]" \
+    | grep -E "https://github.com/$argv[1]/releases/download.*$argv[2]" \
     | cut -d':' -f 2,3 \
     | tr -d \" \
     | head -n 1 \
@@ -690,7 +690,7 @@ end
 function install-obsidian
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR
-  install-from-github obsidianmd/obsidian-releases "Obsidian-.*.AppImage"
+  install-from-github obsidianmd/obsidian-releases "Obsidian-[0-9]{1,}.[0-9]{1,}.[0-9]{1,}.AppImage"
   chmod +x Obsidian-*.AppImage
   mv Obsidian-*.AppImage ~/.local/bin/obsidian
   cd -
