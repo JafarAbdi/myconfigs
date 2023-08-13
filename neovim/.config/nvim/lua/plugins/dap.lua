@@ -3,8 +3,6 @@ local enrich_config = function(config, on_config)
   local venv_path = os.getenv("CONDA_PREFIX")
   if venv_path then
     config.pythonPath = venv_path .. "/bin/python"
-  else
-    config.pythonPath = vim.env.HOME .. "/micromamba/envs/myconfigs/bin/python"
   end
   config.console = "integratedTerminal"
   on_config(config)
@@ -101,7 +99,7 @@ return {
         else
           cb({
             type = "executable",
-            command = vim.env.HOME .. "/micromamba/envs/myconfigs/bin/python",
+            command = "python3",
             args = { "-m", "debugpy.adapter" },
             enrich_config = enrich_config,
             options = {
