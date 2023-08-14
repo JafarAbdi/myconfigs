@@ -83,7 +83,6 @@ vim.filetype.add({
     install = "text",
     repos = "yaml",
     ["code-snippets"] = "json",
-    typst = "typst",
   },
 })
 
