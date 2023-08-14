@@ -277,7 +277,7 @@ def get_ros_version() -> RosVersions:
     Returns:
         ROS version of the current directory
     """
-    current = pathlib.Path().resolve()
+    current = pathlib.Path.cwd()
     if (current / ".catkin_tools").is_dir():
         return RosVersions.ROS1
     if (current / f"build_{os.environ['ROS_DISTRO']}/COLCON_IGNORE").exists():
