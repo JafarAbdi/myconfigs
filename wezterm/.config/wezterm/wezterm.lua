@@ -206,6 +206,7 @@ config.key_tables = {
 config.warn_about_missing_glyphs = false
 
 config.force_reverse_video_cursor = true
+config.front_end = "OpenGL"
 config.font = wezterm.font("JetBrains Mono", { weight = "ExtraLight" })
 config.term = "wezterm"
 -- Same colors as st's onedark theme
