@@ -207,7 +207,8 @@ config.warn_about_missing_glyphs = false
 
 config.force_reverse_video_cursor = true
 config.front_end = "OpenGL"
-config.font = wezterm.font("JetBrains Mono", { weight = "ExtraLight" })
+config.font =
+  wezterm.font({ family = "JetBrains Mono", harfbuzz_features = { "calt=0", "clig=0", "liga=0" } })
 config.term = "wezterm"
 -- Same colors as st's onedark theme
 config.colors = {

@@ -144,6 +144,7 @@ end
 # end
 
 alias myconfigs "cd $MYCONFIGS_DIR"
+alias mynotes "cd $HOME/mynotes"
 alias myconfigsr "source ~/.config/fish/config.fish"
 alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
 alias cmakerd 'cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
