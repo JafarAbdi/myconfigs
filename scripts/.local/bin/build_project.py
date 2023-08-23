@@ -87,9 +87,9 @@ def python(
     ):
         cmd.extend(["micromamba", "run", "-n", micromamba_env])
     if is_test:
-        if not file.name.startswith("test_"):
+        if not file.name.startswith("test_") and not file.name.endswith("_test.py"):
             logging.error(
-                f"Test file '{file}' doesn't start with 'test_' and will be ignored by pytest",
+                f"Test file '{file}' doesn't start/end with 'test_'/'_test' and will be ignored by pytest",
             )
             return
         cmd.extend(["python3", "-m", "pytest", "--capture=no", str(file.name)])
