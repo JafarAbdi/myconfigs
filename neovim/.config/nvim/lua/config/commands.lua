@@ -96,6 +96,7 @@ vim.api.nvim_create_user_command("DapLaunchPytest", function()
     name = "Pytest: " .. vim.fn.expand("%:p"),
     type = "python",
     request = "launch",
+    justMyCode = false,
     module = "pytest",
     args = { "-s", vim.fn.expand("%:p") },
   })

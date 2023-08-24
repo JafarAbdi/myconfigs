@@ -15,7 +15,7 @@ return {
     config = function()
       require("config.keymaps").dap()
       local dap = require("dap")
-      dap.defaults.fallback.exception_breakpoints = { "raised" }
+      -- dap.defaults.fallback.exception_breakpoints = { "userUnhandled" }
       dap.defaults.fallback.switchbuf = "usetab,uselast"
       dap.defaults.fallback.terminal_win_cmd = "tabnew"
       dap.defaults.fallback.external_terminal = {
