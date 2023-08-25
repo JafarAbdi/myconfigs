@@ -38,6 +38,14 @@ return {
           single_file_support = true,
         },
         efm = {
+          init_options = {
+            documentFormatting = true,
+            documentRangeFormatting = true,
+            hover = false,
+            documentSymbol = true,
+            codeAction = true,
+            completion = false,
+          },
           cmd = {
             "efm-langserver",
             "-c",
