@@ -40,15 +40,6 @@ return {
           ["<C-f>"] = cmp.config.disable,
           ["<C-d>"] = cmp.mapping.scroll_docs(4),
           ["<C-u>"] = cmp.mapping.scroll_docs(-4),
-          ["<C-Space>"] = cmp.mapping.complete(),
-          ["<C-c>"] = cmp.mapping.abort(),
-          ["<C-e>"] = cmp.mapping(function(_fallback)
-            vim.api.nvim_feedkeys(
-              vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
-              "n",
-              true
-            )
-          end),
           ["<CR>"] = cmp.mapping.confirm({
             behavior = cmp.ConfirmBehavior.Insert,
             select = false,

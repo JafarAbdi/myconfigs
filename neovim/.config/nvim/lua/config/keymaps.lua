@@ -31,8 +31,12 @@ vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 
-vim.keymap.set("i", "<C-e>", function()
-  return vim.fn["copilot#Accept"]()
+vim.keymap.set("i", "<M-e>", function()
+  return vim.api.nvim_feedkeys(
+    vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
+    "n",
+    true
+  )
 end, { expr = true })
 vim.keymap.set("i", "<c-;>", function()
   return vim.fn["copilot#Next"]()
