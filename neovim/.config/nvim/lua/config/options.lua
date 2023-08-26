@@ -1,76 +1,71 @@
-local opt = vim.opt -- global (vim.opt is better than vim.o)
-local g = vim.g -- global for let options
-
--- help options
-opt.number = true
-opt.mouse = "a"
-opt.undofile = true
-opt.breakindent = true
-opt.ignorecase = true
-opt.smartcase = true
-opt.updatetime = 250
-opt.tabstop = 2
-opt.softtabstop = 2
-opt.shiftwidth = 2
-opt.expandtab = true
-opt.autoindent = true
-opt.copyindent = true
-opt.cursorline = true
-opt.termguicolors = true
-opt.hlsearch = false
-opt.linebreak = true
-opt.autowrite = true
-opt.inccommand = "nosplit"
-opt.wrap = false
-opt.showmatch = true
-opt.title = true
-opt.relativenumber = true
-opt.titlestring = "NVIM: %{substitute(getcwd(), $HOME, '~', '')}%a%r%m "
-opt.shortmess:append("wIA")
-opt.matchtime = 2
-opt.matchpairs:append("<:>")
-opt.swapfile = false
-opt.signcolumn = "number"
-opt.laststatus = 3
-opt.statusline =
+vim.opt.number = true
+vim.opt.mouse = "a"
+vim.opt.undofile = true
+vim.opt.breakindent = true
+vim.opt.ignorecase = true
+vim.opt.smartcase = true
+vim.opt.updatetime = 250
+vim.opt.tabstop = 2
+vim.opt.softtabstop = 2
+vim.opt.shiftwidth = 2
+vim.opt.expandtab = true
+vim.opt.autoindent = true
+vim.opt.copyindent = true
+vim.opt.cursorline = true
+vim.opt.termguicolors = true
+vim.opt.hlsearch = false
+vim.opt.linebreak = true
+vim.opt.autowrite = true
+vim.opt.inccommand = "nosplit"
+vim.opt.wrap = false
+vim.opt.showmatch = true
+vim.opt.title = true
+vim.opt.relativenumber = true
+vim.opt.titlestring = "NVIM: %{substitute(getcwd(), $HOME, '~', '')}%a%r%m "
+vim.opt.shortmess:append("wIA")
+vim.opt.matchtime = 2
+vim.opt.matchpairs:append("<:>")
+vim.opt.swapfile = false
+vim.opt.signcolumn = "number"
+vim.opt.laststatus = 3
+vim.opt.statusline =
   [[%<%f %m%r%{luaeval("require('config.functions').lsp_status()")} %= %{luaeval("require('config.functions').dap_status()")}]]
-opt.smartindent = false
-opt.pumheight = 20
-opt.completeopt = "menuone,noselect,noinsert"
-opt.complete:append({ "U", "i", "d" })
-opt.wildmode = "longest:full,full"
-opt.wildignore:append({ "*.pyc", ".git", ".idea", "*.o" })
-opt.wildoptions = "pum,tagfile,fuzzy"
-opt.suffixes:append({ ".pyc", ".tmp" })
+vim.opt.smartindent = false
+vim.opt.pumheight = 20
+vim.opt.completeopt = "menuone,noselect,noinsert"
+vim.opt.complete:append({ "U", "i", "d" })
+vim.opt.wildmode = "longest:full,full"
+vim.opt.wildignore:append({ "*.pyc", ".git", ".idea", "*.o" })
+vim.opt.wildoptions = "pum,tagfile,fuzzy"
+vim.opt.suffixes:append({ ".pyc", ".tmp" })
 
 if vim.fn.executable("rg") == 1 then
-  opt.grepprg = "rg --no-messages --vimgrep --no-heading --smart-case"
-  opt.grepformat = "%f:%l:%c:%m,%f:%l:%m"
+  vim.opt.grepprg = "rg --no-messages --vimgrep --no-heading --smart-case"
+  vim.opt.grepformat = "%f:%l:%c:%m,%f:%l:%m"
 end
 
-g.mapleader = " "
-g.maplocalleader = " "
+vim.g.mapleader = " "
+vim.g.maplocalleader = " "
 
-opt.iskeyword:append("-")
-g.copilot_node_command = vim.env.HOME .. "/micromamba/envs/nodejs/bin/node"
-g.copilot_no_tab_map = true
-g.copilot_no_maps = true
-g.copilot_assume_mapped = true
-g.copilot_tab_fallback = ""
-g.copilot_filetypes = {
+vim.g.copilot_node_command = vim.env.HOME .. "/micromamba/envs/nodejs/bin/node"
+vim.g.copilot_no_tab_map = true
+vim.g.copilot_no_maps = true
+vim.g.copilot_assume_mapped = true
+vim.g.copilot_tab_fallback = ""
+vim.g.copilot_filetypes = {
   ["*"] = true,
   gitcommit = false,
   ["dap-repl"] = false,
 }
 
-g.netrw_list_hide = [[,\(^\|\s\s\)\zs\.\S\+]]
-g.netrw_altv = 1
-g.netrw_keepdir = 0
-g.netrw_winsize = 20
-g.netrw_localcopydircmd = "cp -r"
-g.netrw_liststyle = 3
-g.netrw_banner = 0
-g.netrw_bufsettings = "signcolumn=no noma nomod nu nobl nowrap ro"
+vim.g.netrw_list_hide = [[,\(^\|\s\s\)\zs\.\S\+]]
+vim.g.netrw_altv = 1
+vim.g.netrw_keepdir = 0
+vim.g.netrw_winsize = 20
+vim.g.netrw_localcopydircmd = "cp -r"
+vim.g.netrw_liststyle = 3
+vim.g.netrw_banner = 0
+vim.g.netrw_bufsettings = "signcolumn=no noma nomod nu nobl nowrap ro"
 
 vim.filetype.add({
   extension = {

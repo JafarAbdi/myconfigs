@@ -1,4 +1,5 @@
 local M = {}
+
 local general_group = vim.api.nvim_create_augroup("GeneralCommands", {})
 
 -- Highlight on yank
@@ -8,10 +9,6 @@ vim.api.nvim_create_autocmd({ "TextYankPost" }, {
     vim.highlight.on_yank()
   end,
 })
-
--------------------
--- Auto-commands --
--------------------
 
 vim.api.nvim_create_autocmd("FileType", {
   pattern = { "cpp", "c" },
@@ -56,10 +53,6 @@ vim.api.nvim_create_autocmd("TermOpen", {
 
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
 
---------------
--- Commands --
---------------
-
 vim.api.nvim_create_user_command("DapAttach", function()
   -- output format for ps ah
   --    " 107021 pts/4    Ss     0:00 /bin/zsh <args>"
@@ -72,13 +65,6 @@ vim.api.nvim_create_user_command("DapAttach", function()
       request = "attach",
       pid = tonumber(vim.fn.split(vim.fn.trim(selection), " \\+")[1]),
       args = {},
-      -- env = function()
-      --   local variables = {}
-      --   for k, v in pairs(vim.fn.environ()) do
-      --     table.insert(variables, string.format("%s=%s", k, v))
-      --   end
-      --   return variables
-      -- end,
     })
   end)
 end, {})
@@ -101,22 +87,6 @@ vim.api.nvim_create_user_command("DapLaunchPytest", function()
     args = { "-s", vim.fn.expand("%:p") },
   })
 end, {})
-
-vim.api.nvim_create_user_command("GenerateAllStubs", function()
-  require("config.functions").generate_all_python_stubs()
-end, {})
-
-vim.api.nvim_create_user_command("GenerateStubs", function(params)
-  require("config.functions").generate_python_stubs(params.fargs)
-end, { nargs = "*" })
-
-vim.api.nvim_create_user_command("Grep", function(opts)
-  local fzy = require("fzy")
-  fzy.execute(
-    "rg --no-messages --no-heading --trim --line-number --smart-case " .. opts.args,
-    fzy.sinks.edit_live_grep
-  )
-end, { nargs = "*" })
 
 vim.api.nvim_create_user_command("Gh", function(opts)
   local gh = require("config.gh")
