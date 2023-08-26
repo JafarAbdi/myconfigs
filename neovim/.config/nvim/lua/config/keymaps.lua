@@ -88,6 +88,9 @@ local set_clangd_opening_path = function(callback)
   end
 end
 
+keymap("n", "gs", function()
+  q.try(q.lsp_tags, q.buf_tags)
+end)
 M.lsp = function(bufnr)
   keymap({ "n", "i" }, "<C-k>", function()
     local cmp = require("cmp")
@@ -101,7 +104,6 @@ M.lsp = function(bufnr)
   keymap("n", "gi", set_clangd_opening_path(vim.lsp.buf.implementation), bufnr)
   keymap("n", "gr", set_clangd_opening_path(vim.lsp.buf.references), bufnr)
   keymap("n", "gd", set_clangd_opening_path(vim.lsp.buf.definition), bufnr)
-  keymap("n", "gs", q.lsp_tags, bufnr)
   keymap("n", "<F2>", vim.lsp.buf.rename, bufnr)
   keymap("n", "<leader>f", function()
     vim.lsp.buf.format({ async = true })
