@@ -182,7 +182,7 @@ def run_command(
     Returns:
         Exit code of the command
     """
-    print(" ".join(cmd))  # noqa: T201
+    print(" ".join(f"{x}" for x in cmd))  # noqa: T201
     return None if dry_run else subprocess.call(cmd, cwd=cwd, env=env)  # noqa: S603
 
 

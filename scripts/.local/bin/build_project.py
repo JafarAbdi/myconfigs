@@ -86,16 +86,19 @@ def python(
         micromamba_env := os.environ.get("CONDA_DEFAULT_ENV")
     ):
         cmd.extend(["micromamba", "run", "-n", micromamba_env])
+    python_path = "python3"
+    if (pixi_prefix := find_rootdir(".pixi")(file)) is not None:
+        python_path = pixi_prefix / ".pixi" / "env" / "bin" / "python"
     if is_test:
         if not file.name.startswith("test_") and not file.name.endswith("_test.py"):
             logging.error(
                 f"Test file '{file}' doesn't start/end with 'test_'/'_test' and will be ignored by pytest",
             )
             return
-        cmd.extend(["python3", "-m", "pytest", "--capture=no", str(file.name)])
+        cmd.extend([python_path, "-m", "pytest", "--capture=no", str(file.name)])
         cwd = file.parent
     else:
-        cmd.extend(["python3", str(file)])
+        cmd.extend([python_path, str(file)])
     run_command(cmd + args, dry_run=False, cwd=cwd)
 
 
@@ -162,6 +165,24 @@ def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) 
     )
 
 
+def find_rootdir(filename: Path) -> Path:
+    """Find the root directory of a file.
+
+    Args:
+        filename: File to find the root directory of
+
+    Returns:
+        Root directory of the file
+    """
+
+    def _find_rootdir(path: Path) -> Path:
+        if (path / filename).exists():
+            return path
+        return None if path.parent == path else _find_rootdir(path.parent)
+
+    return _find_rootdir
+
+
 def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
     """Run a cpp file.
 
@@ -172,12 +193,6 @@ def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -
         extra_args: Generic arguments to be used by the runner
         is_test: Whether the file is a test or not
     """
-
-    # Search for .vscode directory in the current directory and all parent directories
-    def find_vscode_rootdir(path: Path) -> Path:
-        if (path / ".vscode").exists():
-            return path
-        return None if path.parent == path else find_vscode_rootdir(path.parent)
 
     def compile_cpp(file: Path, extra_args: list | None = None) -> None:
         output = Path(
@@ -206,7 +221,7 @@ def cpp(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -
         )
         output.unlink()
 
-    if vscode_dir := find_vscode_rootdir(file):
+    if vscode_dir := find_rootdir(".vscode")(file):
         cmake(file, args, vscode_dir, extra_args)
     elif (cwd / "conanbuildinfo.args").exists():
         compile_cpp(file, ["@conanbuildinfo.args"])
