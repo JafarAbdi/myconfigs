@@ -12,7 +12,8 @@ M.root_dirs = {
       "setup.cfg",
       "requirements.txt",
       "Pipfile",
-      "package.xml"
+      "package.xml",
+      "pixi.toml"
     )(startpath)
   end,
   cmake = function(startpath)

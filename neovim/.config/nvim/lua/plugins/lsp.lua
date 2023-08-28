@@ -303,6 +303,15 @@ return {
               new_config.init_options.workspace.environmentPath = vim.env.CONDA_PREFIX
                 .. "/bin/python"
             end
+            local pixi = vim.fs.find(".pixi", {
+              upward = true,
+              stop = vim.uv.os_homedir(),
+              path = vim.fs.dirname(vim.api.nvim_buf_get_name(0)),
+              type = "directory",
+            })
+            if #pixi > 0 then
+              new_config.init_options.workspace.environmentPath = pixi[1] .. "/env/bin/python"
+            end
           end,
           root_dir = function(startpath)
             local dir = root_dirs.python(startpath)
