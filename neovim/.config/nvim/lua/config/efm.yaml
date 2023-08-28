@@ -2,9 +2,11 @@ tools:
   python-mypy: &python-mypy
     lint-command: 'micromamba run -n linters mypy --show-column-numbers --install-types --non-interactive --hide-error-codes --hide-error-context --no-color-output --no-error-summary --no-pretty'
     lint-formats:
-      - '%f:%l:%c: %trror: %m'
+      - '%f:%l:%c: error: %m'
       - '%f:%l:%c: %tarning: %m'
       - '%f:%l:%c: %tote: %m'
+    # Warning
+    lint-severity: 2
   python-black: &python-black
     format-command: 'micromamba run -n linters black --quiet -'
     format-stdin: true
