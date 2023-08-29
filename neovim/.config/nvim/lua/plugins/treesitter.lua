@@ -23,6 +23,7 @@ return {
         "json",
         "latex",
         "lua",
+        "comment",
         "make",
         "markdown",
         "ninja",

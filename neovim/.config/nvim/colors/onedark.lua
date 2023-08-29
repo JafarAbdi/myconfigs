@@ -198,7 +198,7 @@ local ts_highlights = {
   ["text.title"] = { link = "Title", default = true },
   ["text.literal"] = { link = "String", default = true },
   ["text.uri"] = { link = "Underlined", default = true },
-  ["text.note"] = { link = "SpecialComment", default = true },
+  ["text.note"] = { fg = colors.cyan },
   ["text.warning"] = { link = "Todo", default = true },
   ["text.danger"] = { link = "WarningMsg", default = true },
 
@@ -209,6 +209,11 @@ local ts_highlights = {
   ["tag.attribute"] = { link = "@property", default = true },
 }
 
+-- Hide all semantic highlights
+for _, group in ipairs(vim.fn.getcompletion("@lsp", "highlight")) do
+  vim.api.nvim_set_hl(0, group, {})
+end
+vim.api.nvim_set_hl(0, "@lsp.type.comment.cpp", { link = "Comment", default = true })
 for group, keys in pairs(highlights) do
   vim.api.nvim_set_hl(0, group, keys)
 end
