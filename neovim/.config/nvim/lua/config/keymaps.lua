@@ -266,7 +266,7 @@ keymap({ "n" }, "<leader>m", function()
   for i = 1, #buffer_mark_names do
     local letter = buffer_mark_names:sub(i, i)
     local ok, mark = pcall(vim.api.nvim_buf_get_mark, 0, letter) -- Returns (0, 0) if not set
-    if ok and not (mark[1] == 0 and mark[2] == 0) then
+    if ok and mark[1] ~= 0 then
       table.insert(marks, { name = letter, value = mark })
     end
   end
