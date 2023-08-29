@@ -300,7 +300,7 @@ keymap({ "n" }, "<leader>m", function()
     )
   end, function(item)
     if item ~= nil then
-      vim.cmd.normal("'" .. item.name)
+      vim.cmd.normal("`" .. item.name)
     end
   end)
 end)
