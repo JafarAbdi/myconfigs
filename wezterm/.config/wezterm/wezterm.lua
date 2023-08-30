@@ -98,6 +98,7 @@ config.keys = {
     mods = "SHIFT|CTRL",
     action = act.CharSelect({ copy_on_select = true, copy_to = "ClipboardAndPrimarySelection" }),
   },
+  { key = "q", mods = "LEADER", action = act.PaneSelect({}) },
   { key = "x", mods = "LEADER", action = act.CloseCurrentPane({ confirm = true }) },
   { key = "x", mods = "SHIFT|CTRL", action = act.ActivateCopyMode },
   { key = "z", mods = "LEADER", action = act.TogglePaneZoomState },
