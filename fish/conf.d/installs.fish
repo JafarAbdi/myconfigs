@@ -545,13 +545,13 @@ end
 
 function install-ros-github-token
   pip install -U bloom
-  read -P "Your Github username: " gitUserName
-  read -P "A Github oauth token for your account: " oAuthToken
+  set -l user_name (git config user.name)
+  read -P "A Github oauth token for ($user_name): " oAuthToken
 
   rm -f $HOME/.config/bloom
   echo "\
 {
-    \"github_user\": \"$gitUserName\",
+    \"github_user\": \"$user_name\",
     \"oauth_token\": \"$oAuthToken\"
 }" | tee $HOME/.config/bloom
 end
