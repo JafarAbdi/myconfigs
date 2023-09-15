@@ -1,4 +1,4 @@
-alias rsync 'rsync -aSHAXhP'
+alias rsync 'rsync -uaSHAXhP'
 alias ex 'atool -qx'
 alias df 'df -h'
 alias free 'free -h'
