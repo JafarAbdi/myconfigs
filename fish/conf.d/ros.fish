@@ -153,3 +153,15 @@ function rcd
     cd $selected[2]
   end
 end
+
+function ros_msgs
+  if ! set -q ROS_DISTRO
+    echo "ROS_DISTRO is not set"
+    return 1
+  end
+  set -l selected (fd --type file --extension action --extension msg --extension srv --search-path /opt/ros/$ROS_DISTRO \
+    | fzf --delimiter '/' --nth -1 --no-multi --preview 'less {}')
+  if test -n "$selected"
+    less $selected
+  end
+end
