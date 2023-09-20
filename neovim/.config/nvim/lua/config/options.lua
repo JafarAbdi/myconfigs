@@ -29,7 +29,7 @@ vim.opt.swapfile = false
 vim.opt.signcolumn = "number"
 vim.opt.laststatus = 3
 vim.opt.statusline =
-  [[%<%f %m%r%{luaeval("require('config.functions').lsp_status()")} %= %{luaeval("require('config.functions').dap_status()")}]]
+  [[%<%f %m%r%{luaeval("require('config.functions').lsp_status()")} %{luaeval("require('config.functions').codeium_status()")} %= %{luaeval("require('config.functions').dap_status()")}]]
 vim.opt.smartindent = false
 vim.opt.pumheight = 20
 vim.opt.completeopt = "menuone,noselect,noinsert"
@@ -47,13 +47,8 @@ end
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 
-vim.g.copilot_node_command = vim.env.HOME .. "/micromamba/envs/nodejs/bin/node"
-vim.g.copilot_no_tab_map = true
-vim.g.copilot_no_maps = true
-vim.g.copilot_assume_mapped = true
-vim.g.copilot_tab_fallback = ""
-vim.g.copilot_filetypes = {
-  ["*"] = true,
+vim.g.codeium_disable_bindings = 1
+vim.g.codeium_filetypes = {
   gitcommit = false,
   ["dap-repl"] = false,
 }

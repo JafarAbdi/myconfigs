@@ -13,9 +13,6 @@ function setup_container
   if test (docker exec $container_name sh -c 'if [ -d "$HOME/.config/gh" ]; then echo "1"; else echo "0"; fi') -eq 0
     docker cp $HOME/.config/gh $container_name:$HOME/.config/gh
   end
-  if test (docker exec $container_name sh -c 'if [ -d "$HOME/.config/github-copilot" ]; then echo "1"; else echo "0"; fi') -eq 0
-    docker cp $HOME/.config/github-copilot $container_name:$HOME/.config/github-copilot
-  end
   if test (docker exec $container_name sh -c 'if [ -d "$HOME/.local/share/nvim" ]; then echo "1"; else echo "0"; fi') -eq 0
     docker exec -it $container_name bash -c "mkdir -p $HOME/.local/share" && \
       docker cp $HOME/.local/share/nvim $container_name:$HOME/.local/share/nvim && \

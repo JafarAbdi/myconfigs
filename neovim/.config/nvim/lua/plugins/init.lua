@@ -16,6 +16,6 @@ vim.api.nvim_create_autocmd("User", {
 return {
   { "mfussenegger/nvim-qwahl" },
   { "mfussenegger/nvim-fzy" },
-  { "github/copilot.vim", event = "VeryLazy" },
+  { "Exafunction/codeium.vim", event = "VeryLazy" },
   { "tpope/vim-commentary", keys = { { "gc", mode = "v" }, "gcc" } },
 }

@@ -60,6 +60,13 @@ M.lsp_status = function()
   return " | " .. lsp_status
 end
 
+M.codeium_status = function()
+  if require("lazy.core.config").plugins["codeium.vim"]._.loaded == nil then
+    return ""
+  end
+  return " |  :" .. vim.fn["codeium#GetStatusString"]()
+end
+
 M.dap_status = function()
   if require("lazy.core.config").plugins["nvim-dap"]._.loaded == nil then
     return ""

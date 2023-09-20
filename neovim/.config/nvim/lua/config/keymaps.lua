@@ -32,36 +32,19 @@ vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 
 vim.keymap.set("i", "<M-e>", function()
-  return vim.api.nvim_feedkeys(
-    vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
-    "n",
-    true
-  )
+  return vim.api.nvim_feedkeys(vim.fn["codeium#Accept"](), "n", true)
 end, { expr = true })
 vim.keymap.set("i", "<c-;>", function()
-  return vim.fn["copilot#Next"]()
+  return vim.fn["codeium#CycleCompletions"](1)
 end, { expr = true })
 vim.keymap.set("i", "<c-,>", function()
-  return vim.fn["copilot#Previous"]()
+  return vim.fn["codeium#CycleCompletions"](-1)
 end, { expr = true })
 vim.keymap.set("i", "<c-c>", function()
   -- Leave insert mode and cancel completion
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
-  return vim.fn["copilot#Dismiss"]()
+  return vim.fn["codeium#Clear"]()
 end, { expr = true })
-local function accept_word()
-  vim.fn["copilot#Accept"]("")
-  local bar = vim.fn["copilot#TextQueuedForInsertion"]()
-  return vim.fn.split(bar, [[[ .]\zs]])[1]
-end
-local function accept_line()
-  vim.fn["copilot#Accept"]("")
-  local bar = vim.fn["copilot#TextQueuedForInsertion"]()
-  return vim.fn.split(bar, [[[\n]\zs]])[1]
-end
-
-vim.keymap.set("i", "<C-M-l>", accept_line, { expr = true, remap = false })
-vim.keymap.set("i", "<C-M-e>", accept_word, { expr = true, remap = false })
 local keymap = function(mode, lhs, callback, bufnr)
   vim.keymap.set(
     mode,
