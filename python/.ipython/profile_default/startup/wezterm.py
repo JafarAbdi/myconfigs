@@ -8,7 +8,7 @@ if os.environ.get("MPLBACKEND", "") == "module://matplotlib_wezterm":
 
     def display_and_reset(*args):
         plt.show()
-        plt.figure()  # New figure for next plot (don't re-use)
+        plt.figure()  # New figure for next plot (don't reuse)
 
     # Tell IPython to display matplotlib figures automatically
     from IPython import get_ipython
