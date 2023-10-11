@@ -18,7 +18,7 @@ function setup_container
       docker cp $HOME/.local/share/nvim $container_name:$HOME/.local/share/nvim && \
       docker exec -it $container_name bash -c "chown -R $USER:$USER $HOME/.local"
   end
-  docker exec -it $container_name bash -c "apt update && apt install make"
+  docker exec --user root -it $container_name bash -c "apt update && apt install make"
   docker exec -it $container_name bash -c "cd ~/myconfigs && make setup-fish core dev-core dev-cpp dev-python"
 end
 

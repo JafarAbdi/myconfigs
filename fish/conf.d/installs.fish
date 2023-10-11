@@ -56,11 +56,11 @@ function install-core
   pip3 install argcomplete==2.0.0
   install-ripgrep
   install-fd
+  install-fzf
 end
 
 function config-fish
-  rm -rf ~/.config/fish
-  install-fzf
+  rm -rf ~/.config/fish || true && mkdir -p ~/.config/fish/functions
   echo "\
          function fish_user_key_bindings
          fzf_key_bindings
