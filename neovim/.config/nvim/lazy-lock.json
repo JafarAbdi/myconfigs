@@ -1,7 +1,7 @@
 {
   "LuaSnip": {
     "branch": "master",
-    "commit": "c4d6298347f7707e9757351b2ee03d0c00da5c20"
+    "commit": "0df29db3543837f8b41597f2640397c5ec792b7b"
   },
   "cmp-buffer": {
     "branch": "main",
@@ -13,7 +13,7 @@
   },
   "cmp_luasnip": {
     "branch": "master",
-    "commit": "18095520391186d634a0045dacaa346291096566"
+    "commit": "05a9ab28b53f71d1aece421ef32fee2cb857a843"
   },
   "codeium.vim": {
     "branch": "main",
@@ -21,15 +21,15 @@
   },
   "lazy.nvim": {
     "branch": "main",
-    "commit": "dac844ed617dda4f9ec85eb88e9629ad2add5e05"
+    "commit": "33c447b96e1cb1a5a2be87982d5d32bb5054079d"
   },
   "nvim-cmp": {
     "branch": "main",
-    "commit": "51f1e11a89ec701221877532ee1a23557d291dd5"
+    "commit": "5dce1b778b85c717f6614e3f4da45e9f19f54435"
   },
   "nvim-dap": {
     "branch": "master",
-    "commit": "4377a05b9476587b7b485d6a9d9745768c4e4b37"
+    "commit": "92dc531eea2c9a3ef504a5c8ac0decd1fa59a6a3"
   },
   "nvim-fzy": {
     "branch": "main",
@@ -37,19 +37,19 @@
   },
   "nvim-lspconfig": {
     "branch": "master",
-    "commit": "a27356f1ef9c11e1f459cc96a3fcac5c265e72d6"
+    "commit": "cab7233cd6a89ec952dfd40c4b74341b1165830e"
   },
   "nvim-qwahl": {
     "branch": "main",
-    "commit": "5a00d3cd6248299bf75fdac8ff827978409b52a6"
+    "commit": "33a592f58d97ee1f603df746de238bb6cfdf28c7"
   },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "cb74c1c5aefd8b903f1b547d08d4df42be07aa2a"
+    "commit": "783e5fc3079680b307e8ac518935317907e71a59"
   },
   "nvim-treesitter-textobjects": {
     "branch": "master",
-    "commit": "e3e2b6de4ccf781fb653a3a1d397aeb4a0095609"
+    "commit": "76c7a89b41de77a4f83fb77fa072c5ad7605fe3b"
   },
   "omnisharp-extended-lsp.nvim": {
     "branch": "main",

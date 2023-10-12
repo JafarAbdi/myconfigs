@@ -120,26 +120,7 @@ end)
 keymap("n", "<leader>x", function()
   require("config.functions").run_file(false)
 end)
-keymap("n", "<leader>h", function()
-  local files = vim.api.nvim_get_runtime_file("**/doc/tags", true)
-  local tags = {}
-  for _, file_path in ipairs(files) do
-    local file = io.open(file_path, "r")
-    if file then
-      for line in file:lines() do
-        -- Parse line with the format: tag-name<TAB>file-path<TAB>tag-address
-        local tag_name, _ = line:match("([^\t]+)\t([^\t]+)\t.*")
-        table.insert(tags, tag_name)
-      end
-      file:close()
-    end
-  end
-  fzy.pick_one(tags, "Help tags: ", nil, function(tag)
-    if tag then
-      vim.cmd.help(tag)
-    end
-  end)
-end)
+keymap("n", "<leader>h", q.helptags)
 keymap("n", "<leader><space>", function()
   local bufs = vim.tbl_filter(function(b)
     return vim.api.nvim_buf_is_loaded(b)
