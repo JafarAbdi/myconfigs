@@ -1,4 +1,4 @@
-vim.treesitter.language.register("html", { "xml", "xacro", "urdf" })
+vim.treesitter.language.register("xml", { "xacro", "urdf" })
 
 return {
   {
@@ -18,6 +18,7 @@ return {
         "dockerfile",
         "fish",
         "html",
+        "xml",
         "http",
         "javascript",
         "json",
