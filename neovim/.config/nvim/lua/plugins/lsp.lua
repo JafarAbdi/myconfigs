@@ -9,6 +9,7 @@ end
 local root_dirs = require("config.functions").root_dirs
 
 return {
+  { "mfussenegger/nvim-lsp-compl", lazy = false },
   {
     "neovim/nvim-lspconfig",
     lazy = false,
@@ -327,7 +328,8 @@ return {
 
       local capabilities = vim.tbl_deep_extend(
         "force",
-        require("cmp_nvim_lsp").default_capabilities(vim.lsp.protocol.make_client_capabilities()),
+        vim.lsp.protocol.make_client_capabilities(),
+        require("lsp_compl").capabilities(),
         {
           workspace = {
             didChangeWatchedFiles = {
@@ -337,7 +339,11 @@ return {
           offsetEncoding = { "utf-16" },
         }
       )
-      local on_attach = function(_, bufnr)
+      local on_attach = function(client, bufnr)
+        if client.server_capabilities.signatureHelpProvider then
+          client.server_capabilities.signatureHelpProvider.triggerCharacters = {}
+        end
+        require("lsp_compl").attach(client, bufnr, { trigger_on_insert = true })
         require("config.keymaps").lsp(bufnr)
       end
       for server, server_opts in pairs(opts.servers) do
@@ -349,6 +355,13 @@ return {
           )
         )
       end
+      local lsp_group = vim.api.nvim_create_augroup("lsp", {})
+      vim.api.nvim_create_autocmd("LspDetach", {
+        group = lsp_group,
+        callback = function(args)
+          pcall(require("lsp_compl").detach, args.data.client_id, args.buf)
+        end,
+      })
     end,
   },
 }

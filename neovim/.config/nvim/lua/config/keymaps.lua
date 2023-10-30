@@ -50,6 +50,9 @@ vim.keymap.set("i", "<c-c>", function()
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
   return vim.fn["codeium#Clear"]()
 end, { expr = true })
+
+vim.keymap.set("i", "<c-j>", require("config.snippet").maybe)
+
 local keymap = function(mode, lhs, callback, bufnr)
   vim.keymap.set(
     mode,
@@ -80,10 +83,15 @@ keymap("n", "gs", function()
   q.try(q.lsp_tags, q.buf_tags)
 end)
 M.lsp = function(bufnr)
+  keymap("i", "<c-space>", function()
+    require("lsp_compl").trigger_completion()
+  end, bufnr)
+  vim.keymap.set("i", "<CR>", function()
+    return require("lsp_compl").accept_pum() and "<c-y>" or "<CR>"
+  end, { expr = true, buffer = bufnr })
   keymap({ "n", "i" }, "<C-k>", function()
-    local cmp = require("cmp")
-    if cmp.visible() then
-      cmp.close()
+    if tonumber(vim.fn.pumvisible()) == 1 then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<c-y>", true, false, true), "n", true)
     end
     vim.lsp.buf.signature_help()
   end, bufnr)

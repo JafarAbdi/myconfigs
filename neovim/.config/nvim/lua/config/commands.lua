@@ -10,14 +10,6 @@ vim.api.nvim_create_autocmd({ "TextYankPost" }, {
   end,
 })
 
-vim.api.nvim_create_autocmd("FileType", {
-  pattern = { "cpp", "c" },
-  group = general_group,
-  callback = function()
-    -- This fixes an issue with nvim-cmp -- see https://github.com/hrsh7th/nvim-cmp/issues/1035#issuecomment-1195456419
-    vim.opt_local.cindent = false
-  end,
-})
 -- A terrible way to handle symlinks
 vim.api.nvim_create_autocmd("BufWinEnter", {
   callback = function(params)
