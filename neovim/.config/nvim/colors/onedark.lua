@@ -122,7 +122,7 @@ local highlights = {
   LspReferenceWrite = { underline = true },
   LspReferenceText = { underline = true },
   LspReferenceRead = { underline = true },
-  LspSignatureActiveParameter = { fg = colors.yellow, bold = true },
+  LspSignatureActiveParameter = { fg = colors.yellow, bold = true, underline = true },
 }
 
 local ts_highlights = {
