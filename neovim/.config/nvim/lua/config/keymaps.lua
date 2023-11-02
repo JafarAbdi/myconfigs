@@ -11,12 +11,6 @@ end
 
 local q = require("qwahl")
 
-local edit_file = function(selection)
-  if selection and vim.trim(selection) ~= "" then
-    vim.cmd.edit(vim.trim(selection))
-  end
-end
-
 vim.keymap.set({ "i", "s" }, "<Tab>", function()
   local ls = require("luasnip")
   return ls.jumpable(1) and ls.jump(1) or "<Tab>"
@@ -25,8 +19,6 @@ vim.keymap.set({ "i", "s" }, "<S-Tab>", function()
   local ls = require("luasnip")
   return ls.jumpable(-1) and ls.jump(-1) or "<S-Tab>"
 end, { expr = true, silent = true })
-
-vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
@@ -60,7 +52,7 @@ local set_clangd_opening_path = function(callback)
   return function()
     local ft = vim.api.nvim_get_option_value("filetype", {})
     if ft == "cpp" or ft == "c" then
-      for _, client in pairs(vim.lsp.get_active_clients({ bufnr = 0 })) do
+      for _, client in pairs(vim.lsp.get_clients({ bufnr = 0 })) do
         if client.name == "clangd" then
           M.clangd_opening_root_dir = client.config.root_dir
           break
@@ -132,7 +124,7 @@ keymap("n", "<C-M-s>", function()
   end
 end)
 keymap("n", "<M-o>", function()
-  fzy.execute("fd --hidden --type f --strip-cwd-prefix", edit_file)
+  fzy.execute("fd --hidden --type f --strip-cwd-prefix", fzy.sinks.edit_file)
 end)
 keymap("n", "<leader>j", q.jumplist)
 
@@ -148,7 +140,7 @@ keymap("n", "<leader>c", function()
   local api = vim.api
   for _, win in pairs(api.nvim_list_wins()) do
     local buf = api.nvim_win_get_buf(win)
-    if api.nvim_buf_get_option(buf, "buftype") == "quickfix" then
+    if api.nvim_get_option_value("buftype", { buf = buf }) == "quickfix" then
       api.nvim_command("cclose")
       if win_pre_copen then
         local ok, w = pcall(api.nvim_win_get_number, win_pre_copen)
@@ -192,10 +184,6 @@ keymap("n", "[d", center_screen(vim.diagnostic.goto_prev))
 keymap("n", "]t", center_screen(vim.cmd.tn))
 keymap("n", "[t", center_screen(vim.cmd.tp))
 
-keymap({ "n", "t" }, "<M-C-t>", function()
-  local term = require("config.term")
-  term.toggle()
-end)
 keymap({ "n" }, "<leader>m", function()
   local buffer_mark_names = "abcdefghijklmnopqrstuvwxyz"
   local global_mark_names = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"

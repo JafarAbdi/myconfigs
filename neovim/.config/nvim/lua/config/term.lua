@@ -70,23 +70,6 @@ function M.create_term(cmd, args, opts)
   end
 end
 
-function M.toggle()
-  if jobid then
-    local winid = vim.fn.bufwinid(bufnr)
-    if winid == -1 then
-      new_window()
-      local empty_bufnr = vim.api.nvim_win_get_buf(vim.fn.win_getid())
-      vim.api.nvim_set_current_buf(bufnr)
-      vim.cmd.bdelete({ empty_bufnr, bang = true })
-      vim.cmd.startinsert({ bang = true })
-    else
-      vim.api.nvim_win_hide(winid)
-    end
-  else
-    M.create_term(vim.fn.environ()["SHELL"] or "sh", nil, { focus_terminal = true })
-  end
-end
-
 function M.run(cmd, args, opts)
   M.close_term()
   M.create_term(cmd, args, opts)
