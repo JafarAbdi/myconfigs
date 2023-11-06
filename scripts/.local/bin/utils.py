@@ -106,7 +106,7 @@ def get_package_paths(package_name: str) -> tuple[str, Path]:
     """
     import rospkg
 
-    workspace_dir = Path(os.curdir).resolve()
+    workspace_dir = Path.cwd()
     rospack = rospkg.RosPack([workspace_dir / "src"])
     return (
         rospack.get_path(package_name),
