@@ -8,19 +8,13 @@ return {
       "saadparwaiz1/cmp_luasnip",
       {
         "L3MON4D3/LuaSnip",
-        opts = function()
-          return {
+        config = function(_, _)
+          require("luasnip").config.set_config({
             -- This tells LuaSnip to remember to keep around the last snippet.
             -- You can jump back into it even if you move outside of the selection
             history = true,
             -- Autosnippets:
             enable_autosnippets = true,
-          }
-        end,
-        config = function(_, opts)
-          require("luasnip").config.set_config(opts)
-          require("luasnip.loaders.from_vscode").load({
-            paths = { "~/myconfigs/neovim/.config/nvim/lua/config/snippets" },
           })
         end,
       },
