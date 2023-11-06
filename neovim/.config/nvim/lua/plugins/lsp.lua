@@ -12,9 +12,6 @@ return {
   {
     "neovim/nvim-lspconfig",
     lazy = false,
-    dependencies = {
-      { "Hoffs/omnisharp-extended-lsp.nvim", lazy = false },
-    },
     opts = {
       diagnostics = {
         underline = false,
@@ -322,21 +319,6 @@ return {
           -- cmd = { "marksman", "server", "--verbose", "5" },
         },
         lemminx = {},
-        -- https://github.com/neovim/nvim-lspconfig/blob/master/doc/server_configurations.md#omnisharp
-        -- TODO
-        -- https://github.com/Hoffs/omnisharp-extended-lsp.nvim/tree/main
-        omnisharp = {
-          cmd = {
-            vim.env.HOME .. "/.config/omnisharp-roslyn/run",
-          },
-          root_dir = root_dirs.csharp,
-          enable_editorconfig_support = true,
-          enable_roslyn_analyzers = false,
-          organize_imports_on_format = false,
-          enable_import_completion = false,
-          sdk_include_prereleases = true,
-          analyze_open_documents_only = false,
-        },
         zls = {},
       },
     },
@@ -355,18 +337,10 @@ return {
           offsetEncoding = { "utf-16" },
         }
       )
-      local on_attach = function(client, bufnr)
-        if client.name == "omnisharp" then
-          client.server_capabilities.semanticTokensProvider = nil
-        end
+      local on_attach = function(_, bufnr)
         require("config.keymaps").lsp(bufnr)
       end
       for server, server_opts in pairs(opts.servers) do
-        if server == "omnisharp" then
-          server_opts.handlers = {
-            ["textDocument/definition"] = require("omnisharp_extended").handler,
-          }
-        end
         require("lspconfig")[server].setup(
           vim.tbl_deep_extend(
             "error",
