@@ -687,15 +687,6 @@ function install-wezterm
   cd -
 end
 
-function install-obsidian
-  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-  cd $TMP_DIR
-  install-from-github obsidianmd/obsidian-releases "Obsidian-[0-9]{1,}.[0-9]{1,}.[0-9]{1,}.AppImage"
-  chmod +x Obsidian-*.AppImage
-  mv Obsidian-*.AppImage ~/.local/bin/obsidian
-  cd -
-end
-
 function install-actionlint
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR
