@@ -20,7 +20,7 @@ function fish_prompt
     echo -n -s (set_color D68910) "($CURRENT_ROS_WORKSPACE)" (set_color normal)
   end
   if set -q PIXI_PROMPT
-    echo -n -s (set_color yellow)"($PIXI_PACKAGE_NAME)"(set_color normal)
+    echo -n -s (set_color yellow)$PIXI_PROMPT(set_color normal)
   end
 
   set -l worktrees_string ""
