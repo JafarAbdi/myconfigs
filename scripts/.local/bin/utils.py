@@ -111,9 +111,7 @@ def get_package_paths(package_name: str) -> tuple[str, Path]:
     return (
         rospack.get_path(package_name),
         (
-            Path(workspace_dir)
-            / f"build_{os.environ['ROS_DISTRO']}"
-            / f"{package_name}"
+            Path(workspace_dir) / f"build_{os.environ['ROS_DISTRO']}" / package_name
         ).absolute(),
     )
 
@@ -182,7 +180,7 @@ def run_command(
     Returns:
         Exit code of the command
     """
-    print(" ".join(f"{x}" for x in cmd))  # noqa: T201
+    print(" ".join(str(x) for x in cmd))  # noqa: T201
     return None if dry_run else subprocess.call(cmd, cwd=cwd, env=env)  # noqa: S603
 
 
@@ -220,13 +218,13 @@ def create_vscode_config(
     with (vscode_dir / settings_file).open("w", encoding="utf-8") as f:
         if ros_distro is None:
             settings = {
-                "cmake.buildDirectory": f"{build_dir}",
+                "cmake.buildDirectory": str(build_dir),
                 # TODO: Add support for codechecker
                 # "codechecker.backend.compilationDatabasePath": f"{build_dir}/compile_commands.json",
             }
         else:
             settings = {
-                f"cmake.buildDirectory.{ros_distro}": f"{build_dir}",
+                f"cmake.buildDirectory.{ros_distro}": str(build_dir),
             }
 
         json.dump(settings, f, ensure_ascii=True, indent=4)
@@ -261,7 +259,7 @@ def create_clangd_config_ros(workspace_dir: Path, ros_distro: str) -> None:
         {
             "If": {"PathMatch": [f"{Path(path).relative_to(workspace_dir)}/.*"]},
             "CompileFlags": {
-                "CompilationDatabase": str((build_path / f"{package}").absolute()),
+                "CompilationDatabase": str((build_path / package).absolute()),
             },
         }
         for package, path in packages

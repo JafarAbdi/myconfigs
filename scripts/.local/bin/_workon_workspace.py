@@ -115,7 +115,7 @@ elif args.ros_package_path:
     print(" ".join(paths))  # noqa: T201
 elif args.workspace_path:
     if workspace_path := get_workspace_path(args.workspace_path):
-        print(f"{home_dir / workspace_path}")  # noqa: T201
+        print(home_dir / workspace_path)  # noqa: T201
 elif args.workspace_exists:
     if args.workspace_exists in get_workspaces():
         print("true")  # noqa: T201
