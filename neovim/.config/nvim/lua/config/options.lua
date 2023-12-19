@@ -74,4 +74,6 @@ vim.filetype.add({
   },
 })
 
+-- https://github.com/neovim/neovim/pull/26641
+vim.cmd.colorscheme("vim")
 vim.cmd.colorscheme("onedark")
