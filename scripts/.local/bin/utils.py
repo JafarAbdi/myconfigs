@@ -128,8 +128,7 @@ def get_ros_package_path(directory: Path, package_name: str) -> str:
     """
     import rospkg
 
-    rospack = rospkg.RosPack([directory])
-    return rospack.get_path(package_name)
+    return rospkg.RosPack([directory]).get_path(package_name)
 
 
 def get_ros_packages_path(directory: Path) -> list[tuple[str, str]]:
@@ -159,8 +158,7 @@ def get_ros_packages(directory: Path) -> list[str]:
     """
     import rospkg
 
-    rospack = rospkg.RosPack([directory])
-    return rospack.list()
+    return rospkg.RosPack([directory]).list()
 
 
 def run_command(
