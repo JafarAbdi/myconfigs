@@ -1,15 +1,54 @@
 {
-  "cmp-buffer": { "branch": "main", "commit": "3022dbc9166796b644a841a02de8dd1cc1d311fa" },
-  "cmp-nvim-lsp": { "branch": "main", "commit": "5af77f54de1b16c34b23cba810150689a3a90312" },
-  "codeium.vim": { "branch": "main", "commit": "a31ff444697497438cd2569200ddb4af846cae65" },
-  "lazy.nvim": { "branch": "main", "commit": "96584866b9c5e998cbae300594d0ccfd0c464627" },
-  "nvim-cmp": { "branch": "main", "commit": "538e37ba87284942c1d76ed38dd497e54e65b891" },
-  "nvim-dap": { "branch": "master", "commit": "f0dca670fa059eb89dda8869a6310c804241345c" },
-  "nvim-fzy": { "branch": "main", "commit": "a7a746f0e46f6e191c3ade52fd77d72a4239fe72" },
-  "nvim-lsp-compl": { "branch": "master", "commit": "512abbbf40ca98e50b69f70a45e73496adfcc3ee" },
-  "nvim-lspconfig": { "branch": "master", "commit": "9bedcfed749755e43fc8bed46f85ce2044fe3b77" },
-  "nvim-qwahl": { "branch": "main", "commit": "9002939c1c9f92f95aca33ebfa4e00fe0c78bada" },
-  "nvim-treesitter": { "branch": "master", "commit": "e49f1e8ef3e8450a8446cb1f2bbb53c919f60b6d" },
-  "nvim-treesitter-textobjects": { "branch": "master", "commit": "85b9d0cbd4ff901abcda862b50dbb34e0901848b" },
-  "vim-commentary": { "branch": "master", "commit": "e87cd90dc09c2a203e13af9704bd0ef79303d755" }
+  "cmp-buffer": {
+    "branch": "main",
+    "commit": "3022dbc9166796b644a841a02de8dd1cc1d311fa"
+  },
+  "cmp-nvim-lsp": {
+    "branch": "main",
+    "commit": "5af77f54de1b16c34b23cba810150689a3a90312"
+  },
+  "codeium.vim": {
+    "branch": "main",
+    "commit": "a31ff444697497438cd2569200ddb4af846cae65"
+  },
+  "lazy.nvim": {
+    "branch": "main",
+    "commit": "96584866b9c5e998cbae300594d0ccfd0c464627"
+  },
+  "nvim-cmp": {
+    "branch": "main",
+    "commit": "538e37ba87284942c1d76ed38dd497e54e65b891"
+  },
+  "nvim-dap": {
+    "branch": "master",
+    "commit": "f0dca670fa059eb89dda8869a6310c804241345c"
+  },
+  "nvim-fzy": {
+    "branch": "main",
+    "commit": "a7a746f0e46f6e191c3ade52fd77d72a4239fe72"
+  },
+  "nvim-lsp-compl": {
+    "branch": "master",
+    "commit": "512abbbf40ca98e50b69f70a45e73496adfcc3ee"
+  },
+  "nvim-lspconfig": {
+    "branch": "master",
+    "commit": "9bedcfed749755e43fc8bed46f85ce2044fe3b77"
+  },
+  "nvim-qwahl": {
+    "branch": "main",
+    "commit": "9002939c1c9f92f95aca33ebfa4e00fe0c78bada"
+  },
+  "nvim-treesitter": {
+    "branch": "master",
+    "commit": "e49f1e8ef3e8450a8446cb1f2bbb53c919f60b6d"
+  },
+  "nvim-treesitter-textobjects": {
+    "branch": "master",
+    "commit": "85b9d0cbd4ff901abcda862b50dbb34e0901848b"
+  },
+  "vim-commentary": {
+    "branch": "master",
+    "commit": "e87cd90dc09c2a203e13af9704bd0ef79303d755"
+  }
 }
