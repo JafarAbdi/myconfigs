@@ -5,19 +5,6 @@ return {
     dependencies = {
       "hrsh7th/cmp-nvim-lsp",
       "hrsh7th/cmp-buffer",
-      "saadparwaiz1/cmp_luasnip",
-      {
-        "L3MON4D3/LuaSnip",
-        config = function(_, _)
-          require("luasnip").config.set_config({
-            -- This tells LuaSnip to remember to keep around the last snippet.
-            -- You can jump back into it even if you move outside of the selection
-            history = true,
-            -- Autosnippets:
-            enable_autosnippets = true,
-          })
-        end,
-      },
     },
     opts = function()
       local cmp = require("cmp")
@@ -25,7 +12,7 @@ return {
       return {
         snippet = {
           expand = function(args)
-            require("luasnip").lsp_expand(args.body)
+            vim.snippet.expand(args.body)
           end,
         },
         mapping = cmp.mapping.preset.insert({
@@ -41,7 +28,6 @@ return {
         }),
         sources = {
           { name = "nvim_lsp" },
-          { name = "luasnip" },
           {
             name = "buffer",
             option = {
@@ -56,7 +42,6 @@ return {
             vim_item.menu = ({
               buffer = "[Buffer]",
               nvim_lsp = "[LSP]",
-              luasnip = "[LuaSnip]",
             })[entry.source.name]
             local label = vim_item.abbr
             -- https://github.com/hrsh7th/nvim-cmp/discussions/609

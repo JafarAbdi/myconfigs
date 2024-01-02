@@ -11,14 +11,27 @@ end
 
 local q = require("qwahl")
 
+local function try_jump(direction, key)
+  if vim.snippet.jumpable(direction) then
+    return string.format("<cmd>lua vim.snippet.jump(%d)<cr>", direction)
+  end
+  return key
+end
+
 vim.keymap.set({ "i", "s" }, "<Tab>", function()
-  local ls = require("luasnip")
-  return ls.jumpable(1) and ls.jump(1) or "<Tab>"
-end, { expr = true, silent = true })
+  return try_jump(1, "<Tab>")
+end, { expr = true })
 vim.keymap.set({ "i", "s" }, "<S-Tab>", function()
-  local ls = require("luasnip")
-  return ls.jumpable(-1) and ls.jump(-1) or "<S-Tab>"
-end, { expr = true, silent = true })
+  return try_jump(-1, "<S-Tab>")
+end, { expr = true })
+
+vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
+vim.keymap.set({ "i", "s" }, "<ESC>", function()
+  if vim.snippet then
+    vim.snippet.exit()
+  end
+  return "<ESC>"
+end, { expr = true })
 
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })

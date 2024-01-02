@@ -95,7 +95,6 @@ loglevel
 lspconfig
 luafile
 lualine
-luasnip
 lukas
 mapleader
 maplocalleader
