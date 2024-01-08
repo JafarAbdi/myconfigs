@@ -22,7 +22,7 @@ host: core
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-podman'
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-common-utils'
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-syncthing'
-	sudo apt install fonts-jetbrains-mono
+	sudo apt install fonts-jetbrains-mono flameshot
 
 dev-core:
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-dev-core && install-nvim stable'
