@@ -261,7 +261,23 @@ end
 
 local make_docker_fixup_func = function(id)
   return function(cmd)
-    cmd.args = cmd.args or { "fish" }
+    local success, stdout, _ = wezterm.run_child_process({
+      "docker",
+      "exec",
+      id,
+      "bash",
+      "-c",
+      string.format(
+        [[awk -F: -v user="%s" '$1 == user {print $NF}' /etc/passwd]],
+        os.getenv("USER")
+      ),
+    })
+    local shell = split_lines(stdout)[1]
+    -- TODO: Better detection for fish
+    if shell == "/usr/sbin/nologin" then
+      shell = "fish"
+    end
+    cmd.args = cmd.args or { shell }
     local wrapped = {
       "docker",
       "exec",
