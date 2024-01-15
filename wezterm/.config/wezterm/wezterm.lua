@@ -261,7 +261,7 @@ end
 
 local make_docker_fixup_func = function(id)
   return function(cmd)
-    local success, stdout, _ = wezterm.run_child_process({
+    local _, stdout, _ = wezterm.run_child_process({
       "docker",
       "exec",
       id,
