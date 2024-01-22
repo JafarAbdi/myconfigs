@@ -46,7 +46,7 @@ repos:
         pass_filenames: false
         entry: micromamba run --name myconfigs refurb scripts/.local/bin
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.13
+    rev: v0.1.14
     hooks:
       - id: ruff
         args: ['--show-source', '--fix', '--config', 'ruff/.config/ruff/pyproject.toml']
@@ -61,7 +61,7 @@ repos:
                '--exclude-file=.pre-commit/codespellignorelines',
                '--skip=.github/.cspell/*.txt']
   - repo: https://github.com/JohnnyMorganz/StyLua
-    rev: v0.19.1
+    rev: v0.20.0
     hooks:
       - id: stylua-github
         args: ['--config-path', 'stylua/.config/stylua/.stylua.toml']
