@@ -53,15 +53,6 @@ vim.g.codeium_filetypes = {
   ["dap-repl"] = false,
 }
 
-vim.g.netrw_list_hide = [[,\(^\|\s\s\)\zs\.\S\+]]
-vim.g.netrw_altv = 1
-vim.g.netrw_keepdir = 0
-vim.g.netrw_winsize = 20
-vim.g.netrw_localcopydircmd = "cp -r"
-vim.g.netrw_liststyle = 3
-vim.g.netrw_banner = 0
-vim.g.netrw_bufsettings = "signcolumn=no noma nomod nu nobl nowrap ro"
-
 vim.filetype.add({
   extension = {
     launch = "xml",
@@ -70,7 +61,6 @@ vim.filetype.add({
     xacro = "xml",
     install = "text",
     repos = "yaml",
-    ["code-snippets"] = "json",
   },
 })
 
