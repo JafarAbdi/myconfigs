@@ -1,50 +1,12 @@
 {
-  "cmp-buffer": {
-    "branch": "main",
-    "commit": "3022dbc9166796b644a841a02de8dd1cc1d311fa"
-  },
-  "cmp-nvim-lsp": {
-    "branch": "main",
-    "commit": "5af77f54de1b16c34b23cba810150689a3a90312"
-  },
-  "codeium.vim": {
-    "branch": "main",
-    "commit": "c18f6642f2bd071ab0154e5d333697067f9c4b70"
-  },
-  "lazy.nvim": {
-    "branch": "main",
-    "commit": "96584866b9c5e998cbae300594d0ccfd0c464627"
-  },
-  "nvim-cmp": {
-    "branch": "main",
-    "commit": "538e37ba87284942c1d76ed38dd497e54e65b891"
-  },
-  "nvim-dap": {
-    "branch": "master",
-    "commit": "e64ebf3309154b578a03c76229ebf51c37898118"
-  },
-  "nvim-fzy": {
-    "branch": "main",
-    "commit": "a7a746f0e46f6e191c3ade52fd77d72a4239fe72"
-  },
-  "nvim-lspconfig": {
-    "branch": "master",
-    "commit": "e85816c5803410cacb52e9b4fbdb72a1f1a6bd11"
-  },
-  "nvim-qwahl": {
-    "branch": "main",
-    "commit": "9002939c1c9f92f95aca33ebfa4e00fe0c78bada"
-  },
-  "nvim-treesitter": {
-    "branch": "master",
-    "commit": "0dfbf5e48e8551212c2a9f1c74cb080c8e76b5d1"
-  },
-  "nvim-treesitter-textobjects": {
-    "branch": "master",
-    "commit": "ec1c5bdb3d87ac971749fa6c7dbc2b14884f1f6a"
-  },
-  "vim-commentary": {
-    "branch": "master",
-    "commit": "e87cd90dc09c2a203e13af9704bd0ef79303d755"
-  }
+  "cmp-buffer": { "branch": "main", "commit": "3022dbc9166796b644a841a02de8dd1cc1d311fa" },
+  "cmp-nvim-lsp": { "branch": "main", "commit": "5af77f54de1b16c34b23cba810150689a3a90312" },
+  "codeium.vim": { "branch": "main", "commit": "4063291e335e74e9ee2be04beb47d40b376312fa" },
+  "lazy.nvim": { "branch": "main", "commit": "96584866b9c5e998cbae300594d0ccfd0c464627" },
+  "nvim-cmp": { "branch": "main", "commit": "538e37ba87284942c1d76ed38dd497e54e65b891" },
+  "nvim-dap": { "branch": "master", "commit": "9adbfdca13afbe646d09a8d7a86d5d031fb9c5a5" },
+  "nvim-fzy": { "branch": "main", "commit": "a7a746f0e46f6e191c3ade52fd77d72a4239fe72" },
+  "nvim-lspconfig": { "branch": "master", "commit": "7eed8b2150192e5ad05e1886fdf133493ddf2928" },
+  "nvim-qwahl": { "branch": "main", "commit": "9002939c1c9f92f95aca33ebfa4e00fe0c78bada" },
+  "vim-commentary": { "branch": "master", "commit": "f67e3e67ea516755005e6cccb178bc8439c6d402" }
 }
