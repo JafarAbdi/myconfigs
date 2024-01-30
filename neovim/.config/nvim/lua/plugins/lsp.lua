@@ -307,7 +307,13 @@ return {
               type = "directory",
             })
             if #pixi > 0 then
-              new_config.init_options.workspace.environmentPath = pixi[1] .. "/env/bin/python"
+              -- TODO: Deprecated path to pixi. Remove in next major version
+              if vim.fn.isdirectory(vim.fs.joinpath(pixi[1], "env")) == 1 then
+                new_config.init_options.workspace.environmentPath = pixi[1] .. "/env/bin/python"
+              elseif vim.fn.isdirectory(vim.fs.joinpath(pixi[1], "envs", "default")) == 1 then
+                new_config.init_options.workspace.environmentPath = pixi[1]
+                  .. "/envs/default/bin/python"
+              end
             end
           end,
           root_dir = function(startpath)
