@@ -206,11 +206,12 @@ end
 
 function install-bazel
   sudo apt install -y bazel
-  pip3 install -U absl-py
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR
   wget https://raw.githubusercontent.com/bazelbuild/bazel/master/scripts/generate_fish_completion.py
   python3 ./generate_fish_completion.py --bazel=(which bazel) --output=$HOME/.config/fish/completions/bazel.fish
+  git clone git@github.com:grailbio/bazel-compilation-database.git ~/.config/bazel-compilation-database
+  cd -
 end
 
 ## Utilities ##
