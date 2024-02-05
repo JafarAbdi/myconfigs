@@ -373,5 +373,6 @@ wezterm.on("augment-command-palette", function(_, _)
     },
   }
 end)
+config.check_for_updates = false
 
 return config
