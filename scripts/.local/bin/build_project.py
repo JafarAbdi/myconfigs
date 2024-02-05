@@ -88,7 +88,7 @@ def python(
         cmd.extend(["micromamba", "run", "-n", micromamba_env])
     python_path = "python3"
     if (pixi_prefix := find_rootdir(".pixi")(file)) is not None:
-        python_path = pixi_prefix / ".pixi" / "env" / "bin" / "python"
+        python_path = pixi_prefix / ".pixi" / "envs" / "default" / "bin" / "python"
     if is_test:
         if not file.name.startswith("test_") and not file.name.endswith("_test.py"):
             logging.error(
