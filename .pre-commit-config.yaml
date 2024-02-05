@@ -46,7 +46,7 @@ repos:
         pass_filenames: false
         entry: micromamba run --name myconfigs refurb scripts/.local/bin
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.14
+    rev: v0.2.0
     hooks:
       - id: ruff
         args: ['--show-source', '--fix', '--config', 'ruff/.config/ruff/pyproject.toml']
@@ -96,7 +96,7 @@ repos:
     hooks:
       - id: actionlint
   - repo: https://github.com/sourcery-ai/sourcery
-    rev: v1.15.0
+    rev: v1.15.1b41
     hooks:
     - id: sourcery
       # The best way to use Sourcery in a pre-commit hook:
