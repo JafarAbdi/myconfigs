@@ -1,24 +1,34 @@
-if vim.fn.exists("$NVIMRUNNING") == 1 then
-  -- can't run nvim inside terminal emulator
-  vim.fn.jobstart({
-    "nvim",
-    -- No need to load plugins
-    "-u",
-    "NONE",
-    "--server",
-    vim.env.NVIMRUNNING,
-    "--remote",
-    -- Convert all paths to absolute form since the files will be opened w.r.t. the servers cwd
-    unpack(vim.tbl_map(function(e)
-      return vim.fn.fnamemodify(e, ":p")
-    end, vim.fn.argv())),
-  }, {
-    on_exit = function()
-      vim.cmd.qall({ bang = true })
-    end,
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+if not vim.loop.fs_stat(lazypath) then
+  -- bootstrap lazy.nvim
+  vim.fn.system({
+    "git",
+    "clone",
+    "--filter=blob:none",
+    "https://github.com/folke/lazy.nvim.git",
+    "--branch=stable",
+    lazypath,
   })
-else
-  vim.fn.setenv("NVIMRUNNING", vim.api.nvim_get_vvar("servername"))
 end
+vim.opt.rtp:prepend(lazypath)
 
-require("config.lazy")
+require("lazy").setup({
+  spec = {
+    { import = "plugins" },
+  },
+  defaults = {
+    lazy = true, -- every plugin is lazy-loaded by default
+  },
+  checker = { enabled = false }, -- automatically check for plugin updates
+  performance = {
+    rtp = {
+      disabled_plugins = {
+        "matchparen",
+      },
+    },
+  },
+  change_detection = {
+    enabled = false,
+    notify = false,
+  },
+})
