@@ -22,6 +22,7 @@ end
 function install-core
   sudo apt update
   sudo apt install -y python3-venv \
+                      fswatch \
                       stow \
                       software-properties-common \
                       python-is-python3 \
