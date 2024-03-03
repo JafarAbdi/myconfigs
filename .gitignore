@@ -1,3 +1,5 @@
 tmux/plugins
 *.spl
 mynotes
+# pixi environments
+.pixi

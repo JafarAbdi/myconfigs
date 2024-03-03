@@ -44,7 +44,7 @@ repos:
         name: refurb
         language: system
         pass_filenames: false
-        entry: micromamba run --name myconfigs refurb scripts/.local/bin
+        entry: pixi run refurb scripts/.local/bin
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.2.2
     hooks:
