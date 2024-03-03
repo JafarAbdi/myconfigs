@@ -1,3 +1,4 @@
+vim.opt.foldenable = false
 vim.opt.number = true
 vim.opt.mouse = "a"
 vim.opt.undofile = true

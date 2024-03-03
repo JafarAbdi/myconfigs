@@ -11,6 +11,17 @@ vim.api.nvim_create_autocmd({ "TextYankPost" }, {
 })
 
 vim.api.nvim_create_autocmd("FileType", {
+  pattern = "dap-repl",
+  callback = function()
+    vim.opt_local.number = false
+    vim.opt_local.relativenumber = false
+    vim.opt_local.colorcolumn = "-1"
+    vim.opt_local.cursorcolumn = false
+    require("dap.ext.autocompl").attach()
+  end,
+})
+
+vim.api.nvim_create_autocmd("FileType", {
   pattern = { "cpp", "c" },
   group = general_group,
   callback = function()

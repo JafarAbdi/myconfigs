@@ -43,15 +43,6 @@ return {
             codeAction = true,
             completion = false,
           },
-          cmd = {
-            "efm-langserver",
-            "-c",
-            vim.env.HOME .. "/.config/nvim/lua/config/efm.yaml",
-            -- "-logfile",
-            -- "/tmp/efm-logging.txt",
-            -- "-loglevel",
-            -- "6",
-          },
           filetypes = {
             "python",
             "cmake",
@@ -67,6 +58,131 @@ return {
           root_dir = function(dir)
             return require("lspconfig").util.find_git_ancestor(dir) or vim.uv.cwd()
           end,
+          settings = {
+            languages = {
+              python = {
+                {
+                  lintCommand = "micromamba run -n linters mypy --show-column-numbers --install-types --non-interactive --hide-error-codes --hide-error-context --no-color-output --no-error-summary --no-pretty",
+                  lintFormats = {
+                    "%f:%l:%c: error: %m",
+                    "%f:%l:%c: %tarning: %m",
+                    "%f:%l:%c: %tote: %m",
+                  },
+                  lintSeverity = vim.diagnostic.severity.WARN,
+                },
+                {
+                  formatCommand = "micromamba run -n linters black --quiet -",
+                  formatStdin = true,
+                },
+                {
+                  lintCommand = "micromamba run -n linters ruff --quiet ${INPUT}",
+                  lintStdin = true,
+                  lintFormats = {
+                    "%f:%l:%c: %m",
+                  },
+                  lintSeverity = vim.diagnostic.severity.WARN,
+                },
+              },
+              cmake = {
+                {
+                  lintCommand = "cmake-lint",
+                  lintFormats = {
+                    "%f:%l,%c: %m",
+                  },
+                  lintSeverity = vim.diagnostic.severity.WARN,
+                },
+                {
+                  formatCommand = "cmake-format -",
+                  formatStdin = true,
+                },
+              },
+              json = {
+                {
+                  lintCommand = "python3 -m json.tool",
+                  lintStdin = true,
+                  lintFormats = {
+                    "%m: line %l column %c (char %r)",
+                  },
+                },
+                {
+                  formatCommand = "python3 -m json.tool",
+                  formatStdin = true,
+                },
+              },
+              markdown = {
+                {
+                  formatCommand = "pandoc -f markdown -t gfm -sp --tab-stop=2",
+                  formatStdin = true,
+                },
+              },
+              rst = {
+                {
+                  formatCommand = "pandoc -f rst -t rst -s --columns=79",
+                  formatStdin = true,
+                },
+                {
+                  lintCommand = "rstcheck -",
+                  lintStdin = true,
+                  lintFormats = {
+                    "%f:%l: (%tNFO/1) %m",
+                    "%f:%l: (%tARNING/2) %m",
+                    "%f:%l: (%tRROR/3) %m",
+                    "%f:%l: (%tEVERE/4) %m",
+                  },
+                },
+              },
+              sh = {
+                {
+                  lintCommand = "shellcheck -f gcc -x -",
+                  lintStdin = true,
+                  lintFormats = {
+                    "%f:%l:%c: %trror: %m",
+                    "%f:%l:%c: %tarning: %m",
+                    "%f:%l:%c: %tote: %m",
+                  },
+                },
+              },
+              tex = {
+                {
+                  lintCommand = "chktex -v0 -q",
+                  lintStdin = true,
+                  lintFormats = {
+                    "%f:%l:%c:%m",
+                  },
+                },
+              },
+              yaml = {
+                {
+                  lintCommand = "yamllint -f parsable -",
+                  lintStdin = true,
+                },
+                {
+                  prefix = "actionlint",
+                  lintCommand = "bash -c \"[[ '${INPUT}' =~ \\\\.github/workflows/ ]]\" && actionlint -oneline -no-color -",
+                  lintStdin = true,
+                  lintFormats = {
+                    "%f:%l:%c: %m",
+                  },
+                  rootMarkers = { ".github" },
+                },
+              },
+              lua = {
+                {
+                  formatCommand = "stylua --search-parent-directories -",
+                  formatStdin = true,
+                },
+              },
+              dockerfile = {
+                {
+                  lintCommand = "hadolint --no-color",
+                  lintFormats = {
+                    "%f:%l %m",
+                  },
+                  lintSeverity = vim.diagnostic.severity.WARN,
+                },
+              },
+            },
+          },
         },
         lua_ls = {
           cmd = { vim.env.HOME .. "/.config/lua-lsp/bin/lua-language-server" },
