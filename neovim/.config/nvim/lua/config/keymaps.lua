@@ -24,6 +24,15 @@ end, { expr = true })
 vim.keymap.set({ "i", "s" }, "<S-Tab>", function()
   return try_jump(-1, "<S-Tab>")
 end, { expr = true })
+vim.keymap.set("i", "<C-e>", function()
+  if vim.fn.pumvisible() == 1 then
+    require("epo").disable_trigger()
+  end
+  return "<C-e>"
+end, { expr = true, noremap = true })
+vim.keymap.set("i", "<CR>", function()
+  return vim.fn.pumvisible() == 1 and "<c-y>" or "<CR>"
+end, { expr = true, noremap = true })
 
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 vim.keymap.set({ "i", "s" }, "<ESC>", function()
@@ -81,10 +90,6 @@ keymap("n", "gs", function()
 end)
 M.lsp = function(bufnr)
   keymap({ "n", "i" }, "<C-k>", function()
-    local cmp = require("cmp")
-    if cmp.visible() then
-      cmp.close()
-    end
     vim.lsp.buf.signature_help()
   end, bufnr)
   keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, bufnr)
