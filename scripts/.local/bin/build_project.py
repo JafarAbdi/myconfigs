@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 """Run a file in a workspace."""
 
-
 import argparse
 import json
 import logging

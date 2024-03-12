@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 """A script to run clang-tidy on a cmake project."""
 
-
 import argparse
 import pathlib
 

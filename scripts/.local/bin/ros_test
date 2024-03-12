@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 """A script to run tests on a ROS package using colcon/catkin."""
 
-
 import argparse
 import json
 import logging
