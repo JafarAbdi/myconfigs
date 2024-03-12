@@ -9,19 +9,19 @@
   },
   "codeium.vim": {
     "branch": "main",
-    "commit": "4063291e335e74e9ee2be04beb47d40b376312fa"
+    "commit": "c6728c9ebef67f97c252d9754f1466a74ef7551e"
   },
   "lazy.nvim": {
     "branch": "main",
-    "commit": "96584866b9c5e998cbae300594d0ccfd0c464627"
+    "commit": "83493db50a434a4c5c648faf41e2ead80f96e478"
   },
   "nvim-cmp": {
     "branch": "main",
-    "commit": "538e37ba87284942c1d76ed38dd497e54e65b891"
+    "commit": "04e0ca376d6abdbfc8b52180f8ea236cbfddf782"
   },
   "nvim-dap": {
     "branch": "master",
-    "commit": "9adbfdca13afbe646d09a8d7a86d5d031fb9c5a5"
+    "commit": "fc880e82059eb21c0fa896be60146e5f17680648"
   },
   "nvim-fzy": {
     "branch": "main",
@@ -29,7 +29,7 @@
   },
   "nvim-lspconfig": {
     "branch": "master",
-    "commit": "7eed8b2150192e5ad05e1886fdf133493ddf2928"
+    "commit": "e172dd599cff2ae5267871b5e33fb42934c4df43"
   },
   "nvim-qwahl": {
     "branch": "main",
