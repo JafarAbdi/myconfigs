@@ -1,5 +1,3 @@
-source ~/myconfigs/fish/conf.d/unix.fish
-
 function install-from-github
   if test (count $argv) -ne 2
     echo "install-from-github requires 2 inputs USER/REPO regex"
