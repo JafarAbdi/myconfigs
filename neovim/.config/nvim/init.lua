@@ -38,15 +38,6 @@ local new_window = function()
   vim.cmd("botright " .. math.floor(vim.opt.lines:get() / 4) .. " new")
 end
 
-local keymap = function(mode, lhs, callback, bufnr)
-  vim.keymap.set(
-    mode,
-    lhs,
-    callback,
-    bufnr and { silent = true, buffer = bufnr } or { silent = true }
-  )
-end
-
 local term = {
   jobid = nil,
   bufnr = nil,
@@ -418,24 +409,44 @@ vim.api.nvim_create_autocmd("TermOpen", {
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
-    keymap({ "n", "i" }, "<C-k>", function()
+    vim.keymap.set({ "n", "i" }, "<C-k>", function()
       local cmp = require("cmp")
       if cmp.visible() then
         cmp.close()
       end
       vim.lsp.buf.signature_help()
-    end, args.buf)
-    keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, args.buf)
-    keymap("n", "gi", set_clangd_opening_path(vim.lsp.buf.implementation), args.buf)
-    keymap("n", "gr", set_clangd_opening_path(vim.lsp.buf.references), args.buf)
-    keymap("n", "gd", set_clangd_opening_path(vim.lsp.buf.definition), args.buf)
-    keymap("n", "<F2>", vim.lsp.buf.rename, args.buf)
-    keymap("n", "<leader>f", function()
+    end, { buffer = args.buf, silent = true })
+    vim.keymap.set(
+      { "n", "v" },
+      "<F3>",
+      vim.lsp.buf.code_action,
+      { buffer = args.buf, silent = true }
+    )
+    vim.keymap.set(
+      "n",
+      "gi",
+      set_clangd_opening_path(vim.lsp.buf.implementation),
+      { buffer = args.buf, silent = true }
+    )
+    vim.keymap.set(
+      "n",
+      "gr",
+      set_clangd_opening_path(vim.lsp.buf.references),
+      { buffer = args.buf, silent = true }
+    )
+    vim.keymap.set(
+      "n",
+      "gd",
+      set_clangd_opening_path(vim.lsp.buf.definition),
+      { buffer = args.buf, silent = true }
+    )
+    vim.keymap.set("n", "<F2>", vim.lsp.buf.rename, { buffer = args.buf, silent = true })
+    vim.keymap.set("n", "<leader>f", function()
       vim.lsp.buf.format({ async = true })
-    end, args.buf)
-    keymap({ "i", "n" }, "<M-i>", function()
+    end, { buffer = args.buf, silent = true })
+    vim.keymap.set({ "i", "n" }, "<M-i>", function()
       return vim.lsp.inlay_hint.enable(0, not vim.lsp.inlay_hint.is_enabled())
-    end, args.buf)
+    end, { buffer = args.buf, silent = true })
   end,
   group = general_group,
 })
@@ -499,19 +510,19 @@ require("lazy").setup({
     config = function()
       local dap = require("dap")
       local widgets = require("dap.ui.widgets")
-      keymap("n", "<F5>", dap.continue)
-      keymap("n", "<leader>b", dap.toggle_breakpoint)
-      keymap("n", "<leader>db", function()
+      vim.keymap.set("n", "<F5>", dap.continue, { silent = true })
+      vim.keymap.set("n", "<leader>b", dap.toggle_breakpoint, { silent = true })
+      vim.keymap.set("n", "<leader>db", function()
         dap.toggle_breakpoint(vim.fn.input({ prompt = "Breakpoint Condition: " }), nil, nil, true)
-      end)
-      keymap("n", "<leader>dl", function()
+      end, { silent = true })
+      vim.keymap.set("n", "<leader>dl", function()
         dap.list_breakpoints(true)
-      end)
-      keymap("n", "<leader>dr", function()
+      end, { silent = true })
+      vim.keymap.set("n", "<leader>dr", function()
         dap.repl.toggle({ height = 15 })
-      end)
-      keymap({ "n", "v" }, "<leader>dh", widgets.hover)
-      keymap({ "n", "v" }, "<leader>dp", widgets.preview)
+      end, { silent = true })
+      vim.keymap.set({ "n", "v" }, "<leader>dh", widgets.hover, { silent = true })
+      vim.keymap.set({ "n", "v" }, "<leader>dp", widgets.preview, { silent = true })
       local dap = require("dap")
       -- dap.defaults.fallback.exception_breakpoints = { "userUnhandled" }
       dap.defaults.fallback.switchbuf = "usetab,uselast"
@@ -961,52 +972,6 @@ require("lazy").setup({
             },
           },
         },
-        jsonls = {
-          -- ... -- other configuration for setup {}
-          cmd = { "micromamba", "run", "-n", "nodejs", "vscode-json-language-server", "--stdio" },
-          settings = {
-            json = {
-              schemas = {
-                {
-                  description = "JSON schema for ESLint configuration files",
-                  fileMatch = { ".eslintrc", ".eslintrc.json", ".eslintrc.yml", ".eslintrc.yaml" },
-                  name = ".eslintrc",
-                  url = "https://json.schemastore.org/eslintrc.json",
-                },
-                {
-                  description = "Schema for code snippet files in visual studio code extensions",
-                  fileMatch = { "*.code-snippets" },
-                  name = "VSCode Code Snippets",
-                  url = "https://raw.githubusercontent.com/Yash-Singh1/vscode-snippets-json-schema/main/schema.json",
-                },
-                {
-                  description = "Vercel configuration file",
-                  fileMatch = { "vercel.json" },
-                  name = "Vercel",
-                  url = "https://openapi.vercel.sh/vercel.json",
-                },
-                {
-                  description = "Schema for CMake Presets",
-                  fileMatch = { "CMakePresets.json", "CMakeUserPresets.json" },
-                  name = "CMake Presets",
-                  url = "https://raw.githubusercontent.com/Kitware/CMake/master/Help/manual/presets/schema.json",
-                },
-                {
-                  description = "",
-                  fileMatch = {},
-                  name = "Common types for all schemas",
-                  url = "https://json.schemastore.org/base.json",
-                },
-                {
-                  description = "LLVM compilation database",
-                  fileMatch = { "compile_commands.json" },
-                  name = "compile_commands.json",
-                  url = "https://json.schemastore.org/compile-commands.json",
-                },
-              },
-            },
-          },
-        },
         rust_analyzer = {
           cmd = {
             vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer",
@@ -1036,91 +1001,6 @@ require("lazy").setup({
                       scope = "item",
                     },
                   },
-                },
-              },
-            },
-          },
-        },
-        yamlls = {
-          cmd = { "micromamba", "run", "-n", "nodejs", "yaml-language-server", "--stdio" },
-          settings = {
-            yaml = {
-              schemas = {
-                ["https://raw.githubusercontent.com/ansible-community/schemas/main/f/ansible-ee.json"] = {
-                  "**/execution-environment.yml",
-                },
-                ["https://raw.githubusercontent.com/ansible-community/schemas/main/f/ansible-meta.json"] = {
-                  "**/meta/main.yml",
-                },
-                ["https://raw.githubusercontent.com/ansible-community/schemas/main/f/ansible-meta-runtime.json"] = {
-                  "**/meta/runtime.yml",
-                },
-                ["https://raw.githubusercontent.com/ansible-community/schemas/main/f/ansible-requirements.json"] = {
-                  "requirements.yml",
-                },
-                ["https://raw.githubusercontent.com/ansible-community/schemas/main/f/ansible-vars.json"] = {
-                  "**/vars/*.yml",
-                  "**/vars/*.yaml",
-                  "**/defaults/*.yml",
-                  "**/defaults/*.yaml",
-                  "**/host_vars/*.yml",
-                  "**/host_vars/*.yaml",
-                  "**/group_vars/*.yml",
-                  "**/group_vars/*.yaml",
-                },
-                ["https://raw.githubusercontent.com/ansible-community/schemas/main/f/ansible.json#/$defs/tasks"] = {
-                  "**/tasks/*.yml",
-                  "**/tasks/*.yaml",
-                  "**/handlers/*.yml",
-                  "**/handlers/*.yaml",
-                },
-                ["https://raw.githubusercontent.com/ansible-community/schemas/main/f/ansible.json#/$defs/playbook"] = {
-                  "playbook.yml",
-                  "playbook.yaml",
-                  "site.yml",
-                  "site.yaml",
-                  "**/playbooks/*.yml",
-                  "**/playbooks/*.yaml",
-                },
-                ["https://raw.githubusercontent.com/ansible-community/schemas/main/f/ansible-inventory.json"] = {
-                  "inventory.yml",
-                  "inventory.yaml",
-                },
-                ["https://raw.githubusercontent.com/ansible-community/schemas/main/f/ansible-galaxy.json"] = {
-                  "galaxy.yml",
-                },
-                ["https://raw.githubusercontent.com/ansible-community/schemas/main/f/ansible-lint.json"] = {
-                  ".ansible-lint",
-                  ".config/ansible-lint.yml",
-                },
-                ["https://raw.githubusercontent.com/ansible/ansible-navigator/main/src/ansible_navigator/data/ansible-navigator.json"] = {
-                  ".ansible-navigator.json",
-                  ".ansible-navigator.yaml",
-                  ".ansible-navigator.yml",
-                  "ansible-navigator.json",
-                  "ansible-navigator.yaml",
-                  "ansible-navigator.yml",
-                },
-                ["https://json.schemastore.org/pre-commit-config.json"] = {
-                  ".pre-commit-config.yml",
-                  ".pre-commit-config.yaml",
-                },
-                ["https://json.schemastore.org/github-action.json"] = {
-                  "action.yml",
-                  "action.yaml",
-                },
-                ["https://json.schemastore.org/codecov.json"] = {
-                  ".codecov.yrml",
-                  "codecov.yaml",
-                  ".codecov.yml",
-                  "codecov.yml",
-                },
-                ["https://json.schemastore.org/github-workflow.json"] = {
-                  ".github/workflows/**.yml",
-                  ".github/workflows/**.yaml",
-                },
-                ["https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json"] = {
-                  "docker-compose.yml",
                 },
               },
             },
@@ -1356,20 +1236,20 @@ vim.keymap.set("i", "<c-c>", function()
   return vim.fn["codeium#Clear"]()
 end, { expr = true })
 
-keymap("n", "gs", function()
+vim.keymap.set("n", "gs", function()
   q.try(q.lsp_tags, q.buf_tags)
-end)
+end, { silent = true })
 
-keymap("n", "<leader>t", function()
+vim.keymap.set("n", "<leader>t", function()
   run_file(true)
-end)
-keymap("n", "<leader>x", function()
+end, { silent = true })
+vim.keymap.set("n", "<leader>x", function()
   run_file(false)
-end)
-keymap("n", "<leader>h", q.helptags)
-keymap("n", "<leader><space>", q.buffers)
-keymap("n", "<leader>gc", q.buf_lines)
-keymap("n", "<C-M-s>", function()
+end, { silent = true })
+vim.keymap.set("n", "<leader>h", q.helptags, { silent = true })
+vim.keymap.set("n", "<leader><space>", q.buffers, { silent = true })
+vim.keymap.set("n", "<leader>gc", q.buf_lines, { silent = true })
+vim.keymap.set("n", "<C-M-s>", function()
   local cword = vim.fn.expand("<cword>")
   if cword ~= "" then
     fzy.execute(
@@ -1377,21 +1257,21 @@ keymap("n", "<C-M-s>", function()
       fzy.sinks.edit_live_grep
     )
   end
-end)
-keymap("n", "<M-o>", function()
+end, { silent = true })
+vim.keymap.set("n", "<M-o>", function()
   fzy.execute("fd --hidden --type f --strip-cwd-prefix", fzy.sinks.edit_file)
-end)
-keymap("n", "<leader>j", q.jumplist)
+end, { silent = true })
+vim.keymap.set("n", "<leader>j", q.jumplist, { silent = true })
 
 -- Diagnostic keymaps
-keymap("n", "<leader>df", vim.diagnostic.open_float)
-keymap("n", "<leader>q", q.quickfix)
-keymap("n", "<leader>dq", function()
+vim.keymap.set("n", "<leader>df", vim.diagnostic.open_float, { silent = true })
+vim.keymap.set("n", "<leader>q", q.quickfix, { silent = true })
+vim.keymap.set("n", "<leader>dq", function()
   q.diagnostic(0)
-end)
+end, { silent = true })
 
 local win_pre_copen = nil
-keymap("n", "<leader>c", function()
+vim.keymap.set("n", "<leader>c", function()
   local api = vim.api
   for _, win in pairs(api.nvim_list_wins()) do
     local buf = api.nvim_win_get_buf(win)
@@ -1411,7 +1291,7 @@ keymap("n", "<leader>c", function()
   -- no quickfix buffer found so far, so show it
   win_pre_copen = api.nvim_get_current_win()
   api.nvim_command("botright copen")
-end)
+end, { silent = true })
 
 local center_screen = function(command)
   return function()
@@ -1422,19 +1302,19 @@ local center_screen = function(command)
   end
 end
 
-keymap("n", "]q", center_screen(vim.cmd.cnext))
-keymap("n", "[q", center_screen(vim.cmd.cprevious))
-keymap("n", "]Q", center_screen(vim.cmd.clast))
-keymap("n", "[Q", center_screen(vim.cmd.cfirst))
-keymap("n", "]a", center_screen(vim.cmd.next))
-keymap("n", "[a", center_screen(vim.cmd.previous))
-keymap("n", "]A", center_screen(vim.cmd.last))
-keymap("n", "[A", center_screen(vim.cmd.first))
-keymap("n", "]l", center_screen(vim.cmd.lnext))
-keymap("n", "[l", center_screen(vim.cmd.lprevious))
-keymap("n", "]L", center_screen(vim.cmd.lfirst))
-keymap("n", "[L", center_screen(vim.cmd.llast))
-keymap("n", "]d", center_screen(vim.diagnostic.goto_next))
-keymap("n", "[d", center_screen(vim.diagnostic.goto_prev))
-keymap("n", "]t", center_screen(vim.cmd.tn))
-keymap("n", "[t", center_screen(vim.cmd.tp))
+vim.keymap.set("n", "]q", center_screen(vim.cmd.cnext), { silent = true })
+vim.keymap.set("n", "[q", center_screen(vim.cmd.cprevious), { silent = true })
+vim.keymap.set("n", "]Q", center_screen(vim.cmd.clast), { silent = true })
+vim.keymap.set("n", "[Q", center_screen(vim.cmd.cfirst), { silent = true })
+vim.keymap.set("n", "]a", center_screen(vim.cmd.next), { silent = true })
+vim.keymap.set("n", "[a", center_screen(vim.cmd.previous), { silent = true })
+vim.keymap.set("n", "]A", center_screen(vim.cmd.last), { silent = true })
+vim.keymap.set("n", "[A", center_screen(vim.cmd.first), { silent = true })
+vim.keymap.set("n", "]l", center_screen(vim.cmd.lnext), { silent = true })
+vim.keymap.set("n", "[l", center_screen(vim.cmd.lprevious), { silent = true })
+vim.keymap.set("n", "]L", center_screen(vim.cmd.lfirst), { silent = true })
+vim.keymap.set("n", "[L", center_screen(vim.cmd.llast), { silent = true })
+vim.keymap.set("n", "]d", center_screen(vim.diagnostic.goto_next), { silent = true })
+vim.keymap.set("n", "[d", center_screen(vim.diagnostic.goto_prev), { silent = true })
+vim.keymap.set("n", "]t", center_screen(vim.cmd.tn), { silent = true })
+vim.keymap.set("n", "[t", center_screen(vim.cmd.tp), { silent = true })
