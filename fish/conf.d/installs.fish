@@ -21,7 +21,8 @@ end
 
 function install-core
   sudo apt update
-  sudo apt install -y python3-venv \
+  sudo apt install -y --allow-change-held-packages \
+                      python3-venv \
                       fswatch \
                       stow \
                       software-properties-common \
