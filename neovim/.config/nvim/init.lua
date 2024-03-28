@@ -273,7 +273,7 @@ local root_dirs = {
 }
 root_dirs.c = root_dirs.cpp
 
-local lsp_status = function()
+_G.lsp_status = function()
   local lsp_status = vim.lsp.status()
   if lsp_status == "" then
     return ""
@@ -281,14 +281,7 @@ local lsp_status = function()
   return " | " .. lsp_status
 end
 
-local codeium_status = function()
-  if require("lazy.core.config").plugins["codeium.vim"]._.loaded == nil then
-    return ""
-  end
-  return " |  :" .. vim.fn["codeium#GetStatusString"]()
-end
-
-local dap_status = function()
+_G.dap_status = function()
   if require("lazy.core.config").plugins["nvim-dap"]._.loaded == nil then
     return ""
   end
@@ -423,6 +416,29 @@ vim.api.nvim_create_autocmd("TermOpen", {
 })
 
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
+vim.api.nvim_create_autocmd("LspAttach", {
+  callback = function(args)
+    keymap({ "n", "i" }, "<C-k>", function()
+      local cmp = require("cmp")
+      if cmp.visible() then
+        cmp.close()
+      end
+      vim.lsp.buf.signature_help()
+    end, args.buf)
+    keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, args.buf)
+    keymap("n", "gi", set_clangd_opening_path(vim.lsp.buf.implementation), args.buf)
+    keymap("n", "gr", set_clangd_opening_path(vim.lsp.buf.references), args.buf)
+    keymap("n", "gd", set_clangd_opening_path(vim.lsp.buf.definition), args.buf)
+    keymap("n", "<F2>", vim.lsp.buf.rename, args.buf)
+    keymap("n", "<leader>f", function()
+      vim.lsp.buf.format({ async = true })
+    end, args.buf)
+    keymap({ "i", "n" }, "<M-i>", function()
+      return vim.lsp.inlay_hint.enable(0, not vim.lsp.inlay_hint.is_enabled())
+    end, args.buf)
+  end,
+  group = general_group,
+})
 
 vim.api.nvim_create_user_command("DapAttach", function()
   -- output format for ps ah
@@ -1189,34 +1205,9 @@ require("lazy").setup({
           offsetEncoding = { "utf-16" },
         }
       )
-      local on_attach = function(_, bufnr)
-        -- TODO: Replace with LspAttach autocmd
-        keymap({ "n", "i" }, "<C-k>", function()
-          local cmp = require("cmp")
-          if cmp.visible() then
-            cmp.close()
-          end
-          vim.lsp.buf.signature_help()
-        end, bufnr)
-        keymap({ "n", "v" }, "<F3>", vim.lsp.buf.code_action, bufnr)
-        keymap("n", "gi", set_clangd_opening_path(vim.lsp.buf.implementation), bufnr)
-        keymap("n", "gr", set_clangd_opening_path(vim.lsp.buf.references), bufnr)
-        keymap("n", "gd", set_clangd_opening_path(vim.lsp.buf.definition), bufnr)
-        keymap("n", "<F2>", vim.lsp.buf.rename, bufnr)
-        keymap("n", "<leader>f", function()
-          vim.lsp.buf.format({ async = true })
-        end, bufnr)
-        keymap({ "i", "n" }, "<M-i>", function()
-          return vim.lsp.inlay_hint.enable(0, not vim.lsp.inlay_hint.is_enabled())
-        end, bufnr)
-      end
       for server, server_opts in pairs(opts.servers) do
         require("lspconfig")[server].setup(
-          vim.tbl_deep_extend(
-            "error",
-            server_opts,
-            { capabilities = capabilities, on_attach = on_attach }
-          )
+          vim.tbl_deep_extend("error", server_opts, { capabilities = capabilities })
         )
       end
     end,
@@ -1274,8 +1265,7 @@ vim.opt.matchpairs:append("<:>")
 vim.opt.swapfile = false
 vim.opt.signcolumn = "number"
 vim.opt.laststatus = 3
--- vim.opt.statusline =
---   [[%<%f %m%r%{luaeval("lsp_status()")} %{luaeval("codeium_status()")} %= %{luaeval("dap_status()")}]]
+vim.opt.statusline = [[%<%f %m%r%{luaeval("lsp_status()")} %= %{luaeval("dap_status()")}]]
 vim.opt.smartindent = false
 vim.opt.pumheight = 20
 vim.opt.completeopt = "menuone,noselect,noinsert"
