@@ -157,20 +157,6 @@ local program = function()
   })
 end
 
-local launch_lldb_in_console = {
-  name = "lldb: Launch (console)",
-  type = "lldb",
-  request = "launch",
-  program = program,
-  cwd = "${workspaceFolder}",
-  stopOnEntry = false,
-  args = function()
-    local args_string = vim.fn.input("Arguments: ")
-    return vim.split(args_string, " ")
-  end,
-  runInTerminal = false,
-}
-
 local launch_lldb_in_terminal = {
   name = "lldb: Launch (integratedTerminal)",
   type = "lldb",
@@ -523,7 +509,6 @@ require("lazy").setup({
       end, { silent = true })
       vim.keymap.set({ "n", "v" }, "<leader>dh", widgets.hover, { silent = true })
       vim.keymap.set({ "n", "v" }, "<leader>dp", widgets.preview, { silent = true })
-      local dap = require("dap")
       -- dap.defaults.fallback.exception_breakpoints = { "userUnhandled" }
       dap.defaults.fallback.switchbuf = "usetab,uselast"
       dap.defaults.fallback.terminal_win_cmd = "tabnew"
