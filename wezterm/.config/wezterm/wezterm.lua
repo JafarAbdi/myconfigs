@@ -211,37 +211,8 @@ config.front_end = "OpenGL"
 config.font =
   wezterm.font({ family = "JetBrains Mono", harfbuzz_features = { "calt=0", "clig=0", "liga=0" } })
 config.term = "wezterm"
--- Same colors as st's onedark theme
-config.colors = {
-  -- The default text color
-  foreground = "#ABB2BF",
-  -- The default background color
-  background = "#282C34",
-
-  ansi = {
-    "#000000",
-    "#E06C75",
-    "#98C379",
-    "#E5C07B",
-    "#61AFEF",
-    "#ff79c6",
-    "#56B6C2",
-    "#ABB2BF",
-  },
-  brights = {
-    "#44475a",
-    "#ff5555",
-    "#50fa7b",
-    "#f1fa8c",
-    "#bd93f9",
-    "#ff79c6",
-    "#8be9fd",
-    "#ffffff",
-  },
-}
 
 -- Docker domains
-
 local split_lines = function(s)
   local lines = {}
   for line in s:gmatch("[^\n]+") do
