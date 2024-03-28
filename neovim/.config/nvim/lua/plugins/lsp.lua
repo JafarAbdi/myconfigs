@@ -54,6 +54,7 @@ return {
             "yaml",
             "lua",
             "dockerfile",
+            "xml",
           },
           root_dir = function(dir)
             return require("lspconfig").util.find_git_ancestor(dir) or vim.uv.cwd()
@@ -179,6 +180,12 @@ return {
                     "%f:%l %m",
                   },
                   lintSeverity = vim.diagnostic.severity.WARN,
+                },
+              },
+              xml = {
+                {
+                  formatCommand = "xmllint --format -",
+                  formatStdin = true,
                 },
               },
             },
