@@ -1,5 +1,3 @@
-source ~/myconfigs/fish/conf.d/unix.fish
-
 function install-from-github
   if test (count $argv) -ne 2
     echo "install-from-github requires 2 inputs USER/REPO regex"
@@ -21,7 +19,8 @@ end
 
 function install-core
   sudo apt update
-  sudo apt install -y python3-venv \
+  sudo apt install -y --allow-change-held-packages \
+                      python3-venv \
                       fswatch \
                       stow \
                       software-properties-common \
