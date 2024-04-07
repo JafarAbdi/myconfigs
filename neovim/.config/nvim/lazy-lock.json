@@ -34,9 +34,5 @@
   "nvim-qwahl": {
     "branch": "main",
     "commit": "9002939c1c9f92f95aca33ebfa4e00fe0c78bada"
-  },
-  "vim-commentary": {
-    "branch": "master",
-    "commit": "f67e3e67ea516755005e6cccb178bc8439c6d402"
   }
 }

@@ -489,7 +489,6 @@ require("lazy").setup({
   { "mfussenegger/nvim-qwahl" },
   { "mfussenegger/nvim-fzy" },
   { "Exafunction/codeium.vim", event = "VeryLazy" },
-  { "tpope/vim-commentary", keys = { { "gc", mode = "v" }, "gcc" } },
   {
     "mfussenegger/nvim-dap",
     event = "VeryLazy",
