@@ -395,19 +395,6 @@ vim.api.nvim_create_autocmd("TermOpen", {
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
-    vim.keymap.set({ "n", "i" }, "<C-k>", function()
-      local cmp = require("cmp")
-      if cmp.visible() then
-        cmp.close()
-      end
-      vim.lsp.buf.signature_help()
-    end, { buffer = args.buf, silent = true })
-    vim.keymap.set(
-      { "n", "v" },
-      "<F3>",
-      vim.lsp.buf.code_action,
-      { buffer = args.buf, silent = true }
-    )
     vim.keymap.set(
       "n",
       "gi",
@@ -426,7 +413,6 @@ vim.api.nvim_create_autocmd("LspAttach", {
       set_clangd_opening_path(vim.lsp.buf.definition),
       { buffer = args.buf, silent = true }
     )
-    vim.keymap.set("n", "<F2>", vim.lsp.buf.rename, { buffer = args.buf, silent = true })
     vim.keymap.set("n", "<leader>f", function()
       vim.lsp.buf.format({ async = true })
     end, { buffer = args.buf, silent = true })
