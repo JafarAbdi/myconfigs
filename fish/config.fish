@@ -237,6 +237,9 @@ end
 if command -v difft &> /dev/null
   set -gx GIT_EXTERNAL_DIFF "difft --color=always --tab-width=2"
 end
+if command -v fzf &> /dev/null
+  fzf --fish | source
+end
 # gdb
 alias gdbrun='gdb --ex run --args '
 alias colorless='sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g"'

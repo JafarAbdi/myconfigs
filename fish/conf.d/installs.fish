@@ -60,11 +60,7 @@ function install-core
 end
 
 function config-fish
-  rm -rf ~/.config/fish || true && mkdir -p ~/.config/fish/functions
-  echo "\
-         function fish_user_key_bindings
-         fzf_key_bindings
-         end" | tee ~/.config/fish/functions/fish_user_key_bindings.fish
+  rm -rf ~/.config/fish || true && mkdir -p ~/.config/fish
   echo "source ~/myconfigs/fish/config.fish" | tee ~/.config/fish/config.fish
   curl -sL https://git.io/fisher | source && fisher install jorgebucaran/fisher
   # To be able to source bash scripts
