@@ -733,15 +733,6 @@ function install-syncthing
   sudo systemctl enable syncthing@$USER.service && sudo systemctl start syncthing@$USER.service
 end
 
-function install-rattler
-  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-  cd $TMP_DIR
-  install-from-github "prefix-dev/rattler-build" "rattler-build-.*-x86_64-unknown-linux-gnu.tar.gz"
-  tar xzf rattler-build* --strip-components 1
-  mv rattler-build ~/.local/bin
-  sudo apt install -y patchelf
-end
-
 # Profilers
 function install-pyinstrument
   pip3 install -U pyinstrument
@@ -778,6 +769,12 @@ function install-gcloud
   sudo apt-get update && sudo apt-get install google-cloud-cli fuse gcsfuse
   gcloud init
   gcloud auth application-default login
+end
+
+function install-rattler-build
+  wget https://github.com/prefix-dev/rattler-build/releases/latest/download/rattler-build-x86_64-unknown-linux-musl -O ~/.local/bin/rattler-build
+  chmod +x ~/.local/bin/rattler-build
+  rattler-build completion --shell=fish > ~/.config/fish/completions/rattler-build.fish
 end
 
 function install-pixi
