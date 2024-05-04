@@ -60,6 +60,11 @@ repos:
                '--ignore-words=.pre-commit/codespell_words',
                '--exclude-file=.pre-commit/codespellignorelines',
                '--skip=.github/.cspell/*.txt']
+  # - repo: https://github.com/streetsidesoftware/cspell-cli
+  #   rev: v6.2.0
+  #   hooks:
+  #     - id: cspell
+  # Lua
   - repo: https://github.com/JohnnyMorganz/StyLua
     rev: v0.20.0
     hooks:
@@ -80,6 +85,11 @@ repos:
     rev: 6f36260b537bf9a42b6ea5262c915ae50786296e
     hooks:
       - id: format-xmllint
+  # C++
+  # - repo: https://github.com/pre-commit/mirrors-clang-format
+  #   rev: v15.0.7
+  #   hooks:
+  #     - id: clang-format
   # Shell
   # - repo: https://github.com/koalaman/shellcheck-precommit
   #   rev: v0.9.0
