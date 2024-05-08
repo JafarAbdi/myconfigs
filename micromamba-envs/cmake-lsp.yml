@@ -1,9 +1,0 @@
-name: cmake-lsp
-channels:
-  - conda-forge
-dependencies:
-  - python=3.12.0
-  - pip
-  # - pip:
-    # Uncomment once https://github.com/regen100/cmake-language-server/pull/59 is merged
-    # - cmake-language-server

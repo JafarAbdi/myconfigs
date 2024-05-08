@@ -192,14 +192,6 @@ local enrich_config = function(config, on_config)
   on_config(config)
 end
 
-local read_file = function(path)
-  local fd = assert(vim.uv.fs_open(path, "r", 438))
-  local stat = assert(vim.uv.fs_fstat(fd))
-  local data = assert(vim.uv.fs_read(fd, stat.size, 0))
-  assert(vim.uv.fs_close(fd))
-  return data
-end
-
 local root_dirs = {
   csharp = function(startpath)
     return require("lspconfig.util").root_pattern("*.sln", "*.csproj", ".git")(startpath)
@@ -311,11 +303,17 @@ local run_file = function(is_test)
   }
   local cmd = "build_project.py"
   if filetype ~= "python" then
-    cmd = "micromamba"
+    cmd = "pixi"
     for _, v in
-      ipairs(
-        vim.fn.reverse({ "run", "-n", "myconfigs", "python3", "~/.local/bin/build_project.py" })
-      )
+      ipairs(vim.fn.reverse({
+        "pixi",
+        "run",
+        "--manifest-path",
+        "~/myconfigs/pixi.toml",
+        "--frozen",
+        "python3",
+        "~/.local/bin/build_project.py",
+      }))
     do
       table.insert(args, 1, v)
     end
@@ -802,7 +800,7 @@ require("lazy").setup({
             languages = {
               python = {
                 {
-                  lintCommand = "micromamba run -n linters mypy --show-column-numbers --install-types --non-interactive --hide-error-codes --hide-error-context --no-color-output --no-error-summary --no-pretty",
+                  lintCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters mypy --show-column-numbers --install-types --non-interactive --hide-error-codes --hide-error-context --no-color-output --no-error-summary --no-pretty",
                   lintFormats = {
                     "%f:%l:%c: error: %m",
                     "%f:%l:%c: %tarning: %m",
@@ -811,11 +809,11 @@ require("lazy").setup({
                   lintSeverity = vim.diagnostic.severity.WARN,
                 },
                 {
-                  formatCommand = "micromamba run -n linters black --quiet -",
+                  formatCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters black --quiet -",
                   formatStdin = true,
                 },
                 {
-                  lintCommand = "micromamba run -n linters ruff --quiet ${INPUT}",
+                  lintCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters ruff --quiet ${INPUT}",
                   lintStdin = true,
                   lintFormats = {
                     "%f:%l:%c: %m",
@@ -990,36 +988,17 @@ require("lazy").setup({
             },
           },
         },
-        cmake = {
-          cmd = { "micromamba", "run", "-n", "cmake-lsp", "cmake-language-server" }, -- "-vv", "--log-file", "/tmp/cmake-lsp.txt"
-          on_new_config = function(new_config, new_root_dir)
-            local root = root_dirs.cmake(new_root_dir)
-            local build_dir = nil
-            local settings_dir = vim.fs.joinpath(root, ".vscode", "settings.json")
-            if vim.uv.fs_state(settings_dir) then
-              local ok, settings = pcall(vim.json.decode, read_file(settings_dir))
-              if not ok then
-                vim.notify("Error parsing '" .. settings_dir.filename .. "'", vim.log.levels.WARN)
-              end
-              local ros_distro = vim.env.ROS_DISTRO
-              if ros_distro then
-                build_dir = settings["cmake.buildDirectory." .. ros_distro]
-              else
-                build_dir = settings["cmake.buildDirectory"]
-              end
-            end
-            new_config.init_options = {
-              buildDirectory = build_dir,
-            }
-          end,
-          root_dir = root_dirs.cmake,
-          single_file_support = true,
-        },
-        dockerls = {
-          cmd = { "micromamba", "run", "-n", "nodejs", "docker-langserver", "--stdio" },
-        },
         jedi_language_server = {
-          cmd = { "micromamba", "run", "-n", "python-lsp", "jedi-language-server" }, -- "-vv", "--log-file", "/tmp/logging.txt"
+          cmd = {
+            vim.env.HOME .. "/.local/bin/pixi",
+            "run",
+            "--manifest-path",
+            vim.env.HOME .. "/myconfigs/pixi.toml",
+            "--frozen",
+            "--environment",
+            "python-lsp",
+            "jedi-language-server",
+          }, -- "-vv", "--log-file", "/tmp/logging.txt"
           init_options = {
             workspace = {
               extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
@@ -1038,10 +1017,7 @@ require("lazy").setup({
               type = "directory",
             })
             if #pixi > 0 then
-              -- TODO: Deprecated path to pixi. Remove in next major version
-              if vim.fn.isdirectory(vim.fs.joinpath(pixi[1], "env")) == 1 then
-                new_config.init_options.workspace.environmentPath = pixi[1] .. "/env/bin/python"
-              elseif vim.fn.isdirectory(vim.fs.joinpath(pixi[1], "envs", "default")) == 1 then
+              if vim.fn.isdirectory(vim.fs.joinpath(pixi[1], "envs", "default")) == 1 then
                 new_config.init_options.workspace.environmentPath = pixi[1]
                   .. "/envs/default/bin/python"
               end

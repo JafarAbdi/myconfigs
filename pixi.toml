@@ -21,3 +21,18 @@ pip = "*"
 
 [pypi-dependencies]
 jinja2-stringcase = "*"
+
+[environments]
+linters = ["linters"]
+python-lsp = ["python-lsp"]
+
+[feature.linters.pypi-dependencies]
+pylsp-mypy = "*"
+ruff = "*"
+black = "*"
+sourcery = "*"
+
+[feature.python-lsp.pypi-dependencies]
+jedi-language-server = "*"
+python-lsp-black = "*"
+pylsp-rope = "*"

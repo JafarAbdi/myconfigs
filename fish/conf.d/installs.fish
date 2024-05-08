@@ -282,22 +282,6 @@ function install-fd
   cd -
 end
 
-function install-mamba
-  if ! command -q micromamba &> /dev/null
-    curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C ~/.local/bin/ --strip-components=1 bin/micromamba
-    micromamba shell init --shell=fish --prefix=$HOME/micromamba
-  else
-    micromamba self-update
-  end
-  # micromamba creates a temporary file in cwd when install the pip dependencies,
-  # so we need to be in a writable directory (not the case for docker containers)
-  set -l TMP_DIR (mktemp -d -p /tmp mamba-envs-XXXXXX)
-  cp ~/myconfigs/micromamba-envs/* $TMP_DIR
-  cp ~/myconfigs/environment.yml $TMP_DIR
-  fd --glob '*.yml' $TMP_DIR --threads=1 --exec test ! -e ~/micromamba/envs/{/.} \; --exec micromamba create -y -f {}
-  myconfigsr
-end
-
 function install-mold
   if test (lsb_release -sr) = "unstable"
     sudo apt install -y mold
@@ -367,25 +351,6 @@ function install-lua-lsp
      | head -n 1 \
      | wget -i -
   ex lua-language-server-*
-end
-
-function install-json-lsp
-  git clone --depth=1 git@github.com:redhat-developer/yaml-language-server.git ~/.config/yaml-lsp
-  cd ~/.config/yaml-lsp
-  micromamba run -n nodejs npm install -g yarn
-  micromamba run -n nodejs npm install -g vscode-langservers-extracted
-  micromamba run -n nodejs npm install -g dockerfile-language-server-nodejs
-  micromamba run -n nodejs npm install -g cspell
-  micromamba run -n nodejs yarn global add yaml-language-server --cwd ~/.config/yaml-lsp
-end
-
-function install-cmake-lsp
-  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-  cd $TMP_DIR
-  git clone git@github.com:JafarAbdi/cmake-language-server.git -b myconfigs
-  cd cmake-language-server
-  micromamba run -n cmake-lsp pip3 install .
-  cd -
 end
 
 function install-luacheck
@@ -490,7 +455,6 @@ function unstow-configs
                                                                      ripgrep \
                                                                      wezterm \
                                                                      python \
-                                                                     micromamba \
                                                                      sourcery \
                                                                      yamllint \
                                                                      zathura
@@ -505,7 +469,6 @@ function stow-configs
                                                                                 systemd \
                                                                                 fd \
                                                                                 ripgrep \
-                                                                                micromamba \
                                                                                 yamllint \
                                                                                 sourcery \
                                                                                 python \

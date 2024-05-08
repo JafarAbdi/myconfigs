@@ -11,4 +11,3 @@ __pycache__
 gems
 .mypy_cache
 .ruff_cache
-micromamba

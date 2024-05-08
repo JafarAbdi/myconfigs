@@ -81,10 +81,6 @@ def python(
         is_test: Whether the file is a test or not
     """
     cmd = []
-    if (micromamba_env := extra_args.get("micromamba.env")) or (
-        micromamba_env := os.environ.get("CONDA_DEFAULT_ENV")
-    ):
-        cmd.extend(["micromamba", "run", "-n", micromamba_env])
     python_path = "python3"
     if (pixi_prefix := find_rootdir(".pixi")(file)) is not None:
         python_path = pixi_prefix / ".pixi" / "envs" / "default" / "bin" / "python"
@@ -242,9 +238,11 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict) -> None:
     with settings_path.open("r") as settings_file:
         settings = json.load(settings_file)
         build_dir = Path(
-            settings[f"cmake.buildDirectory.{ros_distro}"]
-            if ros_distro
-            else settings["cmake.buildDirectory"],
+            (
+                settings[f"cmake.buildDirectory.{ros_distro}"]
+                if ros_distro
+                else settings["cmake.buildDirectory"]
+            ),
         )
     reply_dir = build_dir / CMAKE_REPLY_DIR
     indices = sorted(reply_dir.glob("index-*.json"))
@@ -359,11 +357,6 @@ def main() -> None:
             settings_args = file.read().splitlines()[0].split(" ")
         logging.info(f"Load args file '{args_file} with {settings_args}")
     run_args = {}
-    if (micromamba_file := settings_path / "settings.json").exists():
-        with micromamba_file.open("r") as file:
-            run_args = json.load(file)
-        if micromamba_env := run_args.get("micromamba.env"):
-            logging.info(f"Using micromamba env {micromamba_env}")
 
     runner(
         file_path,
