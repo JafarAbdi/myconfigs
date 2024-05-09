@@ -9,6 +9,7 @@ set -x CPP_SCREATCHES_DIR $HOME/workspaces/cpp/scratches
 set -x RUST_SCREATCHES_DIR $HOME/workspaces/rust/scratches/src/bin
 set -x NPM_PACKAGES "$HOME/.npm-packages"
 set -x MANPATH $NPM_PACKAGES/share/man $MANPATH
+export PIXI_FROZEN=true
 
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin

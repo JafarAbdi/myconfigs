@@ -1173,7 +1173,7 @@ end, { expr = true })
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 vim.keymap.set({ "i", "s" }, "<ESC>", function()
   if vim.snippet then
-    vim.snippet.exit()
+    vim.snippet.stop()
   end
   return "<ESC>"
 end, { expr = true })
