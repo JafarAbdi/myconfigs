@@ -83,7 +83,7 @@ term.create = function(cmd, args, opts)
             )
           )
         end
-        term.nopen_bufnr = term.bufnr
+        term.open_bufnr = term.bufnr
       end
       term.bufnr = nil
     end,
@@ -306,7 +306,6 @@ local run_file = function(is_test)
     cmd = "pixi"
     for _, v in
       ipairs(vim.fn.reverse({
-        "pixi",
         "run",
         "--manifest-path",
         "~/myconfigs/pixi.toml",
@@ -1157,7 +1156,7 @@ end
 local q = require("qwahl")
 
 local function try_jump(direction, key)
-  if vim.snippet.jumpable(direction) then
+  if vim.snippet.active({ direction = direction }) then
     return string.format("<cmd>lua vim.snippet.jump(%d)<cr>", direction)
   end
   return key
