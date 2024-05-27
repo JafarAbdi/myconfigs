@@ -193,11 +193,8 @@ local enrich_config = function(config, on_config)
 end
 
 local root_dirs = {
-  csharp = function(startpath)
-    return require("lspconfig.util").root_pattern("*.sln", "*.csproj", ".git")(startpath)
-  end,
   python = function(startpath)
-    return require("lspconfig.util").root_pattern(
+    return vim.fs.root(startpath, {
       ".vscode",
       "pyproject.toml",
       "setup.py",
@@ -205,24 +202,27 @@ local root_dirs = {
       "requirements.txt",
       "Pipfile",
       "package.xml",
-      "pixi.toml"
-    )(startpath)
+      "pixi.toml",
+    })
   end,
   cmake = function(startpath)
-    return require("lspconfig.util").root_pattern(".vscode", "package.xml", ".git")(startpath)
+    return vim.fs.root(startpath, { ".vscode", "package.xml", ".git" })
   end,
   cpp = function(startpath)
-    local util = require("lspconfig.util")
-    local search_fn = util.root_pattern(".clangd")
-    local fallback_search_fn = util.root_pattern(
-      ".vscode",
-      ".clang-tidy",
-      ".clang-format",
-      "compile_commands.json",
-      "compile_flags.txt",
-      "configure.ac",
-      ".git"
-    )
+    local search_fn = function(path)
+      return vim.fs.root(path, { ".clangd" })
+    end
+    local fallback_search_fn = function(path)
+      return vim.fs.root(path, {
+        ".vscode",
+        ".clang-tidy",
+        ".clang-format",
+        "compile_commands.json",
+        "compile_flags.txt",
+        "configure.ac",
+        ".git",
+      })
+    end
     -- If root directory not found set it to file's directory
     local search = function(path)
       return vim.F.if_nil(search_fn(path), search_fn(vim.fn.expand("%:p:h")))
@@ -233,8 +233,9 @@ local root_dirs = {
     return dir
   end,
   rust = function(startpath)
-    local search_fn =
-      require("lspconfig.util").root_pattern("Cargo.toml", "rust-project.json", ".vscode", ".git")
+    local search_fn = function(path)
+      return vim.fs.root(path, { "Cargo.toml", "rust-project.json", ".vscode", ".git" })
+    end
     local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
       or vim.fn.getcwd()
     return dir
@@ -328,6 +329,7 @@ end
 ----------------
 
 local general_group = vim.api.nvim_create_augroup("GeneralCommands", {})
+local lsp_group = vim.api.nvim_create_augroup("lsp", {})
 
 -- Highlight on yank
 vim.api.nvim_create_autocmd({ "TextYankPost" }, {
@@ -376,7 +378,7 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
 })
 
 vim.api.nvim_create_autocmd("LspProgress", {
-  group = general_group,
+  group = lsp_group,
   command = "redrawstatus",
 })
 
@@ -431,7 +433,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
       return vim.lsp.inlay_hint.enable(0, not vim.lsp.inlay_hint.is_enabled())
     end, { buffer = args.buf, silent = true })
   end,
-  group = general_group,
+  group = lsp_group,
 })
 
 vim.api.nvim_create_user_command("DapAttach", function()
@@ -481,6 +483,361 @@ end, {
     return { "comments", "clear" }
   end,
 })
+vim.api.nvim_create_user_command("LspStop", function(kwargs)
+  local name = kwargs.fargs[1]
+  for _, client in ipairs(vim.lsp.get_clients({ name = name })) do
+    client.stop()
+  end
+end, {
+  nargs = 1,
+  complete = function()
+    return vim.tbl_map(function(c)
+      return c.name
+    end, vim.lsp.get_clients())
+  end,
+})
+vim.api.nvim_create_user_command("LspRestart", function(kwargs)
+  local name = kwargs.fargs[1]
+  for _, client in ipairs(vim.lsp.get_clients({ name = name })) do
+    local bufs = vim.lsp.get_buffers_by_client_id(client.id)
+    client.stop()
+    vim.wait(30000, function()
+      return vim.lsp.get_client_by_id(client.id) == nil
+    end)
+    local client_id = vim.lsp.start_client(client.config)
+    if client_id then
+      for _, buf in ipairs(bufs) do
+        vim.lsp.buf_attach_client(buf, client_id)
+      end
+    end
+  end
+end, {
+  nargs = 1,
+  complete = function()
+    return vim.tbl_map(function(c)
+      return c.name
+    end, vim.lsp.get_clients())
+  end,
+})
+
+-----------------
+--- LSP Setup ---
+-----------------
+
+local servers = {
+  {
+    name = "clangd",
+    filetypes = { "c", "cpp" },
+    cmd = {
+      vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
+      "--completion-style=detailed",
+      -- "-log=verbose"
+    },
+    init_options = function()
+      return {
+        clangdFileStatus = true,
+      }
+    end,
+  },
+  {
+    name = "efm",
+    filetypes = {
+      "python",
+      "cmake",
+      "json",
+      "markdown",
+      "rst",
+      "sh",
+      "tex",
+      "yaml",
+      "lua",
+      "dockerfile",
+      "xml",
+    },
+    cmd = { "efm-langserver" },
+    init_options = function()
+      return {
+        documentFormatting = true,
+        documentRangeFormatting = true,
+        hover = false,
+        documentSymbol = true,
+        codeAction = true,
+        completion = false,
+      }
+    end,
+    settings = {
+      languages = {
+        python = {
+          {
+            lintCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters mypy --show-column-numbers --install-types --non-interactive --hide-error-codes --hide-error-context --no-color-output --no-error-summary --no-pretty",
+            lintFormats = {
+              "%f:%l:%c: error: %m",
+              "%f:%l:%c: %tarning: %m",
+              "%f:%l:%c: %tote: %m",
+            },
+            lintSeverity = vim.diagnostic.severity.WARN,
+          },
+          {
+            formatCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters black --quiet -",
+            formatStdin = true,
+          },
+          {
+            lintCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters ruff --quiet ${INPUT}",
+            lintStdin = true,
+            lintFormats = {
+              "%f:%l:%c: %m",
+            },
+            lintSeverity = vim.diagnostic.severity.WARN,
+          },
+        },
+        cmake = {
+          {
+            lintCommand = "cmake-lint",
+            lintFormats = {
+              "%f:%l,%c: %m",
+            },
+            lintSeverity = vim.diagnostic.severity.WARN,
+          },
+          {
+            formatCommand = "cmake-format -",
+            formatStdin = true,
+          },
+        },
+        json = {
+          {
+            lintCommand = "python3 -m json.tool",
+            lintStdin = true,
+            lintFormats = {
+              "%m: line %l column %c (char %r)",
+            },
+          },
+          {
+            formatCommand = "python3 -m json.tool",
+            formatStdin = true,
+          },
+        },
+        markdown = {
+          {
+            formatCommand = "pandoc -f markdown -t gfm -sp --tab-stop=2",
+            formatStdin = true,
+          },
+        },
+        rst = {
+          {
+            formatCommand = "pandoc -f rst -t rst -s --columns=79",
+            formatStdin = true,
+          },
+          {
+            lintCommand = "rstcheck -",
+            lintStdin = true,
+            lintFormats = {
+              "%f:%l: (%tNFO/1) %m",
+              "%f:%l: (%tARNING/2) %m",
+              "%f:%l: (%tRROR/3) %m",
+              "%f:%l: (%tEVERE/4) %m",
+            },
+          },
+        },
+        sh = {
+          {
+            lintCommand = "shellcheck -f gcc -x -",
+            lintStdin = true,
+            lintFormats = {
+              "%f:%l:%c: %trror: %m",
+              "%f:%l:%c: %tarning: %m",
+              "%f:%l:%c: %tote: %m",
+            },
+          },
+        },
+        tex = {
+          {
+            lintCommand = "chktex -v0 -q",
+            lintStdin = true,
+            lintFormats = {
+              "%f:%l:%c:%m",
+            },
+          },
+        },
+        yaml = {
+          {
+            lintCommand = "yamllint -f parsable -",
+            lintStdin = true,
+          },
+          {
+            prefix = "actionlint",
+            lintCommand = "bash -c \"[[ '${INPUT}' =~ \\\\.github/workflows/ ]]\" && actionlint -oneline -no-color -",
+            lintStdin = true,
+            lintFormats = {
+              "%f:%l:%c: %m",
+            },
+            rootMarkers = { ".github" },
+          },
+        },
+        lua = {
+          {
+            formatCommand = "stylua --search-parent-directories -",
+            formatStdin = true,
+          },
+        },
+        dockerfile = {
+          {
+            lintCommand = "hadolint --no-color",
+            lintFormats = {
+              "%f:%l %m",
+            },
+            lintSeverity = vim.diagnostic.severity.WARN,
+          },
+        },
+        xml = {
+          {
+            formatCommand = "xmllint --format -",
+            formatStdin = true,
+          },
+        },
+      },
+    },
+  },
+  {
+    name = "lua-langserver-server",
+    filetypes = { "lua" },
+    cmd = { vim.env.HOME .. "/.config/lua-lsp/bin/lua-language-server" },
+    settings = {
+      Lua = {
+        hint = {
+          enable = true,
+        },
+        format = {
+          enable = false,
+        },
+        runtime = {
+          version = "LuaJIT",
+        },
+        diagnostics = {
+          globals = { "vim" },
+        },
+        workspace = {
+          library = vim.api.nvim_get_runtime_file("", true),
+          checkThirdParty = false,
+        },
+        telemetry = {
+          enable = false,
+        },
+      },
+    },
+  },
+  {
+    name = "rust-langserver",
+    filetypes = { "rust" },
+    cmd = {
+      vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer",
+    },
+    settings = {
+      -- to enable rust-analyzer settings visit:
+      -- https://github.com/rust-analyzer/rust-analyzer/blob/master/docs/user/generated_config.adoc
+      ["rust-analyzer"] = {
+        -- enable clippy diagnostics on save
+        checkOnSave = {
+          command = "clippy",
+        },
+        completion = {
+          snippets = {
+            custom = {
+              ["main"] = {
+                prefix = "main_result",
+                body = {
+                  "fn main() -> Result<(), Box<dyn Error>> {",
+                  "\t${1:unimplemented!();}",
+                  "\tOk(())",
+                  "}",
+                },
+                requires = "std::error::Error",
+                description = "main function with Result",
+                scope = "item",
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    name = "jedi_language_server",
+    filetypes = { "python" },
+    cmd = {
+      vim.env.HOME .. "/.local/bin/pixi",
+      "run",
+      "--manifest-path",
+      vim.env.HOME .. "/myconfigs/pixi.toml",
+      "--frozen",
+      "--environment",
+      "python-lsp",
+      "jedi-language-server",
+    }, -- "-vv", "--log-file", "/tmp/logging.txt"
+    init_options = function(file)
+      local options = {
+        workspace = {
+          extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
+          environmentPath = "/usr/bin/python3",
+        },
+      }
+      if vim.env.CONDA_PREFIX then
+        options.workspace.environmentPath = vim.env.CONDA_PREFIX .. "/bin/python"
+      end
+      local pixi = vim.fs.find(".pixi", {
+        upward = true,
+        stop = vim.uv.os_homedir(),
+        path = file,
+        type = "directory",
+      })
+      if #pixi > 0 then
+        if vim.fn.isdirectory(vim.fs.joinpath(pixi[1], "envs", "default")) == 1 then
+          options.workspace.environmentPath = pixi[1] .. "/envs/default/bin/python"
+        end
+      end
+      return options
+    end,
+  },
+  {
+    name = "marksman",
+    filetypes = { "markdown" },
+    cmd = { "marksman", "server" },
+  },
+  {
+    name = "lemminx",
+    filetypes = { "xml" },
+    cmd = { "lemminx" },
+  },
+}
+local capabilities = vim.tbl_deep_extend("force", vim.lsp.protocol.make_client_capabilities(), {
+  textDocument = {
+    completion = {
+      editsNearCursor = true,
+    },
+  },
+  offsetEncoding = { "utf-16" },
+})
+
+for _, server in pairs(servers) do
+  vim.api.nvim_create_autocmd("FileType", {
+    pattern = server.filetypes,
+    group = lsp_group,
+    callback = function(args)
+      local root_dir = root_dirs[args.match]
+        or function(startpath)
+          return vim.fs.root(startpath, { ".git" })
+        end
+      vim.lsp.start({
+        name = server.name,
+        cmd = server.cmd,
+        on_attach = function(_, _) end,
+        capabilities = capabilities,
+        settings = server.settings or vim.empty_dict(),
+        init_options = server.init_options and server.init_options(args.file) or vim.empty_dict(),
+        root_dir = root_dir(args.file),
+      })
+    end,
+  })
+end
 
 require("lazy").setup({
   { "mfussenegger/nvim-qwahl" },
@@ -745,312 +1102,6 @@ require("lazy").setup({
       }
     end,
   },
-  {
-    "neovim/nvim-lspconfig",
-    lazy = false,
-    opts = {
-      diagnostics = {
-        underline = false,
-        update_in_insert = true,
-        virtual_text = { severity = vim.diagnostic.severity.ERROR },
-        severity_sort = true,
-        signs = false,
-      },
-      servers = {
-        tsserver = {},
-        clangd = {
-          cmd = {
-            vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
-            "--completion-style=detailed",
-            -- "-log=verbose"
-          },
-          init_options = {
-            clangdFileStatus = true,
-          },
-          root_dir = root_dirs.cpp,
-          single_file_support = true,
-        },
-        efm = {
-          init_options = {
-            documentFormatting = true,
-            documentRangeFormatting = true,
-            hover = false,
-            documentSymbol = true,
-            codeAction = true,
-            completion = false,
-          },
-          filetypes = {
-            "python",
-            "cmake",
-            "json",
-            "markdown",
-            "rst",
-            "sh",
-            "tex",
-            "yaml",
-            "lua",
-            "dockerfile",
-            "xml",
-          },
-          root_dir = function(dir)
-            return require("lspconfig").util.find_git_ancestor(dir) or vim.uv.cwd()
-          end,
-          settings = {
-            languages = {
-              python = {
-                {
-                  lintCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters mypy --show-column-numbers --install-types --non-interactive --hide-error-codes --hide-error-context --no-color-output --no-error-summary --no-pretty",
-                  lintFormats = {
-                    "%f:%l:%c: error: %m",
-                    "%f:%l:%c: %tarning: %m",
-                    "%f:%l:%c: %tote: %m",
-                  },
-                  lintSeverity = vim.diagnostic.severity.WARN,
-                },
-                {
-                  formatCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters black --quiet -",
-                  formatStdin = true,
-                },
-                {
-                  lintCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters ruff --quiet ${INPUT}",
-                  lintStdin = true,
-                  lintFormats = {
-                    "%f:%l:%c: %m",
-                  },
-                  lintSeverity = vim.diagnostic.severity.WARN,
-                },
-              },
-              cmake = {
-                {
-                  lintCommand = "cmake-lint",
-                  lintFormats = {
-                    "%f:%l,%c: %m",
-                  },
-                  lintSeverity = vim.diagnostic.severity.WARN,
-                },
-                {
-                  formatCommand = "cmake-format -",
-                  formatStdin = true,
-                },
-              },
-              json = {
-                {
-                  lintCommand = "python3 -m json.tool",
-                  lintStdin = true,
-                  lintFormats = {
-                    "%m: line %l column %c (char %r)",
-                  },
-                },
-                {
-                  formatCommand = "python3 -m json.tool",
-                  formatStdin = true,
-                },
-              },
-              markdown = {
-                {
-                  formatCommand = "pandoc -f markdown -t gfm -sp --tab-stop=2",
-                  formatStdin = true,
-                },
-              },
-              rst = {
-                {
-                  formatCommand = "pandoc -f rst -t rst -s --columns=79",
-                  formatStdin = true,
-                },
-                {
-                  lintCommand = "rstcheck -",
-                  lintStdin = true,
-                  lintFormats = {
-                    "%f:%l: (%tNFO/1) %m",
-                    "%f:%l: (%tARNING/2) %m",
-                    "%f:%l: (%tRROR/3) %m",
-                    "%f:%l: (%tEVERE/4) %m",
-                  },
-                },
-              },
-              sh = {
-                {
-                  lintCommand = "shellcheck -f gcc -x -",
-                  lintStdin = true,
-                  lintFormats = {
-                    "%f:%l:%c: %trror: %m",
-                    "%f:%l:%c: %tarning: %m",
-                    "%f:%l:%c: %tote: %m",
-                  },
-                },
-              },
-              tex = {
-                {
-                  lintCommand = "chktex -v0 -q",
-                  lintStdin = true,
-                  lintFormats = {
-                    "%f:%l:%c:%m",
-                  },
-                },
-              },
-              yaml = {
-                {
-                  lintCommand = "yamllint -f parsable -",
-                  lintStdin = true,
-                },
-                {
-                  prefix = "actionlint",
-                  lintCommand = "bash -c \"[[ '${INPUT}' =~ \\\\.github/workflows/ ]]\" && actionlint -oneline -no-color -",
-                  lintStdin = true,
-                  lintFormats = {
-                    "%f:%l:%c: %m",
-                  },
-                  rootMarkers = { ".github" },
-                },
-              },
-              lua = {
-                {
-                  formatCommand = "stylua --search-parent-directories -",
-                  formatStdin = true,
-                },
-              },
-              dockerfile = {
-                {
-                  lintCommand = "hadolint --no-color",
-                  lintFormats = {
-                    "%f:%l %m",
-                  },
-                  lintSeverity = vim.diagnostic.severity.WARN,
-                },
-              },
-              xml = {
-                {
-                  formatCommand = "xmllint --format -",
-                  formatStdin = true,
-                },
-              },
-            },
-          },
-        },
-        lua_ls = {
-          cmd = { vim.env.HOME .. "/.config/lua-lsp/bin/lua-language-server" },
-          settings = {
-            Lua = {
-              hint = {
-                enable = true,
-              },
-              format = {
-                enable = false,
-              },
-              runtime = {
-                version = "LuaJIT",
-              },
-              diagnostics = {
-                globals = { "vim" },
-              },
-              workspace = {
-                library = vim.api.nvim_get_runtime_file("", true),
-                checkThirdParty = false,
-              },
-              telemetry = {
-                enable = false,
-              },
-            },
-          },
-        },
-        rust_analyzer = {
-          cmd = {
-            vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer",
-          },
-          root_dir = root_dirs.rust,
-          settings = {
-            -- to enable rust-analyzer settings visit:
-            -- https://github.com/rust-analyzer/rust-analyzer/blob/master/docs/user/generated_config.adoc
-            ["rust-analyzer"] = {
-              -- enable clippy diagnostics on save
-              checkOnSave = {
-                command = "clippy",
-              },
-              completion = {
-                snippets = {
-                  custom = {
-                    ["main"] = {
-                      prefix = "main_result",
-                      body = {
-                        "fn main() -> Result<(), Box<dyn Error>> {",
-                        "\t${1:unimplemented!();}",
-                        "\tOk(())",
-                        "}",
-                      },
-                      requires = "std::error::Error",
-                      description = "main function with Result",
-                      scope = "item",
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        jedi_language_server = {
-          cmd = {
-            vim.env.HOME .. "/.local/bin/pixi",
-            "run",
-            "--manifest-path",
-            vim.env.HOME .. "/myconfigs/pixi.toml",
-            "--frozen",
-            "--environment",
-            "python-lsp",
-            "jedi-language-server",
-          }, -- "-vv", "--log-file", "/tmp/logging.txt"
-          init_options = {
-            workspace = {
-              extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
-              environmentPath = "/usr/bin/python3",
-            },
-          },
-          on_new_config = function(new_config, _)
-            if vim.env.CONDA_PREFIX then
-              new_config.init_options.workspace.environmentPath = vim.env.CONDA_PREFIX
-                .. "/bin/python"
-            end
-            local pixi = vim.fs.find(".pixi", {
-              upward = true,
-              stop = vim.uv.os_homedir(),
-              path = vim.fs.dirname(vim.api.nvim_buf_get_name(0)),
-              type = "directory",
-            })
-            if #pixi > 0 then
-              if vim.fn.isdirectory(vim.fs.joinpath(pixi[1], "envs", "default")) == 1 then
-                new_config.init_options.workspace.environmentPath = pixi[1]
-                  .. "/envs/default/bin/python"
-              end
-            end
-          end,
-          root_dir = function(startpath)
-            local dir = root_dirs.python(startpath)
-            return dir or vim.uv.cwd()
-          end,
-        },
-        marksman = {
-          -- cmd = { "marksman", "server", "--verbose", "5" },
-        },
-        lemminx = {},
-        zls = {},
-      },
-    },
-    config = function(_, opts)
-      vim.diagnostic.config(opts.diagnostics)
-
-      local capabilities = vim.tbl_deep_extend(
-        "force",
-        require("cmp_nvim_lsp").default_capabilities(vim.lsp.protocol.make_client_capabilities()),
-        {
-          offsetEncoding = { "utf-16" },
-        }
-      )
-      for server, server_opts in pairs(opts.servers) do
-        require("lspconfig")[server].setup(
-          vim.tbl_deep_extend("error", server_opts, { capabilities = capabilities })
-        )
-      end
-    end,
-  },
 }, {
   defaults = {
     lazy = true, -- every plugin is lazy-loaded by default
@@ -1073,6 +1124,13 @@ require("lazy").setup({
 --- Options ---
 ---------------
 
+vim.diagnostic.config({
+  underline = false,
+  update_in_insert = true,
+  virtual_text = { severity = vim.diagnostic.severity.ERROR },
+  severity_sort = true,
+  signs = false,
+})
 vim.opt.foldenable = false
 vim.opt.number = true
 vim.opt.mouse = "a"
