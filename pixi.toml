@@ -16,8 +16,9 @@ cookiecutter = "*"
 argcomplete = "*"
 refurb = "*"
 pre-commit = "*"
-debugpy = "*"
+debugpy = ">=1.8.1,<1.9"
 pip = "*"
+conda-package-handling = ">=2.2.0,<2.3"
 
 [pypi-dependencies]
 jinja2-stringcase = "*"

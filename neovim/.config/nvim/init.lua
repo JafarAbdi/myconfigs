@@ -833,7 +833,7 @@ for _, server in pairs(servers) do
         capabilities = capabilities,
         settings = server.settings or vim.empty_dict(),
         init_options = server.init_options and server.init_options(args.file) or vim.empty_dict(),
-        root_dir = root_dir(args.file),
+        root_dir = vim.fs.joinpath(vim.uv.cwd(), root_dir(args.file)),
       })
     end,
   })
@@ -946,7 +946,7 @@ require("lazy").setup({
         else
           cb({
             type = "executable",
-            command = "python3",
+            command = vim.env.HOME .. "/myconfigs/.pixi/envs/default/bin/python",
             args = { "-m", "debugpy.adapter" },
             enrich_config = enrich_config,
             options = {
