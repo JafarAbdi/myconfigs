@@ -125,7 +125,6 @@ end
 ############
 
 alias rsync 'rsync -uaSHAXhP'
-alias ex 'atool -qx'
 alias df 'df -h'
 alias free 'free -h'
 alias server 'python3 -m http.server'
@@ -199,6 +198,15 @@ function file-extension
   echo (string split --right --max 1 . $argv[1])[2]
 end
 
+function ex
+  set -l file_extension (file-extension $argv[1] | string lower)
+  if test "$file_extension" = "conda"
+    pixi run --manifest-path ~/myconfigs/pixi.toml cph extract $argv[1]
+  else
+    atool -qx $argv[1]
+  end
+end
+
 function ffmpeg-extract-images
   if test (count $argv) -ne 1
     echo "ffmpeg-extract-images expects one input ffmpeg-extract-images filename"
@@ -220,10 +228,12 @@ function ffmpeg-convert
     echo "ffmpeg-convert expects two inputs ffmpeg-convert from to"
     return
   end
-  set -l from_extension (file-extension $argv[1])
-  set -l to_extension (file-extension $argv[2])
+  set -l from_extension (file-extension $argv[1] | string lower)
+  set -l to_extension (file-extension $argv[2] | string lower)
   if test "$from_extension" = "gif" && test "$to_extension" = "mp4"
     ffmpeg -i $argv[1] -movflags faststart -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" $argv[2]
+  else if test "$from_extension" = "mov" && test "$to_extension" = "mp4"
+    ffmpeg -i $argv[1] -q:v 0 $argv[2]
   else
     echo "Unsopprted conversion from '"$from_extension"' to '"$to_extension"'"
   end
