@@ -385,7 +385,6 @@ vim.api.nvim_create_autocmd("TermOpen", {
 
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
 vim.api.nvim_create_autocmd("LspDetach", {
-  group = lsp_group,
   callback = function(args)
     vim.lsp.completion.enable(false, args.data.client_id, args.buf)
   end,
