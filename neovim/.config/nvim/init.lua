@@ -33,11 +33,6 @@ local set_clangd_opening_path = function(callback)
   end
 end
 
-local new_window = function()
-  -- Why I can't call this by indexing vim.cmd???
-  vim.cmd("botright " .. math.floor(vim.opt.lines:get() / 4) .. " new")
-end
-
 local term = {
   jobid = nil,
   bufnr = nil,
@@ -60,7 +55,8 @@ term.create = function(cmd, args, opts)
     focus_terminal = false,
   })
   args = args or {}
-  new_window()
+  -- Why I can't call this by indexing vim.cmd???
+  vim.cmd("botright " .. math.floor(vim.opt.lines:get() / 4) .. " new")
   term.bufnr = vim.api.nvim_win_get_buf(vim.fn.win_getid())
   vim.api.nvim_buf_set_option(0, "buftype", "nofile")
   vim.api.nvim_buf_set_option(0, "bufhidden", "wipe")
@@ -1071,12 +1067,13 @@ vim.opt.laststatus = 3
 vim.opt.statusline = [[%<%f %m%r%{luaeval("lsp_status()")} %= %{luaeval("dap_status()")}]]
 vim.opt.smartindent = false
 vim.opt.pumheight = 20
-vim.opt.completeopt = "menuone,noselect,noinsert"
+vim.opt.completeopt = "menuone,noselect,noinsert,fuzzy"
 vim.opt.complete:append({ "U", "i", "d" })
 vim.opt.wildmode = "longest:full,full"
 vim.opt.wildignore:append({ "*.pyc", ".git", ".idea", "*.o" })
 vim.opt.wildoptions = "pum,tagfile,fuzzy"
 vim.opt.suffixes:append({ ".pyc", ".tmp" })
+vim.opt.spell = true
 
 if vim.fn.executable("rg") == 1 then
   vim.opt.grepprg = "rg --no-messages --vimgrep --no-heading --smart-case"

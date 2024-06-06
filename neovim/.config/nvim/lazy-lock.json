@@ -1,22 +1,22 @@
 {
   "codeium.vim": {
     "branch": "main",
-    "commit": "289eb724e5d6fab2263e94a1ad6e54afebefafb2"
+    "commit": "decfb541c9fd176f467991dcde8923c7db362e02"
   },
   "lazy.nvim": {
     "branch": "main",
-    "commit": "24fa2a97085ca8a7220b5b078916f81e316036fd"
+    "commit": "70f2c090d3ffb14f8702d468e05beb240b768881"
   },
   "nvim-dap": {
     "branch": "master",
-    "commit": "922ebc75c2fa9305e36402fbd8c984c8638770a0"
+    "commit": "6f79b822997f2e8a789c6034e147d42bc6706770"
   },
   "nvim-fzy": {
     "branch": "main",
-    "commit": "a7a746f0e46f6e191c3ade52fd77d72a4239fe72"
+    "commit": "5ce61c1c9644d620a908b0814dd72706cf3f9dc8"
   },
   "nvim-qwahl": {
     "branch": "main",
-    "commit": "6852b05d04baba87c1eee83f03a1482989c742de"
+    "commit": "4494745a4094f791aa4945be34a6ca2c7808735a"
   }
 }
