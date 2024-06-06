@@ -717,6 +717,8 @@ function start_container -d "Start a podman|docker image with gpu support"
   # --cap-add=all
   # --cap-add SYS_ADMIN --device /dev/fuse fixes an issue with using appimage in podman (+ --security-opt apparmor:unconfined for docker)
   # https://github.com/s3fs-fuse/s3fs-fuse/issues/647#issuecomment-392697838
+  set -l audio_group_id (getent group audio | cut -d: -f3)
+  set -l user_id (id -u)
   set -l run_command $containerprg run \
                      --detach \
                      --interactive \
@@ -724,6 +726,11 @@ function start_container -d "Start a podman|docker image with gpu support"
                      --cap-add SYS_PTRACE \
                      --cap-add SYS_ADMIN \
                      --device /dev/fuse \
+                     --device /dev/snd \
+                     -v /run/user/$user_id/pulse:/run/user/$user_id/pulse \
+                     -e PULSE_SERVER=unix:$XDG_RUNTIME_DIR/pulse/native \
+                     -v $XDG_RUNTIME_DIR/pulse/native:$XDG_RUNTIME_DIR/pulse/native \
+                     # --group-add $audio_group_id
                      -v /tmp/.X11-unix:/tmp/.X11-unix \
                      -v $HOME/workspaces:$HOME/workspaces \
                      -v $HOME/myconfigs:$HOME/myconfigs:ro \
