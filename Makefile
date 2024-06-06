@@ -31,7 +31,7 @@ dev-lua:
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-lua-lsp && install-luacheck && install-stylua'
 
 dev-python:
-	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-mamba && install-efm-lsp'
+	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-efm-lsp'
 
 dev-rust:
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-rust-lsp'

@@ -449,7 +449,6 @@ function unstow-configs
                                                                      ruff \
                                                                      scripts \
                                                                      stylua \
-                                                                     systemd \
                                                                      tmux \
                                                                      fd \
                                                                      ripgrep \
@@ -466,7 +465,6 @@ function stow-configs
                                                                                 ruff \
                                                                                 scripts \
                                                                                 stylua \
-                                                                                systemd \
                                                                                 fd \
                                                                                 ripgrep \
                                                                                 yamllint \
