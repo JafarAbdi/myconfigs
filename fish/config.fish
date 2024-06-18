@@ -768,6 +768,7 @@ function start_container -d "Start a podman|docker image with gpu support"
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user"'
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user/.config"'
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user/.local"'
+  eval '$containerprg exec --user root $cid bash -c "chown $user:$user /run/user/$user_id"'
   if test $containerprg = "podman"
     # TODO: Why this's no longer working?
     # podman exec --user root $cid bash -c "usermod -d /home/$user $user"
