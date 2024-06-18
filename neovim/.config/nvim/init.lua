@@ -389,9 +389,12 @@ vim.api.nvim_create_autocmd("LspDetach", {
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
     vim.lsp.completion.enable(true, args.data.client_id, args.buf, { autotrigger = true })
-    vim.keymap.set("i", "<c-space>", function()
+    vim.keymap.set("i", "<c-n>", function()
       vim.lsp.completion.trigger()
     end, { buffer = args.buf })
+    vim.keymap.set("i", "<CR>", function()
+      return tonumber(vim.fn.pumvisible()) ~= 0 and "<C-y>" or "<cr>"
+    end, { expr = true, buffer = args.buf })
     vim.keymap.set({ "n", "i" }, "<C-k>", function()
       if tonumber(vim.fn.pumvisible()) == 1 then
         vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<c-y>", true, false, true), "n", true)
@@ -427,7 +430,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
       vim.lsp.buf.format({ async = true })
     end, { buffer = args.buf, silent = true })
     vim.keymap.set({ "i", "n" }, "<M-i>", function()
-      return vim.lsp.inlay_hint.enable(0, not vim.lsp.inlay_hint.is_enabled())
+      return vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled())
     end, { buffer = args.buf, silent = true })
   end,
   group = lsp_group,
@@ -821,6 +824,10 @@ for _, server in pairs(servers) do
     pattern = server.filetypes,
     group = lsp_group,
     callback = function(args)
+      -- Don't start LSP for floating windows
+      if vim.api.nvim_win_get_config(0).relative ~= "" then
+        return
+      end
       local root_dir = root_dirs[args.match]
         or function(startpath)
           return vim.fs.root(startpath, { ".git" })
@@ -832,7 +839,7 @@ for _, server in pairs(servers) do
         capabilities = capabilities,
         settings = server.settings or vim.empty_dict(),
         init_options = server.init_options and server.init_options(args.file) or vim.empty_dict(),
-        root_dir = vim.fs.joinpath(vim.uv.cwd(), root_dir(args.file)),
+        root_dir = root_dir(args.file),
       })
     end,
   })
