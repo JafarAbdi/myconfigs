@@ -379,6 +379,32 @@ vim.api.nvim_create_autocmd("TermOpen", {
   group = general_group,
 })
 
+local completion = {
+  pattern = "\\k",
+}
+
+vim.api.nvim_create_autocmd("InsertCharPre", {
+  callback = function()
+    if tonumber(vim.fn.pumvisible()) ~= 0 then
+      return
+    end
+    local function feedkeys(keys)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "n", true)
+    end
+    if vim.fn.match(vim.v.char, completion.pattern) >= 0 then
+      if
+        vim.iter(vim.lsp.get_clients({ bufnr = 0 })):any(function(client)
+          return client.supports_method(vim.lsp.protocol.Methods.textDocument_completion)
+        end)
+      then
+        vim.lsp.completion.trigger()
+      else
+        feedkeys("<C-n>")
+      end
+    end
+  end,
+  group = general_group,
+})
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
 vim.api.nvim_create_autocmd("LspDetach", {
   callback = function(args)
@@ -389,7 +415,7 @@ vim.api.nvim_create_autocmd("LspDetach", {
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
     vim.lsp.completion.enable(true, args.data.client_id, args.buf, { autotrigger = true })
-    vim.keymap.set("i", "<c-n>", function()
+    vim.keymap.set("i", "<c-space>", function()
       vim.lsp.completion.trigger()
     end, { buffer = args.buf })
     vim.keymap.set("i", "<CR>", function()
@@ -1108,6 +1134,7 @@ vim.filetype.add({
 })
 
 vim.cmd.colorscheme("retrobox")
+vim.api.nvim_set_hl(0, "SpellBad", { sp = "red", undercurl = true })
 ---------------
 --- Keymaps ---
 ---------------
