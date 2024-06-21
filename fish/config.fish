@@ -177,11 +177,12 @@ end
 #  param1 - old word
 #  param2 - new word
 function findreplace
-  rg --files-with-matches "$argv[1]" | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
+  # Use ` since I hopefully don't use it much
+  rg --files-with-matches "$argv[1]" | xargs sed -i "s`$argv[1]`$argv[2]`g" ;
 end
 
 function findreplacehidden
-  rg --files-with-matches --glob '!.git' --hidden "$argv[1]" | xargs sed -i "s/$argv[1]/$argv[2]/g" ;
+  rg --files-with-matches --glob '!.git' --hidden "$argv[1]" | xargs sed -i "s`$argv[1]`$argv[2]`g" ;
 end
 
 # get just the ip address
