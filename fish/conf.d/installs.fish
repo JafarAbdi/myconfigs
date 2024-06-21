@@ -453,8 +453,6 @@ function unstow-configs
                                                                      fd \
                                                                      ripgrep \
                                                                      wezterm \
-                                                                     python \
-                                                                     sourcery \
                                                                      yamllint \
                                                                      zathura
 end
@@ -468,7 +466,6 @@ function stow-configs
                                                                                 fd \
                                                                                 ripgrep \
                                                                                 yamllint \
-                                                                                sourcery \
                                                                                 python \
                                                                                 podman \
                                                                                 zathura

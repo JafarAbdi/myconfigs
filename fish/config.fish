@@ -480,7 +480,6 @@ export DOTNET_CLI_TELEMETRY_OPTOUT=1
 set -xg CURRENT_ROS_WORKSPACE_FILE $HOME/.current_ros_workspace
 # Console output prefix - hides timestamp. See http://wiki.ros.org/rosconsole
 set -xg ROSCONSOLE_FORMAT "\${logger}: \${message}"
-set -xg ROSCONSOLE_CONFIG_FILE ~/myconfigs/rosconsole.conf
 
 # Rosdep shortcut
 function rosdepinstall
@@ -493,7 +492,6 @@ function rosdeplistdependencies
 end
 
 set -xg ROSOUT_DISABLE_FILE_LOGGING true
-set -xg ROSCONSOLE_CONFIG_FILE ~/myconfigs/ros/rosconsole.conf
 set -xg ROS_LANG_DISABLE "geneus;genlisp;gennodejs"
 
 # TF
@@ -502,7 +500,6 @@ alias tfpdf='cd /var/tmp && rosrun tf view_frames && open frames.pdf &'
 # ROS2 logger configs
 set -xg RCUTILS_COLORIZED_OUTPUT 1
 set -xg RCUTILS_CONSOLE_OUTPUT_FORMAT '[{name}]: {message}'
-set -xg RCUTILS_LOGGING_CONFIG_FILE ~/myconfigs/ros/ros2console.conf
 set -xg COLCON_LOG_PATH /tmp
 set -xg ROS_DOMAIN_ID 16
 
