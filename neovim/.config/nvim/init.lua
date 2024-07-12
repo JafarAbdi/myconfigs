@@ -346,6 +346,14 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "cpp", "c" },
+  group = general_group,
+  callback = function()
+    -- This fixes an issue with nvim-cmp -- see https://github.com/hrsh7th/nvim-cmp/issues/1035#issuecomment-1195456419
+    vim.opt_local.cindent = false
+  end,
+})
 -- A terrible way to handle symlinks
 vim.api.nvim_create_autocmd("BufWinEnter", {
   callback = function(params)
@@ -379,51 +387,13 @@ vim.api.nvim_create_autocmd("TermOpen", {
   group = general_group,
 })
 
-local completion = {
-  pattern = "\\k",
-}
-
-vim.api.nvim_create_autocmd("InsertCharPre", {
-  callback = function()
-    if tonumber(vim.fn.pumvisible()) ~= 0 then
-      return
-    end
-    local function feedkeys(keys)
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "n", true)
-    end
-    if vim.fn.match(vim.v.char, completion.pattern) >= 0 then
-      if
-        vim.iter(vim.lsp.get_clients({ bufnr = 0 })):any(function(client)
-          return client.supports_method(vim.lsp.protocol.Methods.textDocument_completion)
-        end)
-      then
-        vim.lsp.completion.trigger()
-      else
-        feedkeys("<C-n>")
-      end
-    end
-  end,
-  group = general_group,
-})
 vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
-vim.api.nvim_create_autocmd("LspDetach", {
-  callback = function(args)
-    vim.lsp.completion.enable(false, args.data.client_id, args.buf)
-  end,
-  group = lsp_group,
-})
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
-    vim.lsp.completion.enable(true, args.data.client_id, args.buf, { autotrigger = true })
-    vim.keymap.set("i", "<c-space>", function()
-      vim.lsp.completion.trigger()
-    end, { buffer = args.buf })
-    vim.keymap.set("i", "<CR>", function()
-      return tonumber(vim.fn.pumvisible()) ~= 0 and "<C-y>" or "<cr>"
-    end, { expr = true, buffer = args.buf })
     vim.keymap.set({ "n", "i" }, "<C-k>", function()
-      if tonumber(vim.fn.pumvisible()) == 1 then
-        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<c-y>", true, false, true), "n", true)
+      local cmp = require("cmp")
+      if cmp.visible() then
+        cmp.close()
       end
       vim.lsp.buf.signature_help()
     end, { buffer = args.buf, silent = true })
@@ -835,13 +805,6 @@ local servers = {
   },
 }
 local capabilities = vim.tbl_deep_extend("force", vim.lsp.protocol.make_client_capabilities(), {
-  -- TODO: This's causing issues with clangd
-  -- https://github.com/neovim/neovim/pull/27339#discussion_r1615314435
-  -- textDocument = {
-  --   completion = {
-  --     editsNearCursor = true,
-  --   },
-  -- },
   offsetEncoding = { "utf-16" },
 })
 
@@ -1037,6 +1000,103 @@ require("lazy").setup({
       }
     end,
   },
+  {
+    "hrsh7th/nvim-cmp",
+    event = { "InsertEnter" },
+    dependencies = {
+      "hrsh7th/cmp-nvim-lsp",
+      "hrsh7th/cmp-buffer",
+    },
+    opts = function()
+      local cmp = require("cmp")
+      local compare = require("cmp.config.compare")
+      return {
+        snippet = {
+          expand = function(args)
+            vim.snippet.expand(args.body)
+          end,
+        },
+        mapping = cmp.mapping.preset.insert({
+          ["Tab"] = cmp.config.disable,
+          ["S-Tab"] = cmp.config.disable,
+          ["<C-f>"] = cmp.config.disable,
+          ["<C-d>"] = cmp.mapping.scroll_docs(4),
+          ["<C-u>"] = cmp.mapping.scroll_docs(-4),
+          ["<CR>"] = cmp.mapping.confirm({
+            behavior = cmp.ConfirmBehavior.Insert,
+            select = false,
+          }),
+        }),
+        sources = {
+          { name = "nvim_lsp" },
+          {
+            name = "buffer",
+            option = {
+              get_bufnrs = function()
+                return vim.api.nvim_list_bufs()
+              end,
+            },
+          },
+        },
+        formatting = {
+          format = function(entry, vim_item)
+            vim_item.menu = ({
+              buffer = "[Buffer]",
+              nvim_lsp = "[LSP]",
+            })[entry.source.name]
+            local label = vim_item.abbr
+            -- https://github.com/hrsh7th/nvim-cmp/discussions/609
+            local ELLIPSIS_CHAR = "…"
+            local MAX_LABEL_WIDTH = math.floor(vim.o.columns * 0.4)
+            local truncated_label = vim.fn.strcharpart(label, 0, MAX_LABEL_WIDTH)
+            if truncated_label ~= label then
+              vim_item.abbr = truncated_label .. ELLIPSIS_CHAR
+            end
+            return vim_item
+          end,
+        },
+        sorting = {
+          comparators = {
+            compare.offset,
+            compare.exact,
+            -- compare.score,
+            -- https://github.com/p00f/clangd_extensions.nvim/blob/main/lua/clangd_extensions/cmp_scores.lua
+            function(entry1, entry2)
+              local diff
+              if entry1.completion_item.score and entry2.completion_item.score then
+                diff = (entry2.completion_item.score * entry2.score)
+                  - (entry1.completion_item.score * entry1.score)
+              else
+                diff = entry2.score - entry1.score
+              end
+              if diff < 0 then
+                return true
+              elseif diff > 0 then
+                return false
+              end
+            end,
+            -- https://github.com/lukas-reineke/cmp-under-comparator
+            function(entry1, entry2)
+              local _, entry1_under = entry1.completion_item.label:find("^_+")
+              local _, entry2_under = entry2.completion_item.label:find("^_+")
+              entry1_under = entry1_under or 0
+              entry2_under = entry2_under or 0
+              if entry1_under > entry2_under then
+                return false
+              elseif entry1_under < entry2_under then
+                return true
+              end
+            end,
+            compare.recently_used,
+            compare.kind,
+            compare.sort_text,
+            compare.length,
+            compare.order,
+          },
+        },
+      }
+    end,
+  },
 }, {
   defaults = {
     lazy = true, -- every plugin is lazy-loaded by default
@@ -1149,6 +1209,20 @@ fzy.command = function(opts)
 end
 
 local q = require("qwahl")
+
+local function try_jump(direction, key)
+  if vim.snippet.active({ direction = direction }) then
+    return string.format("<cmd>lua vim.snippet.jump(%d)<cr>", direction)
+  end
+  return key
+end
+
+vim.keymap.set({ "i", "s" }, "<Tab>", function()
+  return try_jump(1, "<Tab>")
+end, { expr = true })
+vim.keymap.set({ "i", "s" }, "<S-Tab>", function()
+  return try_jump(-1, "<S-Tab>")
+end, { expr = true })
 
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 vim.keymap.set({ "i", "s" }, "<ESC>", function()
