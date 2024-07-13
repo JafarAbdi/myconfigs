@@ -72,22 +72,27 @@ function config-fish
 end
 
 function install-cpp-lsp
-  sudo apt install -y clang-tools \
-                      clang-tidy \
-                      clang \
-                      gcc \
-                      cmake \
-                      dwarves
-  sudo apt install -y bear
+  set -l os "linux"
+  if test (uname -s) = "Darwin"
+    set os "mac"
+  else
+    sudo apt install -y clang-tools \
+                        clang-tidy \
+                        clang \
+                        gcc \
+                        cmake \
+                        dwarves \
+                        bear
+  end
   set -l TMP_DIR (mktemp -d -p /tmp clangd-XXXXXX)
   cd $TMP_DIR
   curl -s https://api.github.com/repos/clangd/clangd/releases \
-    | grep "https://github.com/clangd/clangd/releases/download.*clangd-linux-snapshot.*.zip" \
+    | grep "https://github.com/clangd/clangd/releases/download.*clangd-$os-snapshot.*.zip" \
     | cut -d":" -f 2,3 \
     | tr -d \" \
     | head -n 1 \
     | wget -i -
-  ex clangd-linux-snapshot*
+  ex clangd-$os-snapshot*
   rm -rf ~/.config/clangd-lsp
   mv clangd_snapshot_* ~/.config/clangd-lsp
   mkdir -p ~/.config/clangd
@@ -343,9 +348,13 @@ function install-lua-lsp
   mkdir -p ~/.config/lua-lsp
   rm -r "~/.config/lua-lsp/*" 2> /dev/null
   cd ~/.config/lua-lsp
+  set -l os "linux-x64"
+  if test (uname -s) = "Darwin"
+    set os "darwin-arm64"
+  end
   curl -s https://api.github.com/repos/LuaLS/lua-language-server/releases \
      | grep "browser_download_url" \
-     | grep "linux-x64" \
+     | grep $os \
      | cut -d":" -f 2,3 \
      | tr -d \" \
      | head -n 1 \
@@ -466,8 +475,6 @@ function stow-configs
                                                                                 fd \
                                                                                 ripgrep \
                                                                                 yamllint \
-                                                                                python \
-                                                                                podman \
                                                                                 zathura
   stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                    wezterm \

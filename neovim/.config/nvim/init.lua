@@ -760,7 +760,7 @@ local servers = {
     name = "jedi_language_server",
     filetypes = { "python" },
     cmd = {
-      vim.env.HOME .. "/.local/bin/pixi",
+      "pixi",
       "run",
       "--manifest-path",
       vim.env.HOME .. "/myconfigs/pixi.toml",

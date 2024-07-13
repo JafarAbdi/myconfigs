@@ -13,10 +13,12 @@ export PIXI_FROZEN=true
 
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin
+    if test -d /opt/homebrew/bin
+      set path /opt/homebrew/bin:/opt/homebrew/sbin:$path
+    end
     if test -d /usr/lib/ccache
       set path /usr/lib/ccache:$path
     end
-
     if test -d $WORKSPACE_DIR/cling
       set path $WORKSPACE_DIR/cling/bin:$path
     end
@@ -328,7 +330,7 @@ function fzf_preview
   end
   string match -q "*binary" $filetype \
   && echo $argv[1] is a binary file $filetype \
-  || batcat $batcat_args || cat $argv[1] 2> /dev/null \
+  || bat $batcat_args || cat $argv[1] 2> /dev/null \
   || head -300
 end
 
