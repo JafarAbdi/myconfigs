@@ -7,9 +7,9 @@
     "branch": "main",
     "commit": "39e2eda76828d88b773cc27a3f61d2ad782c922d"
   },
-  "codeium.vim": {
-    "branch": "main",
-    "commit": "decfb541c9fd176f467991dcde8923c7db362e02"
+  "copilot.vim": {
+    "branch": "release",
+    "commit": "25f73977033c597d530c7ab0e211d99b60927d2d"
   },
   "lazy.nvim": {
     "branch": "main",

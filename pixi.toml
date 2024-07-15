@@ -26,6 +26,7 @@ jinja2-stringcase = "*"
 [environments]
 linters = ["linters"]
 python-lsp = ["python-lsp"]
+nodejs = ["nodejs"]
 
 [feature.linters.pypi-dependencies]
 pylsp-mypy = "*"
@@ -37,3 +38,6 @@ sourcery = "*"
 jedi-language-server = "*"
 python-lsp-black = "*"
 pylsp-rope = "*"
+
+[feature.nodejs.dependencies]
+nodejs = ">=22.4.1,<22.5"
