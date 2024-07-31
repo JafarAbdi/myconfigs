@@ -3,3 +3,4 @@ tmux/plugins
 mynotes
 # pixi environments
 .pixi
+scripts/.local/bin/rgr

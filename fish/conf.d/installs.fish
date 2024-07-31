@@ -110,13 +110,21 @@ function install-rust
 end
 
 function install-nvim
-  rm ~/.local/bin/nvim || true
-  if set -q argv[1] && test $argv[1] = "nightly"
-    wget https://github.com/neovim/neovim/releases/download/nightly/nvim.appimage -O ~/.local/bin/nvim
+  if test (uname -s) = "Darwin"
+    cd
+    rm -rf nvim-macos-arm64.tar.gz || true
+    wget https://github.com/neovim/neovim/releases/download/nightly/nvim-macos-arm64.tar.gz
+    xattr -c ./nvim-macos-arm64.tar.gz
+    tar xzvf nvim-macos-arm64.tar.gz
   else
-    wget https://github.com/neovim/neovim/releases/latest/download/nvim.appimage -O ~/.local/bin/nvim
+    rm ~/.local/bin/nvim || true
+    if set -q argv[1] && test $argv[1] = "nightly"
+      wget https://github.com/neovim/neovim/releases/download/nightly/nvim.appimage -O ~/.local/bin/nvim
+    else
+      wget https://github.com/neovim/neovim/releases/latest/download/nvim.appimage -O ~/.local/bin/nvim
+    end
+    chmod +x ~/.local/bin/nvim
   end
-  chmod +x ~/.local/bin/nvim
 end
 
 function install-tmux
@@ -287,6 +295,15 @@ function install-fd
   cd -
 end
 
+function install-repgrep
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github acheronfail/repgrep "repgrep.*apple-darwin.tar.gz"
+  tar -xzf repgrep* --strip-components=1
+  mv rgr ~/.local/bin
+  mv complete/rgr.fish ~/.config/fish/completions/
+end
+
 function install-mold
   if test (lsb_release -sr) = "unstable"
     sudo apt install -y mold
@@ -363,7 +380,11 @@ function install-lua-lsp
 end
 
 function install-luacheck
-  sudo apt install -y luarocks
+  if test (uname -s) = "Darwin"
+    brew install luarocks
+  else
+    sudo apt install -y luarocks
+  end
   luarocks install luacheck --local
 end
 
