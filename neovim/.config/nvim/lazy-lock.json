@@ -13,15 +13,15 @@
   },
   "lazy.nvim": {
     "branch": "main",
-    "commit": "f918318d21956b0874a65ab35ce3d94d9057aabf"
+    "commit": "077102c5bfc578693f12377846d427f49bc50076"
   },
   "nvim-cmp": {
     "branch": "main",
-    "commit": "a110e12d0b58eefcf5b771f533fc2cf3050680ac"
+    "commit": "ae644feb7b67bf1ce4260c231d1d4300b19c6f30"
   },
   "nvim-dap": {
     "branch": "master",
-    "commit": "6f79b822997f2e8a789c6034e147d42bc6706770"
+    "commit": "dcc85d12d6e2c18c5fa0f9a304d9f5e767e1401a"
   },
   "nvim-fzy": {
     "branch": "main",
