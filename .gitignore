@@ -4,3 +4,4 @@ mynotes
 # pixi environments
 .pixi
 scripts/.local/bin/rgr
+scripts/.local/bin/pixi

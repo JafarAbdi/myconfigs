@@ -226,11 +226,16 @@ end
 ## Utilities ##
 
 function install-gh
-  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-  echo "deb [arch="(dpkg --print-architecture)" signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-  sudo apt update
-  sudo apt install -y gh
+  if test (uname -s) = "Darwin"
+    brew install gh
+  else
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch="(dpkg --print-architecture)" signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    sudo apt update
+    sudo apt install -y gh
+  end
   gh auth login
+  gh extension install github/gh-copilot
   gh config set git_protocol ssh
 end
 
@@ -670,15 +675,19 @@ function install-full-development
 end
 
 function install-wezterm
-  wget https://github.com/wez/wezterm/releases/download/nightly/WezTerm-nightly-Ubuntu20.04.AppImage -O ~/.local/bin/wezterm
-  chmod +x ~/.local/bin/wezterm
-  wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
-  # Install terminfo
-  set -l tempfile (mktemp)
-  curl -o $tempfile https://raw.githubusercontent.com/wez/wezterm/master/termwiz/data/wezterm.terminfo
-  tic -x -o ~/.terminfo $tempfile
-  rm $tempfile
-  cd -
+  if test (uname -s) = "Darwin"
+    brew install --cask wezterm@nightly
+  else
+    wget https://github.com/wez/wezterm/releases/download/nightly/WezTerm-nightly-Ubuntu20.04.AppImage -O ~/.local/bin/wezterm
+    chmod +x ~/.local/bin/wezterm
+    wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
+    # Install terminfo
+    set -l tempfile (mktemp)
+    curl -o $tempfile https://raw.githubusercontent.com/wez/wezterm/master/termwiz/data/wezterm.terminfo
+    tic -x -o ~/.terminfo $tempfile
+    rm $tempfile
+    cd -
+  end
 end
 
 function install-actionlint
