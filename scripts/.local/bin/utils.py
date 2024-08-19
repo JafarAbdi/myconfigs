@@ -164,8 +164,8 @@ def get_ros_packages(directory: Path) -> list[str]:
 def run_command(
     cmd: list,
     dry_run: bool,  # noqa: FBT001
-    cwd: Optional[str] = None,  # noqa: U007
-    env: Optional[dict] = None,  # noqa: U007
+    cwd: Optional[str] = None,  # noqa: UP007
+    env: Optional[dict] = None,  # noqa: UP007
 ) -> int | None:
     """Run a command.
 
