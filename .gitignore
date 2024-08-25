@@ -5,3 +5,4 @@ mynotes
 .pixi
 scripts/.local/bin/rgr
 scripts/.local/bin/pixi
+scripts/.local/bin/stylua

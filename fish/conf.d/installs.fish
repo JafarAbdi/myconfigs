@@ -702,8 +702,12 @@ end
 function install-stylua
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR
-  install-from-github "JohnnyMorganz/StyLua" "stylua-linux.zip"
-  ex stylua-linux.zip
+  if test (uname -s) = "Darwin"
+    install-from-github "JohnnyMorganz/StyLua" "stylua-macos.zip"
+  else
+    install-from-github "JohnnyMorganz/StyLua" "stylua-linux.zip"
+  end
+  ex stylua*
   mv stylua ~/.local/bin
   cd -
 end
