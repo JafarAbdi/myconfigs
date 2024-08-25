@@ -21,7 +21,7 @@
   },
   "nvim-dap": {
     "branch": "master",
-    "commit": "dcc85d12d6e2c18c5fa0f9a304d9f5e767e1401a"
+    "commit": "2b428ff2632e73295e9decbcf1c40d8e26213305"
   },
   "nvim-fzy": {
     "branch": "main",

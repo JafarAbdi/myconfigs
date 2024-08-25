@@ -834,6 +834,59 @@ for _, server in pairs(servers) do
   })
 end
 
+-- TODO: Add https://github.com/JafarAbdi/myconfigs/commit/97ba4ecb55b5972c5bc43ce020241fb353de433f
+local snippets = {
+  all = {
+    {
+      trigger = "Current month name",
+      description = "Insert the name of the current month",
+      body = function()
+        return os.date("%B")
+      end,
+    },
+    {
+      trigger = "Current filename",
+      description = "Insert the current file name",
+      body = function()
+        return vim.fn.expand("%:t")
+      end,
+    },
+  },
+  cpp = {
+    {
+      trigger = "main",
+      description = "Standard main function",
+      body = [[
+int main (int argc, char *argv[])
+{
+  $0
+  return 0;
+}]],
+    },
+  },
+  cmake = {
+    {
+      trigger = "print_all_variables",
+      description = "Print all cmake variables",
+      body = [[
+get_cmake_property(_variableNames VARIABLES)
+list (SORT _variableNames)
+foreach (_variableName \${_variableNames})
+  message(STATUS \${_variableName}=\${\${_variableName}})
+endforeach()${0}]],
+    },
+  },
+}
+
+local get_buffer_snippets = function(filetype)
+  local ft_snippets = {}
+  vim.list_extend(ft_snippets, snippets.all)
+  if filetype and snippets[filetype] then
+    vim.list_extend(ft_snippets, snippets[filetype])
+  end
+  return ft_snippets
+end
+
 require("lazy").setup({
   { "mfussenegger/nvim-qwahl" },
   { "mfussenegger/nvim-fzy" },
@@ -1007,10 +1060,38 @@ require("lazy").setup({
       "hrsh7th/cmp-nvim-lsp",
       "hrsh7th/cmp-buffer",
     },
-    opts = function()
+    config = function()
       local cmp = require("cmp")
       local compare = require("cmp.config.compare")
-      return {
+      local cache = {}
+      local cmp_source = {
+        complete = function(_, params, callback)
+          local bufnr = vim.api.nvim_get_current_buf()
+          if not cache[bufnr] then
+            local completion_items = vim.tbl_map(function(snippet)
+              ---@type lsp.CompletionItem
+              local item = {
+                documentation = {
+                  kind = cmp.lsp.MarkupKind.PlainText,
+                  value = snippet.description or "",
+                },
+                word = snippet.trigger,
+                label = snippet.trigger,
+                kind = vim.lsp.protocol.CompletionItemKind.Snippet,
+                insertText = type(snippet.body) == "function" and snippet.body() or snippet.body,
+                insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet,
+              }
+              return item
+            end, get_buffer_snippets(params.context.filetype))
+            cache[bufnr] = completion_items
+          end
+
+          callback(cache[bufnr])
+        end,
+      }
+
+      cmp.register_source("snippets", cmp_source)
+      cmp.setup({
         snippet = {
           expand = function(args)
             vim.snippet.expand(args.body)
@@ -1029,6 +1110,7 @@ require("lazy").setup({
         }),
         sources = {
           { name = "nvim_lsp" },
+          { name = "snippets" },
           {
             name = "buffer",
             option = {
@@ -1043,6 +1125,7 @@ require("lazy").setup({
             vim_item.menu = ({
               buffer = "[Buffer]",
               nvim_lsp = "[LSP]",
+              snippets = "[Snippet]",
             })[entry.source.name]
             local label = vim_item.abbr
             -- https://github.com/hrsh7th/nvim-cmp/discussions/609
@@ -1094,7 +1177,7 @@ require("lazy").setup({
             compare.order,
           },
         },
-      }
+      })
     end,
   },
 }, {
