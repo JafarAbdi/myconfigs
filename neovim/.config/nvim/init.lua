@@ -326,22 +326,19 @@ local runners = {
       return
     end
 
-    local metadata = json.decode(cmd_output.stdout)
+    local metadata = vim.json.decode(cmd_output.stdout)
     local workspace_root = metadata.workspace_root
 
     for _, package in ipairs(metadata.packages) do
       for _, target in ipairs(package.targets) do
         if target.kind[1] == "lib" and is_test then
-          return run_command({ "cargo", "test", "--lib" }, { cwd = workspace_root })
+          return { "cargo", "test", "--lib" }
         end
         if file_path == target.src_path then
           if target.kind[1] == "bin" then
-            return run_command({ "cargo", "run", "--bin", target.name }, { cwd = workspace_root })
+            return { "cargo", "run", "--bin", target.name }
           elseif target.kind[1] == "example" then
-            return run_command(
-              { "cargo", "run", "--example", target.name },
-              { cwd = workspace_root }
-            )
+            return { "cargo", "run", "--example", target.name }
           else
             vim.notify("Unsupported target kind " .. vim.inspect(target.kind), vim.log.levels.WARN)
             return
