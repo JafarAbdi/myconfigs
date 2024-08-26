@@ -262,62 +262,124 @@ _G.dap_status = function()
   return ""
 end
 
+local runners = {
+  python = function(file_path, root_dir, is_test)
+    local python_executable = "python3"
+    if vim.uv.fs_stat(vim.fs.joinpath(root_dir, ".pixi")) ~= nil then
+      python_executable = vim.fs.joinpath(root_dir, ".pixi", "envs", "default", "bin", "python")
+    end
+    if is_test then
+      if not file_path:match("^test_") and not file_path:match("_test%.py$") then
+        vim.notify(
+          string.format(
+            "Test file '%s' doesn't start/end with 'test_'/'_test' and will be ignored by pytest",
+            file_path
+          ),
+          vim.log.levels.WARN
+        )
+      end
+      return {
+        python_executable,
+        "-m",
+        "pytest",
+        "--capture=no",
+        file_path,
+      }
+    end
+    return {
+      python_executable,
+      file_path,
+    }
+  end,
+  bash = function(file_path, _, _)
+    return {
+      "bash",
+      file_path,
+    }
+  end,
+  fish = function(file_path, _, _)
+    return {
+      "fish",
+      file_path,
+    }
+  end,
+  xml = function(_, _, _)
+    return {
+      "curl",
+      "-X",
+      "POST",
+      "http://127.0.0.1:7777/set_reload_request",
+    }
+  end,
+  lua = function(file_path, _, _)
+    vim.cmd.source(file_path)
+  end,
+  rust = function(file_path, root_dir, is_test)
+    if not vim.uv.fs_stat(vim.fs.joinpath(root_dir, "Cargo.toml")) then
+      vim.notify(root_dir .. " is not a Cargo project", vim.log.levels.WARN)
+    end
+    local cmd_output = vim
+      .system({ "cargo", "metadata", "--format-version=1" }, { cwd = root_dir, text = true })
+      :wait()
+    if cmd_output.code ~= 0 then
+      vim.notify("Failed with code " .. cmd_output.code, vim.log.levels.WARN)
+      return
+    end
+
+    local metadata = vim.json.decode(cmd_output.stdout)
+
+    for _, package in ipairs(metadata.packages) do
+      for _, target in ipairs(package.targets) do
+        if target.kind[1] == "lib" and is_test then
+          return { "cargo", "test", "--lib" }
+        end
+        if file_path == target.src_path then
+          if target.kind[1] == "bin" then
+            return { "cargo", "run", "--bin", target.name }
+          elseif target.kind[1] == "example" then
+            return { "cargo", "run", "--example", target.name }
+          else
+            vim.notify("Unsupported target kind " .. vim.inspect(target.kind), vim.log.levels.WARN)
+            return
+          end
+        end
+      end
+    end
+    vim.notify("Can't find a target for " .. file_path, vim.log.levels.WARN)
+  end,
+}
+runners.sh = runners.bash
+
 local run_file = function(is_test)
   local filetype = vim.api.nvim_get_option_value("filetype", {})
   if not filetype or filetype == "" then
     return
   end
 
+  local runner = runners[filetype]
+  if not runner then
+    vim.notify("No runner found for filetype: '" .. filetype .. "'", vim.log.levels.WARN)
+    return
+  end
+
   local dirname = vim.fn.expand("%:p:h")
   local root_dir = root_dirs[filetype]
-  if root_dir then
-    root_dir = root_dir(dirname) or dirname
-  else
-    root_dir = dirname
-    for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
-      if vim.env.HOME == dir then
-        break
-      end
-      if vim.fn.isdirectory(dir .. "/.vscode") == 1 then
-        root_dir = dir
-        break
-      end
+    or function(startpath)
+      return vim.fs.root(startpath, { ".git" })
     end
-  end
+  root_dir = root_dir(dirname) or dirname
 
   if
     not vim.api.nvim_buf_get_option(0, "readonly") and vim.api.nvim_buf_get_option(0, "modified")
   then
     vim.cmd.write()
   end
-  local args = {
-    "--workspace-folder",
-    root_dir,
-    "--filetype",
-    filetype,
-    "--file-path",
-    vim.fn.expand("%:p"),
-  }
-  local cmd = "build_project.py"
-  if filetype ~= "python" then
-    cmd = "pixi"
-    for _, v in
-      ipairs(vim.fn.reverse({
-        "run",
-        "--manifest-path",
-        "~/myconfigs/pixi.toml",
-        "--frozen",
-        "python3",
-        "~/.local/bin/build_project.py",
-      }))
-    do
-      table.insert(args, 1, v)
-    end
+
+  local cmd = runner(vim.fn.expand("%:p"), root_dir, is_test)
+  if not cmd then
+    return
   end
-  if is_test then
-    table.insert(args, "--test")
-  end
-  term.run(cmd, args, { cwd = root_dir, auto_close = false })
+  term.run(cmd[1], vim.list_slice(cmd, 2), { cwd = root_dir, auto_close = false })
 end
 
 ----------------
