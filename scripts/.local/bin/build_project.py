@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Final
 
 import argcomplete
-from utils import call, run_command
+from utils import run_command
 
 CMAKE_REPLY_DIR: Final = Path(".cmake") / "api" / "v1" / "reply"
 
