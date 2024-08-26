@@ -291,19 +291,19 @@ local runners = {
       file_path,
     }
   end,
-  bash = function(file_path, root_dir, is_test)
+  bash = function(file_path, _, _)
     return {
       "bash",
       file_path,
     }
   end,
-  fish = function(file_path, root_dir, is_test)
+  fish = function(file_path, _, _)
     return {
       "fish",
       file_path,
     }
   end,
-  xml = function(file_path, root_dir, is_test)
+  xml = function(_, _, _)
     return {
       "curl",
       "-X",
@@ -311,7 +311,7 @@ local runners = {
       "http://127.0.0.1:7777/set_reload_request",
     }
   end,
-  lua = function(file_path, root_dir, is_test)
+  lua = function(file_path, _, _)
     vim.cmd.source(file_path)
   end,
   rust = function(file_path, root_dir, is_test)
@@ -327,7 +327,6 @@ local runners = {
     end
 
     local metadata = vim.json.decode(cmd_output.stdout)
-    local workspace_root = metadata.workspace_root
 
     for _, package in ipairs(metadata.packages) do
       for _, target in ipairs(package.targets) do
