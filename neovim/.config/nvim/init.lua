@@ -262,62 +262,90 @@ _G.dap_status = function()
   return ""
 end
 
+local runners = {
+  python = function(file_path, root_dir, is_test)
+    local python_executable = "python3"
+    if vim.uv.fs_stat(vim.fs.joinpath(root_dir, ".pixi")) ~= nil then
+      python_executable = vim.fs.joinpath(root_dir, ".pixi", "envs", "default", "bin", "python")
+    end
+    if is_test then
+      if not file_path:match("^test_") and not file_path:match("_test%.py$") then
+        print(
+          string.format(
+            "Test file '%s' doesn't start/end with 'test_'/'_test' and will be ignored by pytest",
+            file_path
+          )
+        )
+      end
+      return {
+        python_executable,
+        "-m",
+        "pytest",
+        "--capture=no",
+        file_path,
+      }
+    end
+    return {
+      python_executable,
+      file_path,
+    }
+  end,
+  bash = function(file_path, root_dir, is_test)
+    return {
+      "bash",
+      file_path,
+    }
+  end,
+  fish = function(file_path, root_dir, is_test)
+    return {
+      "fish",
+      file_path,
+    }
+  end,
+  xml = function(file_path, root_dir, is_test)
+    return {
+      "curl",
+      "-X",
+      "POST",
+      "http://127.0.0.1:7777/set_reload_request",
+    }
+  end,
+  lua = function(file_path, root_dir, is_test)
+    vim.cmd.source(file_path)
+  end,
+}
+runners.sh = runners.bash
+
 local run_file = function(is_test)
   local filetype = vim.api.nvim_get_option_value("filetype", {})
   if not filetype or filetype == "" then
     return
   end
+  vim.print(filetype)
+
+  local runner = runners[filetype]
+  if not runner then
+    return
+  end
 
   local dirname = vim.fn.expand("%:p:h")
   local root_dir = root_dirs[filetype]
-  if root_dir then
-    root_dir = root_dir(dirname) or dirname
-  else
-    root_dir = dirname
-    for dir in vim.fs.parents(vim.api.nvim_buf_get_name(0)) do
-      if vim.env.HOME == dir then
-        break
-      end
-      if vim.fn.isdirectory(dir .. "/.vscode") == 1 then
-        root_dir = dir
-        break
-      end
+    or function(startpath)
+      return vim.fs.root(startpath, { ".git" })
     end
-  end
+  root_dir = root_dir(dirname) or dirname
 
   if
     not vim.api.nvim_buf_get_option(0, "readonly") and vim.api.nvim_buf_get_option(0, "modified")
   then
     vim.cmd.write()
   end
-  local args = {
-    "--workspace-folder",
-    root_dir,
-    "--filetype",
-    filetype,
-    "--file-path",
-    vim.fn.expand("%:p"),
-  }
-  local cmd = "build_project.py"
-  if filetype ~= "python" then
-    cmd = "pixi"
-    for _, v in
-      ipairs(vim.fn.reverse({
-        "run",
-        "--manifest-path",
-        "~/myconfigs/pixi.toml",
-        "--frozen",
-        "python3",
-        "~/.local/bin/build_project.py",
-      }))
-    do
-      table.insert(args, 1, v)
-    end
+
+  local cmd = runner(vim.fn.expand("%:p"), root_dir, is_test)
+  if not cmd then
+    return
   end
-  if is_test then
-    table.insert(args, "--test")
-  end
-  term.run(cmd, args, { cwd = root_dir, auto_close = false })
+  term.run(cmd[1], vim.list_slice(cmd, 2), { cwd = root_dir, auto_close = false })
 end
 
 ----------------

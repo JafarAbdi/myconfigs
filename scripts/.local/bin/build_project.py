@@ -17,86 +17,6 @@ from utils import call, run_command
 CMAKE_REPLY_DIR: Final = Path(".cmake") / "api" / "v1" / "reply"
 
 
-def lua(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
-    """Run a lua file.
-
-    Args:
-        file: File to run
-        args: Arguments to pass to the file when running it
-        cwd: Current working directory
-        extra_args: Generic arguments to be used by the runner
-        is_test: Whether the file is a test or not
-    """
-    env = os.environ.copy()
-    env.pop("NVIMRUNNING", None)
-    run_command(
-        ["nvim", "--headless", "-n", "-c", "source", str(file), "-c", "qall!", *args],
-        dry_run=False,
-        cwd=cwd,
-        env=env,
-    )
-
-
-def bash(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
-    """Run a sh file.
-
-    Args:
-        file: File to run
-        args: Arguments to pass to the file when running it
-        cwd: Current working directory
-        extra_args: Generic arguments to be used by the runner
-        is_test: Whether the file is a test or not
-    """
-    run_command(["bash", str(file), *args], dry_run=False, cwd=cwd)
-
-
-def fish(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
-    """Run a fish file.
-
-    Args:
-        file: File to run
-        args: Arguments to pass to the file when running it
-        cwd: Current working directory
-        extra_args: Generic arguments to be used by the runner
-        is_test: Whether the file is a test or not
-    """
-    run_command(["fish", str(file), *args], dry_run=False, cwd=cwd)
-
-
-def python(
-    file: Path,
-    args: list,
-    cwd: Path,
-    extra_args: dict,
-    *,
-    is_test: bool,
-) -> None:
-    """Run a python file.
-
-    Args:
-        file: File to run
-        args: Arguments to pass to the file when running it
-        cwd: Current working directory
-        extra_args: Generic arguments to be used by the runner
-        is_test: Whether the file is a test or not
-    """
-    cmd = []
-    python_path = "python3"
-    if (pixi_prefix := find_rootdir(".pixi")(file)) is not None:
-        python_path = pixi_prefix / ".pixi" / "envs" / "default" / "bin" / "python"
-    if is_test:
-        if not file.name.startswith("test_") and not file.name.endswith("_test.py"):
-            logging.error(
-                f"Test file '{file}' doesn't start/end with 'test_'/'_test' and will be ignored by pytest",
-            )
-            return
-        cmd.extend([python_path, "-m", "pytest", "--capture=no", str(file.name)])
-        cwd = file.parent
-    else:
-        cmd.extend([python_path, str(file)])
-    run_command(cmd + args, dry_run=False, cwd=cwd)
-
-
 def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
     """Run a rust file.
 
@@ -293,38 +213,10 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict) -> None:
     return True
 
 
-def xacro(
-    file: Path,
-    args: list,
-    cwd: Path,
-    extra_args: dict,
-    *,
-    is_test: bool,
-) -> None:
-    """Run a urdf/xaacro file.
-
-    Args:
-        file: File to run
-        args: Arguments to pass to the file when running it
-        cwd: Current working directory
-        extra_args: Generic arguments to be used by the runner
-        is_test: Weather the file is a test or not
-    """
-    run_command(
-        ["curl", "-X", "POST", "http://127.0.0.1:7777/set_reload_request"],
-        dry_run=False,
-    )
-
-
 runners: Final = {
     "lua": lua,
-    "python": python,
     "rust": rust,
     "cpp": cpp,
-    "fish": fish,
-    "xml": xacro,
-    "sh": bash,
-    "bash": bash,
 }
 
 
