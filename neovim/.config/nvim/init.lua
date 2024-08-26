@@ -314,6 +314,43 @@ local runners = {
   lua = function(file_path, root_dir, is_test)
     vim.cmd.source(file_path)
   end,
+  rust = function(file_path, root_dir, is_test)
+    if not vim.uv.fs_stat(vim.fs.joinpath(root_dir, "Cargo.toml")) then
+      vim.notify(root_dir .. " is not a Cargo project", vim.log.levels.WARN)
+    end
+    local cmd_output = vim
+      .system({ "cargo", "metadata", "--format-version=1" }, { cwd = root_dir, text = true })
+      :wait()
+    if cmd_output.code ~= 0 then
+      vim.notify("Failed with code " .. cmd_output.code, vim.log.levels.WARN)
+      return
+    end
+
+    local metadata = json.decode(cmd_output.stdout)
+    local workspace_root = metadata.workspace_root
+
+    for _, package in ipairs(metadata.packages) do
+      for _, target in ipairs(package.targets) do
+        if target.kind[1] == "lib" and is_test then
+          return run_command({ "cargo", "test", "--lib" }, { cwd = workspace_root })
+        end
+        if file_path == target.src_path then
+          if target.kind[1] == "bin" then
+            return run_command({ "cargo", "run", "--bin", target.name }, { cwd = workspace_root })
+          elseif target.kind[1] == "example" then
+            return run_command(
+              { "cargo", "run", "--example", target.name },
+              { cwd = workspace_root }
+            )
+          else
+            vim.notify("Unsupported target kind " .. vim.inspect(target.kind), vim.log.levels.WARN)
+            return
+          end
+        end
+      end
+    end
+    vim.notify("Can't find a target for " .. file_path, vim.log.levels.WARN)
+  end,
 }
 runners.sh = runners.bash
 

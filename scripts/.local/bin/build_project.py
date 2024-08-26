@@ -17,69 +17,6 @@ from utils import call, run_command
 CMAKE_REPLY_DIR: Final = Path(".cmake") / "api" / "v1" / "reply"
 
 
-def rust(file: Path, args: list, cwd: Path, extra_args: dict, *, is_test: bool) -> None:
-    """Run a rust file.
-
-    Args:
-        file: File to run
-        args: Arguments to pass to the file when running it
-        cwd: Current working directory
-        extra_args: Generic arguments to be used by the runner
-        is_test: Whether the file is a test or not
-    """
-    if (cwd / "Cargo.toml").exists():
-        output = call(
-            ["cargo", "metadata", "--format-version=1"],
-            cwd=file.parent.resolve(),
-        )
-        output = json.loads(output)
-        resolved_file_path = str(file.resolve())
-        workspace_root = output["workspace_root"]
-        for package in output["packages"]:
-            for target in package["targets"]:
-                if target["kind"] == ["lib"] and is_test:
-                    run_command(
-                        ["cargo", "test", "--lib", *args],
-                        dry_run=False,
-                        cwd=workspace_root,
-                    )
-                    return
-                if resolved_file_path == target["src_path"]:
-                    match target["kind"]:
-                        case ["bin"]:
-                            run_command(
-                                ["cargo", "run", "--bin", target["name"], *args],
-                                dry_run=False,
-                                cwd=workspace_root,
-                            )
-                        case ["example"]:
-                            run_command(
-                                ["cargo", "run", "--example", target["name"], *args],
-                                dry_run=False,
-                                cwd=workspace_root,
-                            )
-                        case _:
-                            logging.error(f"Unsupported target kind {target['kind']}")
-                    return
-        logging.error(f"Can't find a target for {file.resolve()}")
-        return
-    if (
-        run_command(
-            ["rustc", str(file), "-o", str(file.with_suffix(".out"))],
-            dry_run=False,
-            cwd=cwd,
-        )
-        != 0
-    ):
-        logging.error(f"Failed to build '{file}'")
-        return
-    run_command(
-        [str(file.with_suffix(".out")), *args],
-        dry_run=False,
-        cwd=cwd,
-    )
-
-
 def find_rootdir(filename: Path) -> Path:
     """Find the root directory of a file.
 
@@ -214,8 +151,6 @@ def cmake(file: Path, args: list, cwd: Path, extra_args: dict) -> None:
 
 
 runners: Final = {
-    "lua": lua,
-    "rust": rust,
     "cpp": cpp,
 }
 
