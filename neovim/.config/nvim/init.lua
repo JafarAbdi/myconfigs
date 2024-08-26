@@ -270,11 +270,12 @@ local runners = {
     end
     if is_test then
       if not file_path:match("^test_") and not file_path:match("_test%.py$") then
-        print(
+        vim.notify(
           string.format(
             "Test file '%s' doesn't start/end with 'test_'/'_test' and will be ignored by pytest",
             file_path
-          )
+          ),
+          vim.log.levels.WARN
         )
       end
       return {
@@ -321,10 +322,10 @@ local run_file = function(is_test)
   if not filetype or filetype == "" then
     return
   end
-  vim.print(filetype)
 
   local runner = runners[filetype]
   if not runner then
+    vim.notify("No runner found for filetype: '" .. filetype .. "'", vim.log.levels.WARN)
     return
   end
 
