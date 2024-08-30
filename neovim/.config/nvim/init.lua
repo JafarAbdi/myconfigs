@@ -62,6 +62,7 @@ term.create = function(cmd, args, opts)
   vim.api.nvim_buf_set_option(0, "bufhidden", "wipe")
   vim.api.nvim_buf_set_option(0, "buflisted", false)
   vim.api.nvim_buf_set_option(0, "swapfile", false)
+  vim.api.nvim_buf_set_option(0, "spell", false)
   local term_opts = {
     cwd = opts.cwd or vim.loop.cwd(),
     on_exit = function()
@@ -347,8 +348,23 @@ local runners = {
     end
     vim.notify("Can't find a target for " .. file_path, vim.log.levels.WARN)
   end,
+  c = function(file_path, _, _)
+    local output = vim.fn.tempname()
+
+    local cmd = { "clang++", file_path, "-o", output, "-std=c++17" }
+
+    if vim.fn.has("linux") == 1 and vim.fn.executable("mold") == 1 then
+      table.insert(cmd, "-fuse-ld=mold")
+    end
+    table.insert(cmd, "&&")
+    table.insert(cmd, output)
+
+    return cmd
+  end,
 }
+
 runners.sh = runners.bash
+runners.cpp = runners.c
 
 local run_file = function(is_test)
   local filetype = vim.api.nvim_get_option_value("filetype", {})
@@ -1343,7 +1359,8 @@ vim.filetype.add({
   },
 })
 
-vim.cmd.colorscheme("retrobox")
+vim.cmd.colorscheme("vim")
+vim.cmd.colorscheme("onedark")
 vim.api.nvim_set_hl(0, "SpellBad", { sp = "red", undercurl = true })
 ---------------
 --- Keymaps ---
