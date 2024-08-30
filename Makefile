@@ -18,11 +18,9 @@ core:
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-core && stow-configs'
 
 host: core
-	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && setup-ssh-keys'
-	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-podman'
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-common-utils'
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-syncthing'
-	sudo apt install fonts-jetbrains-mono flameshot
+	sudo apt install flameshot
 
 dev-core:
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-dev-core && install-nvim stable'

@@ -28,7 +28,6 @@
   autoSetupRemote = true
 [merge]
   ff = only
-	conflictStyle = zdiff3
 [core]
   autoctrlf = input
   excludesfile = ~/myconfigs/git/.gitignore

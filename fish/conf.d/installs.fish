@@ -53,7 +53,6 @@ function install-core
                       universal-ctags \
                       pdfgrep \
                       atool
-  pip3 install argcomplete==2.0.0
   install-ripgrep
   install-fd
   install-fzf
@@ -568,9 +567,9 @@ function install-i3
   if test (lsb_release -is) = "Ubuntu"
     set -l TMP_DIR (mktemp -d -p /tmp i3-XXXXXX)
     cd $TMP_DIR
-    /usr/lib/apt/apt-helper download-file https://debian.sur5r.net/i3/pool/main/s/sur5r-keyring/sur5r-keyring_2022.02.17_all.deb keyring.deb SHA256:52053550c4ecb4e97c48900c61b2df4ec50728249d054190e8a0925addb12fc6
-    sudo dpkg -i ./keyring.deb
-    echo "deb [arch=amd64] http://debian.sur5r.net/i3/ " (grep '^DISTRIB_CODENAME=' /etc/lsb-release | cut -f2 -d=) " universe" | sudo tee /etc/apt/sources.list.d/sur5r-i3.list
+    /usr/lib/apt/apt-helper download-file https://debian.sur5r.net/i3/pool/main/s/sur5r-keyring/sur5r-keyring_2024.03.04_all.deb keyring.deb SHA256:f9bb4340b5ce0ded29b7e014ee9ce788006e9bbfe31e96c09b2118ab91fca734
+    sudo apt install ./keyring.deb
+    echo "deb http://debian.sur5r.net/i3/ $(grep '^DISTRIB_CODENAME=' /etc/lsb-release | cut -f2 -d=) universe" | sudo tee /etc/apt/sources.list.d/sur5r-i3.list
     sudo apt update
   end
   sudo apt install -y i3
@@ -599,8 +598,6 @@ function install-docker-compose
 end
 
 function install-docker
-  # Install lazydocker
-  curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash
   # Install Docker
   if ! command -q docker &> /dev/null
     sudo apt install -y curl
