@@ -10,7 +10,7 @@ platforms = ["linux-64", "osx-arm64"]
 lint = "pre-commit run -a"
 
 [dependencies]
-python = "3.12.0.*"
+python = "3.12.*"
 requests = "*"
 cookiecutter = "*"
 argcomplete = "*"
