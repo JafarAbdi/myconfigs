@@ -21,6 +21,6 @@ make host # Host specific configs
 make dev
 ```
 
-- Install tailscale: https://tailscale.com/download
+- Install tailscale: [tailscale](https://tailscale.com/download)
 - Install Obsidian: `install-obsidian`
 - Install NextCloud: `install-nextcloud-sync`

@@ -35,7 +35,7 @@ dev-rust:
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-rust-lsp'
 
 dev-cpp:
-	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-cpp-lsp && install-cpp-analyzers'
+	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-cpp-lsp'
 
 dev-xml:
 	fish -c 'source ~/myconfigs/fish/conf.d/installs.fish && install-xml-lsp'

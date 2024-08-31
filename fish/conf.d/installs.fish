@@ -393,9 +393,9 @@ function install-luacheck
 end
 
 function install-markdown-lsp
-  install-from-github artempyanykh/marksman marksman-linux
-  chmod +x marksman-linux
-  mv marksman-linux ~/.local/bin/marksman
+  install-from-github artempyanykh/marksman marksman-linux-x64
+  chmod +x marksman-linux-x64
+  mv marksman-linux-x64 ~/.local/bin/marksman
 end
 
 function install-cpp-analyzers
@@ -611,13 +611,7 @@ function install-docker
   # It uses the latest stable version, there's release for sid
   # https://docs.docker.com/engine/install/debian/
   # https://nickjanetakis.com/blog/docker-tip-77-installing-docker-on-debian-unstable
-  if ! command -q nvidia-docker &> /dev/null
-    export distribution=(export (cat /etc/os-release |xargs -L 1);echo $ID$VERSION_ID) \
-      && curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -  \
-      && curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-    sudo apt-get update
-    sudo apt-get install -y nvidia-docker2
-  end
+  echo "To install nvidia-docker follow: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#installation"
   sudo systemctl restart docker
   wget https://raw.githubusercontent.com/docker/cli/master/contrib/completion/fish/docker.fish -O ~/.config/fish/completions/docker.fish
   wget https://raw.githubusercontent.com/docker/compose/master/contrib/completion/fish/docker-compose.fish -O ~/.config/fish/completions/docker-compose.fish
