@@ -896,29 +896,31 @@ local capabilities = vim.tbl_deep_extend("force", vim.lsp.protocol.make_client_c
 })
 
 for _, server in pairs(servers) do
-  vim.api.nvim_create_autocmd("FileType", {
-    pattern = server.filetypes,
-    group = lsp_group,
-    callback = function(args)
-      -- Don't start LSP for floating windows
-      if vim.api.nvim_win_get_config(0).relative ~= "" then
-        return
-      end
-      local root_dir = root_dirs[args.match]
-        or function(startpath)
-          return vim.fs.root(startpath, { ".git" })
+  if vim.fn.executable(server.cmd[1]) == 1 then
+    vim.api.nvim_create_autocmd("FileType", {
+      pattern = server.filetypes,
+      group = lsp_group,
+      callback = function(args)
+        -- Don't start LSP for floating windows
+        if vim.api.nvim_win_get_config(0).relative ~= "" then
+          return
         end
-      vim.lsp.start({
-        name = server.name,
-        cmd = server.cmd,
-        on_attach = function(_, _) end,
-        capabilities = capabilities,
-        settings = server.settings or vim.empty_dict(),
-        init_options = server.init_options and server.init_options(args.file) or vim.empty_dict(),
-        root_dir = root_dir(args.file),
-      })
-    end,
-  })
+        local root_dir = root_dirs[args.match]
+          or function(startpath)
+            return vim.fs.root(startpath, { ".git" })
+          end
+        vim.lsp.start({
+          name = server.name,
+          cmd = server.cmd,
+          on_attach = function(_, _) end,
+          capabilities = capabilities,
+          settings = server.settings or vim.empty_dict(),
+          init_options = server.init_options and server.init_options(args.file) or vim.empty_dict(),
+          root_dir = root_dir(args.file),
+        })
+      end,
+    })
+  end
 end
 
 -- TODO: Add https://github.com/JafarAbdi/myconfigs/commit/97ba4ecb55b5972c5bc43ce020241fb353de433f
