@@ -375,12 +375,12 @@ function install-lua-lsp
   end
   curl -s https://api.github.com/repos/LuaLS/lua-language-server/releases \
      | grep "browser_download_url" \
-     | grep $os \
+     | grep $os.tar.gz \
      | cut -d":" -f 2,3 \
      | tr -d \" \
      | head -n 1 \
      | wget -i -
-  ex lua-language-server-*
+  tar xzf lua-language-server-*
 end
 
 function install-luacheck
