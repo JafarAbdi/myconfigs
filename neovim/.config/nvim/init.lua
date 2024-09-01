@@ -600,6 +600,15 @@ end, {
 
 local servers = {
   {
+    name = "taplo",
+    filetypes = { "toml" },
+    cmd = {
+      "taplo",
+      "lsp",
+      "stdio",
+    },
+  },
+  {
     name = "clangd",
     filetypes = { "c", "cpp" },
     cmd = {

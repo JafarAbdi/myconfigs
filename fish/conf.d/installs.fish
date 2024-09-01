@@ -383,6 +383,16 @@ function install-lua-lsp
   tar xzf lua-language-server-*
 end
 
+function install-taplo
+  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
+  cd $TMP_DIR
+  install-from-github tamasfe/taplo taplo-full-linux-x86_64.gz
+  ex taplo-full-linux-x86_64.gz
+  chmod +x taplo-full-linux-x86_64
+  mv taplo-full-linux-x86_64 ~/.local/bin/taplo
+  cd -
+end
+
 function install-luacheck
   if test (uname -s) = "Darwin"
     brew install luarocks
