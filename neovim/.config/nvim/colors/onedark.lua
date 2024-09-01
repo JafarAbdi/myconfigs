@@ -90,7 +90,7 @@ local highlights = {
   QuickFixLine = { fg = colors.black, bg = colors.yellow }, --Current quickfix item in the quickfix window.
   Search = { fg = colors.black, bg = "#a2ad6a" }, --Last search pattern highlighting (see 'hlsearch'). Also used for similar items that need to stand out.
   SpecialKey = { fg = colors.special_grey }, --Meta and special keys listed with " =map", also for text used to show unprintable characters in the text, 'listchars'. Generally: text that is displayed differently from what it really is.
-  SpellBad = { sp = "gray", undercurl = true }, --Word that is not recognized by the spellchecker. This will be combined with the highlighting used otherwise.
+  SpellBad = { sp = "red", undercurl = true }, --Word that is not recognized by the spellchecker. This will be combined with the highlighting used otherwise.
   SpellCap = { fg = colors.dark_yellow }, --Word that should start with a capital. This will be combined with the highlighting used otherwise.
   SpellLocal = { fg = colors.dark_yellow }, --Word that is recognized by the spellchecker as one that is used in another region. This will be combined with the highlighting used otherwise.
   SpellRare = { fg = colors.dark_yellow }, --Word that is recognized by the spellchecker as one that is hardly ever used. spell This will be combined with the highlighting used otherwise.

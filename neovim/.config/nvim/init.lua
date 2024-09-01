@@ -1320,7 +1320,6 @@ vim.opt.wrap = false
 vim.opt.showmatch = true
 vim.opt.title = true
 vim.opt.relativenumber = true
-vim.opt.titlestring = "NVIM: %{substitute(getcwd(), $HOME, '~', '')}%a%r%m "
 vim.opt.shortmess:append("wIA")
 vim.opt.matchtime = 2
 vim.opt.matchpairs:append("<:>")
@@ -1370,7 +1369,6 @@ vim.filetype.add({
 
 vim.cmd.colorscheme("vim")
 vim.cmd.colorscheme("onedark")
-vim.api.nvim_set_hl(0, "SpellBad", { sp = "red", undercurl = true })
 ---------------
 --- Keymaps ---
 ---------------
