@@ -11,20 +11,19 @@ from pathlib import Path
 
 import argcomplete
 from utils import (
-    RosVersions,
     create_clangd_config_ros,
     create_cmake_query_files,
     create_vscode_config,
+    get_colcon_postfix,
     get_ros_packages,
     get_ros_packages_path,
-    get_ros_version,
     run_command,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def main() -> None:  # noqa: PLR0912, PLR0915, C901
+def main() -> None:
     """Main function."""
     if (ros_distro := os.environ.get("ROS_DISTRO")) is None:
         logger.error("ROS_DISTRO is not set")
@@ -45,8 +44,10 @@ def main() -> None:  # noqa: PLR0912, PLR0915, C901
     if not Path(src_dir).exists():
         logger.error(f"{workspace_dir} is not a workspace directory")
         return
+
+    postfix = get_colcon_postfix(workspace_dir)
     packages = get_ros_packages_path(src_dir)
-    build_path = Path(workspace_dir) / f"build_{ros_distro}"
+    build_path = Path(workspace_dir) / f"build{postfix}"
     create_clangd_config_ros(workspace_dir, ros_distro)
     for package, path in packages:
         create_cmake_query_files(build_path / f"{package}")
@@ -81,68 +82,37 @@ def main() -> None:  # noqa: PLR0912, PLR0915, C901
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
-    cmd = []
     env = os.environ.copy()
-    ros_version = get_ros_version()
-    # colcon works with ROS1???
-    if ros_version == RosVersions.UNKNOWN:
-        ros_version = input("Unknown version -- Select ros version (1/2):")
-        try:
-            ros_version = RosVersions(int(ros_version))
-        except ValueError:
-            logger.exception("Unknown ROS version")
-            return
-    if ros_version == RosVersions.ROS1:
-        cmd += ["catkin", "build"]
-        if args.pkg:
-            cmd += args.pkg
-            cmd += ["--no-deps"]
-        if args.skip:
-            errmsg = "Skipping a package isn't supported yet for catkin"
-            raise RuntimeError(errmsg)
-        if args.jobs:
-            errmsg = "Specifying the number of jobs isn't supported yet for catkin"
-            raise RuntimeError(errmsg)
-        cmd += [
-            "--cmake-args",
-            f"-DCMAKE_BUILD_TYPE={args.build_type}",
-            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
-        ]
-        if args.force_linking:
-            cmd += ['-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
-        cmd += ["-DCATKIN_ENABLE_TESTING=" + ("ON" if args.build_tests else "OFF")]
-
-    elif ros_version == RosVersions.ROS2:
-        cmd += [
-            "colcon",
-            "build",
-            "--symlink-install",
-            "--build-base",
-            f"build_{ros_distro}",
-            "--install-base",
-            f"install_{ros_distro}",
-        ]
-        if args.pkg:
-            cmd += ["--packages-select"]
-            cmd += args.pkg
-        if args.skip:
-            cmd += ["--packages-skip"]
-            cmd += args.skip
-        if args.jobs:
-            env["MAKEFLAGS"] = f"-j{args.jobs}"
-            cmd.append(f"--parallel-workers={args.jobs}")
-        cmd += [
-            "--mixin",
-            args.build_type,
-            "compile-commands",
-            "build-testing-" + ("on" if args.build_tests else "off"),
-            "ninja",
-            "lld",
-        ]
-        if args.verbose:
-            cmd += ["--event-handlers", "console_direct+"]
-        if args.force_linking:
-            cmd += ["--cmake-args", '-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
+    cmd = [
+        "colcon",
+        "build",
+        "--symlink-install",
+        "--build-base",
+        f"build{postfix}",
+        "--install-base",
+        f"install{postfix}",
+    ]
+    if args.pkg:
+        cmd += ["--packages-select"]
+        cmd += args.pkg
+    if args.skip:
+        cmd += ["--packages-skip"]
+        cmd += args.skip
+    if args.jobs:
+        env["MAKEFLAGS"] = f"-j{args.jobs}"
+        cmd.append(f"--parallel-workers={args.jobs}")
+    cmd += [
+        "--mixin",
+        args.build_type,
+        "compile-commands",
+        "build-testing-" + ("on" if args.build_tests else "off"),
+        "ninja",
+        "lld",
+    ]
+    if args.verbose:
+        cmd += ["--event-handlers", "console_direct+"]
+    if args.force_linking:
+        cmd += ["--cmake-args", '-DCMAKE_CXX_FLAGS="-Wl,--no-undefined"']
     run_command(cmd, args.dry_run, env=env)
 
 

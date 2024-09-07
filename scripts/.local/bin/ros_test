@@ -10,11 +10,10 @@ from pathlib import Path
 
 import argcomplete
 from utils import (
-    RosVersions,
     call,
+    get_colcon_postfix,
     get_package_paths,
     get_ros_packages,
-    get_ros_version,
     run_command,
 )
 
@@ -78,11 +77,8 @@ class TestCompleter:
         return get_tests(parsed_args.pkg[0])
 
 
-def main() -> None:  # noqa: C901
+def main() -> None:
     """Main function."""
-    if (ros_distro := os.environ.get("ROS_DISTRO")) is None:
-        logger.error("ROS_DISTRO is not set")
-        return
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--pkg",
@@ -96,39 +92,27 @@ def main() -> None:  # noqa: C901
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
-    cmd = []
-    ros_version = get_ros_version()
-    if ros_version == RosVersions.UNKNOWN:
-        logger.error("Unknown ROS version")
-        return
-    if ros_version == RosVersions.ROS1:
-        cmd += ["catkin", "build"]
-        if args.pkg:
-            cmd += args.pkg
-            cmd += ["--no-deps"]
-        if args.verbose:
-            cmd += ["--verbose"]
-        cmd += ["--catkin-make-args", "run_tests"]
-    elif ros_version == RosVersions.ROS2:
-        cmd += [
-            "colcon",
-            "test",
-            "--build-base",
-            f"build_{ros_distro}",
-            "--install-base",
-            f"install_{ros_distro}",
-        ]
-        if args.pkg:
-            cmd += ["--packages-select"]
-            cmd += args.pkg
-        if args.verbose:
-            cmd += ["--event-handlers", "console_direct+"]
-        if args.test:
-            test, test_type = args.test.split("@")
-            if test_type == "pytest":
-                cmd += ["--pytest-args", test]
-            elif test_type == "ctest":
-                cmd += ["--ctest-args", "--tests-regex", test]
+    postfix = get_colcon_postfix(Path(os.curdir).resolve())
+
+    cmd = [
+        "colcon",
+        "test",
+        "--build-base",
+        f"build{postfix}",
+        "--install-base",
+        f"install{postfix}",
+    ]
+    if args.pkg:
+        cmd += ["--packages-select"]
+        cmd += args.pkg
+    if args.verbose:
+        cmd += ["--event-handlers", "console_direct+"]
+    if args.test:
+        test, test_type = args.test.split("@")
+        if test_type == "pytest":
+            cmd += ["--pytest-args", test]
+        elif test_type == "ctest":
+            cmd += ["--ctest-args", "--tests-regex", test]
     run_command(cmd, args.dry_run)
 
 

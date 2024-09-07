@@ -8,10 +8,8 @@ import pathlib
 
 import argcomplete
 from utils import (
-    RosVersions,
     get_ros_package_path,
     get_ros_packages,
-    get_ros_version,
     run_command,
 )
 
@@ -38,34 +36,15 @@ def main() -> None:
         logger.error(f"Package '{args.pkg}' doesn't exists")
         return
 
-    cmd = []
-    ros_version = get_ros_version()
-    if ros_version == RosVersions.UNKNOWN:
-        ros_version = input("Unknown version -- Select ros version (1/2):")
-        try:
-            ros_version = RosVersions(int(ros_version))
-        except ValueError:
-            logger.exception("Unknown ROS version")
-            return
-    if ros_version == RosVersions.ROS1:
-        cmd += ["catkin", "build"]
-        if args.pkg:
-            cmd += [args.pkg]
-            cmd += ["--no-deps"]
-        cmd += [
-            "--cmake-args",
-            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
-        ]
-    elif ros_version == RosVersions.ROS2:
-        cmd += ["colcon", "build", "--symlink-install"]
-        if args.pkg:
-            cmd += ["--packages-select"]
-            cmd += [args.pkg]
-        cmd += [
-            "--cmake-args",
-            "-DBUILD_TESTING=OFF",
-            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
-        ]
+    cmd = ["colcon", "build", "--symlink-install"]
+    if args.pkg:
+        cmd += ["--packages-select"]
+        cmd += [args.pkg]
+    cmd += [
+        "--cmake-args",
+        "-DBUILD_TESTING=OFF",
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+    ]
     run_command(cmd, args.dry_run)
     clang_tidy_cmd = [
         "run-clang-tidy",

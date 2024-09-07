@@ -48,57 +48,28 @@ elif args.workspace_name:
         commands.append(f"source /opt/ros/{rosdistro}/setup.bash")
     for underlay in get_workspace_underlays(workspace) or []:
         underlay_path = get_workspace_path(underlay)
-        match rosdistro:
-            case "melodic" | "noetic":
-                if (
-                    setup_path := home_dir
-                    / underlay_path
-                    / f"install_{rosdistro}"
-                    / "setup.bash"
-                ).exists() or (
-                    setup_path := home_dir / underlay_path / "install" / "setup.bash"
-                ).exists():
-                    commands.append(
-                        f"source {setup_path}",
-                    )
-            case _:
-                if (
-                    local_setup_path := home_dir
-                    / underlay_path
-                    / f"install_{rosdistro}"
-                    / "local_setup.bash"
-                ).exists() or (
-                    local_setup_path := home_dir
-                    / underlay_path
-                    / "install"
-                    / "local_setup.bash"
-                ).exists():
-                    commands.append(f"source {local_setup_path}")
+        if (
+            local_setup_path := home_dir
+            / underlay_path
+            / f"install_{rosdistro}"
+            / "local_setup.bash"
+        ).exists() or (
+            local_setup_path := home_dir
+            / underlay_path
+            / "install"
+            / "local_setup.bash"
+        ).exists():
+            commands.append(f"source {local_setup_path}")
     if workspace_path := get_workspace_path(workspace):
-        match rosdistro:
-            case "melodic" | "noetic":
-                if (
-                    setup_path := home_dir
-                    / workspace_path
-                    / f"devel_{rosdistro}"
-                    / "setup.bash"
-                ).exists() or (
-                    setup_path := home_dir / workspace_path / "devel" / "setup.bash"
-                ).exists():
-                    commands.append(f"source {setup_path}")
-            case _:
-                if (
-                    local_setup_path := home_dir
-                    / workspace_path
-                    / f"install_{rosdistro}"
-                    / "setup.bash"
-                ).exists() or (
-                    local_setup_path := home_dir
-                    / workspace_path
-                    / "install"
-                    / "setup.bash"
-                ).exists():
-                    commands.append(f"source {local_setup_path}")
+        if (
+            local_setup_path := home_dir
+            / workspace_path
+            / f"install_{rosdistro}"
+            / "setup.bash"
+        ).exists() or (
+            local_setup_path := home_dir / workspace_path / "install" / "setup.bash"
+        ).exists():
+            commands.append(f"source {local_setup_path}")
         create_clangd_config_ros(Path.home() / workspace_path, rosdistro)
     print(" && ".join(commands))  # noqa: T201
 elif args.ros_package_path:

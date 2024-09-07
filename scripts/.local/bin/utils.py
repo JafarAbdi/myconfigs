@@ -1,24 +1,14 @@
 """Utility functions for the scripts in the repo."""
 
 import os
-import pathlib
 import subprocess
 from collections.abc import KeysView
-from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import yaml
 
 ROS_INSTALLATION_DIR = Path("/opt/ros")
-
-
-class RosVersions(Enum):
-    """An enum to represent the ROS versions."""
-
-    ROS1 = 1
-    ROS2 = 2
-    UNKNOWN = 3
 
 
 def get_workspaces_yaml() -> dict:
@@ -147,6 +137,21 @@ def get_ros_packages_path(directory: Path) -> list[tuple[str, str]]:
     return [(package, rospack.get_path(package)) for package in packages]
 
 
+def get_colcon_postfix(workspace_dir: Path) -> str:
+    """Get the postfix for the colcon build/install directories.
+
+    Args:
+        workspace_dir: The workspace directory
+
+    Returns:
+        The postfix for the colcon build directory
+    """
+    # Assumes we don't have both build/build_rosdistro at the same time
+    if (workspace_dir / "build").exists():
+        return ""
+    return f"_{os.environ.get('ROS_DISTRO')}"
+
+
 def get_ros_packages(directory: Path) -> list[str]:
     """Get the names of all packages in a directory.
 
@@ -265,20 +270,6 @@ def create_clangd_config_ros(workspace_dir: Path, ros_distro: str) -> None:
     clangd_path = Path(workspace_dir) / ".clangd"
     with clangd_path.open("w") as stream:
         yaml.safe_dump_all(clangd_configs, stream)
-
-
-def get_ros_version() -> RosVersions:
-    """Get the ROS version of the current directory.
-
-    Returns:
-        ROS version of the current directory
-    """
-    current = pathlib.Path.cwd()
-    if (current / ".catkin_tools").is_dir():
-        return RosVersions.ROS1
-    if (current / f"build_{os.environ['ROS_DISTRO']}/COLCON_IGNORE").exists():
-        return RosVersions.ROS2
-    return RosVersions.UNKNOWN
 
 
 def call(*args, **kwargs) -> str:
