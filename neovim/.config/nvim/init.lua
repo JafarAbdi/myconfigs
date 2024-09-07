@@ -891,9 +891,6 @@ local servers = {
     cmd = { "lemminx" },
   },
 }
-local capabilities = vim.tbl_deep_extend("force", vim.lsp.protocol.make_client_capabilities(), {
-  offsetEncoding = { "utf-16" },
-})
 
 for _, server in pairs(servers) do
   if vim.fn.executable(server.cmd[1]) == 1 then
@@ -913,7 +910,7 @@ for _, server in pairs(servers) do
           name = server.name,
           cmd = server.cmd,
           on_attach = function(_, _) end,
-          capabilities = capabilities,
+          capabilities = vim.lsp.protocol.make_client_capabilities(),
           settings = server.settings or vim.empty_dict(),
           init_options = server.init_options and server.init_options(args.file) or vim.empty_dict(),
           root_dir = root_dir(args.file),
