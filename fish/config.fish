@@ -175,18 +175,6 @@ function git-bisect
   git bisect old $bad_commit
 end
 
-# Find and replace string in all files in a directory
-#  param1 - old word
-#  param2 - new word
-function findreplace
-  # Use ` since I hopefully don't use it much
-  rg --files-with-matches "$argv[1]" | xargs sed -i "s`$argv[1]`$argv[2]`g" ;
-end
-
-function findreplacehidden
-  rg --files-with-matches --glob '!.git' --hidden "$argv[1]" | xargs sed -i "s`$argv[1]`$argv[2]`g" ;
-end
-
 # get just the ip address
 function myip
     echo "Public IP: " (curl ifconfig.me -s)
@@ -282,10 +270,6 @@ function kill-all
   if test (count $pids) -ne 0
     kill -9 $pids
   end
-end
-
-function restart-zerotier-one
-  sudo systemctl stop zerotier-one.service && sudo systemctl start zerotier-one.service
 end
 
 function set-timezone
@@ -662,6 +646,9 @@ function setup_container
   set -l container_name $argv[1]
   if test (docker exec $container_name sh -c 'if [ -d "$HOME/myconfigs" ]; then echo "1"; else echo "0"; fi') -eq 0
     docker cp $HOME/myconfigs $container_name:$HOME/myconfigs
+  end
+  if test (docker exec $container_name sh -c 'if [ -d "$HOME/.config/github-copilot" ]; then echo "1"; else echo "0"; fi') -eq 0
+    docker cp $HOME/.config/github-copilot $container_name:$HOME/.config/github-copilot
   end
   docker exec $container_name mkdir -p $HOME/.config
   if test (docker exec $container_name sh -c 'if [ -d "$HOME/.config/gh" ]; then echo "1"; else echo "0"; fi') -eq 0

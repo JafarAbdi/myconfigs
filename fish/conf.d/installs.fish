@@ -302,7 +302,12 @@ end
 function install-repgrep
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
   cd $TMP_DIR
-  install-from-github acheronfail/repgrep "repgrep.*apple-darwin.tar.gz"
+  if test (uname -s) = "Darwin"
+    set os "apple-darwin"
+  else
+    set os "unknown-linux-gnu"
+  end
+  install-from-github acheronfail/repgrep "repgrep.*$os.tar.gz"
   tar -xzf repgrep* --strip-components=1
   mv rgr ~/.local/bin
   mv complete/rgr.fish ~/.config/fish/completions/
@@ -649,8 +654,9 @@ function install-dev-core
   install-difftastic
   install-mold
   install-libtree
-  install-gh
   install-ccache
+  install-pixi
+  install-repgrep
   ## Linters
   install-pre-commit
   install-hadolint
