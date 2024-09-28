@@ -465,7 +465,6 @@ vim.api.nvim_create_autocmd("TermOpen", {
   group = general_group,
 })
 
-vim.api.nvim_create_autocmd("FocusGained", { command = "checktime", group = general_group })
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
     vim.keymap.set({ "n", "i" }, "<C-k>", function()
@@ -652,7 +651,16 @@ local servers = {
       languages = {
         python = {
           {
-            lintCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters mypy --show-column-numbers --install-types --non-interactive --hide-error-codes --hide-error-context --no-color-output --no-error-summary --no-pretty",
+            lintCommand = vim.fs.joinpath(
+              vim.env.HOME,
+              "myconfigs",
+              ".pixi",
+              "envs",
+              "linters",
+              "bin",
+              "mypy"
+            )
+              .. " --show-column-numbers --install-types --non-interactive --hide-error-codes --hide-error-context --no-color-output --no-error-summary --no-pretty",
             lintFormats = {
               "%f:%l:%c: error: %m",
               "%f:%l:%c: %tarning: %m",
@@ -661,11 +669,27 @@ local servers = {
             lintSeverity = vim.diagnostic.severity.WARN,
           },
           {
-            formatCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters black --quiet -",
+            formatCommand = vim.fs.joinpath(
+              vim.env.HOME,
+              "myconfigs",
+              ".pixi",
+              "envs",
+              "linters",
+              "bin",
+              "black"
+            ) .. " --quiet -",
             formatStdin = true,
           },
           {
-            lintCommand = "pixi run --manifest-path ~/myconfigs/pixi.toml --frozen --environment linters ruff --quiet ${INPUT}",
+            lintCommand = vim.fs.joinpath(
+              vim.env.HOME,
+              "myconfigs",
+              ".pixi",
+              "envs",
+              "linters",
+              "bin",
+              "ruff"
+            ) .. " --quiet ${INPUT}",
             lintStdin = true,
             lintFormats = {
               "%f:%l:%c: %m",
@@ -847,14 +871,15 @@ local servers = {
     name = "jedi_language_server",
     filetypes = { "python" },
     cmd = {
-      "pixi",
-      "run",
-      "--manifest-path",
-      vim.env.HOME .. "/myconfigs/pixi.toml",
-      "--frozen",
-      "--environment",
-      "python-lsp",
-      "jedi-language-server",
+      vim.fs.joinpath(
+        vim.env.HOME,
+        "myconfigs",
+        ".pixi",
+        "envs",
+        "python-lsp",
+        "bin",
+        "jedi-language-server"
+      ),
     }, -- "-vv", "--log-file", "/tmp/logging.txt"
     init_options = function(file)
       local options = {
