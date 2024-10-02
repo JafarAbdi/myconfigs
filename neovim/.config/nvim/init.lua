@@ -1001,7 +1001,43 @@ end
 require("lazy").setup({
   { "mfussenegger/nvim-qwahl" },
   { "mfussenegger/nvim-fzy" },
-  { "github/copilot.vim", event = "VeryLazy" },
+  {
+    "github/copilot.vim",
+    event = "VeryLazy",
+    config = function()
+      vim.g.copilot_node_command = vim.env.HOME .. "/myconfigs/.pixi/envs/nodejs/bin/node"
+      vim.g.copilot_no_tab_map = true
+      vim.g.copilot_no_maps = true
+      vim.g.copilot_assume_mapped = true
+      vim.g.copilot_tab_fallback = ""
+      vim.g.copilot_filetypes = {
+        ["*"] = true,
+        gitcommit = false,
+        ["dap-repl"] = false,
+      }
+
+      vim.keymap.set("i", "<M-e>", function()
+        return vim.api.nvim_feedkeys(
+          vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
+          "n",
+          true
+        )
+      end, { expr = true })
+      vim.keymap.set("i", "<c-;>", function()
+        return vim.fn["copilot#Next"]()
+      end, { expr = true })
+      vim.keymap.set("i", "<c-,>", function()
+        return vim.fn["copilot#Previous"]()
+      end, { expr = true })
+      vim.keymap.set("i", "<c-c>", function()
+        -- Leave insert mode and cancel completion
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
+        return vim.fn["copilot#Dismiss"]()
+      end, { expr = true })
+      vim.keymap.set("i", "<C-M-l>", "<Plug>(copilot-accept-line)", { silent = true })
+      vim.keymap.set("i", "<C-M-e>", "<Plug>(copilot-accept-word)", { silent = true })
+    end,
+  },
   {
     "mfussenegger/nvim-dap",
     event = "VeryLazy",
@@ -1369,17 +1405,6 @@ end
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 
-vim.g.copilot_node_command = vim.env.HOME .. "/myconfigs/.pixi/envs/nodejs/bin/node"
-vim.g.copilot_no_tab_map = true
-vim.g.copilot_no_maps = true
-vim.g.copilot_assume_mapped = true
-vim.g.copilot_tab_fallback = ""
-vim.g.copilot_filetypes = {
-  ["*"] = true,
-  gitcommit = false,
-  ["dap-repl"] = false,
-}
-
 vim.filetype.add({
   extension = {
     launch = "xml",
@@ -1432,37 +1457,6 @@ end, { expr = true })
 
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
-
-vim.keymap.set("i", "<M-e>", function()
-  return vim.api.nvim_feedkeys(
-    vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
-    "n",
-    true
-  )
-end, { expr = true })
-vim.keymap.set("i", "<c-;>", function()
-  return vim.fn["copilot#Next"]()
-end, { expr = true })
-vim.keymap.set("i", "<c-,>", function()
-  return vim.fn["copilot#Previous"]()
-end, { expr = true })
-vim.keymap.set("i", "<c-c>", function()
-  -- Leave insert mode and cancel completion
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
-  return vim.fn["copilot#Dismiss"]()
-end, { expr = true })
-local function accept_word()
-  vim.fn["copilot#Accept"]("")
-  local bar = vim.fn["copilot#TextQueuedForInsertion"]()
-  return vim.fn.split(bar, [[[ .]\zs]])[1]
-end
-local function accept_line()
-  vim.fn["copilot#Accept"]("")
-  local bar = vim.fn["copilot#TextQueuedForInsertion"]()
-  return vim.fn.split(bar, [[[\n]\zs]])[1]
-end
-vim.keymap.set("i", "<C-M-l>", accept_line, { expr = true, remap = false })
-vim.keymap.set("i", "<C-M-e>", accept_word, { expr = true, remap = false })
 
 vim.keymap.set("n", "gs", function()
   q.try(q.lsp_tags, q.buf_tags)
