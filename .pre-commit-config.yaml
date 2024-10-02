@@ -4,7 +4,6 @@ default_language_version:
   python: python3.12
   ruby: 2.7.2
 
-exclude: ^(cookiecutter)/
 repos:
   # Standard hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks

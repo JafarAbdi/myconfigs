@@ -56,8 +56,6 @@ configr
 configrr
 constexpr
 containerenv
-cookiecutter
-Cookiecutter
 costmap
 cppcheck
 cppcoreguidelines
