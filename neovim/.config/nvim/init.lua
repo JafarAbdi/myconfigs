@@ -237,6 +237,9 @@ local root_dirs = {
       or vim.fn.getcwd()
     return dir
   end,
+  zig = function(startpath)
+    return vim.fs.root(startpath, { "build.zig", ".git" })
+  end,
 }
 root_dirs.c = root_dirs.cpp
 
@@ -360,6 +363,12 @@ local runners = {
     table.insert(cmd, output)
 
     return cmd
+  end,
+  zig = function(file_path, _, is_test)
+    if is_test then
+      return { "zig", "test", file_path }
+    end
+    return { "zig", "run", file_path }
   end,
 }
 
@@ -635,6 +644,7 @@ local servers = {
       "lua",
       "dockerfile",
       "xml",
+      "zig",
     },
     cmd = { "efm-langserver" },
     init_options = function()
@@ -649,6 +659,12 @@ local servers = {
     end,
     settings = {
       languages = {
+        zig = {
+          {
+            formatCommand = "zig fmt --stdin",
+            formatStdin = true,
+          },
+        },
         python = {
           {
             lintCommand = vim.fs.joinpath(
@@ -866,6 +882,11 @@ local servers = {
         },
       },
     },
+  },
+  {
+    name = "zls",
+    filetypes = { "zig" },
+    cmd = { "zls" },
   },
   {
     name = "jedi_language_server",
