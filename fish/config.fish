@@ -130,9 +130,6 @@ alias rsync 'rsync -uaSHAXhP'
 alias df 'df -h'
 alias free 'free -h'
 alias server 'python3 -m http.server'
-alias xc="xclip" # copy
-alias xv="xclip -o" # paste
-alias pwdxc="pwd | xclip"
 alias copy="xclip -sel clip"
 alias paste="xclip -sel clip -o"
 alias disk_usage="df -h"
@@ -457,6 +454,17 @@ complete -c ros_wt -x -a "(__fish_wt)"
 complete -c sfs -w sshfs
 complete -c set-timezone -a "(timedatectl list-timezones)"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
+
+function open --description 'Open files, using wezterm imgcat for images'
+    for file in $argv
+      set -l mime_type (file --mime-type -b $file)
+      if string match -q "image/*" $mime_type
+          wezterm imgcat $file
+      else
+          xdg-open $file
+      end
+    end
+end
 
 ###########
 ### ROS ###
