@@ -1456,6 +1456,8 @@ vim.filetype.add({
   },
 })
 
+vim.cmd.packadd("cfilter")
+
 vim.cmd.colorscheme("vim")
 vim.cmd.colorscheme("onedark")
 ---------------
