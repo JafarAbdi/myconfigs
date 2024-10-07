@@ -88,7 +88,8 @@ case "${1:-}" in
             sshfs \
             universal-ctags \
             pdfgrep \
-            atool
+            atool \
+            ccache
         mkdir -p ~/.local/bin || true
         $0 ripgrep
         $0 fzf
@@ -442,6 +443,48 @@ case "${1:-}" in
         install_from_github zigtools/zls zls-x86_64-linux.tar.xz
         tar xf zls-x86_64-linux.tar.xz
         mv zls ~/.local/bin/zls
+        popd || exit 1
+        ;;
+
+    gh)
+        if [ "$(uname -s)" = "Darwin" ]; then
+            brew install gh
+        else
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            install_package gh
+        fi
+        gh auth login
+        gh extension install github/gh-copilot
+        gh config set git_protocol ssh
+        ;;
+
+    mold)
+        if [ "$(lsb_release -sr)" = "unstable" ]; then
+            install_package mold
+        else
+            TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+            pushd "$TMP_DIR" || exit 1
+            install_from_github rui314/mold "mold-.*-x86_64-linux.tar.gz"
+            tar -vxzf mold* -C ~/.local --strip-components=1
+            popd || exit 1
+        fi
+        ;;
+
+    difftastic)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github Wilfred/difftastic difft-x86_64-unknown-linux-gnu.tar.gz
+        extract difft-x86_64-unknown-linux-gnu.tar.gz
+        mv difft ~/.local/bin
+        popd || exit 1
+        ;;
+
+    clang-build-analyzer)
+        pushd ~/.local/bin
+        install_from_github aras-p/ClangBuildAnalyzer ClangBuildAnalyzer-linux
+        mv ClangBuildAnalyzer-linux ClangBuildAnalyzer
+        chmod +x ClangBuildAnalyzer
         popd || exit 1
         ;;
 

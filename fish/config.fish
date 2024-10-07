@@ -768,12 +768,10 @@ export COMPOSE_DOCKER_CLI_BUILD=1
 ###################
 
 function register-argcomplete
-  if type -f register-python-argcomplete &> /dev/null
-    set -l script_path ~/.config/fish/completions/$argv[1].fish
-    if command -v $argv[1] &> /dev/null
-      if ! test -e $script_path
-        register-python-argcomplete --shell fish $argv[1] > $script_path
-      end
+  set -l script_path ~/.config/fish/completions/$argv[1].fish
+  if command -v $argv[1] &> /dev/null
+    if ! test -e $script_path
+      pixi run --frozen --manifest-path ~/myconfigs register-python-argcomplete -s fish --shell fish $argv[1] > $script_path
     end
   end
 end

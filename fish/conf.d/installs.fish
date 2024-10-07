@@ -33,10 +33,6 @@ function install-bloaty
   cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install .. && make install -j(nproc)
 end
 
-function install-ccache
-  sudo apt install -y ccache
-end
-
 function setup-cpp-screatches
   mkdir -p $WORKSPACE_DIR/cpp
   cd $CPP_SCREATCHES_DIR/..
@@ -48,14 +44,6 @@ function setup-cpp-screatches
   sed -i 's/ /\n/g' compile_flags.txt
 end
 
-function install-clang-build-analyzer
-  cd ~/.local/bin
-  install-from-github aras-p/ClangBuildAnalyzer ClangBuildAnalyzer-linux
-  mv ClangBuildAnalyzer-linux ClangBuildAnalyzer
-  chmod +x ClangBuildAnalyzer
-  cd -
-end
-
 function install-bazel
   sudo apt install -y bazel
   set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
@@ -65,45 +53,6 @@ function install-bazel
   git clone git@github.com:grailbio/bazel-compilation-database.git ~/.config/bazel-compilation-database
   cd -
 end
-
-## Utilities ##
-
-function install-gh
-  if test (uname -s) = "Darwin"
-    brew install gh
-  else
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-    echo "deb [arch="(dpkg --print-architecture)" signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-    sudo apt update
-    sudo apt install -y gh
-  end
-  gh auth login
-  gh extension install github/gh-copilot
-  gh config set git_protocol ssh
-end
-
-function install-mold
-  if test (lsb_release -sr) = "unstable"
-    sudo apt install -y mold
-  else
-    set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-    cd $TMP_DIR
-    install-from-github rui314/mold "mold-.*-x86_64-linux.tar.gz"
-    tar -vxzf mold* -C ~/.local --strip-components=1
-    cd -
-  end
-end
-
-function install-difftastic
-  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-  cd $TMP_DIR
-  install-from-github Wilfred/difftastic difft-x86_64-unknown-linux-gnu.tar.gz
-  ex difft-x86_64-unknown-linux-gnu.tar.gz
-  mv difft ~/.local/bin
-  cd -
-end
-
-## LSPs + Linters ##
 
 function install-pre-commit
   if test (lsb_release -sr) = "unstable"
@@ -121,15 +70,6 @@ function install-cpp-analyzers
 end
 
 ## ROS ##
-
-function install-catkin
-  sudo sh \
-    -c 'echo "deb http://packages.ros.org/ros/ubuntu `lsb_release -sc` main" \
-        > /etc/apt/sources.list.d/ros-latest.list'
-  wget http://packages.ros.org/ros.key -O - | sudo apt-key add -
-  sudo apt-get update
-  sudo apt-get install python3-catkin-tools
-end
 
 function install-colcon
   sudo apt install -y 'python3-colcon-*' python3-vcstool python3-rosdep
@@ -202,6 +142,7 @@ function unstow-configs
                                                                      yamllint \
                                                                      zathura
 end
+
 function stow-configs
   stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow cargo \
                                                                                 clangd \
