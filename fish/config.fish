@@ -104,10 +104,6 @@ set -xg LD_LIBRARY_PATH (get_ld_library_path)
 set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
 set -xg BROWSER "firefox"
 
-# if command -v rustup &> /dev/null
-#   export RUST_ANALYZER_BIN=(rustup which rust-analyzer)
-# end
-
 alias myconfigs "cd ~/myconfigs"
 alias mynotes "cd $HOME/mynotes"
 alias myconfigsr "source ~/.config/fish/config.fish"
@@ -287,21 +283,9 @@ function cpp-scratch
 end
 
 # fzf settings
-# Options to fzf command
-set -l FZF_COMMANDS (command -v fd find | tr '\n' ':')
 set -xg FD_OPTIONS "--follow"
-set -xg FIND_OPTIONS '-not -path "*/\.git*" -not -path "*/.*" -not -path "*/\__pycache__*"'
-set -xg FZF_ALT_C_COMMAND
-set -xg FZF_DEFAULT_COMMAND
-
-switch "$FZF_COMMANDS"
-  case '*/fd:*'
-    set FZF_ALT_C_COMMAND "fd  --type directory $FD_OPTIONS . \$dir"
-    set FZF_DEFAULT_COMMAND "fd --type f $FD_OPTIONS . \$dir"
-  case '*/find:*'
-    set FZF_ALT_C_COMMAND "find -L \$dir -type d $FIND_OPTIONS"
-    set FZF_DEFAULT_COMMAND "find -L \$dir -type f $FIND_OPTIONS"
-end
+set -xg FZF_ALT_C_COMMAND "fd  --type directory $FD_OPTIONS . \$dir"
+set -xg FZF_DEFAULT_COMMAND "fd --type f $FD_OPTIONS . \$dir"
 
 function fzf_preview
   set -l filetype (file --mime --brief $argv[1])
@@ -353,20 +337,24 @@ function fzf-inline -d "List files and put them under current cursor"
   commandline -f repaint
 end
 
+function git-fzf
+  git status --porcelain | grep $argv[1] | awk '{print $2}' | sed "s#^#$(git rev-parse --show-cdup)#" | fzf-inline
+end
+
 function git-staged
-  git status --porcelain | grep 'M  ' | awk '{print $2}' | fzf-inline
+  git-fzf 'M  '
 end
 
 function git-modified
-  git status --porcelain | grep ' M ' | awk '{print $2}' | fzf-inline
+  git-fzf ' M '
 end
 
 function git-conflicts
-  git status --porcelain | grep 'UU' | awk '{print $2}' | fzf-inline
+  git-fzf 'UU'
 end
 
 function git-untracked
-  git status --porcelain | rg '\?\?' | awk '{print $2}' | fzf-inline
+  git-fzf '\?\?'
 end
 
 function ros_setup_wt
