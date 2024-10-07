@@ -423,12 +423,22 @@ vim.api.nvim_create_autocmd({ "TextYankPost" }, {
 })
 
 vim.api.nvim_create_autocmd("FileType", {
+  group = general_group,
+  pattern = "qf",
+  callback = function()
+    vim.opt_local.winfixbuf = true
+    vim.opt_local.spell = false
+  end,
+})
+
+vim.api.nvim_create_autocmd("FileType", {
   pattern = "dap-repl",
   callback = function()
     vim.opt_local.number = false
     vim.opt_local.relativenumber = false
     vim.opt_local.colorcolumn = "-1"
     vim.opt_local.cursorcolumn = false
+    vim.opt_local.winfixbuf = true
     require("dap.ext.autocompl").attach()
   end,
 })
@@ -470,6 +480,7 @@ vim.api.nvim_create_autocmd("TermOpen", {
     vim.opt_local.signcolumn = "no"
     vim.opt_local.number = false
     vim.opt_local.relativenumber = false
+    vim.opt_local.winfixbuf = true
   end,
   group = general_group,
 })
