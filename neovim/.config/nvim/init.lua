@@ -783,7 +783,15 @@ local servers = {
         },
         yaml = {
           {
-            lintCommand = "yamllint -f parsable -",
+            lintCommand = vim.fs.joinpath(
+              vim.env.HOME,
+              "myconfigs",
+              ".pixi",
+              "envs",
+              "linters",
+              "bin",
+              "yamllint"
+            ) .. " -f parsable -",
             lintStdin = true,
           },
           {

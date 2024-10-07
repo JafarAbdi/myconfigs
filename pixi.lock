@@ -261,6 +261,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/fd/15/5f0372b3454412d325ff03d1e2efc014d4013377a81e6ff19afe5fa279b2/sourcery-1.23.0-py2.py3-none-manylinux1_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/f3/1f/1241aa3d66e8dc1612427b17885f5fcd9c9ee3079fc0d28e9a3aeeb36fa3/stringcase-1.2.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/04/81/668707e5f2177791869b624be4c06fb2473bf97ee33296b18d1cf3092af7/ujson-5.10.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/09/28/2abf1ec14df2d584b9e7ce3b0be458838741e6aaff7a540374ba9af83916/yamllint-1.35.1-py3-none-any.whl
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/argcomplete-3.5.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/arrow-1.3.0-pyhd8ed1ab_0.conda
@@ -346,6 +347,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/1a/6d/280ab30a269badc6c936c7eca71eeaadae9886536573beb9c8979bdd4e76/sourcery-1.23.0-py2.py3-none-macosx_10_9_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/f3/1f/1241aa3d66e8dc1612427b17885f5fcd9c9ee3079fc0d28e9a3aeeb36fa3/stringcase-1.2.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/a8/47/dd03fd2b5ae727e16d5d18919b383959c6d269c7b948a380fdd879518640/ujson-5.10.0-cp312-cp312-macosx_11_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/09/28/2abf1ec14df2d584b9e7ce3b0be458838741e6aaff7a540374ba9af83916/yamllint-1.35.1-py3-none-any.whl
   nodejs:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
@@ -2968,26 +2970,6 @@ packages:
   - platformdirs <5,>=3.9.1
   - python >=3.8
   license: MIT
-  license_family: MIT
-  purls:
-  - pkg:pypi/virtualenv?source=hash-mapping
-  size: 4875601
-  timestamp: 1727513873376
-- kind: conda
-  name: virtualenv
-  version: 20.26.6
-  build: pyhd8ed1ab_0
-  subdir: noarch
-  noarch: python
-  url: https://conda.anaconda.org/conda-forge/noarch/virtualenv-20.26.6-pyhd8ed1ab_0.conda
-  sha256: 23128da47bc0b42b0fef0d41efc10d8ea1fb8232f0846bc4513eeba866f20d13
-  md5: a7aa70aa30c47aeb84672621a85a4ef8
-  depends:
-  - distlib <1,>=0.3.7
-  - filelock <4,>=3.12.2
-  - platformdirs <5,>=3.9.1
-  - python >=3.8
-  license: MIT
   purls:
   - pkg:pypi/virtualenv?source=hash-mapping
   size: 4875601
@@ -3065,6 +3047,20 @@ packages:
   purls: []
   size: 89141
   timestamp: 1641346969816
+- kind: pypi
+  name: yamllint
+  version: 1.35.1
+  url: https://files.pythonhosted.org/packages/09/28/2abf1ec14df2d584b9e7ce3b0be458838741e6aaff7a540374ba9af83916/yamllint-1.35.1-py3-none-any.whl
+  sha256: 2e16e504bb129ff515b37823b472750b36b6de07963bd74b307341ef5ad8bdc3
+  requires_dist:
+  - pathspec>=0.5.3
+  - pyyaml
+  - doc8 ; extra == 'dev'
+  - flake8 ; extra == 'dev'
+  - flake8-import-order ; extra == 'dev'
+  - rstcheck[sphinx] ; extra == 'dev'
+  - sphinx ; extra == 'dev'
+  requires_python: '>=3.8'
 - kind: conda
   name: zlib
   version: 1.3.1

@@ -33,6 +33,7 @@ pylsp-mypy = "*"
 ruff = "*"
 black = "*"
 sourcery = "*"
+yamllint = "*"
 
 [feature.python-lsp.pypi-dependencies]
 jedi-language-server = "*"
