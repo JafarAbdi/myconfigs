@@ -300,13 +300,11 @@ function fzf_preview
 end
 
 set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inline --preview 'fzf_preview {1} {2}' \
-                         --color 'hl:-1:underline,hl+:-1:underline:reverse' \
                          --delimiter : \
                          --preview-window 'right,+{2}+3/3,~3'
                          --bind='alt-k:preview-up'
                          --bind='alt-j:preview-down'
-                         --bind='f2:toggle-preview' \
-                         --bind='f3:become(nvim {+1} < /dev/tty > /dev/tty 2>&1)'"
+                         --bind='f2:toggle-preview'"
 
 set -xg FZF_CTRL_R_OPTS "--preview=''"
 
@@ -371,14 +369,9 @@ function ros_setup_wt
   end
 end
 
-function ros_wt
-  wt $argv[1] $argv[2]
-  ros_setup_wt $argv[1]
-end
-
 function wt
   if test (count $argv) -lt 1 -o (count $argv) -gt 2
-    echo "Usage: ros_wt <worktree name> [branch name]"
+    echo "Usage: wt <worktree name> [branch name]"
     return 1
   end
   set -l root_dir (dirname (git rev-parse --show-toplevel))
@@ -437,7 +430,6 @@ function diffdir
 end
 
 complete -c wt -x -a "(__fish_wt)"
-complete -c ros_wt -x -a "(__fish_wt)"
 
 complete -c sfs -w sshfs
 complete -c set-timezone -a "(timedatectl list-timezones)"
