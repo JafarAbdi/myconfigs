@@ -98,6 +98,8 @@ case "${1:-}" in
         $0 repgrep
         $0 pixi
         $0 nvim nightly
+        $0 mold
+        $0 difftastic
         ;;
 
     nextcloud-sync)
@@ -489,7 +491,7 @@ case "${1:-}" in
         ;;
 
     *)
-        echo "Usage: $(basename "$0") <option>" >&2
+        info "Usage: $(basename "$0") <option>" >&2
         list_options
         exit 1
         ;;
