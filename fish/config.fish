@@ -763,7 +763,7 @@ function register-argcomplete
   set -l script_path ~/.config/fish/completions/$argv[1].fish
   if command -v $argv[1] &> /dev/null
     if ! test -e $script_path
-      pixi run --frozen --manifest-path ~/myconfigs register-python-argcomplete -s fish --shell fish $argv[1] > $script_path
+      ~/myconfigs/.pixi/envs/default/bin/register-python-argcomplete --shell fish $argv[1] > $script_path
     end
   end
 end
