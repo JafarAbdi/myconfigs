@@ -16,9 +16,7 @@
 ## Installation
 
 ```bash
-make setup-fish core
-make host # Host specific configs
-make dev
+~/myconfigs/scripts/.local/bin/myinstall setup_fish
 ```
 
 - Install tailscale: [tailscale](https://tailscale.com/download)

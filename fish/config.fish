@@ -19,9 +19,6 @@ function get_path
     if test -d /usr/lib/ccache
       set path /usr/lib/ccache:$path
     end
-    if test -d $WORKSPACE_DIR/cling
-      set path $WORKSPACE_DIR/cling/bin:$path
-    end
     if test -d $WORKSPACE_DIR/heaptrack
       set path $WORKSPACE_DIR/heaptrack/install/bin:$path
     end
@@ -31,12 +28,6 @@ function get_path
     if test -d $WORKSPACE_DIR/easy_profiler
       set path $WORKSPACE_DIR/easy_profiler/install/bin:$path
     end
-    if test -d $WORKSPACE_DIR/vcpkg
-      set path $WORKSPACE_DIR/vcpkg:$path
-    end
-    if test -d /opt/drake/bin
-      set path /opt/drake/bin:$path
-    end
     if test -d $HOME/.cargo/bin
       export CARGO_NET_GIT_FETCH_WITH_CLI=true
       set path $HOME/.cargo/bin:$path
@@ -44,14 +35,8 @@ function get_path
     if test -d $HOME/.config/mold/bin
       set path $HOME/.config/mold/bin:$path
     end
-    if test -d $HOME/.poetry/bin
-      set path $HOME/.poetry/bin:$path
-    end
     if test -d $HOME/.config/lua-lsp/bin
       set path $HOME/.config/lua-lsp/bin:$path
-    end
-    if test -d $HOME/.config/efm-lsp
-      set path $HOME/.config/efm-lsp:$path
     end
     if test -d $NPM_PACKAGES/bin
       set path $NPM_PACKAGES/bin:$path
@@ -61,12 +46,6 @@ function get_path
     end
     if test -d $HOME/.config/zig
       set path $HOME/.config/zig:$path
-    end
-    if test -d $HOME/.config/mosek/10.0/tools/platform/linux64x86/bin
-      set path $HOME/.config/mosek/10.0/tools/platform/linux64x86/bin:$path
-      if test -f $HOME/mosek/mosek.lic
-        export MOSEKLM_LICENSE_FILE=$HOME/mosek/mosek.lic
-      end
     end
     echo $path
 end
@@ -647,8 +626,9 @@ function setup_container
       docker cp $HOME/.local/share/nvim $container_name:$HOME/.local/share/nvim && \
       docker exec -it $container_name bash -c "chown -R $USER:$USER $HOME/.local"
   end
-  docker exec --user root -it $container_name bash -c "apt update && apt install make"
-  docker exec -it $container_name bash -c "cd ~/myconfigs && make setup-fish core dev-core dev-cpp dev-python"
+  docker exec --user root -it $container_name bash -c "apt update && apt install make stow -y"
+  docker exec -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall setup_fish"
+  docker exec -it $container_name fish -c "source ~/myconfigs/fish/conf.d/installs.fish && stow-configs"
 end
 
 complete -c setup_container -x -a '(__fish_print_docker_containers running)'
@@ -741,8 +721,8 @@ function start_container -d "Start a podman|docker image with gpu support"
   end
   eval '$containerprg exec --user root $cid bash -c "passwd -d $user"'
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user"'
-  eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user/.config"'
-  eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user/.local"'
+  eval '$containerprg exec --user root $cid bash -c "chown -R $user:$user /home/$user/.config"'
+  eval '$containerprg exec --user root $cid bash -c "chown -R $user:$user /home/$user/.local"'
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /run/user/$user_id"'
   if test $containerprg = "podman"
     # TODO: Why this's no longer working?

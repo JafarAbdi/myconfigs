@@ -66,6 +66,7 @@ case "${1:-}" in
             git-core \
             git-lfs \
             ssh \
+            unzip \
             colordiff \
             tree \
             less \
@@ -246,11 +247,11 @@ case "${1:-}" in
         if [ "$(lsb_release -sr)" = "unstable" ]; then
             sudo apt install -y efm-langserver
         else
-            mkdir -p ~/.config/efm-lsp
-            rm -rf ~/.config/efm-lsp/* 2> /dev/null
-            pushd ~/.config/efm-lsp || exit 1
+            TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+            pushd "$TMP_DIR" || exit 1
             install_from_github mattn/efm-langserver "efm-langserver_.*_linux_amd64.tar.gz"
             tar xzf efm-langserver* --strip-components 1
+            mv efm-langserver ~/.local/bin
             popd || exit 1
         fi
         ;;
@@ -487,6 +488,84 @@ case "${1:-}" in
         install_from_github aras-p/ClangBuildAnalyzer ClangBuildAnalyzer-linux
         mv ClangBuildAnalyzer-linux ClangBuildAnalyzer
         chmod +x ClangBuildAnalyzer
+        popd || exit 1
+        ;;
+
+    install_from_github)
+        if [ $# -ne 3 ]; then
+            error "install-from-github requires 2 inputs USER/REPO regex"
+        fi
+        install_from_github "$2" "$3"
+        ;;
+
+    setup_fish)
+        if [ "$(id -u)" -eq 0 ]; then
+          info "Installing packages without sudo..."
+          apt update
+          apt install -y software-properties-common curl wget && apt-add-repository -y ppa:fish-shell/release-3
+          apt install -y fish
+        else
+          info "Installing packages with sudo..."
+          sudo apt update
+          sudo apt install -y software-properties-common curl wget && sudo apt-add-repository -y ppa:fish-shell/release-3
+          sudo apt install -y fish
+        fi
+
+        rm -rf ~/.config/fish || true
+        mkdir -p ~/.config/fish
+
+        echo "source ~/myconfigs/fish/config.fish" > ~/.config/fish/config.fish
+
+        # To be able to source bash scripts
+        fish -c "curl -sL https://git.io/fisher | source && fisher install edc/bass"
+
+        # Skip setting fish as the default shell if we are in a docker or podman containers
+        if [ ! -e /.dockerenv ] && [ -z "$PODMAN_NAME" ]; then
+            chsh -s /usr/bin/fish
+        fi
+        ;;
+
+    unstow)
+        stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --delete cargo \
+                                                                           clangd \
+                                                                           i3 \
+                                                                           git \
+                                                                           neovim \
+                                                                           ruff \
+                                                                           scripts \
+                                                                           stylua \
+                                                                           tmux \
+                                                                           fd \
+                                                                           ripgrep \
+                                                                           wezterm \
+                                                                           yamllint \
+                                                                           zathura
+        ;;
+
+    stow)
+        stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow cargo \
+                                                                                      clangd \
+                                                                                      git \
+                                                                                      ruff \
+                                                                                      scripts \
+                                                                                      stylua \
+                                                                                      fd \
+                                                                                      ripgrep \
+                                                                                      yamllint \
+                                                                                      zathura
+        stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
+                                                                         wezterm \
+                                                                         neovim \
+                                                                         tmux
+        ;;
+
+    urdf_viz)
+        install_package rospack-tools
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github openrr/urdf-viz urdf-viz-x86_64-unknown-linux-gnu.tar.gz
+        extract urdf-viz-x86_64-unknown-linux-gnu.tar.gz
+        mv urdf-viz ~/.local/bin
         popd || exit 1
         ;;
 

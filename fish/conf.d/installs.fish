@@ -1,30 +1,4 @@
-function install-from-github
-  if test (count $argv) -ne 2
-    echo "install-from-github requires 2 inputs USER/REPO regex"
-    return 1
-  end
-  curl -s https://api.github.com/repos/$argv[1]/releases \
-    | grep -E "https://github.com/$argv[1]/releases/download.*$argv[2]" \
-    | cut -d':' -f 2,3 \
-    | tr -d \" \
-    | head -n 1 \
-    | wget -i -
-end
-
-function config-fish
-  rm -rf ~/.config/fish || true && mkdir -p ~/.config/fish
-  echo "source ~/myconfigs/fish/config.fish" | tee ~/.config/fish/config.fish
-  curl -sL https://git.io/fisher | source && fisher install jorgebucaran/fisher
-  # To be able to source bash scripts
-  fisher install edc/bass
-  # Skip setting fish as the default shell if we are in a docker or podman containers
-  if ! test -e /.dockerenv && test -z $PODMAN_NAME
-    chsh -s /usr/bin/fish
-  end
-end
-
 ## CPP ##
-
 function install-bloaty
   git clone git@github.com:google/bloaty.git
   cd bloaty
@@ -70,23 +44,12 @@ function install-cpp-analyzers
 end
 
 ## ROS ##
-
 function install-colcon
   sudo apt install -y 'python3-colcon-*' python3-vcstool python3-rosdep
   colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml
   colcon mixin update default
   sudo rosdep init
   rosdep update
-end
-
-function install-urdf-viz
-  sudo apt install -y rospack-tools
-  set -l TMP_DIR (mktemp -d -p /tmp install-XXXXXX)
-  cd $TMP_DIR
-  install-from-github openrr/urdf-viz urdf-viz-x86_64-unknown-linux-gnu.tar.gz
-  ex urdf-viz-x86_64-unknown-linux-gnu.tar.gz
-  mv urdf-viz ~/.local/bin
-  cd -
 end
 
 function install-ros2
@@ -122,42 +85,6 @@ function install-ros2
   sudo apt install ros-dev-tools
 
   install-colcon
-end
-
-## Configs ##
-
-function unstow-configs
-  stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --delete cargo \
-                                                                     clangd \
-                                                                     i3 \
-                                                                     git \
-                                                                     neovim \
-                                                                     ruff \
-                                                                     scripts \
-                                                                     stylua \
-                                                                     tmux \
-                                                                     fd \
-                                                                     ripgrep \
-                                                                     wezterm \
-                                                                     yamllint \
-                                                                     zathura
-end
-
-function stow-configs
-  stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow cargo \
-                                                                                clangd \
-                                                                                git \
-                                                                                ruff \
-                                                                                scripts \
-                                                                                stylua \
-                                                                                fd \
-                                                                                ripgrep \
-                                                                                yamllint \
-                                                                                zathura
-  stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
-                                                                   wezterm \
-                                                                   neovim \
-                                                                   tmux
 end
 
 # Profilers
