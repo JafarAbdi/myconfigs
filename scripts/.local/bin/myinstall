@@ -319,7 +319,6 @@ case "${1:-}" in
         $0 markdown-lsp
         $0 xml-lsp
         $0 cpp-lsp
-        $0 rust
         ;;
 
     wezterm)
@@ -378,7 +377,8 @@ case "${1:-}" in
         fi
         tmp_dir=$(mktemp -d -p /tmp clangd-XXXXXX)
         pushd "$tmp_dir"
-        install_from_github "clangd/clangd" "clangd-$os-.*.zip"
+        # https://github.com/clangd/clangd/issues/2127#issuecomment-2408304736
+        install_from_github "clangd/clangd" "clangd-$os-18.1.3.zip"
         unzip -q clangd-*.zip
         rm -rf ~/.config/clangd-lsp
         mv clangd_* ~/.config/clangd-lsp
@@ -526,6 +526,7 @@ case "${1:-}" in
         ;;
 
     unstow)
+        pushd ~/myconfigs || exit 1
         stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --delete cargo \
                                                                            clangd \
                                                                            i3 \
@@ -540,9 +541,11 @@ case "${1:-}" in
                                                                            wezterm \
                                                                            yamllint \
                                                                            zathura
+        popd || exit 1
         ;;
 
     stow)
+        pushd ~/myconfigs || exit 1
         stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow cargo \
                                                                                       clangd \
                                                                                       git \
@@ -557,6 +560,7 @@ case "${1:-}" in
                                                                          wezterm \
                                                                          neovim \
                                                                          tmux
+        popd || exit 1
         ;;
 
     urdf_viz)
@@ -567,6 +571,14 @@ case "${1:-}" in
         extract urdf-viz-x86_64-unknown-linux-gnu.tar.gz
         mv urdf-viz ~/.local/bin
         popd || exit 1
+        ;;
+
+    colcon)
+        install_package 'python3-colcon-*' python3-vcstool python3-rosdep
+        colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml
+        colcon mixin update default
+        sudo rosdep init
+        rosdep update
         ;;
 
     *)

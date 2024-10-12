@@ -623,12 +623,13 @@ function setup_container
   end
   if test (docker exec $container_name sh -c 'if [ -d "$HOME/.local/share/nvim" ]; then echo "1"; else echo "0"; fi') -eq 0
     docker exec -it $container_name bash -c "mkdir -p $HOME/.local/share" && \
-      docker cp $HOME/.local/share/nvim $container_name:$HOME/.local/share/nvim && \
-      docker exec -it $container_name bash -c "chown -R $USER:$USER $HOME/.local"
+      docker cp $HOME/.local/share/nvim $container_name:$HOME/.local/share/nvim
   end
+  docker exec -it $container_name bash -c "chown -R $USER:$USER $HOME/.local"
+  docker exec -it $container_name bash -c "chown -R $USER:$USER $HOME/.config"
   docker exec --user root -it $container_name bash -c "apt update && apt install make stow -y"
-  docker exec -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall setup_fish"
-  docker exec -it $container_name fish -c "source ~/myconfigs/fish/conf.d/installs.fish && stow-configs"
+  docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall setup_fish"
+  docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall stow"
 end
 
 complete -c setup_container -x -a '(__fish_print_docker_containers running)'
@@ -690,7 +691,6 @@ function start_container -d "Start a podman|docker image with gpu support"
                      -v $HOME/workspaces:$HOME/workspaces \
                      -v $HOME/myconfigs:$HOME/myconfigs:ro \
                      -v $HOME/.ssh:$HOME/.ssh:ro \
-                     -v $HOME/.config/gh:$HOME/.config/gh:ro \
                      -v $HOME/.local/share/nvim:$HOME/.local/share/nvim \
                      -e QT_X11_NO_MITSHM=1 \
                      -e DISPLAY \

@@ -101,51 +101,6 @@ term.run = function(cmd, args, opts)
   term.create(cmd, args, opts)
 end
 
--- Copied from https://github.com/mfussenegger/dotfiles/
-local gh_ns = vim.api.nvim_create_namespace("gh")
-
-local gh = {
-  comments = function()
-    local branch = vim.trim(vim.fn.system("git branch --show current"))
-    local pr_list = vim.fn.system('gh pr list --head "' .. branch .. '" --json number')
-    local prs = assert(vim.json.decode(pr_list), "gh pr list must have a result that decodes")
-    if vim.tbl_isempty(prs) then
-      print("No PR found for branch " .. branch)
-      return
-    end
-    local comments_cmd = 'gh api "repos/{owner}/{repo}/pulls/'
-      .. prs[1].number
-      .. '/comments" --cache 30m'
-    local comments = vim.json.decode(vim.fn.system(comments_cmd), { luanil = { object = true } })
-    assert(comments, "gh api ... should have json list result")
-    local buf_diagnostic = vim.defaulttable()
-    for _, comment in pairs(comments) do
-      if comment.line then
-        local path = comment.path
-        local bufnr = vim.fn.bufadd(path)
-        table.insert(buf_diagnostic[bufnr], {
-          bufnr = bufnr,
-          lnum = comment.line - 1,
-          col = 0,
-          message = comment.body,
-          severity = vim.diagnostic.severity.WARN,
-        })
-      end
-    end
-    local qflist = {}
-    for bufnr, diagnostic in pairs(buf_diagnostic) do
-      local list = vim.diagnostic.toqflist(diagnostic)
-      vim.list_extend(qflist, list)
-      vim.diagnostic.set(gh_ns, bufnr, diagnostic)
-    end
-    vim.fn.setqflist(qflist, "r")
-    vim.cmd.copen()
-  end,
-  clear = function()
-    vim.diagnostic.reset(gh_ns)
-  end,
-}
-
 local program = function()
   return vim.fn.input({
     prompt = "Path to executable: ",
@@ -225,7 +180,9 @@ local root_dirs = {
       return vim.F.if_nil(search_fn(path), search_fn(vim.fn.expand("%:p:h")))
         or fallback_search_fn(path)
     end
-    local dir = search(startpath) or search(clangd_opening_root_dir) or vim.fn.getcwd()
+    local dir = search(startpath)
+      or (clangd_opening_root_dir and search(clangd_opening_root_dir))
+      or vim.fn.getcwd()
     clangd_opening_root_dir = nil
     return dir
   end,
@@ -316,7 +273,7 @@ local runners = {
     }
   end,
   lua = function(file_path, _, _)
-    vim.cmd.source(file_path)
+    return { "nvim", "-l", file_path }
   end,
   rust = function(file_path, root_dir, is_test)
     if not vim.uv.fs_stat(vim.fs.joinpath(root_dir, "Cargo.toml")) then
@@ -564,18 +521,6 @@ vim.api.nvim_create_user_command("DapLaunchPytest", function()
   })
 end, {})
 
-vim.api.nvim_create_user_command("Gh", function(opts)
-  if opts.args == "comments" then
-    gh.comments()
-  elseif opts.args == "clear" then
-    gh.clear()
-  end
-end, {
-  nargs = 1,
-  complete = function()
-    return { "comments", "clear" }
-  end,
-})
 vim.api.nvim_create_user_command("LspStop", function(kwargs)
   local name = kwargs.fargs[1]
   for _, client in ipairs(vim.lsp.get_clients({ name = name })) do

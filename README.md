@@ -20,5 +20,5 @@
 ```
 
 - Install tailscale: [tailscale](https://tailscale.com/download)
-- Install Obsidian: `install-obsidian`
-- Install NextCloud: `install-nextcloud-sync`
+- Install Obsidian: `myinstall obsidian`
+- Install NextCloud: `myinstall nextcloud-sync`
