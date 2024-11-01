@@ -8,6 +8,8 @@ if wezterm.config_builder then
   config = wezterm.config_builder()
 end
 
+config.scrollback_lines = 20000
+
 -- Show which key table is active in the status area
 wezterm.on("update-right-status", function(window, pane)
   local name = window:active_key_table()

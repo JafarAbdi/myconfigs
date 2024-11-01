@@ -42,10 +42,11 @@
   br = branch -vv
   dt = difftool -d
   st = status
-  sh = show --ext-diff
+  sh = -c diff.external=difft show --ext-diff
+  df = -c diff.external=difft diff
   pushf = push --force-with-lease
   diffs = diff --staged
-  diffl = log -p --ext-diff
+  diffl = -c diff.external=difft log -p --ext-diff
   # TODO: Why difft doesn't work? It always shows XXXX-dirty
   diffm = diff --submodule=diff --no-ext-diff
   stash-all = stash save --include-untracked
