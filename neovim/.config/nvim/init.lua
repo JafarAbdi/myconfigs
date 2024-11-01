@@ -310,13 +310,40 @@ local runners = {
     end
     vim.notify("Can't find a target for " .. file_path, vim.log.levels.WARN)
   end,
-  c = function(file_path, _, _)
+  c = function(file_path, root_dir, _)
     local output = vim.fn.tempname()
 
-    local cmd = { "clang++", file_path, "-o", output, "-std=c++17" }
+    local cmd = { "clang++", file_path, "-o", output }
 
     if vim.fn.has("linux") == 1 and vim.fn.executable("mold") == 1 then
       table.insert(cmd, "-fuse-ld=mold")
+    end
+
+    -- Add compile flags from compile_flags.txt
+    local compile_flags_path = vim.fs.joinpath(root_dir, "compile_flags.txt")
+    if vim.uv.fs_stat(compile_flags_path) then
+      vim.list_extend(cmd, vim.fn.readfile(compile_flags_path))
+    end
+
+    if vim.uv.fs_stat(vim.fs.joinpath(root_dir, ".pixi")) then
+      local default_env_path = vim.fs.joinpath(root_dir, ".pixi", "envs", "default")
+      vim.list_extend(cmd, {
+        "-isystem",
+        vim.fs.joinpath(default_env_path, "include"),
+        "-L" .. vim.fs.joinpath(default_env_path, "lib"),
+        "-Wl,-rpath," .. vim.fs.joinpath(default_env_path, "lib"),
+      })
+      local libraries = vim.tbl_map(
+        function(lib)
+          -- Extract the library name from the normalized path
+          return "-l" .. lib:match(".*/lib(.*)%.so$")
+        end,
+        -- Get all shared libraries in the default environment
+        vim.fs.find(function(name, _)
+          return name:match(".*%.so$")
+        end, { path = vim.fs.joinpath(default_env_path, "lib"), limit = math.huge })
+      )
+      vim.list_extend(cmd, libraries)
     end
     table.insert(cmd, "&&")
     table.insert(cmd, output)
@@ -373,6 +400,7 @@ end
 local general_group = vim.api.nvim_create_augroup("GeneralCommands", {})
 local lsp_group = vim.api.nvim_create_augroup("lsp", {})
 
+vim.api.nvim_create_autocmd("VimResume", { command = "checktime", group = general_group })
 -- Highlight on yank
 vim.api.nvim_create_autocmd({ "TextYankPost" }, {
   group = general_group,
@@ -1526,3 +1554,49 @@ vim.keymap.set("n", "]L", center_screen(vim.cmd.lfirst), { silent = true })
 vim.keymap.set("n", "[L", center_screen(vim.cmd.llast), { silent = true })
 vim.keymap.set("n", "]t", center_screen(vim.cmd.tn), { silent = true })
 vim.keymap.set("n", "[t", center_screen(vim.cmd.tp), { silent = true })
+
+vim.keymap.set({ "n" }, "<leader>m", function()
+  local buffer_mark_names = "abcdefghijklmnopqrstuvwxyz"
+  local global_mark_names = buffer_mark_names:upper()
+  local marks = {}
+  for i = 1, #buffer_mark_names do
+    local letter = buffer_mark_names:sub(i, i)
+    local ok, mark = pcall(vim.api.nvim_buf_get_mark, 0, letter) -- Returns (0, 0) if not set
+    if ok and mark[1] ~= 0 then
+      table.insert(marks, { name = letter, value = mark })
+    end
+  end
+  for i = 1, #global_mark_names do
+    local letter = global_mark_names:sub(i, i)
+    local ok, mark = pcall(vim.api.nvim_get_mark, letter, {}) -- Returns (0, 0, 0, "") if not set
+    if ok and not (mark[1] == 0 and mark[2] == 0 and mark[3] == 0 and mark[4] == "") then
+      table.insert(marks, { name = letter, value = mark })
+    end
+  end
+  local current_bufnr = vim.api.nvim_get_current_buf()
+  fzy.pick_one(marks, "Mark: ", function(item)
+    if item == nil then
+      return
+    end
+    if #item.value == 4 then
+      return string.format(
+        "[%s] %s: %s",
+        item.name,
+        item.value[4],
+        item.value[3] ~= 0
+            and vim.api.nvim_buf_get_lines(item.value[3], item.value[1] - 1, item.value[1], true)[1]
+          or "Unloaded Buffer"
+      )
+    end
+    return string.format(
+      "[%s] %s: %s",
+      item.name,
+      "Current Buffer",
+      vim.api.nvim_buf_get_lines(current_bufnr, item.value[1] - 1, item.value[1], true)[1]
+    )
+  end, function(item)
+    if item ~= nil then
+      vim.cmd.normal("`" .. item.name)
+    end
+  end)
+end)
