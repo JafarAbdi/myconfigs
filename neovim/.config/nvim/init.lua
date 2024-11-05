@@ -805,12 +805,6 @@ local servers = {
             lintSeverity = vim.diagnostic.severity.WARN,
           },
         },
-        xml = {
-          {
-            formatCommand = "xmllint --format -",
-            formatStdin = true,
-          },
-        },
       },
     },
   },
