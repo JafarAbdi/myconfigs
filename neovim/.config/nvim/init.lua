@@ -1570,7 +1570,9 @@ vim.keymap.set({ "n" }, "<leader>m", function()
     local letter = global_mark_names:sub(i, i)
     local ok, mark = pcall(vim.api.nvim_get_mark, letter, {}) -- Returns (0, 0, 0, "") if not set
     if ok and not (mark[1] == 0 and mark[2] == 0 and mark[3] == 0 and mark[4] == "") then
-      table.insert(marks, { name = letter, value = mark })
+      if vim.loop.fs_stat(vim.fs.normalize(mark[4])) then
+        table.insert(marks, { name = letter, value = mark })
+      end
     end
   end
   local current_bufnr = vim.api.nvim_get_current_buf()
