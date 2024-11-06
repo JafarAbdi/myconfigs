@@ -257,7 +257,7 @@ def create_clangd_config_ros(workspace_dir: Path, ros_distro: str) -> None:
     """
     build_path = workspace_dir / (f"build_{ros_distro}" if ros_distro else "build")
     packages = get_ros_packages_path(workspace_dir / "src")
-    clangd_configs = [{"CompileFlags": {"Add": ["-std=c++17"]}}]
+    clangd_configs = []
     clangd_configs.extend(
         {
             "If": {"PathMatch": [f"{Path(path).relative_to(workspace_dir)}/.*"]},
