@@ -311,6 +311,45 @@ local runners = {
     vim.notify("Can't find a target for " .. file_path, vim.log.levels.WARN)
   end,
   c = function(file_path, root_dir, _)
+    local cmake_settings_filename = vim.fs.joinpath(root_dir, ".vscode", "settings.json")
+    if vim.uv.fs_stat(cmake_settings_filename) then
+      local settings = vim.fn.json_decode(vim.fn.readfile(cmake_settings_filename))
+      local build_directory = settings["cmake.buildDirectory"]
+      local reply_directory = vim.fs.joinpath(build_directory, ".cmake", "api", "v1", "reply")
+      local indices = vim.fs.find(function(name, _)
+        return name:match("^index%-.*%.json$")
+      end, { path = reply_directory, limit = math.huge })
+      if #indices == 0 then
+        vim.notify("No index files found in " .. reply_directory, vim.log.levels.WARN)
+        return
+      end
+      assert(#indices == 1, "Expected exactly one index file")
+      local index = vim.fn.json_decode(vim.fn.readfile(indices[1]))
+      local response = index["reply"]["codemodel-v2"]
+      local codemodel =
+        vim.fn.json_decode(vim.fn.readfile(vim.fs.joinpath(reply_directory, response["jsonFile"])))
+      local targets = {}
+      for _, target_config in ipairs(codemodel["configurations"][1]["targets"]) do
+        local target = vim.fn.json_decode(
+          vim.fn.readfile(vim.fs.joinpath(reply_directory, target_config["jsonFile"]))
+        )
+        if target["type"] == "EXECUTABLE" then
+          targets[vim.fs.joinpath(root_dir, target["sources"][1]["path"])] = {
+            name = target["name"],
+            path = vim.fs.joinpath(build_directory, target["artifacts"][1]["path"]),
+          }
+        end
+      end
+      return {
+        "cmake",
+        "--build",
+        build_directory,
+        "--target",
+        targets[file_path].name,
+        "&&",
+        targets[file_path].path,
+      }
+    end
     local output = vim.fn.tempname()
 
     local cmd = { "clang++", file_path, "-o", output }
