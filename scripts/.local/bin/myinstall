@@ -342,7 +342,7 @@ case "${1:-}" in
         pushd "$TMP_DIR" || exit 1
         install_from_github rhysd/actionlint "actionlint_.*_linux_amd64.tar.gz"
         extract actionlint*
-        mv actionlint ~/.local/bin
+        mv actionlint_*_linux_amd64/actionlint ~/.local/bin/
         popd || exit 1
         ;;
 

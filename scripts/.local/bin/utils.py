@@ -101,7 +101,9 @@ def get_package_paths(package_name: str) -> tuple[str, Path]:
     return (
         rospack.get_path(package_name),
         (
-            Path(workspace_dir) / f"build_{os.environ['ROS_DISTRO']}" / package_name
+            Path(workspace_dir)
+            / f"build{get_colcon_postfix(workspace_dir)}"
+            / package_name
         ).absolute(),
     )
 
@@ -202,14 +204,12 @@ def create_cmake_query_files(build_dir: Path) -> None:
 def create_vscode_config(
     build_dir: Path,
     output_dir: Path | None = None,
-    ros_distro: str | None = None,
 ) -> None:
     """Create vscode config files for cmake, clangd, and codechecker.
 
     Args:
         build_dir: The build directory for the project
         output_dir: The directory to output the config files to
-        ros_distro: The ROS distro to use for the build directory
     """
     import json
 
@@ -219,18 +219,16 @@ def create_vscode_config(
     settings_file = "settings.json"
     vscode_dir.mkdir(parents=True, exist_ok=True)
     with (vscode_dir / settings_file).open("w", encoding="utf-8") as f:
-        if ros_distro is None:
-            settings = {
+        json.dump(
+            {
                 "cmake.buildDirectory": str(build_dir),
                 # TODO: Add support for codechecker
                 # "codechecker.backend.compilationDatabasePath": f"{build_dir}/compile_commands.json",
-            }
-        else:
-            settings = {
-                f"cmake.buildDirectory.{ros_distro}": str(build_dir),
-            }
-
-        json.dump(settings, f, ensure_ascii=True, indent=4)
+            },
+            f,
+            ensure_ascii=True,
+            indent=4,
+        )
 
 
 def create_clangd_config(source_dir: Path, build_dir: Path) -> None:
@@ -246,16 +244,13 @@ def create_clangd_config(source_dir: Path, build_dir: Path) -> None:
         )
 
 
-def create_clangd_config_ros(workspace_dir: Path, ros_distro: str) -> None:
+def create_clangd_config_ros(workspace_dir: Path, build_path: Path) -> None:
     """Create a .clangd file for a list of packages.
-
-    This will use the ROS_DISTRO environment variable to determine the correct build paths.
 
     Args:
         workspace_dir: The workspace directory
-        ros_distro: The ROS distro to use for the build directory & clangd config
+        build_path: The path to build directory
     """
-    build_path = workspace_dir / (f"build_{ros_distro}" if ros_distro else "build")
     packages = get_ros_packages_path(workspace_dir / "src")
     clangd_configs = []
     clangd_configs.extend(

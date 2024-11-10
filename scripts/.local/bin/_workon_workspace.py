@@ -6,6 +6,7 @@ from pathlib import Path
 import argcomplete
 from utils import (
     create_clangd_config_ros,
+    get_colcon_postfix,
     get_workspace_distro,
     get_workspace_path,
     get_workspace_underlays,
@@ -61,16 +62,18 @@ elif args.workspace_name:
         ).exists():
             commands.append(f"source {local_setup_path}")
     if workspace_path := get_workspace_path(workspace):
+        postfix = get_colcon_postfix(home_dir / workspace_path)
+        build_path = home_dir / workspace_path / f"build{postfix}"
         if (
             local_setup_path := home_dir
             / workspace_path
-            / f"install_{rosdistro}"
+            / f"install{postfix}"
             / "setup.bash"
         ).exists() or (
             local_setup_path := home_dir / workspace_path / "install" / "setup.bash"
         ).exists():
             commands.append(f"source {local_setup_path}")
-        create_clangd_config_ros(Path.home() / workspace_path, rosdistro)
+        create_clangd_config_ros(Path.home() / workspace_path, build_path)
     print(" && ".join(commands))  # noqa: T201
 elif args.ros_package_path:
     workspace = args.ros_package_path

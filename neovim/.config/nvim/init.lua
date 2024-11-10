@@ -169,8 +169,6 @@ local root_dirs = {
     local fallback_search_fn = function(path)
       return vim.fs.root(path, {
         ".vscode",
-        ".clang-tidy",
-        ".clang-format",
         "compile_commands.json",
         "compile_flags.txt",
         "configure.ac",
