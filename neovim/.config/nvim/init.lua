@@ -730,7 +730,7 @@ local servers = {
               "linters",
               "bin",
               "ruff"
-            ) .. " --quiet ${INPUT}",
+            ) .. " check --quiet ${INPUT}",
             lintStdin = true,
             lintFormats = {
               "%f:%l:%c: %m",
@@ -979,11 +979,20 @@ for _, server in pairs(servers) do
           or function(startpath)
             return vim.fs.root(startpath, { ".git" })
           end
+        local capabilities =
+          vim.tbl_deep_extend("force", vim.lsp.protocol.make_client_capabilities(), {
+            workspace = {
+              didChangeWatchedFiles = {
+                dynamicRegistration = true,
+              },
+            },
+          })
+
         vim.lsp.start({
           name = server.name,
           cmd = server.cmd,
           on_attach = function(_, _) end,
-          capabilities = vim.lsp.protocol.make_client_capabilities(),
+          capabilities = capabilities,
           settings = server.settings or vim.empty_dict(),
           init_options = server.init_options and server.init_options(args.file) or vim.empty_dict(),
           root_dir = root_dir(args.file),
@@ -1400,9 +1409,15 @@ require("lazy").setup({
 vim.diagnostic.config({
   underline = false,
   update_in_insert = true,
-  virtual_text = { severity = vim.diagnostic.severity.ERROR },
+  virtual_text = {
+    severity = vim.diagnostic.severity.ERROR,
+    source = "if_many",
+  },
   severity_sort = true,
   signs = false,
+  jump = {
+    float = true,
+  },
 })
 vim.opt.foldenable = false
 vim.opt.number = true
@@ -1461,6 +1476,9 @@ vim.filetype.add({
     xacro = "xml",
     install = "text",
     repos = "yaml",
+    jinja = "jinja",
+    jinja2 = "jinja",
+    j2 = "jinja",
   },
 })
 

@@ -98,6 +98,7 @@ case "${1:-}" in
         $0 fd
         $0 repgrep
         $0 pixi
+        $0 uv
         $0 nvim nightly
         $0 mold
         $0 difftastic
@@ -426,6 +427,12 @@ case "${1:-}" in
         wget https://github.com/prefix-dev/rattler-build/releases/latest/download/rattler-build-x86_64-unknown-linux-musl -O ~/.local/bin/rattler-build
         chmod +x ~/.local/bin/rattler-build
         rattler-build completion --shell=fish > ~/.config/fish/completions/rattler-build.fish
+        ;;
+
+    uv)
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo 'uv generate-shell-completion fish | source' >> ~/.config/fish/config.fish
+        echo 'uvx --generate-shell-completion fish | source' >> ~/.config/fish/config.fish
         ;;
 
     pixi)
