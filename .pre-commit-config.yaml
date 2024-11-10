@@ -1,5 +1,5 @@
 ci:
-    skip: [refurb, luacheck, format-xmllint, markdownlint, actionlint, sourcery]
+    skip: [refurb, luacheck, markdownlint, actionlint, sourcery]
 default_language_version:
   python: python3.12
   ruby: 2.7.2
