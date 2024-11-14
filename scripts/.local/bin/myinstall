@@ -439,7 +439,7 @@ case "${1:-}" in
         wget https://github.com/prefix-dev/pixi/releases/latest/download/pixi-x86_64-unknown-linux-musl -O ~/.local/bin/pixi
         chmod +x ~/.local/bin/pixi
         if command -v fish >/dev/null 2>&1; then
-          pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
+          ~/.local/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
         fi
         ;;
 

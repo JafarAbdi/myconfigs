@@ -627,6 +627,7 @@ function setup_container
   docker exec --user root -it $container_name bash -c "apt update && apt install make stow -y"
   docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall setup_fish"
   docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall stow"
+  docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall core"
 end
 
 complete -c setup_container -x -a '(__fish_print_docker_containers running)'
