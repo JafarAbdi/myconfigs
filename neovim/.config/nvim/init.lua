@@ -553,6 +553,43 @@ vim.api.nvim_create_autocmd("LspAttach", {
   group = lsp_group,
 })
 
+vim.api.nvim_create_user_command("Rename", function(kwargs)
+  local buf = vim.api.nvim_get_current_buf()
+  local from = vim.api.nvim_buf_get_name(buf)
+  local to = kwargs.args
+  vim.fn.mkdir(vim.fs.dirname(to), "p")
+  local changes = {
+    files = {
+      {
+        oldUri = vim.uri_from_fname(from),
+        newUri = vim.uri_from_fname(to),
+      },
+    },
+  }
+
+  local clients = (vim.lsp.get_clients or vim.lsp.get_active_clients)()
+  for _, client in ipairs(clients) do
+    if client.supports_method("workspace/willRenameFiles") then
+      local resp = client.request_sync("workspace/willRenameFiles", changes, 1000, 0)
+      if resp and resp.result ~= nil then
+        vim.lsp.util.apply_workspace_edit(resp.result, client.offset_encoding)
+      end
+    end
+  end
+
+  if vim.fn.rename(from, to) == 0 then
+    vim.cmd.edit(to)
+    vim.api.nvim_buf_delete(buf, { force = true })
+    vim.fn.delete(from)
+  end
+
+  for _, client in ipairs(clients) do
+    if client.supports_method("workspace/didRenameFiles") then
+      client.notify("workspace/didRenameFiles", changes)
+    end
+  end
+end, { complete = "file", nargs = 1 })
+
 vim.api.nvim_create_user_command("DapAttach", function()
   -- output format for ps ah
   --    " 107021 pts/4    Ss     0:00 /bin/zsh <args>"
