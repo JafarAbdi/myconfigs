@@ -148,14 +148,13 @@ end
 local root_dirs = {
   python = function(startpath)
     return vim.fs.root(startpath, {
-      ".vscode",
       "pyproject.toml",
       "setup.py",
       "setup.cfg",
       "requirements.txt",
       "Pipfile",
-      "package.xml",
       "pixi.toml",
+      ".pixi",
     })
   end,
   cmake = function(startpath)
@@ -976,7 +975,7 @@ local servers = {
       local pixi = vim.fs.find(".pixi", {
         upward = true,
         stop = vim.uv.os_homedir(),
-        path = file,
+        path = vim.uv.fs_realpath(file),
         type = "directory",
       })
       if #pixi > 0 then
