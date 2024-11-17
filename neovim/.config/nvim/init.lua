@@ -41,6 +41,10 @@ local term = {
   open_bufnr = nil,
 }
 term.close = function()
+  if term.open_bufnr and vim.api.nvim_buf_is_valid(term.open_bufnr) then
+    vim.api.nvim_buf_delete(term.open_bufnr, { force = true, unload = false })
+    term.open_bufnr = nil
+  end
   if not term.jobid then
     return
   end
@@ -48,17 +52,12 @@ term.close = function()
   vim.fn.jobwait({ term.jobid })
 end
 term.create = function(cmd, args, opts)
-  if term.open_bufnr and vim.api.nvim_buf_is_valid(term.open_bufnr) then
-    vim.api.nvim_buf_delete(term.open_bufnr, { force = true, unload = false })
-    term.open_bufnr = nil
-  end
   opts = vim.tbl_extend("keep", opts or {}, {
     auto_close = true,
     focus_terminal = false,
   })
   args = args or {}
-  -- Why I can't call this by indexing vim.cmd???
-  vim.cmd("botright " .. math.floor(vim.opt.lines:get() / 4) .. " new")
+  vim.cmd.new({ mods = { split = "botright" }, range = { math.floor(vim.opt.lines:get() / 4) } })
   term.bufnr = vim.api.nvim_win_get_buf(vim.fn.win_getid())
   vim.api.nvim_buf_set_option(0, "buftype", "nofile")
   vim.api.nvim_buf_set_option(0, "bufhidden", "wipe")
@@ -1596,11 +1595,12 @@ end, { silent = true })
 
 local win_pre_copen = nil
 vim.keymap.set("n", "<leader>c", function()
+  term.close()
   local api = vim.api
   for _, win in pairs(api.nvim_list_wins()) do
     local buf = api.nvim_win_get_buf(win)
     if api.nvim_get_option_value("buftype", { buf = buf }) == "quickfix" then
-      api.nvim_command("cclose")
+      vim.cmd.cclose()
       if win_pre_copen then
         local ok, w = pcall(api.nvim_win_get_number, win_pre_copen)
         if ok and api.nvim_win_is_valid(w) then
@@ -1614,7 +1614,7 @@ vim.keymap.set("n", "<leader>c", function()
 
   -- no quickfix buffer found so far, so show it
   win_pre_copen = api.nvim_get_current_win()
-  api.nvim_command("botright copen")
+  vim.cmd.copen({ mods = { split = "botright" } })
 end, { silent = true })
 
 local center_screen = function(command)
