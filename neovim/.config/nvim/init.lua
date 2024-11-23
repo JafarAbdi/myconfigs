@@ -551,6 +551,34 @@ vim.api.nvim_create_autocmd("LspAttach", {
   group = lsp_group,
 })
 
+vim.api.nvim_create_autocmd("BufNewFile", {
+  group = vim.api.nvim_create_augroup("templates", { clear = true }),
+  desc = "Load template file",
+  callback = function(args)
+    local home = os.getenv("HOME")
+    local fname = vim.fn.fnamemodify(args.file, ":t")
+    local ext = vim.fn.fnamemodify(args.file, ":e")
+    for _, candidate in ipairs({ fname, ext }) do
+      local templates_dir =
+        vim.fs.joinpath(home, "myconfigs", "neovim", ".config", "nvim", "templates")
+      local tpl = vim.fs.joinpath(templates_dir, candidate .. ".tpl")
+      local stpl = vim.fs.joinpath(templates_dir, candidate .. ".stpl")
+      vim.print(tpl, stpl)
+      if vim.uv.fs_stat(tpl) then
+        vim.cmd("0r " .. tmpl)
+        return
+      elseif vim.uv.fs_stat(stpl) then
+        local f = io.open(stpl, "r")
+        if f then
+          local content = f:read("*a")
+          vim.snippet.expand(content)
+          return
+        end
+      end
+    end
+  end,
+})
+
 vim.api.nvim_create_user_command("Rename", function(kwargs)
   local buf = vim.api.nvim_get_current_buf()
   local from = vim.api.nvim_buf_get_name(buf)

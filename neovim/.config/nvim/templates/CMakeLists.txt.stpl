@@ -1,0 +1,27 @@
+cmake_minimum_required(VERSION 3.16...3.27)
+
+project(${1:package_name}
+    VERSION 0.0.1
+    DESCRIPTION "${2:description}"
+    LANGUAGES CXX C
+)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+include(GNUInstallDirs)
+
+find_package(${3:spdlog} REQUIRED)
+
+add_executable(${4:library} src/main.cc)
+target_compile_features(${4:library} PRIVATE cxx_std_20)
+target_link_libraries(
+  ${4:library}
+  ${3:spdlog}::${3:spdlog}
+)
+target_include_directories(${4:library} PRIVATE include)
+
+install(TARGETS ${4:library}
+    RUNTIME DESTINATION \${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION \${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION \${CMAKE_INSTALL_LIBDIR}
+)
