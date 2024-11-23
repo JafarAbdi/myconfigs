@@ -123,6 +123,10 @@ local highlights = {
   LspReferenceText = { underline = true },
   LspReferenceRead = { underline = true },
   LspSignatureActiveParameter = { fg = colors.yellow, bold = true, underline = true },
+  PmenuMatch = { fg = colors.yellow, bold = true },
+  PmenuMatchSel = { link = "PmenuSel" },
+  CmpItemAbbrMatchFuzzy = { link = "PmenuMatch" },
+  CmpItemAbbrMatch = { link = "PmenuMatch" },
 }
 
 vim.api.nvim_set_hl(0, "@lsp.type.comment.cpp", { link = "Comment", default = true })
