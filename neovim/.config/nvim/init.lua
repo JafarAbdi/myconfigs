@@ -563,7 +563,6 @@ vim.api.nvim_create_autocmd("BufNewFile", {
         vim.fs.joinpath(home, "myconfigs", "neovim", ".config", "nvim", "templates")
       local tpl = vim.fs.joinpath(templates_dir, candidate .. ".tpl")
       local stpl = vim.fs.joinpath(templates_dir, candidate .. ".stpl")
-      vim.print(tpl, stpl)
       if vim.uv.fs_stat(tpl) then
         vim.cmd("0r " .. tmpl)
         return
