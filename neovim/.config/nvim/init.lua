@@ -564,7 +564,7 @@ vim.api.nvim_create_autocmd("BufNewFile", {
       local tpl = vim.fs.joinpath(templates_dir, candidate .. ".tpl")
       local stpl = vim.fs.joinpath(templates_dir, candidate .. ".stpl")
       if vim.uv.fs_stat(tpl) then
-        vim.cmd("0r " .. tmpl)
+        vim.cmd("0r " .. tpl)
         return
       elseif vim.uv.fs_stat(stpl) then
         local f = io.open(stpl, "r")

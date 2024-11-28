@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<robot name="${1:robot}">
+  ${0}
+</robot>
