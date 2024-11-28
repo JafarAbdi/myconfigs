@@ -378,7 +378,7 @@ case "${1:-}" in
         fi
         tmp_dir=$(mktemp -d -p /tmp clangd-XXXXXX)
         pushd "$tmp_dir"
-        install_from_github "clangd/clangd" "clangd-$os-19.1.2.zip"
+        install_from_github "clangd/clangd" "clangd-$os-18.1.3.zip"
         unzip -q clangd-*.zip
         rm -rf ~/.config/clangd-lsp
         mv clangd_* ~/.config/clangd-lsp

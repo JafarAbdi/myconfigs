@@ -21,7 +21,4 @@ jobs:
         with:
           pixi-version: v0.22.0
           cache: true
-      - run: |
-          pixi run pip install sourcery
-          pixi run sourcery login --token ${{ secrets.SOURCERY_TOKEN }}
       - run: pixi run lint

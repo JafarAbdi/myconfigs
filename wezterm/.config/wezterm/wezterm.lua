@@ -9,6 +9,7 @@ if wezterm.config_builder then
 end
 
 config.scrollback_lines = 20000
+config.max_fps = 120
 
 -- Show which key table is active in the status area
 wezterm.on("update-right-status", function(window, pane)

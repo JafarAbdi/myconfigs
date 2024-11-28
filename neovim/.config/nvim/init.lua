@@ -158,7 +158,7 @@ local root_dirs = {
     })
   end,
   cmake = function(startpath)
-    return vim.fs.root(startpath, { ".vscode", "package.xml", ".git" })
+    return vim.fs.root(startpath, { ".vscode" })
   end,
   cpp = function(startpath)
     local search_fn = function(path)
@@ -752,6 +752,7 @@ local servers = {
         },
         python = {
           {
+            lintAfterOpen = true,
             lintCommand = vim.fs.joinpath(
               vim.env.HOME,
               "myconfigs",
@@ -782,6 +783,7 @@ local servers = {
             formatStdin = true,
           },
           {
+            lintAfterOpen = true,
             lintCommand = vim.fs.joinpath(
               vim.env.HOME,
               "myconfigs",
@@ -800,14 +802,30 @@ local servers = {
         },
         cmake = {
           {
-            lintCommand = "cmake-lint",
+            lintAfterOpen = true,
+            lintCommand = vim.fs.joinpath(
+              vim.env.HOME,
+              "myconfigs",
+              ".pixi",
+              "envs",
+              "linters",
+              "bin",
+              "cmake-lint"
+            ) .. " ${INPUT}",
             lintFormats = {
-              "%f:%l,%c: %m",
+              "%f:%l: %m",
             },
-            lintSeverity = vim.diagnostic.severity.WARN,
           },
           {
-            formatCommand = "cmake-format -",
+            formatCommand = vim.fs.joinpath(
+              vim.env.HOME,
+              "myconfigs",
+              ".pixi",
+              "envs",
+              "linters",
+              "bin",
+              "cmake-format -"
+            ),
             formatStdin = true,
           },
         },
@@ -974,6 +992,32 @@ local servers = {
     name = "zls",
     filetypes = { "zig" },
     cmd = { "zls" },
+  },
+  {
+    name = "cmake_language_server",
+    filetypes = { "cmake" },
+    cmd = {
+      vim.fs.joinpath(
+        vim.env.HOME,
+        "myconfigs",
+        ".pixi",
+        "envs",
+        "cmake-lsp",
+        "bin",
+        "cmake-language-server"
+      ),
+    },
+    init_options = function(file)
+      local root_dir = root_dirs.cmake(file)
+      if not root_dir then
+        return {}
+      end
+      local cmake_settings_filename = vim.fs.joinpath(root_dir, ".vscode", "settings.json")
+      local settings = vim.fn.json_decode(vim.fn.readfile(cmake_settings_filename))
+      return {
+        buildDirectory = settings["cmake.buildDirectory"],
+      }
+    end,
   },
   {
     name = "jedi_language_server",

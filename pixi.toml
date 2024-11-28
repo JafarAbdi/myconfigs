@@ -23,13 +23,14 @@ conda-package-handling = ">=2.2.0,<2.3"
 linters = ["linters"]
 python-lsp = ["python-lsp"]
 nodejs = ["nodejs"]
+cmake-lsp = ["cmake-lsp"]
 
 [feature.linters.pypi-dependencies]
 pylsp-mypy = "*"
 ruff = "*"
 black = "*"
-sourcery = "*"
 yamllint = "*"
+cmakelang = "*"
 
 [feature.python-lsp.pypi-dependencies]
 jedi-language-server = "*"
@@ -38,3 +39,6 @@ pylsp-rope = "*"
 
 [feature.nodejs.dependencies]
 nodejs = ">=22.4.1,<22.5"
+
+[feature.cmake-lsp.pypi-dependencies]
+cmake-language-server = ">=0.1.10, <0.2"
