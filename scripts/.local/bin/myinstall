@@ -57,6 +57,7 @@ list_options() {
 case "${1:-}" in
     core)
         install_package --no-install-recommends \
+            parallel \
             python3-venv \
             fswatch \
             stow \
