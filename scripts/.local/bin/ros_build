@@ -23,7 +23,7 @@ from utils import (
 logger = logging.getLogger(__name__)
 
 
-def find_marker_dir(start_path, markers: list[str]):
+def find_marker_dir(start_path: Path, markers: list[str]) -> Path | None:
     """Return first parent directory containing any marker, or None if not found."""
     current = Path(start_path).resolve()
 
@@ -39,7 +39,8 @@ def main() -> None:
     """Main function."""
     parser = argparse.ArgumentParser()
     workspace_dir = find_marker_dir(
-        Path.cwd(), ["build", f"build_{os.environ.get('ROS_DISTRO')}"]
+        Path.cwd(),
+        ["build", f"build_{os.environ.get('ROS_DISTRO')}"],
     )
     parser.add_argument(
         "--pkg",
@@ -52,7 +53,8 @@ def main() -> None:
         choices=get_ros_packages(workspace_dir / "src"),
     )
     workspace_dir = find_marker_dir(
-        Path.cwd(), ["build", f"build_{os.environ.get('ROS_DISTRO')}"]
+        Path.cwd(),
+        ["build", f"build_{os.environ.get('ROS_DISTRO')}"],
     )
     src_dir = workspace_dir / "src"
     if not Path(src_dir).exists():

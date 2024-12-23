@@ -578,6 +578,19 @@ vim.api.nvim_create_autocmd("BufNewFile", {
   end,
 })
 
+vim.api.nvim_create_user_command("Errors", function()
+  vim.diagnostic.setqflist({
+    title = "Errors",
+    severity = vim.diagnostic.severity.ERROR,
+  })
+end, {})
+
+vim.api.nvim_create_user_command("Warnings", function()
+  vim.diagnostic.setqflist({
+    title = "Warnings",
+    severity = vim.diagnostic.severity.WARN,
+  })
+end, {})
 vim.api.nvim_create_user_command("Rename", function(kwargs)
   local buf = vim.api.nvim_get_current_buf()
   local from = vim.api.nvim_buf_get_name(buf)
@@ -1109,6 +1122,13 @@ end
 -- TODO: Add https://github.com/JafarAbdi/myconfigs/commit/97ba4ecb55b5972c5bc43ce020241fb353de433f
 local snippets = {
   all = {
+    {
+      trigger = "Current date",
+      description = "Insert the current date",
+      body = function()
+        return os.date("%Y-%m-%d %H:%M:%S%z")
+      end,
+    },
     {
       trigger = "Current month name",
       description = "Insert the name of the current month",

@@ -5,7 +5,7 @@ set -x WORKSPACE_DIR ~/workspaces
 set -x ROS2_WS_DIR $WORKSPACE_DIR/ros2
 set -x ROS_WS_DIR $WORKSPACE_DIR/ros
 set MAMBA_LEFT_PROMPT
-set -x CPP_SCREATCHES_DIR $HOME/workspaces/cpp/scratches
+set -x CPP_SCREATCHES_DIR $HOME/workspaces/pixi_workspaces/cpp_ws
 set -x RUST_SCREATCHES_DIR $HOME/workspaces/rust/scratches/src/bin
 set -x NPM_PACKAGES "$HOME/.npm-packages"
 set -x MANPATH $NPM_PACKAGES/share/man $MANPATH
@@ -445,7 +445,8 @@ set -xg ROSOUT_DISABLE_FILE_LOGGING true
 set -xg ROS_LANG_DISABLE "geneus;genlisp;gennodejs"
 
 # TF
-alias tfpdf='cd /var/tmp && rosrun tf view_frames && open frames.pdf &'
+alias tfpdf='ros2 run tf2_tools view_frames'
+alias tfecho='ros2 run tf2_ros tf2_echo '
 
 # ROS2 logger configs
 set -xg RCUTILS_COLORIZED_OUTPUT 1
