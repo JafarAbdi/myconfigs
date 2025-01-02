@@ -169,8 +169,6 @@ local root_dirs = {
         ".vscode",
         "compile_commands.json",
         "compile_flags.txt",
-        "configure.ac",
-        ".git",
       })
     end
     -- If root directory not found set it to file's directory
@@ -186,14 +184,14 @@ local root_dirs = {
   end,
   rust = function(startpath)
     local search_fn = function(path)
-      return vim.fs.root(path, { "Cargo.toml", "rust-project.json", ".vscode", ".git" })
+      return vim.fs.root(path, { "Cargo.toml", "rust-project.json", ".vscode" })
     end
     local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
       or vim.fn.getcwd()
     return dir
   end,
   zig = function(startpath)
-    return vim.fs.root(startpath, { "build.zig", ".git" })
+    return vim.fs.root(startpath, { "build.zig" })
   end,
 }
 root_dirs.c = root_dirs.cpp
@@ -307,7 +305,8 @@ local runners = {
     vim.notify("Can't find a target for " .. file_path, vim.log.levels.WARN)
   end,
   c = function(file_path, root_dir, _)
-    local cmake_settings_filename = vim.fs.joinpath(root_dir, ".vscode", "settings.json")
+    local vscode_root_dir = vim.fs.root(file_path, { ".vscode" })
+    local cmake_settings_filename = vim.fs.joinpath(vscode_root_dir, ".vscode", "settings.json")
     if vim.uv.fs_stat(cmake_settings_filename) then
       local settings = vim.fn.json_decode(vim.fn.readfile(cmake_settings_filename))
       local build_directory = settings["cmake.buildDirectory"]
@@ -330,7 +329,7 @@ local runners = {
           vim.fn.readfile(vim.fs.joinpath(reply_directory, target_config["jsonFile"]))
         )
         if target["type"] == "EXECUTABLE" then
-          targets[vim.fs.joinpath(root_dir, target["sources"][1]["path"])] = {
+          targets[vim.fs.joinpath(vscode_root_dir, target["sources"][1]["path"])] = {
             name = target["name"],
             path = vim.fs.joinpath(build_directory, target["artifacts"][1]["path"]),
           }
@@ -1092,10 +1091,6 @@ for _, server in pairs(servers) do
         if vim.api.nvim_win_get_config(0).relative ~= "" then
           return
         end
-        local root_dir = root_dirs[args.match]
-          or function(startpath)
-            return vim.fs.root(startpath, { ".git" })
-          end
         local capabilities =
           vim.tbl_deep_extend("force", vim.lsp.protocol.make_client_capabilities(), {
             workspace = {
@@ -1105,6 +1100,7 @@ for _, server in pairs(servers) do
             },
           })
 
+        local root_dir = root_dirs[args.match] or function() end
         vim.lsp.start({
           name = server.name,
           cmd = server.cmd,
@@ -1112,7 +1108,7 @@ for _, server in pairs(servers) do
           capabilities = capabilities,
           settings = server.settings or vim.empty_dict(),
           init_options = server.init_options and server.init_options(args.file) or vim.empty_dict(),
-          root_dir = root_dir(args.file),
+          root_dir = root_dir(args.file) or vim.fs.root(args.file, { ".git" }),
         })
       end,
     })

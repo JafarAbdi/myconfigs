@@ -38,9 +38,12 @@ def find_marker_dir(start_path: Path, markers: list[str]) -> Path | None:
 def main() -> None:
     """Main function."""
     parser = argparse.ArgumentParser()
-    workspace_dir = find_marker_dir(
-        Path.cwd(),
-        ["build", f"build_{os.environ.get('ROS_DISTRO')}"],
+    workspace_dir = (
+        find_marker_dir(
+            Path.cwd(),
+            ["build", f"build_{os.environ.get('ROS_DISTRO')}"],
+        )
+        or Path.cwd()
     )
     parser.add_argument(
         "--pkg",
@@ -51,10 +54,6 @@ def main() -> None:
         "--skip",
         nargs="+",
         choices=get_ros_packages(workspace_dir / "src"),
-    )
-    workspace_dir = find_marker_dir(
-        Path.cwd(),
-        ["build", f"build_{os.environ.get('ROS_DISTRO')}"],
     )
     src_dir = workspace_dir / "src"
     if not Path(src_dir).exists():

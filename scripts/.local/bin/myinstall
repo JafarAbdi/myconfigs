@@ -446,7 +446,7 @@ case "${1:-}" in
 
     zig)
         rm -rf ~/.config/zig && mkdir -p ~/.config/zig
-        wget $(curl https://ziglang.org/download/index.json | jq -r '.["master"]["x86_64-linux"]["tarball"]') -O zig.tar.xz
+        wget $(curl https://ziglang.org/download/index.json | jq -r '.["0.13.0"]["x86_64-linux"]["tarball"]') -O zig.tar.xz
         tar xvf zig.tar.xz --strip-components 1 -C ~/.config/zig
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1
@@ -539,7 +539,6 @@ case "${1:-}" in
                                                                            i3 \
                                                                            git \
                                                                            neovim \
-                                                                           ruff \
                                                                            scripts \
                                                                            stylua \
                                                                            tmux \
@@ -556,7 +555,6 @@ case "${1:-}" in
         stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow cargo \
                                                                                       clangd \
                                                                                       git \
-                                                                                      ruff \
                                                                                       scripts \
                                                                                       stylua \
                                                                                       fd \
@@ -588,6 +586,19 @@ case "${1:-}" in
         rosdep update
         ;;
 
+    ros2)
+        curl -s https://raw.githubusercontent.com/JafarAbdi/quick-ros2-install/refs/heads/main/install.bash | bash -s "${2:-}"
+        $0 colcon
+        ;;
+    ollama)
+        rm -rf ~/.local/lib/ollama ~/.local/bin/ollama || true
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github ollama/ollama ollama-linux-amd64.tgz
+        extract ollama-linux-amd64.tgz
+        tar -C ~/.local -xzf ollama-linux-amd64.tgz
+        popd || exit 1
+        ;;
     *)
         info "Usage: $(basename "$0") <option>" >&2
         list_options
