@@ -51,3 +51,7 @@ Cargo.lock
 nvim/plugin/*
 .ropeproject/
 .neovim.json
+
+## Zig ##
+.zig-cache
+zig-out

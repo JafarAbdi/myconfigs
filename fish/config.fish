@@ -10,6 +10,7 @@ set -x RUST_SCREATCHES_DIR $HOME/workspaces/rust/scratches/src/bin
 set -x NPM_PACKAGES "$HOME/.npm-packages"
 set -x MANPATH $NPM_PACKAGES/share/man $MANPATH
 export PIXI_FROZEN=true
+export XMODIFIERS="@im=none"
 
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin
@@ -406,9 +407,10 @@ function diffdir
 end
 
 complete -c wt -x -a "(__fish_wt)"
-
+complete -c myinstall -x -a "(myinstall --help)"
 complete -c sfs -w sshfs
 complete -c set-timezone -a "(timedatectl list-timezones)"
+
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
 
 function open --description 'Open files, using wezterm imgcat for images'
@@ -715,8 +717,16 @@ function start_container -d "Start a podman|docker image with gpu support"
   eval '$containerprg exec --user root $cid bash -c "apt update"'
   eval '$containerprg exec --user root $cid bash -c "apt install -y sudo vim adduser"'
   if test $containerprg = "docker"
-    docker exec --user root -it $cid bash -c "groupadd --gid "(id -g)" $USER"
-    docker exec --user root -it $cid bash -c "useradd --no-log-init --uid "(id -u)" --gid "(id -g)" -m $USER --groups sudo"
+    # Check if user ubuntu exists
+    eval '$containerprg exec --user root $cid bash -c "id -u ubuntu"'
+    if test $status -eq 0
+      # Link ubuntu to the current user
+      docker exec --user root $cid bash -c "usermod -l $user ubuntu"
+      docker exec --user root $cid bash -c "groupmod -n $user ubuntu"
+    else
+      docker exec --user root -it $cid bash -c "groupadd --gid "(id -g)" $USER"
+      docker exec --user root -it $cid bash -c "useradd --no-log-init --uid "(id -u)" --gid "(id -g)" -m $USER --groups sudo"
+    end
   end
   eval '$containerprg exec --user root $cid bash -c "passwd -d $user"'
   eval '$containerprg exec --user root $cid bash -c "chown $user:$user /home/$user"'
@@ -848,4 +858,13 @@ function fish_prompt
   echo "$user""$git" (basename (prompt_pwd))"\$ "
 end
 
-complete -c myinstall -x -a "(myinstall --help)"
+function ros_kill
+  if ! set -q ROS_DISTRO
+    echo "ROS_DISTRO is not set"
+    return 1
+  end
+  kill -9 $(pgrep -af $ROS_DISTRO | cut -d' ' -f1) \
+          $(pgrep -af ros2cli.daemon.daemonize | cut -d' ' -f1) \
+          $(pgrep -af gzserver | cut -d' ' -f1) \
+          $(pgrep -af gzclient | cut -d' ' -f1)
+end

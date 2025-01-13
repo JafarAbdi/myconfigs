@@ -195,6 +195,7 @@ local root_dirs = {
   end,
 }
 root_dirs.c = root_dirs.cpp
+root_dirs.cuda = root_dirs.cpp
 
 _G.lsp_status = function()
   local lsp_status = vim.lsp.status()
@@ -715,7 +716,7 @@ local servers = {
   },
   {
     name = "clangd",
-    filetypes = { "c", "cpp" },
+    filetypes = { "c", "cpp", "cuda" },
     cmd = {
       vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
       "--completion-style=detailed",
@@ -1165,6 +1166,8 @@ endforeach()${0}]],
     },
   },
 }
+snippets.c = snippets.cpp
+snippets.cuda = snippets.cpp
 
 local get_buffer_snippets = function(filetype)
   local ft_snippets = {}
