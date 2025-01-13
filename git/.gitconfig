@@ -63,6 +63,7 @@
   # pushInsteadOf = https://github.com/
   # Push + Pull
   insteadOf = https://github.com/
+  insteadOf = https://www.github.com/
 [url "git@github.com:"]
   insteadOf = gh:
 [init]
