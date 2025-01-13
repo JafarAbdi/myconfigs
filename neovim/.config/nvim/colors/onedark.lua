@@ -49,7 +49,7 @@ local highlights = {
   Typedef = { fg = colors.yellow }, --A typedef
   Special = { fg = colors.blue }, --any special symbol
   SpecialChar = { fg = colors.dark_yellow }, --special character in a constant
-  Tag = {}, --you can use CTRL-] on this
+  -- Tag = {}, --you can use CTRL-] on this
   Delimiter = {}, --character that needs attention
   SpecialComment = { fg = colors.comment_grey }, --special things inside a comment
   Debug = {}, --debugging statements
