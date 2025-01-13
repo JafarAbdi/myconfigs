@@ -86,6 +86,8 @@ case "${1:-}" in
             file \
             lld \
             lldb \
+            make \
+            gcc \
             ninja-build \
             sshfs \
             universal-ctags \
@@ -157,8 +159,9 @@ case "${1:-}" in
         # It uses the latest stable version, there's release for sid
         # https://docs.docker.com/engine/install/debian/
         # https://nickjanetakis.com/blog/docker-tip-77-installing-docker-on-debian-unstable
-        echo "To install nvidia-docker follow: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#installation"
+        info "To install nvidia-docker follow: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#installation"
         sudo systemctl restart docker
+        mkdir -p ~/.bash_completion.d || true
         wget https://raw.githubusercontent.com/docker/cli/master/contrib/completion/bash/docker -O ~/.bash_completion.d/docker
         wget https://raw.githubusercontent.com/docker/compose/master/contrib/completion/bash/docker-compose -O ~/.bash_completion.d/docker-compose
         ;;
@@ -527,7 +530,7 @@ case "${1:-}" in
         fish -c "curl -sL https://git.io/fisher | source && fisher install edc/bass"
 
         # Skip setting fish as the default shell if we are in a docker or podman containers
-        if [ ! -e /.dockerenv ] && [ -z "$PODMAN_NAME" ]; then
+        if [ ! -e /.dockerenv ] && [ -z "${PODMAN_NAME:-}" ]; then
             chsh -s /usr/bin/fish
         fi
         ;;

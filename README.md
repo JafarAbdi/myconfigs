@@ -17,6 +17,11 @@
 
 ```bash
 ~/myconfigs/scripts/.local/bin/myinstall setup_fish
+~/myconfigs/scripts/.local/bin/myinstall core
+~/myconfigs/scripts/.local/bin/myinstall stow
+myinstall i3
+myinstall wezterm
+myinstall docker
 ```
 
 - Install tailscale: [tailscale](https://tailscale.com/download)

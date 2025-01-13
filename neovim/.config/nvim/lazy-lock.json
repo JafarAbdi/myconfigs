@@ -13,7 +13,7 @@
   },
   "lazy.nvim": {
     "branch": "main",
-    "commit": "460e1cd8f24e364d54543a4b0e83f6f4ec1f65fb"
+    "commit": "7e6c863bc7563efbdd757a310d17ebc95166cef3"
   },
   "nvim-cmp": {
     "branch": "main",
