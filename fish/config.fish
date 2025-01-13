@@ -847,3 +847,5 @@ function fish_prompt
   set -l user (set_color ff99ff)"($USER)"(set_color normal)
   echo "$user""$git" (basename (prompt_pwd))"\$ "
 end
+
+complete -c myinstall -x -a "(myinstall --help)"

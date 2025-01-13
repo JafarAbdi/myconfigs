@@ -50,7 +50,6 @@ install_from_github() {
 }
 
 list_options() {
-    echo "Available options:"
     grep -E '^[[:space:]]+[a-zA-Z0-9_-]+\)' "$0" | sed 's/)//' | tr -d ' \t' | sort
 }
 
@@ -602,8 +601,14 @@ case "${1:-}" in
         tar -C ~/.local -xzf ollama-linux-amd64.tgz
         popd || exit 1
         ;;
+
+    --help)
+      list_options
+      ;;
+
     *)
         info "Usage: $(basename "$0") <option>" >&2
+        info "Available options:"
         list_options
         exit 1
         ;;
