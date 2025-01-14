@@ -1699,6 +1699,7 @@ vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 
 vim.treesitter.language.register("xml", { "xacro", "urdf" })
+vim.treesitter.language.register("cpp", { "cuda" })
 vim.filetype.add({
   extension = {
     launch = "xml",
