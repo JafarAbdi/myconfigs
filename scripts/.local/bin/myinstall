@@ -604,10 +604,6 @@ case "${1:-}" in
         popd || exit 1
         ;;
 
-    --help)
-      list_options
-      ;;
-
     bun)
         curl -fsSL https://bun.sh/install | bash
         ;;
@@ -616,6 +612,28 @@ case "${1:-}" in
         wget https://github.com/JafarAbdi/mujoco_simulator/releases/download/continuous/mujoco_simulator-x86_64.AppImage -O ~/.local/bin/mujoco_simulator
         chmod +x ~/.local/bin/mujoco_simulator
         ;;
+
+    freecad)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github FreeCAD/FreeCAD "FreeCAD_.*-conda-Linux-x86_64-.*.AppImage"
+        mv FreeCAD_*.AppImage ~/.local/bin/freecad
+        chmod +x ~/.local/bin/freecad
+        popd || exit 1
+        ;;
+
+    meshlab)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github cnr-isti-vclab/meshlab "MeshLab.*linux.AppImage"
+        mv MeshLab*.AppImage ~/.local/bin/meshlab
+        chmod +x ~/.local/bin/meshlab
+        popd || exit 1
+        ;;
+
+    --help)
+      list_options
+      ;;
 
     *)
         info "Usage: $(basename "$0") <option>" >&2

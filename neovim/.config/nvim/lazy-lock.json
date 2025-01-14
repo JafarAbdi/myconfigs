@@ -30,5 +30,13 @@
   "nvim-qwahl": {
     "branch": "main",
     "commit": "3cc5ef866bd62f3dc74644836d47790e5b455208"
+  },
+  "nvim-treesitter": {
+    "branch": "master",
+    "commit": "984214ef8e4ca18d77639663319aabdfba89632f"
+  },
+  "nvim-treesitter-textobjects": {
+    "branch": "master",
+    "commit": "ad8f0a472148c3e0ae9851e26a722ee4e29b1595"
   }
 }
