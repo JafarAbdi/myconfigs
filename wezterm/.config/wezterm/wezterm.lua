@@ -349,4 +349,11 @@ wezterm.on("augment-command-palette", function(_, _)
 end)
 config.check_for_updates = false
 
+wezterm.on("bell", function(window, pane)
+  if window:is_focused() and window:active_pane():pane_id() == pane:pane_id() then
+    return
+  end
+  window:toast_notification("wezterm", "Bell in pane '" .. pane:get_title() .. "'", nil, 5000)
+end)
+
 return config

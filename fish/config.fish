@@ -868,3 +868,7 @@ function ros_kill
           $(pgrep -af gzserver | cut -d' ' -f1) \
           $(pgrep -af gzclient | cut -d' ' -f1)
 end
+
+function postexec --on-event fish_postexec
+    echo -e '\a'
+end
