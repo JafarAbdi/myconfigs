@@ -6,3 +6,4 @@ mynotes
 scripts/.local/bin/rgr
 scripts/.local/bin/pixi
 scripts/.local/bin/stylua
+neovim/.config/nvim/spell/
