@@ -476,6 +476,15 @@ vim.api.nvim_create_autocmd("FileType", {
     vim.opt_local.cindent = false
   end,
 })
+
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "markdown" },
+  group = general_group,
+  callback = function()
+    vim.opt_local.wrap = true
+    vim.opt_local.conceallevel = 3
+  end,
+})
 -- A terrible way to handle symlinks
 vim.api.nvim_create_autocmd("BufWinEnter", {
   callback = function(params)
@@ -1652,6 +1661,7 @@ vim.diagnostic.config({
     float = true,
   },
 })
+vim.opt.smoothscroll = true
 vim.opt.foldenable = false
 vim.opt.number = true
 vim.opt.mouse = "a"

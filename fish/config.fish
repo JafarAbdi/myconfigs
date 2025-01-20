@@ -7,8 +7,6 @@ set -x ROS_WS_DIR $WORKSPACE_DIR/ros
 set MAMBA_LEFT_PROMPT
 set -x CPP_SCREATCHES_DIR $HOME/workspaces/pixi_workspaces/cpp_ws
 set -x RUST_SCREATCHES_DIR $HOME/workspaces/rust/scratches/src/bin
-set -x NPM_PACKAGES "$HOME/.npm-packages"
-set -x MANPATH $NPM_PACKAGES/share/man $MANPATH
 export PIXI_FROZEN=true
 export XMODIFIERS="@im=none"
 
@@ -38,9 +36,6 @@ function get_path
     end
     if test -d $HOME/.config/lua-lsp/bin
       set path $HOME/.config/lua-lsp/bin:$path
-    end
-    if test -d $NPM_PACKAGES/bin
-      set path $NPM_PACKAGES/bin:$path
     end
     if test -d $HOME/.luarocks/bin
       set path $HOME/.luarocks/bin:$path
