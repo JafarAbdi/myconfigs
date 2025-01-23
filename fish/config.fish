@@ -56,6 +56,9 @@ end
 
 function get_ld_library_path
     set -l ld_library_path
+    if test -d /usr/local/lib
+      set ld_library_path /usr/local/lib
+    end
     if test -d /opt/drake/lib
       set ld_library_path /opt/drake/lib
     end
@@ -80,12 +83,8 @@ set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
 set -xg BROWSER "firefox"
 
 alias myconfigs "cd ~/myconfigs"
-alias mynotes "cd $HOME/mynotes"
-alias myconfigsr "source ~/.config/fish/config.fish"
-alias cmaked 'cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
-alias cmakerd 'cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
-alias excalidraw 'docker run --rm -dit --name excalidraw -p 5000:80 excalidraw/excalidraw:latest'
-alias bazel-generate-compilation-database '$HOME/.config/bazel-compilation-database/generate.py -s'
+alias cuda_architectures "nvidia-smi --query-gpu=compute_cap --format=csv,noheader"
+
 export MYPYPATH=$HOME/.cache/python-stubs/stubs
 export SHELL=fish
 
@@ -568,7 +567,7 @@ function ros_ignore
   end
 end
 
-function rcd
+function ros_cd
   fd --prune --search-path $HOME --type file --glob package.xml --exec bash -c 'echo -e "\033[0;35m"$(xmllint --xpath "//name/text()" "$1")"\033[0m":$(dirname "{}")' bash {} \
     | fzf --preview '' --delimiter ':' --nth 1 --ansi --no-multi \
     | read --array --delimiter=':' selected
