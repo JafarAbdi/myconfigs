@@ -1189,45 +1189,25 @@ local get_buffer_snippets = function(filetype)
   end
   return ft_snippets
 end
-
 require("lazy").setup({
   { "mfussenegger/nvim-qwahl" },
   { "mfussenegger/nvim-fzy" },
   {
-    "github/copilot.vim",
+    "ggml-org/llama.vim",
     event = "VeryLazy",
+    opts = {
+      llama_config = {
+        show_info = 0,
+      },
+    },
     config = function()
-      vim.g.copilot_node_command = vim.env.HOME .. "/myconfigs/.pixi/envs/nodejs/bin/node"
-      vim.g.copilot_no_tab_map = true
-      vim.g.copilot_no_maps = true
-      vim.g.copilot_assume_mapped = true
-      vim.g.copilot_tab_fallback = ""
-      vim.g.copilot_filetypes = {
-        ["*"] = true,
-        gitcommit = false,
-        ["dap-repl"] = false,
-      }
-
-      vim.keymap.set("i", "<M-e>", function()
-        return vim.api.nvim_feedkeys(
-          vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
-          "n",
-          true
-        )
-      end, { expr = true })
-      vim.keymap.set("i", "<c-;>", function()
-        return vim.fn["copilot#Next"]()
-      end, { expr = true })
-      vim.keymap.set("i", "<c-,>", function()
-        return vim.fn["copilot#Previous"]()
-      end, { expr = true })
       vim.keymap.set("i", "<c-c>", function()
         -- Leave insert mode and cancel completion
         vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
-        return vim.fn["copilot#Dismiss"]()
+        return vim.fn["llama#fim_cancel"]()
       end, { expr = true })
-      vim.keymap.set("i", "<C-M-l>", "<Plug>(copilot-accept-line)", { silent = true })
-      vim.keymap.set("i", "<C-M-e>", "<Plug>(copilot-accept-word)", { silent = true })
+      vim.api.nvim_set_hl(0, "llama_hl_hint", { fg = "#5C6370" }) -- comment grey
+      vim.api.nvim_set_hl(0, "llama_hl_info", { fg = "#56B6C2" }) -- cyan
     end,
   },
   {
