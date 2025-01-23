@@ -21,7 +21,6 @@ local myconfigs_path = vim.fs.joinpath(vim.env.HOME, "myconfigs")
 -----------------
 
 local clangd_opening_root_dir = nil
-
 local set_clangd_opening_path = function(callback)
   return function()
     local ft = vim.api.nvim_get_option_value("filetype", {})
@@ -1317,45 +1316,29 @@ local get_buffer_snippets = function(filetype)
   end
   return ft_snippets
 end
-
 require("lazy").setup({
   { "mfussenegger/nvim-qwahl" },
   { "mfussenegger/nvim-fzy" },
+  { "mbbill/undotree", event = "VeryLazy" },
   {
-    "github/copilot.vim",
+    "ggml-org/llama.vim",
     event = "VeryLazy",
-    config = function()
-      vim.g.copilot_node_command = myconfigs_path .. "/.pixi/envs/nodejs/bin/node"
-      vim.g.copilot_no_tab_map = true
-      vim.g.copilot_no_maps = true
-      vim.g.copilot_assume_mapped = true
-      vim.g.copilot_tab_fallback = ""
-      vim.g.copilot_filetypes = {
-        ["*"] = true,
-        gitcommit = false,
-        ["dap-repl"] = false,
+    init = function()
+      vim.g.llama_config = {
+        show_info = 0,
+        keymap_accept_full = "<M-e>",
+        keymap_accept_line = "<C-M-l>",
+        keymap_accept_word = "<C-M-e>",
       }
-
-      vim.keymap.set("i", "<M-e>", function()
-        return vim.api.nvim_feedkeys(
-          vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
-          "n",
-          true
-        )
-      end, { expr = true })
-      vim.keymap.set("i", "<c-;>", function()
-        return vim.fn["copilot#Next"]()
-      end, { expr = true })
-      vim.keymap.set("i", "<c-,>", function()
-        return vim.fn["copilot#Previous"]()
-      end, { expr = true })
+    end,
+    config = function()
       vim.keymap.set("i", "<c-c>", function()
         -- Leave insert mode and cancel completion
         vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
-        return vim.fn["copilot#Dismiss"]()
+        return vim.fn["llama#fim_hide"]()
       end, { expr = true })
-      vim.keymap.set("i", "<C-M-l>", "<Plug>(copilot-accept-line)", { silent = true })
-      vim.keymap.set("i", "<C-M-e>", "<Plug>(copilot-accept-word)", { silent = true })
+      vim.api.nvim_set_hl(0, "llama_hl_hint", { fg = "#5C6370" }) -- comment grey
+      vim.api.nvim_set_hl(0, "llama_hl_info", { fg = "#56B6C2" }) -- cyan
     end,
   },
   {
@@ -1461,7 +1444,8 @@ require("lazy").setup({
         else
           cb({
             type = "executable",
-            command = myconfigs_path .. "/.pixi/envs/default/bin/python",
+            -- command = myconfigs_path .. "/.pixi/envs/default/bin/python",
+            command = "python",
             args = { "-m", "debugpy.adapter" },
             enrich_config = enrich_config,
             options = {
