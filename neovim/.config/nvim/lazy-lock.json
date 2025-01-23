@@ -7,25 +7,25 @@
     "branch": "main",
     "commit": "99290b3ec1322070bcfb9e846450a46f6efa50f0"
   },
-  "copilot.vim": {
-    "branch": "release",
-    "commit": "cd7f01009fb7b30e22840cadc4faad88b05c6eef"
-  },
   "lazy.nvim": {
     "branch": "main",
     "commit": "6c3bda4aca61a13a9c63f1c1d1b16b9d3be90d7a"
   },
+  "llama.vim": {
+    "branch": "master",
+    "commit": "dafa50acc4df4fe8b173c7cbfa3c5901fb7e0dec"
+  },
   "nvim-cmp": {
     "branch": "main",
-    "commit": "5a11682453ac6b13dbf32cd403da4ee9c07ef1c3"
+    "commit": "1e1900b0769324a9675ef85b38f99cca29e203b3"
   },
   "nvim-dap": {
     "branch": "master",
-    "commit": "379cf26e9c457b66a0152cd5d018418c03720d47"
+    "commit": "6a5bba0ddea5d419a783e170c20988046376090d"
   },
   "nvim-fzy": {
     "branch": "main",
-    "commit": "5ce61c1c9644d620a908b0814dd72706cf3f9dc8"
+    "commit": "00c13c7428c515e37b2df528c2957b90a36449a1"
   },
   "nvim-qwahl": {
     "branch": "main",
@@ -33,10 +33,14 @@
   },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "99487eb34a397befce8182ff63347a21c5f4b881"
+    "commit": "5f38dffb6a07669a678f073bfe0f62b1a020dffc"
   },
   "nvim-treesitter-textobjects": {
     "branch": "master",
-    "commit": "ab0950c53d1ae04da8e488aa762b450d5241dca2"
+    "commit": "9937e5e356e5b227ec56d83d0a9d0a0f6bc9cad4"
+  },
+  "undotree": {
+    "branch": "master",
+    "commit": "b951b87b46c34356d44aa71886aecf9dd7f5788a"
   }
 }
