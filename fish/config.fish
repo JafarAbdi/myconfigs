@@ -83,6 +83,7 @@ set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
 set -xg BROWSER "firefox"
 
 alias myconfigs "cd ~/myconfigs"
+alias myconfigsr "source ~/.config/fish/config.fish"
 alias cuda_architectures "nvidia-smi --query-gpu=compute_cap --format=csv,noheader"
 
 export MYPYPATH=$HOME/.cache/python-stubs/stubs

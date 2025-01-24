@@ -118,9 +118,9 @@ local highlights = {
   DiagnosticUnderlineHint = { fg = colors.cyan, underline = true, cterm = { underline = true } },
 
   -- Neovim's built-in language server client
-  LspReferenceWrite = { underline = true },
-  LspReferenceText = { underline = true },
-  LspReferenceRead = { underline = true },
+  LspReferenceWrite = { bg = "#2e333c" },
+  LspReferenceText = { link = "LspReferenceWrite" },
+  LspReferenceRead = { link = "LspReferenceWrite" },
   LspSignatureActiveParameter = { fg = colors.yellow, bold = true, underline = true },
   PmenuMatch = { fg = colors.yellow, bold = true },
   PmenuMatchSel = { link = "PmenuSel" },
