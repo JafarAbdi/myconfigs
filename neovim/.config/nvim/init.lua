@@ -193,6 +193,9 @@ local root_dirs = {
   zig = function(startpath)
     return vim.fs.root(startpath, { "build.zig" })
   end,
+  dockerfile = function(startpath)
+    return vim.fs.root(startpath, { "Dockerfile" })
+  end,
 }
 root_dirs.c = root_dirs.cpp
 root_dirs.cuda = root_dirs.cpp
@@ -717,6 +720,44 @@ end, {
 -----------------
 
 local servers = {
+  ts_ls = {
+    name = "typescript-language-server",
+    cmd = { "bunx", "typescript-language-server", "--stdio" },
+    filetypes = {
+      "javascript",
+      "javascriptreact",
+      "javascript.jsx",
+      "typescript",
+      "typescriptreact",
+      "typescript.tsx",
+    },
+  },
+  yamlls = {
+    name = "yamlls",
+    cmd = { "bunx", "yaml-language-server", "--stdio" },
+    filetypes = { "yaml" },
+    settings = {
+      yaml = {
+        schemas = {
+          ["https://json.schemastore.org/pre-commit-config.json"] = {
+            ".pre-commit-config.yml",
+            ".pre-commit-config.yaml",
+          },
+          ["https://json.schemastore.org/github-action.json"] = {
+            "action.yml",
+            "action.yaml",
+          },
+          ["https://json.schemastore.org/github-workflow.json"] = {
+            ".github/workflows/**.yml",
+            ".github/workflows/**.yaml",
+          },
+          ["https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json"] = {
+            "docker-compose.yml",
+          },
+        },
+      },
+    },
+  },
   {
     name = "taplo",
     filetypes = { "toml" },
@@ -1055,13 +1096,19 @@ local servers = {
         "envs",
         "python-lsp",
         "bin",
-        "jedi-language-server"
+        "jedi-language-server",
+        "-vv",
+        "--log-file",
+        "/tmp/logging.txt"
       ),
-    }, -- "-vv", "--log-file", "/tmp/logging.txt"
+    },
     init_options = function(file)
       local options = {
         workspace = {
-          extraPaths = { vim.env.HOME .. "/.cache/python-stubs" },
+          extraPaths = {
+            vim.env.HOME .. "/.cache/python-stubs",
+            vim.env.HOME .. "/.cache/python-stubs/stubs",
+          },
           environmentPath = "/usr/bin/python3",
         },
       }
@@ -1091,6 +1138,13 @@ local servers = {
     name = "lemminx",
     filetypes = { "xml" },
     cmd = { "lemminx" },
+  },
+  {
+    name = "docker-ls",
+    cmd = { "bunx", "dockerfile-language-server-nodejs", "--stdio" },
+    filetypes = {
+      "dockerfile",
+    },
   },
 }
 

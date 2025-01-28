@@ -6,13 +6,17 @@
 # 2. Interactively narrow down the list using fzf
 # 3. Open the file in Vim
 extra_args=""
-while getopts ":hn" opt; do
+fzf_extra_args=""
+while getopts ":hne" opt; do
   case ${opt} in
     h )
       extra_args="$extra_args --hidden"
       ;;
     n )
       extra_args="$extra_args --no-ignore"
+      ;;
+    e )
+      fzf_extra_args="--exact"
       ;;
     \? )
       echo "Invalid option: -$OPTARG" 1>&2
@@ -34,6 +38,7 @@ IFS=: read -ra selected < <(
         --delimiter : \
         --preview 'bat --color=always {1} --highlight-line {2}' \
         --bind='f3:become(nvim {1}:{2} < /dev/tty > /dev/tty 2>&1)' \
-        --preview-window 'up,60%,border-bottom,+{2}+3/3,~3'
+        --preview-window 'up,60%,border-bottom,+{2}+3/3,~3' \
+        ${fzf_extra_args:-}
 )
 [ -n "${selected[0]}" ] && nvim "${selected[0]}" "+${selected[1]}"
