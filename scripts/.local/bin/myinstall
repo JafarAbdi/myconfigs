@@ -10,6 +10,19 @@ readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
 readonly NC='\033[0m' # No Color
 readonly arch=$(uname --hardware-platform)
+case "$arch" in
+  x86_64|amd64)
+    arch_name="amd64"
+    ;;
+  aarch64|arm64)
+    arch_name="arm64"
+    ;;
+  *)
+    arch_name="unknown"  # Handle other architectures if needed
+    ;;
+esac
+
+echo "Architecture: $arch_name"
 
 extract() {
   atool -qx "$1"
@@ -164,7 +177,7 @@ case "${1:-}" in
         else
             TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
             pushd "$TMP_DIR" || exit 1
-            install_from_github "BurntSushi/ripgrep" "ripgrep.*-$arch-unknown-linux-musl.tar.gz"
+            install_from_github "BurntSushi/ripgrep" "ripgrep.*-$arch-unknown-linux-gnu.tar.gz"
             tar -xzf ripgrep* --strip-components=1
             mv rg ~/.local/bin
             if command -v fish >/dev/null 2>&1; then
@@ -182,7 +195,7 @@ case "${1:-}" in
             FZF_TMP_DIR=$(mktemp -d -p /tmp fzf-XXXXXX)
             pushd "$FZF_TMP_DIR" || exit 1
             curl -s https://api.github.com/repos/junegunn/fzf/releases \
-            | grep "https://github.com/junegunn/fzf/releases/download.*-linux_amd64.tar.gz" \
+            | grep "https://github.com/junegunn/fzf/releases/download.*-linux_$arch_name.tar.gz" \
             | cut -d':' -f 2,3 \
             | tr -d \" \
             | head -n 1 \
@@ -246,7 +259,7 @@ case "${1:-}" in
         else
             TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
             pushd "$TMP_DIR" || exit 1
-            install_from_github mattn/efm-langserver "efm-langserver_.*_linux_amd64.tar.gz"
+            install_from_github mattn/efm-langserver "efm-langserver_.*_linux_$arch_name.tar.gz"
             tar xzf efm-langserver* --strip-components 1
             mv efm-langserver ~/.local/bin
             popd || exit 1
@@ -336,9 +349,9 @@ case "${1:-}" in
     actionlint)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1
-        install_from_github rhysd/actionlint "actionlint_.*_linux_amd64.tar.gz"
+        install_from_github rhysd/actionlint "actionlint_.*_linux_$arch_name.tar.gz"
         extract actionlint*
-        mv actionlint_*_linux_amd64/actionlint ~/.local/bin/
+        mv actionlint_*_linux_$arch_name/actionlint ~/.local/bin/
         popd || exit 1
         ;;
 
@@ -401,9 +414,17 @@ case "${1:-}" in
             tar xzvf nvim-macos-arm64.tar.gz
         else
             if [[ "${2:-}" == "nightly" ]]; then
-              wget https://github.com/neovim/neovim/releases/download/nightly/nvim-linux-$(arch).appimage -O ~/.local/bin/nvim
+                if [[ "$arch_name" == "amd64" ]]; then
+                    wget https://github.com/neovim/neovim/releases/download/nightly/nvim-linux-$arch.appimage -O ~/.local/bin/nvim
+                elif [[ "$arch_name" == "arm64" ]]; then
+                    wget https://github.com/neovim/neovim/releases/download/nightly/nvim-linux-$arch_name.appimage -O ~/.local/bin/nvim
+                fi
             else
-              wget https://github.com/neovim/neovim/releases/latest/download/nvim-linux-$(arch).appimage -O ~/.local/bin/nvim
+                if [[ "$arch_name" == "amd64" ]]; then
+                    wget https://github.com/neovim/neovim/releases/latest/download/nvim-linux-$arch.appimage -O ~/.local/bin/nvim
+                elif [[ "$arch_name" == "arm64" ]]; then
+                    wget https://github.com/neovim/neovim/releases/latest/download/nvim-linux-$arch_name.appimage -O ~/.local/bin/nvim
+                fi
             fi
             chmod +x ~/.local/bin/nvim
         fi
@@ -600,9 +621,9 @@ case "${1:-}" in
         rm -rf ~/.local/lib/ollama ~/.local/bin/ollama || true
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1
-        install_from_github ollama/ollama ollama-linux-amd64.tgz
-        extract ollama-linux-amd64.tgz
-        tar -C ~/.local -xzf ollama-linux-amd64.tgz
+        install_from_github ollama/ollama ollama-linux-$arch_name.tgz
+        extract ollama-linux-$arch_name.tgz
+        tar -C ~/.local -xzf ollama-linux-$arch_name.tgz
         popd || exit 1
         ;;
 
