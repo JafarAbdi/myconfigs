@@ -9,6 +9,7 @@ readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
 readonly NC='\033[0m' # No Color
+readonly arch=$(uname --hardware-platform)
 
 extract() {
   atool -qx "$1"
@@ -142,6 +143,7 @@ case "${1:-}" in
             sudo apt install -y curl
             curl -sSL https://get.docker.com/ | sh
             sudo usermod -aG docker "$(whoami)"
+            # newgrp docker
         fi
         $0 docker-compose
         sudo docker run hello-world
@@ -162,7 +164,7 @@ case "${1:-}" in
         else
             TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
             pushd "$TMP_DIR" || exit 1
-            install_from_github "BurntSushi/ripgrep" "ripgrep.*-x86_64-unknown-linux-musl.tar.gz"
+            install_from_github "BurntSushi/ripgrep" "ripgrep.*-$arch-unknown-linux-musl.tar.gz"
             tar -xzf ripgrep* --strip-components=1
             mv rg ~/.local/bin
             if command -v fish >/dev/null 2>&1; then
@@ -198,7 +200,7 @@ case "${1:-}" in
         else
             rm ~/.local/bin/libtree 2> /dev/null || true
             curl -s https://api.github.com/repos/haampie/libtree/releases \
-              | grep "https://github.com/haampie/libtree/releases/download.*libtree_x86_64" \
+              | grep "https://github.com/haampie/libtree/releases/download.*libtree_$arch" \
               | grep -v ".tar.gz" \
               | cut -d':' -f 2,3 \
               | tr -d \" \
@@ -211,7 +213,7 @@ case "${1:-}" in
     fd)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1
-        install_from_github sharkdp/fd "fd.*x86_64-unknown-linux-gnu.tar.gz"
+        install_from_github sharkdp/fd "fd.*$arch-unknown-linux-gnu.tar.gz"
         tar -xzf fd* --strip-components=1
 
         mv fd ~/.local/bin
@@ -273,10 +275,10 @@ case "${1:-}" in
     taplo)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1
-        install_from_github tamasfe/taplo taplo-full-linux-x86_64.gz
-        extract taplo-full-linux-x86_64.gz
-        chmod +x taplo-full-linux-x86_64
-        mv taplo-full-linux-x86_64 ~/.local/bin/taplo
+        install_from_github tamasfe/taplo taplo-full-linux-$(arch).gz
+        extract taplo-full-linux-$(arch).gz
+        chmod +x taplo-full-linux-$(arch)
+        mv taplo-full-linux-$(arch) ~/.local/bin/taplo
         popd || exit 1
         ;;
 
@@ -399,9 +401,9 @@ case "${1:-}" in
             tar xzvf nvim-macos-arm64.tar.gz
         else
             if [[ "${2:-}" == "nightly" ]]; then
-                wget https://github.com/neovim/neovim/releases/download/nightly/nvim.appimage -O ~/.local/bin/nvim
+              wget https://github.com/neovim/neovim/releases/download/nightly/nvim-linux-$(arch).appimage -O ~/.local/bin/nvim
             else
-                wget https://github.com/neovim/neovim/releases/latest/download/nvim.appimage -O ~/.local/bin/nvim
+              wget https://github.com/neovim/neovim/releases/latest/download/nvim-linux-$(arch).appimage -O ~/.local/bin/nvim
             fi
             chmod +x ~/.local/bin/nvim
         fi
@@ -430,7 +432,7 @@ case "${1:-}" in
         ;;
 
     pixi)
-        wget https://github.com/prefix-dev/pixi/releases/latest/download/pixi-x86_64-unknown-linux-musl -O ~/.local/bin/pixi
+      wget https://github.com/prefix-dev/pixi/releases/latest/download/pixi-$(arch)-unknown-linux-musl -O ~/.local/bin/pixi
         chmod +x ~/.local/bin/pixi
         if command -v fish >/dev/null 2>&1; then
           ~/.local/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
@@ -478,7 +480,7 @@ case "${1:-}" in
         else
             TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
             pushd "$TMP_DIR" || exit 1
-            install_from_github rui314/mold "mold-.*-x86_64-linux.tar.gz"
+            install_from_github rui314/mold "mold-.*-$arch-linux.tar.gz"
             tar -vxzf mold* -C ~/.local --strip-components=1
             popd || exit 1
         fi
@@ -487,8 +489,8 @@ case "${1:-}" in
     difftastic)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1
-        install_from_github Wilfred/difftastic difft-x86_64-unknown-linux-gnu.tar.gz
-        extract difft-x86_64-unknown-linux-gnu.tar.gz
+        install_from_github Wilfred/difftastic difft-$(arch)-unknown-linux-gnu.tar.gz
+        extract difft-$(arch)-unknown-linux-gnu.tar.gz
         mv difft ~/.local/bin
         popd || exit 1
         ;;
@@ -575,8 +577,8 @@ case "${1:-}" in
         install_package rospack-tools
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1
-        install_from_github openrr/urdf-viz urdf-viz-x86_64-unknown-linux-gnu.tar.gz
-        extract urdf-viz-x86_64-unknown-linux-gnu.tar.gz
+        install_from_github openrr/urdf-viz urdf-viz-$(arch)-unknown-linux-gnu.tar.gz
+        extract urdf-viz-$(arch)-unknown-linux-gnu.tar.gz
         mv urdf-viz ~/.local/bin
         popd || exit 1
         ;;
