@@ -148,13 +148,14 @@ end
 local root_dirs = {
   python = function(startpath)
     return vim.fs.root(startpath, {
+      ".pixi",
+      "pixi.toml",
+    }) or vim.fs.root(startpath, {
       "pyproject.toml",
       "setup.py",
       "setup.cfg",
       "requirements.txt",
       "Pipfile",
-      "pixi.toml",
-      ".pixi",
     })
   end,
   cmake = function(startpath)
@@ -1125,18 +1126,15 @@ local servers = {
         "envs",
         "python-lsp",
         "bin",
-        "jedi-language-server",
-        "-vv",
-        "--log-file",
-        "/tmp/logging.txt"
+        "jedi-language-server"
       ),
+      -- "-vv", "--log-file", "/tmp/logging.txt"
     },
     init_options = function(file)
       local options = {
         workspace = {
           extraPaths = {
             vim.env.HOME .. "/.cache/python-stubs",
-            vim.env.HOME .. "/.cache/python-stubs/stubs",
           },
           environmentPath = "/usr/bin/python3",
         },
@@ -1152,7 +1150,7 @@ local servers = {
       })
       if #pixi > 0 then
         if vim.fn.isdirectory(vim.fs.joinpath(pixi[1], "envs", "default")) == 1 then
-          options.workspace.environmentPath = pixi[1] .. "/envs/default/bin/python"
+          options.workspace.environmentPath = pixi[1] .. "/envs/default"
         end
       end
       return options

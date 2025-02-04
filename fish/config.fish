@@ -659,6 +659,10 @@ function start_container -d "Start a podman|docker image with gpu support"
   else
     set container_name $argv[3]
   end
+  set -l dry_run false
+  if test $argv[4] = "--dry-run"
+    set dry_run true
+  end
   if contains -- $container_name (eval '$containerprg container list --all --format "{{.Names}}"')
     echo "'$container_name' correspond to already existing container"
     echo "Make sure to stop/remove it"
@@ -702,6 +706,9 @@ function start_container -d "Start a podman|docker image with gpu support"
                      $argv[2]
 
   echo "Running '$run_command'"
+  if test $dry_run = "true"
+    return
+  end
 
   set -l cid (eval $run_command)
 
