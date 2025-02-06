@@ -871,6 +871,10 @@ function ros_kill
           $(pgrep -af gzclient | cut -d' ' -f1)
 end
 
+function reset_cuda
+  sudo modprobe -r nvidia_uvm && sudo modprobe nvidia_uvm
+end
+
 function postexec --on-event fish_postexec
     echo -e '\a'
 end

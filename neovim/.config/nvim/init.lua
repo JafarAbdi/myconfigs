@@ -227,8 +227,10 @@ end
 local runners = {
   python = function(file_path, root_dir, is_test)
     local python_executable = "python3"
-    if vim.uv.fs_stat(vim.fs.joinpath(root_dir, ".pixi")) ~= nil then
-      python_executable = vim.fs.joinpath(root_dir, ".pixi", "envs", "default", "bin", "python")
+    local pixi_python_executable =
+      vim.fs.joinpath(root_dir, ".pixi", "envs", "default", "bin", "python")
+    if vim.uv.fs_stat(pixi_python_executable) ~= nil then
+      python_executable = pixi_python_executable
     end
     if is_test then
       if not file_path:match("^test_") and not file_path:match("_test%.py$") then
@@ -1149,7 +1151,8 @@ local servers = {
         type = "directory",
       })
       if #pixi > 0 then
-        if vim.fn.isdirectory(vim.fs.joinpath(pixi[1], "envs", "default")) == 1 then
+        local pixi_python_executable = vim.fs.joinpath(pixi[1], "envs", "default", "bin", "python")
+        if vim.uv.fs_stat(pixi_python_executable) then
           options.workspace.environmentPath = pixi[1] .. "/envs/default"
         end
       end
