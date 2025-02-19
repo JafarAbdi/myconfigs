@@ -660,7 +660,7 @@ function start_container -d "Start a podman|docker image with gpu support"
     set container_name $argv[3]
   end
   set -l dry_run false
-  if test $argv[4] = "--dry-run"
+  if test (count $argv) -eq 4 && test $argv[4] = "--dry-run"
     set dry_run true
   end
   if contains -- $container_name (eval '$containerprg container list --all --format "{{.Names}}"')
