@@ -453,6 +453,7 @@ case "${1:-}" in
         ;;
 
     pixi)
+      mkdir -p ~/.local/bin || true
       wget https://github.com/prefix-dev/pixi/releases/latest/download/pixi-$(arch)-unknown-linux-musl -O ~/.local/bin/pixi
         chmod +x ~/.local/bin/pixi
         if command -v fish >/dev/null 2>&1; then
