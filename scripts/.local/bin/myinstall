@@ -253,19 +253,6 @@ case "${1:-}" in
         popd || exit 1
         ;;
 
-    efm-lsp)
-        if [ "$(lsb_release -sr)" = "unstable" ]; then
-            sudo apt install -y efm-langserver
-        else
-            TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
-            pushd "$TMP_DIR" || exit 1
-            install_from_github mattn/efm-langserver "efm-langserver_.*_linux_$arch_name.tar.gz"
-            tar xzf efm-langserver* --strip-components 1
-            mv efm-langserver ~/.local/bin
-            popd || exit 1
-        fi
-        ;;
-
     lua-lsp)
         mkdir -p ~/.config/lua-lsp
         rm -rf ~/.config/lua-lsp/* 2> /dev/null
@@ -324,11 +311,9 @@ case "${1:-}" in
         ;;
 
     lsps)
-        $0 efm-lsp
         $0 lua-lsp
         $0 markdown-lsp
         $0 xml-lsp
-        $0 cpp-lsp
         ;;
 
     wezterm)
@@ -375,24 +360,6 @@ case "${1:-}" in
         unzip lemminx-linux.zip
         mv lemminx-linux ~/.local/bin/lemminx
         popd || exit 1
-        ;;
-
-    cpp-lsp)
-        os="linux"
-        if [[ "$(uname -s)" == "Darwin" ]]; then
-            os="mac"
-        else
-            install_package --no-install-recommends \
-                clang-tools clang-tidy clang gcc cmake dwarves bear
-        fi
-        tmp_dir=$(mktemp -d -p /tmp clangd-XXXXXX)
-        pushd "$tmp_dir"
-        install_from_github "clangd/clangd" "clangd-$os-18.1.3.zip"
-        unzip -q clangd-*.zip
-        rm -rf ~/.config/clangd-lsp
-        mv clangd_* ~/.config/clangd-lsp
-        mkdir -p ~/.config/clangd
-        popd
         ;;
 
     rust)

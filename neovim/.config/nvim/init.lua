@@ -803,7 +803,7 @@ local servers = {
     name = "clangd",
     filetypes = { "c", "cpp", "cuda" },
     cmd = {
-      vim.env.HOME .. "/.config/clangd-lsp/bin/clangd",
+      vim.fs.joinpath(vim.env.HOME, "myconfigs", ".pixi", "envs", "lsps", "bin", "clangd"),
       "--completion-style=detailed",
       -- "-log=verbose"
     },
@@ -829,7 +829,9 @@ local servers = {
       "xml",
       "zig",
     },
-    cmd = { "efm-langserver" },
+    cmd = {
+      vim.fs.joinpath(vim.env.HOME, "myconfigs", ".pixi", "envs", "lsps", "bin", "efm-langserver"),
+    },
     init_options = function()
       return {
         documentFormatting = true,

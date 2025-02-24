@@ -16,7 +16,6 @@ argcomplete = "*"
 refurb = "*"
 pre-commit = "*"
 debugpy = ">=1.8.1,<1.9"
-pip = "*"
 conda-package-handling = ">=2.2.0,<2.3"
 
 [environments]
@@ -24,6 +23,7 @@ linters = ["linters"]
 python-lsp = ["python-lsp"]
 nodejs = ["nodejs"]
 cmake-lsp = ["cmake-lsp"]
+lsps = ["lsps"]
 
 [feature.linters.pypi-dependencies]
 pylsp-mypy = "*"
@@ -42,3 +42,8 @@ nodejs = ">=22.4.1,<22.5"
 
 [feature.cmake-lsp.pypi-dependencies]
 cmake-language-server = ">=0.1.10, <0.2"
+
+[feature.lsps.dependencies]
+clang-tools = ">=19.1.2,<20"
+clang = ">=19.1.2,<20"
+efm-langserver = ">=0.0.54,<0.0.55"
