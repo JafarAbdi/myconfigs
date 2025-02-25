@@ -177,7 +177,7 @@ case "${1:-}" in
         else
             TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
             pushd "$TMP_DIR" || exit 1
-            install_from_github "BurntSushi/ripgrep" "ripgrep.*-$arch-unknown-linux-gnu.tar.gz"
+            install_from_github "BurntSushi/ripgrep" "ripgrep.*-$arch-unknown-linux-musl.tar.gz"
             tar -xzf ripgrep* --strip-components=1
             mv rg ~/.local/bin
             if command -v fish >/dev/null 2>&1; then
