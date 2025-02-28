@@ -237,6 +237,13 @@ function kill-all
   end
 end
 
+function process-memory
+  set -l pids (pid_picker)
+  if test (count $pids) -ne 0
+    awk '/VmRSS/{print $2/1024 " MB"}' /proc/$pids/status
+  end
+end
+
 function set-timezone
   sudo timedatectl set-timezone $argv[1]
 end
