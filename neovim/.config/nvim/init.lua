@@ -19,7 +19,6 @@ vim.opt.rtp:prepend(lazypath)
 -----------------
 
 local clangd_opening_root_dir = nil
-
 local set_clangd_opening_path = function(callback)
   return function()
     local ft = vim.api.nvim_get_option_value("filetype", {})
@@ -1279,13 +1278,17 @@ require("lazy").setup({
   { "mfussenegger/nvim-qwahl" },
   { "mfussenegger/nvim-fzy" },
   {
-    "ggml-org/llama.vim",
+    "jhonnyV-V/llama.vim",
+    branch = "chore_configurable_keymaps",
     event = "VeryLazy",
-    opts = {
-      llama_config = {
+    init = function()
+      vim.g.llama_config = {
         show_info = 0,
-      },
-    },
+        accept_full_keymap = "<M-e>",
+        accept_line_keymap = "<C-M-l>",
+        accept_word_keymap = "<C-M-e>",
+      }
+    end,
     config = function()
       vim.keymap.set("i", "<c-c>", function()
         -- Leave insert mode and cancel completion

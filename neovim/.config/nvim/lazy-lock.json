@@ -7,17 +7,17 @@
     "branch": "main",
     "commit": "99290b3ec1322070bcfb9e846450a46f6efa50f0"
   },
-  "copilot.vim": {
-    "branch": "release",
-    "commit": "cd7f01009fb7b30e22840cadc4faad88b05c6eef"
-  },
   "lazy.nvim": {
     "branch": "main",
     "commit": "6c3bda4aca61a13a9c63f1c1d1b16b9d3be90d7a"
   },
+  "llama.vim": {
+    "branch": "chore_configurable_keymaps",
+    "commit": "18a1248802cb6b4587503ce351f7443d542b9198"
+  },
   "nvim-cmp": {
     "branch": "main",
-    "commit": "5a11682453ac6b13dbf32cd403da4ee9c07ef1c3"
+    "commit": "c27370703e798666486e3064b64d59eaf4bdc6d5"
   },
   "nvim-dap": {
     "branch": "master",
@@ -33,7 +33,7 @@
   },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "99487eb34a397befce8182ff63347a21c5f4b881"
+    "commit": "c1efc9a9058bb54cfcb6f0a4fc14a4ac8a66bdaa"
   },
   "nvim-treesitter-textobjects": {
     "branch": "master",
