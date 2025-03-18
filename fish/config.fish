@@ -278,8 +278,7 @@ function fzf_preview
   || head -300
 end
 
-set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inline --preview 'fzf_preview {1} {2}' \
-                         --delimiter : \
+set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inline --preview 'fzf_preview {1} {2}'
                          --preview-window 'right,+{2}+3/3,~3'
                          --bind='alt-k:preview-up'
                          --bind='alt-j:preview-down'
@@ -635,7 +634,7 @@ function setup_container
   docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall core"
 end
 
-complete -c setup_container -x -a '(__fish_print_docker_containers running)'
+complete -c setup_container -x -a '(docker ps -a --no-trunc --filter status=running --format "{{.ID}}\n{{.Names}}")'
 
 function start_container -d "Start a podman|docker image with gpu support"
   if test (count $argv) -eq 0 ||

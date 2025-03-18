@@ -95,8 +95,8 @@ repos:
     rev: v0.12.0
     hooks:
     - id: markdownlint
-  - repo: https://github.com/s-weigand/pre-commit_mirrors-actionlint
-    rev: v1.6.24
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
     hooks:
       - id: actionlint
   - repo: https://github.com/pre-commit/mirrors-prettier

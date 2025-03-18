@@ -105,7 +105,7 @@ end
 local program = function()
   return vim.fn.input({
     prompt = "Path to executable: ",
-    default = vim.fn.getcwd() .. "/",
+    default = vim.fn.expand("%:p"),
     completion = "file",
   })
 end
@@ -1797,13 +1797,14 @@ end
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 
-vim.treesitter.language.register("xml", { "xacro", "urdf" })
+vim.treesitter.language.register("xml", { "xacro", "urdf", "srdf" })
 vim.treesitter.language.register("cpp", { "cuda" })
 vim.filetype.add({
   extension = {
     launch = "xml",
     test = "xml",
     urdf = "xml",
+    srdf = "xml",
     xacro = "xml",
     install = "text",
     repos = "yaml",

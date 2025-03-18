@@ -14,7 +14,7 @@ jobs:
     name: pre-commit
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install luacheck
         run: sudo apt update && sudo apt-get install luarocks libxml2-utils && sudo luarocks install luacheck
       - uses: prefix-dev/setup-pixi@v0.8.3

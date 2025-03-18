@@ -421,12 +421,17 @@ case "${1:-}" in
 
     pixi)
       mkdir -p ~/.local/bin || true
-      wget https://github.com/prefix-dev/pixi/releases/latest/download/pixi-$(arch)-unknown-linux-musl -O ~/.local/bin/pixi
-        chmod +x ~/.local/bin/pixi
-        if command -v fish >/dev/null 2>&1; then
-          ~/.local/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
-        fi
-        ;;
+      if [ -n "${2:-}" ]; then
+        version=$2
+        wget https://github.com/prefix-dev/pixi/releases/download/v$version/pixi-$(arch)-unknown-linux-musl -O ~/.local/bin/pixi
+      else
+        wget https://github.com/prefix-dev/pixi/releases/latest/download/pixi-$(arch)-unknown-linux-musl -O ~/.local/bin/pixi
+      fi
+      chmod +x ~/.local/bin/pixi
+      if command -v fish >/dev/null 2>&1; then
+        ~/.local/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
+      fi
+      ;;
 
     zig)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
@@ -434,7 +439,7 @@ case "${1:-}" in
         if [[ "${2:-}" == "nightly" ]]; then
           wget $(curl https://ziglang.org/download/index.json | jq -r '.["master"]["x86_64-linux"]["tarball"]') -O zig.tar.xz
         else
-          wget $(curl https://ziglang.org/download/index.json | jq -r '.["0.13.0"]["x86_64-linux"]["tarball"]') -O zig.tar.xz
+          wget $(curl https://ziglang.org/download/index.json | jq -r '.["0.14.0"]["x86_64-linux"]["tarball"]') -O zig.tar.xz
         fi
         rm -rf ~/.config/zig && mkdir -p ~/.config/zig
         tar xvf zig.tar.xz --strip-components 1 -C ~/.config/zig
