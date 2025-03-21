@@ -73,14 +73,9 @@ case "${1:-}" in
             parallel \
             python3-venv \
             fswatch \
-            stow \
             software-properties-common \
             python-is-python3 \
-            git \
-            git-core \
-            git-lfs \
             ssh \
-            unzip \
             colordiff \
             tree \
             less \
@@ -94,30 +89,18 @@ case "${1:-}" in
             p7zip-full \
             zip \
             wget \
-            bat \
             curl \
             file \
             lld \
             lldb \
             make \
             gcc \
-            ninja-build \
-            sshfs \
-            universal-ctags \
-            pdfgrep \
-            atool \
-            ccache
+            sshfs
         mkdir -p ~/.local/bin || true
-        $0 ripgrep
-        $0 fzf
-        $0 libtree
-        $0 fd
         $0 repgrep
         $0 pixi
         $0 uv
         $0 nvim nightly
-        $0 mold
-        $0 difftastic
         ;;
 
     nextcloud-sync)
@@ -171,70 +154,6 @@ case "${1:-}" in
         wget https://raw.githubusercontent.com/docker/compose/master/contrib/completion/bash/docker-compose -O ~/.bash_completion.d/docker-compose
         ;;
 
-    ripgrep)
-        if [ "$(lsb_release -sr)" = "unstable" ]; then
-            sudo apt install -y ripgrep
-        else
-            TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
-            pushd "$TMP_DIR" || exit 1
-            install_from_github "BurntSushi/ripgrep" "ripgrep.*-$arch-unknown-linux-musl.tar.gz"
-            tar -xzf ripgrep* --strip-components=1
-            mv rg ~/.local/bin
-            if command -v fish >/dev/null 2>&1; then
-              mv complete/rg.fish ~/.config/fish/completions
-            fi
-            popd || exit 1
-        fi
-        ;;
-
-    fzf)
-        if [ "$(lsb_release -sr)" = "unstable" ]; then
-            sudo apt install -y fzf
-        else
-            # https://raw.githubusercontent.com/junegunn/fzf/master/install
-            FZF_TMP_DIR=$(mktemp -d -p /tmp fzf-XXXXXX)
-            pushd "$FZF_TMP_DIR" || exit 1
-            curl -s https://api.github.com/repos/junegunn/fzf/releases \
-            | grep "https://github.com/junegunn/fzf/releases/download.*-linux_$arch_name.tar.gz" \
-            | cut -d':' -f 2,3 \
-            | tr -d \" \
-            | head -n 1 \
-            | wget -i -
-            extract fzf-*
-
-            mv fzf ~/.local/bin/
-            popd || exit 1
-        fi
-        ;;
-
-    libtree)
-        if [ "$(lsb_release -sr)" = "unstable" ]; then
-            sudo apt install -y libtree
-        else
-            rm ~/.local/bin/libtree 2> /dev/null || true
-            curl -s https://api.github.com/repos/haampie/libtree/releases \
-              | grep "https://github.com/haampie/libtree/releases/download.*libtree_$arch" \
-              | grep -v ".tar.gz" \
-              | cut -d':' -f 2,3 \
-              | tr -d \" \
-              | head -n 1 \
-              | wget -O ~/.local/bin/libtree -i -
-            chmod +x ~/.local/bin/libtree
-        fi
-        ;;
-
-    fd)
-        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
-        pushd "$TMP_DIR" || exit 1
-        install_from_github sharkdp/fd "fd.*$arch-unknown-linux-gnu.tar.gz"
-        tar -xzf fd* --strip-components=1
-
-        mv fd ~/.local/bin
-        if command -v fish >/dev/null 2>&1; then
-          mv autocomplete/fd.fish ~/.config/fish/completions
-        fi
-        popd || exit 1
-        ;;
 
     repgrep)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
@@ -272,16 +191,6 @@ case "${1:-}" in
         popd || exit 1
         ;;
 
-    taplo)
-        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
-        pushd "$TMP_DIR" || exit 1
-        install_from_github tamasfe/taplo taplo-full-linux-$(arch).gz
-        extract taplo-full-linux-$(arch).gz
-        chmod +x taplo-full-linux-$(arch)
-        mv taplo-full-linux-$(arch) ~/.local/bin/taplo
-        popd || exit 1
-        ;;
-
     luacheck)
         if [ "$(uname -s)" = "Darwin" ]; then
             brew install luarocks
@@ -303,11 +212,8 @@ case "${1:-}" in
         ;;
 
     linters)
-        $0 taplo
         $0 luacheck
         $0 hadolint
-        $0 actionlint
-        $0 stylua
         ;;
 
     lsps)
@@ -329,28 +235,6 @@ case "${1:-}" in
             tic -x -o ~/.terminfo "$tempfile"
             rm "$tempfile"
         fi
-        ;;
-
-    actionlint)
-        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
-        pushd "$TMP_DIR" || exit 1
-        install_from_github rhysd/actionlint "actionlint_.*_linux_$arch_name.tar.gz"
-        extract actionlint*
-        mv actionlint_*_linux_$arch_name/actionlint ~/.local/bin/
-        popd || exit 1
-        ;;
-
-    stylua)
-        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
-        pushd "$TMP_DIR" || exit 1
-        if [ "$(uname -s)" = "Darwin" ]; then
-            install_from_github "JohnnyMorganz/StyLua" "stylua-macos.zip"
-        else
-            install_from_github "JohnnyMorganz/StyLua" "stylua-linux.zip"
-        fi
-        unzip stylua*
-        mv stylua ~/.local/bin
-        popd || exit 1
         ;;
 
     xml-lsp)
@@ -407,12 +291,6 @@ case "${1:-}" in
         gcloud auth application-default login
         ;;
 
-    rattler-build)
-        wget https://github.com/prefix-dev/rattler-build/releases/latest/download/rattler-build-x86_64-unknown-linux-musl -O ~/.local/bin/rattler-build
-        chmod +x ~/.local/bin/rattler-build
-        rattler-build completion --shell=fish > ~/.config/fish/completions/rattler-build.fish
-        ;;
-
     uv)
         curl -LsSf https://astral.sh/uv/install.sh | sh
         echo 'uv generate-shell-completion fish | source' >> ~/.config/fish/config.fish
@@ -433,60 +311,10 @@ case "${1:-}" in
       fi
       ;;
 
-    zig)
-        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
-        pushd "$TMP_DIR" || exit 1
-        if [[ "${2:-}" == "nightly" ]]; then
-          wget $(curl https://ziglang.org/download/index.json | jq -r '.["master"]["x86_64-linux"]["tarball"]') -O zig.tar.xz
-        else
-          wget $(curl https://ziglang.org/download/index.json | jq -r '.["0.14.0"]["x86_64-linux"]["tarball"]') -O zig.tar.xz
-        fi
-        rm -rf ~/.config/zig && mkdir -p ~/.config/zig
-        tar xvf zig.tar.xz --strip-components 1 -C ~/.config/zig
-        install_from_github zigtools/zls zls-x86_64-linux.tar.xz
-        tar xf zls-x86_64-linux.tar.xz
-        mv zls ~/.local/bin/zls
-        popd || exit 1
-        ;;
-
     gh)
-        if [ "$(uname -s)" = "Darwin" ]; then
-            brew install gh
-        else
-          # https://github.com/cli/cli/blob/trunk/docs/install_linux.md#debian-ubuntu-linux-raspberry-pi-os-apt
-          (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
-              && sudo mkdir -p -m 755 /etc/apt/keyrings \
-                    && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-                    && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
-              && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
-              && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-              && sudo apt update \
-              && sudo apt install gh -y
-        fi
         gh auth login
         gh extension install github/gh-copilot
         gh config set git_protocol ssh
-        ;;
-
-    mold)
-        if [ "$(lsb_release -sr)" = "unstable" ]; then
-            install_package mold
-        else
-            TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
-            pushd "$TMP_DIR" || exit 1
-            install_from_github rui314/mold "mold-.*-$arch-linux.tar.gz"
-            tar -vxzf mold* -C ~/.local --strip-components=1
-            popd || exit 1
-        fi
-        ;;
-
-    difftastic)
-        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
-        pushd "$TMP_DIR" || exit 1
-        install_from_github Wilfred/difftastic difft-$(arch)-unknown-linux-gnu.tar.gz
-        extract difft-$(arch)-unknown-linux-gnu.tar.gz
-        mv difft ~/.local/bin
-        popd || exit 1
         ;;
 
     clang-build-analyzer)
@@ -559,6 +387,7 @@ case "${1:-}" in
                                                                                       fd \
                                                                                       ripgrep \
                                                                                       yamllint \
+                                                                                      pixi \
                                                                                       zathura
         stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                          wezterm \

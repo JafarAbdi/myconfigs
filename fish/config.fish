@@ -12,6 +12,9 @@ export XMODIFIERS="@im=none"
 
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin
+    if test -d $HOME/.pixi/bin
+      set path $HOME/.pixi/bin:$path
+    end
     if test -d /opt/homebrew/bin
       set path /opt/homebrew/bin:/opt/homebrew/sbin:$path
     end
@@ -107,7 +110,7 @@ alias disk_usage="df -h"
 alias grep='grep --color=auto'
 alias pgrep='pgrep -af'
 alias gitst='git status'
-alias gitsub='git submodule update --init --recursive'
+alias gitsub='git submodule update --init --recursive --depth 1'
 alias gitlogcompare="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr)%Creset' --abbrev-commit --date=relative "
 
 function fzf-commit

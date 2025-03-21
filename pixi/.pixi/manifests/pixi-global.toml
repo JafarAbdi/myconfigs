@@ -1,0 +1,106 @@
+version = 1
+
+[envs.git]
+channels = ["conda-forge"]
+dependencies = { git = "*" }
+exposed = { git = "git", git-cvsserver = "git-cvsserver", git-receive-pack = "git-receive-pack", git-shell = "git-shell", git-upload-archive = "git-upload-archive", git-upload-pack = "git-upload-pack", gitk = "gitk", scalar = "scalar" }
+
+[envs.stow]
+channels = ["conda-forge"]
+dependencies = { stow = "*" }
+exposed = { chkstow = "chkstow", stow = "stow" }
+
+[envs.git-lfs]
+channels = ["conda-forge"]
+dependencies = { git-lfs = "*" }
+exposed = { git-lfs = "git-lfs" }
+
+[envs.unzip]
+channels = ["conda-forge"]
+dependencies = { unzip = "*" }
+exposed = { funzip = "funzip", unzip = "unzip", unzipsfx = "unzipsfx", zipgrep = "zipgrep", zipinfo = "zipinfo" }
+
+[envs.atool]
+channels = ["conda-forge"]
+dependencies = { atool = "*" }
+exposed = { acat = "acat", adiff = "adiff", als = "als", apack = "apack", arepack = "arepack", atool = "atool", aunpack = "aunpack" }
+
+[envs.pdfgrep]
+channels = ["conda-forge"]
+dependencies = { pdfgrep = "*" }
+exposed = { pdfgrep = "pdfgrep" }
+
+[envs.ripgrep]
+channels = ["conda-forge"]
+dependencies = { ripgrep = "*" }
+exposed = { rg = "rg" }
+
+[envs.fzf]
+channels = ["conda-forge"]
+dependencies = { fzf = "*" }
+exposed = { fzf = "fzf" }
+
+[envs.libtree]
+channels = ["conda-forge"]
+dependencies = { libtree = "*" }
+exposed = { libtree = "libtree" }
+
+[envs.fd-find]
+channels = ["conda-forge"]
+dependencies = { fd-find = "*" }
+exposed = { fd = "fd" }
+
+[envs.difftastic]
+channels = ["conda-forge"]
+dependencies = { difftastic = "*" }
+exposed = { difft = "difft" }
+
+[envs.mold]
+channels = ["conda-forge"]
+dependencies = { mold = "*" }
+exposed = { "ld.mold" = "ld.mold", mold = "mold" }
+
+[envs.ccache]
+channels = ["conda-forge"]
+dependencies = { ccache = "*" }
+exposed = { ccache = "ccache" }
+
+[envs.ninja]
+channels = ["conda-forge"]
+dependencies = { ninja = "*" }
+exposed = { ninja = "ninja" }
+
+[envs.bat]
+channels = ["conda-forge"]
+dependencies = { bat = "*" }
+exposed = { bat = "bat" }
+
+[envs.taplo]
+channels = ["conda-forge"]
+dependencies = { taplo = "*" }
+exposed = { taplo = "taplo" }
+
+[envs.stylua]
+channels = ["conda-forge"]
+dependencies = { stylua = "*" }
+exposed = { stylua = "stylua" }
+
+[envs.actionlint]
+channels = ["conda-forge"]
+dependencies = { actionlint = "*" }
+exposed = { actionlint = "actionlint" }
+
+[envs.rattler-build]
+channels = ["conda-forge"]
+dependencies = { rattler-build = "*" }
+exposed = { rattler-build = "rattler-build" }
+
+[envs.zig]
+channels = ["conda-forge"]
+dependencies = { zig = "*" }
+exposed = { zig = "zig" }
+
+[envs.gh]
+channels = ["conda-forge"]
+dependencies = { gh = "*" }
+exposed = { gh = "gh" }

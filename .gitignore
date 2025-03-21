@@ -2,7 +2,7 @@ tmux/plugins
 *.spl
 mynotes
 # pixi environments
-.pixi
+./.pixi
 scripts/.local/bin/rgr
 scripts/.local/bin/pixi
 scripts/.local/bin/stylua
