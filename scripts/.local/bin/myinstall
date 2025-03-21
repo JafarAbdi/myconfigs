@@ -101,6 +101,7 @@ case "${1:-}" in
         $0 pixi
         $0 uv
         $0 nvim nightly
+        ~/.pixi/bin/pixi global sync
         ;;
 
     nextcloud-sync)
@@ -299,16 +300,13 @@ case "${1:-}" in
 
     pixi)
       mkdir -p ~/.local/bin || true
-      if [ -n "${2:-}" ]; then
-        version=$2
-        wget https://github.com/prefix-dev/pixi/releases/download/v$version/pixi-$(arch)-unknown-linux-musl -O ~/.local/bin/pixi
-      else
-        wget https://github.com/prefix-dev/pixi/releases/latest/download/pixi-$(arch)-unknown-linux-musl -O ~/.local/bin/pixi
-      fi
-      chmod +x ~/.local/bin/pixi
+      curl -fsSL https://pixi.sh/install.sh | bash
       if command -v fish >/dev/null 2>&1; then
         ~/.local/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
       fi
+      rm -rf ~/.pixi/manifests/pixi-global.toml || true
+      mkdir -p ~/.pixi/manifests
+      ln -s ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
       ;;
 
     gh)
@@ -387,7 +385,6 @@ case "${1:-}" in
                                                                                       fd \
                                                                                       ripgrep \
                                                                                       yamllint \
-                                                                                      pixi \
                                                                                       zathura
         stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                          wezterm \

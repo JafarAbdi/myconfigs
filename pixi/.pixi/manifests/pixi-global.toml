@@ -104,3 +104,8 @@ exposed = { zig = "zig" }
 channels = ["conda-forge"]
 dependencies = { gh = "*" }
 exposed = { gh = "gh" }
+
+[envs.less]
+channels = ["conda-forge"]
+dependencies = { less = "*" }
+exposed = { less = "less", lessecho = "lessecho", lesskey = "lesskey" }
