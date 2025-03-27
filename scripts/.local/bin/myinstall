@@ -257,31 +257,6 @@ case "${1:-}" in
         fi
         ;;
 
-    nvim)
-        if [[ "$(uname -s)" == "Darwin" ]]; then
-            cd
-            rm -rf nvim-macos-arm64.tar.gz || true
-            wget https://github.com/neovim/neovim/releases/download/nightly/nvim-macos-arm64.tar.gz
-            xattr -c ./nvim-macos-arm64.tar.gz
-            tar xzvf nvim-macos-arm64.tar.gz
-        else
-            if [[ "${2:-}" == "nightly" ]]; then
-                if [[ "$arch_name" == "amd64" ]]; then
-                    wget https://github.com/neovim/neovim/releases/download/nightly/nvim-linux-$arch.appimage -O ~/.local/bin/nvim
-                elif [[ "$arch_name" == "arm64" ]]; then
-                    wget https://github.com/neovim/neovim/releases/download/nightly/nvim-linux-$arch_name.appimage -O ~/.local/bin/nvim
-                fi
-            else
-                if [[ "$arch_name" == "amd64" ]]; then
-                    wget https://github.com/neovim/neovim/releases/latest/download/nvim-linux-$arch.appimage -O ~/.local/bin/nvim
-                elif [[ "$arch_name" == "arm64" ]]; then
-                    wget https://github.com/neovim/neovim/releases/latest/download/nvim-linux-$arch_name.appimage -O ~/.local/bin/nvim
-                fi
-            fi
-            chmod +x ~/.local/bin/nvim
-        fi
-        ;;
-
     gcloud)
         export GCSFUSE_REPO="gcsfuse-$(lsb_release -c -s)"
         echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list

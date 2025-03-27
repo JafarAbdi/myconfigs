@@ -109,3 +109,8 @@ exposed = { gh = "gh" }
 channels = ["conda-forge"]
 dependencies = { less = "*" }
 exposed = { less = "less", lessecho = "lessecho", lesskey = "lesskey" }
+
+[envs.nvim]
+channels = ["conda-forge"]
+dependencies = { nvim = "*" }
+exposed = { nvim = "nvim" }
