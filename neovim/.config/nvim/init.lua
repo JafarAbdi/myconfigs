@@ -1143,7 +1143,10 @@ local servers = {
           environmentPath = "/usr/bin/python3",
         },
       }
-      if vim.env.CONDA_PREFIX then
+      if
+        vim.env.CONDA_PREFIX
+        and vim.env.CONDA_PREFIX ~= vim.fs.joinpath(vim.uv.os_homedir(), ".pixi", "envs", "nvim")
+      then
         options.workspace.environmentPath = vim.env.CONDA_PREFIX .. "/bin/python"
       end
       local pixi = vim.fs.find(".pixi", {
