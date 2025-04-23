@@ -2,7 +2,7 @@ ci:
     skip: [refurb, luacheck, markdownlint, actionlint]
 default_language_version:
   python: python3.12
-  ruby: 2.7.2
+  ruby: 3.0.0
 
 repos:
   # Standard hooks
