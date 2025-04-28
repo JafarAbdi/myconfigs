@@ -23,7 +23,7 @@ def get_workspaces_yaml() -> dict:
         with Path(file_name).open() as f:
             workspaces = yaml.safe_load(f)
     if ROS_INSTALLATION_DIR.exists():
-        for ros_distro in os.listdir(ROS_INSTALLATION_DIR):
+        for ros_distro in ROS_INSTALLATION_DIR.iterdir():
             workspaces[ros_distro] = {"ros_distro": ros_distro}
     return workspaces
 
