@@ -59,6 +59,7 @@
   sl = stash list --pretty=format:\"%C(red)%h%C(reset) - %C(bold magenta)%gd%C(reset) %<(70,trunc)%s %C(green)(%cr) %C(bold blue)<%an>%C(reset)\"
   grep-all-commits = "!f() { git grep \"$1\" $(git rev-list --all); }; f"
   clone-single = clone --single-branch
+  sub = submodule update --init --recursive
 [pager]
   branch = true
 [url "ssh://git@github.com/"]

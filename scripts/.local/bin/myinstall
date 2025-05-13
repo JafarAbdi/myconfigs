@@ -410,6 +410,11 @@ case "${1:-}" in
         chmod +x ~/.local/bin/mujoco_simulator
         ;;
 
+    feetech_qt)
+        wget https://github.com/JafarAbdi/FT_SCServo_Debug_Qt/releases/download/continuous/FT_SCServo-x86_64.AppImage -O ~/.local/bin/feetech_qt
+        chmod +x ~/.local/bin/feetech_qt
+        ;;
+
     freecad)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1

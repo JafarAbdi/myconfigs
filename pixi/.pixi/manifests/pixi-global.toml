@@ -114,3 +114,23 @@ exposed = { less = "less", lessecho = "lessecho", lesskey = "lesskey" }
 channels = ["conda-forge"]
 dependencies = { nvim = "*" }
 exposed = { nvim = "nvim" }
+
+[envs.openssh]
+channels = ["conda-forge"]
+dependencies = { openssh = "*" }
+exposed = { scp = "scp", sftp = "sftp", ssh = "ssh", ssh-add = "ssh-add", ssh-agent = "ssh-agent", ssh-keygen = "ssh-keygen", ssh-keyscan = "ssh-keyscan", sshd = "sshd" }
+
+[envs.graphviz]
+channels = ["conda-forge"]
+dependencies = { graphviz = "*" }
+exposed = { ".graphviz-post-link" = ".graphviz-post-link", acyclic = "acyclic", bcomps = "bcomps", ccomps = "ccomps", circo = "circo", cluster = "cluster", diffimg = "diffimg", dijkstra = "dijkstra", dot = "dot", dot2gxl = "dot2gxl", dot_builtins = "dot_builtins", dot_sandbox = "dot_sandbox", edgepaint = "edgepaint", fdp = "fdp", gc = "gc", gml2gv = "gml2gv", graphml2gv = "graphml2gv", gv2gml = "gv2gml", gv2gxl = "gv2gxl", gvcolor = "gvcolor", gvgen = "gvgen", gvmap = "gvmap", gvpack = "gvpack", gvpr = "gvpr", gxl2dot = "gxl2dot", gxl2gv = "gxl2gv", mm2gv = "mm2gv", neato = "neato", nop = "nop", osage = "osage", patchwork = "patchwork", prune = "prune", sccmap = "sccmap", sfdp = "sfdp", tred = "tred", twopi = "twopi", unflatten = "unflatten" }
+
+[envs.nvitop]
+channels = ["conda-forge"]
+dependencies = { nvitop = "*" }
+exposed = { nvitop = "nvitop", nvisel = "nvisel" }
+
+[envs.nvtop]
+channels = ["conda-forge"]
+dependencies = { nvtop = "*" }
+exposed = { nvtop = "nvtop" }

@@ -109,8 +109,6 @@ alias paste="xclip -sel clip -o"
 alias disk_usage="df -h"
 alias grep='grep --color=auto'
 alias pgrep='pgrep -af'
-alias gitst='git status'
-alias gitsub='git submodule update --init --recursive --depth 1'
 alias gitlogcompare="git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr)%Creset' --abbrev-commit --date=relative "
 
 function fzf-commit
