@@ -1099,6 +1099,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/88/5f/e351af9a41f866ac3f1fac4ca0613908d9a41741cfcf2228f4ad853b697d/pluggy-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/11/19/b74a10dd24548e96e8c80226cbacb28b021bc3a168a7d2709fb0d0185348/pygls-1.3.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/42/0d/92a83f4f3f0a15017a7831589d7c01408ba8eaede0028eadf6ca022050ee/pylsp_rope-0.1.17-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/36/11/ad33dc6ad5e88431b5c8ae0fec13a4afaff19c28c3d52fa32870ad65d213/pyrefly-0.13.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/78/44/fef9b4d027b3d6321e6f30b6b5946bef18cd84a96e1d81012ac0f69ea53c/python_lsp_black-2.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cb/d9/656659d5b5d5f402b2b174cd0ba9bc827e07ce3c0bf88da65424baf64af8/python_lsp_jsonrpc-1.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cb/e7/28010a326ef591e1409daf9d57a47de94156c147ad1befe74d8196d82729/python_lsp_server-1.12.2-py3-none-any.whl
@@ -1180,6 +1181,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/88/5f/e351af9a41f866ac3f1fac4ca0613908d9a41741cfcf2228f4ad853b697d/pluggy-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/11/19/b74a10dd24548e96e8c80226cbacb28b021bc3a168a7d2709fb0d0185348/pygls-1.3.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/42/0d/92a83f4f3f0a15017a7831589d7c01408ba8eaede0028eadf6ca022050ee/pylsp_rope-0.1.17-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/21/15/4505ff3e874b2d5799f88e7bf322278a86f37f390c2ef1b056efec95d6ca/pyrefly-0.13.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/78/44/fef9b4d027b3d6321e6f30b6b5946bef18cd84a96e1d81012ac0f69ea53c/python_lsp_black-2.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cb/d9/656659d5b5d5f402b2b174cd0ba9bc827e07ce3c0bf88da65424baf64af8/python_lsp_jsonrpc-1.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cb/e7/28010a326ef591e1409daf9d57a47de94156c147ad1befe74d8196d82729/python_lsp_server-1.12.2-py3-none-any.whl
@@ -1252,6 +1254,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/88/5f/e351af9a41f866ac3f1fac4ca0613908d9a41741cfcf2228f4ad853b697d/pluggy-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/11/19/b74a10dd24548e96e8c80226cbacb28b021bc3a168a7d2709fb0d0185348/pygls-1.3.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/42/0d/92a83f4f3f0a15017a7831589d7c01408ba8eaede0028eadf6ca022050ee/pylsp_rope-0.1.17-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/4f/87/763be0ed87243d615b90c9f02b023147b6a1eaafec158b0c41cc6bc45b58/pyrefly-0.13.0-py3-none-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/78/44/fef9b4d027b3d6321e6f30b6b5946bef18cd84a96e1d81012ac0f69ea53c/python_lsp_black-2.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cb/d9/656659d5b5d5f402b2b174cd0ba9bc827e07ce3c0bf88da65424baf64af8/python_lsp_jsonrpc-1.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cb/e7/28010a326ef591e1409daf9d57a47de94156c147ad1befe74d8196d82729/python_lsp_server-1.12.2-py3-none-any.whl
@@ -1631,8 +1634,6 @@ packages:
   - clang-19 19.1.7 default_hb5137d0_1
   - libgcc-devel_linux-64
   - sysroot_linux-64
-  arch: x86_64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 23500
@@ -1645,8 +1646,6 @@ packages:
   - clang-19 19.1.7 default_he324ac1_1
   - libgcc-devel_linux-aarch64
   - sysroot_linux-aarch64
-  arch: aarch64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 23516
@@ -1656,8 +1655,6 @@ packages:
   md5: 829f50cb8e505d8136f8c9a9b73f6ec4
   depends:
   - clang-19 19.1.7 default_hf90f093_1
-  arch: arm64
-  platform: osx
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 23810
@@ -1671,8 +1668,6 @@ packages:
   - libgcc >=13
   - libllvm19 >=19.1.7,<19.2.0a0
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 777086
@@ -1685,8 +1680,6 @@ packages:
   - libgcc >=13
   - libllvm19 >=19.1.7,<19.2.0a0
   - libstdcxx >=13
-  arch: aarch64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 777299
@@ -1699,8 +1692,6 @@ packages:
   - libclang-cpp19.1 19.1.7 default_hf90f093_1
   - libcxx >=19.1.7
   - libllvm19 >=19.1.7,<19.2.0a0
-  arch: arm64
-  platform: osx
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 766270
@@ -1715,8 +1706,6 @@ packages:
   - libgcc >=13
   - libllvm19 >=19.1.7,<19.2.0a0
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 23904
@@ -1730,8 +1719,6 @@ packages:
   - libgcc >=13
   - libllvm19 >=19.1.7,<19.2.0a0
   - libstdcxx >=13
-  arch: aarch64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 24041
@@ -1745,8 +1732,6 @@ packages:
   - libclang-cpp19.1 >=19.1.7,<19.2.0a0
   - libcxx >=19.1.7
   - libllvm19 >=19.1.7,<19.2.0a0
-  arch: arm64
-  platform: osx
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 24155
@@ -1760,8 +1745,6 @@ packages:
   - libgcc >=13
   - libllvm19 >=19.1.7,<19.2.0a0
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 67153
@@ -1774,8 +1757,6 @@ packages:
   - libgcc >=13
   - libllvm19 >=19.1.7,<19.2.0a0
   - libstdcxx >=13
-  arch: aarch64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 68150
@@ -1788,8 +1769,6 @@ packages:
   - libclang-cpp19.1 >=19.1.7,<19.2.0a0
   - libcxx >=19.1.7
   - libllvm19 >=19.1.7,<19.2.0a0
-  arch: arm64
-  platform: osx
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 62020
@@ -1808,8 +1787,6 @@ packages:
   - libxml2 >=2.13.5,<3.0a0
   constrains:
   - clangdev 19.1.7
-  arch: x86_64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 21304137
@@ -1827,8 +1804,6 @@ packages:
   - libxml2 >=2.13.5,<3.0a0
   constrains:
   - clangdev 19.1.7
-  arch: aarch64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 21431925
@@ -1846,8 +1821,6 @@ packages:
   - libxml2 >=2.13.5,<3.0a0
   constrains:
   - clangdev 19.1.7
-  arch: arm64
-  platform: osx
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 15101856
@@ -2198,8 +2171,6 @@ packages:
   - libgcc >=13
   - libllvm19 >=19.1.7,<19.2.0a0
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 20537158
@@ -2211,8 +2182,6 @@ packages:
   - libgcc >=13
   - libllvm19 >=19.1.7,<19.2.0a0
   - libstdcxx >=13
-  arch: aarch64
-  platform: linux
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 20097960
@@ -2224,8 +2193,6 @@ packages:
   - __osx >=11.0
   - libcxx >=19.1.7
   - libllvm19 >=19.1.7,<19.2.0a0
-  arch: arm64
-  platform: osx
   license: Apache-2.0 WITH LLVM-exception
   license_family: Apache
   size: 14081371
@@ -3090,6 +3057,18 @@ packages:
   - pytest ; extra == 'test'
   - pytest-cov ; extra == 'test'
   requires_python: '>=3.6'
+- pypi: https://files.pythonhosted.org/packages/21/15/4505ff3e874b2d5799f88e7bf322278a86f37f390c2ef1b056efec95d6ca/pyrefly-0.13.0.tar.gz
+  name: pyrefly
+  version: 0.13.0
+  sha256: d904cd3ccb11ac24470f449c1a3b3f3feb6e19a3f8b0a8da9ffec94f76c8565a
+- pypi: https://files.pythonhosted.org/packages/36/11/ad33dc6ad5e88431b5c8ae0fec13a4afaff19c28c3d52fa32870ad65d213/pyrefly-0.13.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+  name: pyrefly
+  version: 0.13.0
+  sha256: c747dd512c65e88e07757ff0b81785e360f0170f74dc3bb35999241223112cf2
+- pypi: https://files.pythonhosted.org/packages/4f/87/763be0ed87243d615b90c9f02b023147b6a1eaafec158b0c41cc6bc45b58/pyrefly-0.13.0-py3-none-macosx_11_0_arm64.whl
+  name: pyrefly
+  version: 0.13.0
+  sha256: 5f2caaa4575c2c4b91955f8d8d06302047aae7d5a33a9f8a7f1de39dd13d2530
 - conda: https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
   sha256: ba3b032fa52709ce0d9fd388f63d330a026754587a2f461117cac9ab73d8d0d8
   md5: 461219d1a5bd61342293efa2c0c90eac

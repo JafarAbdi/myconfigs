@@ -1120,6 +1120,14 @@ local servers = {
     end,
   },
   {
+    name = "pyrefly",
+    filetypes = { "python" },
+    cmd = {
+      vim.fs.joinpath(vim.env.HOME, "myconfigs", ".pixi", "envs", "python-lsp", "bin", "pyrefly"),
+      "lsp",
+    },
+  },
+  {
     name = "jedi_language_server",
     filetypes = { "python" },
     cmd = {

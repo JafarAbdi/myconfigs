@@ -134,3 +134,8 @@ exposed = { nvitop = "nvitop", nvisel = "nvisel" }
 channels = ["conda-forge"]
 dependencies = { nvtop = "*" }
 exposed = { nvtop = "nvtop" }
+
+[envs.tmux]
+channels = ["conda-forge"]
+dependencies = { tmux = "*" }
+exposed = { tmux = "tmux" }
