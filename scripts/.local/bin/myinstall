@@ -387,7 +387,7 @@ case "${1:-}" in
         ;;
 
     ros2)
-        curl -s https://raw.githubusercontent.com/JafarAbdi/quick-ros2-install/refs/heads/main/install.bash | bash -s "${2:-}"
+        curl -s https://raw.githubusercontent.com/JafarAbdi/quick-ros2-install/refs/heads/main/install.bash | bash -s -- "${@:2}"
         $0 colcon
         ;;
 
