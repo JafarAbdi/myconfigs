@@ -139,3 +139,13 @@ exposed = { nvtop = "nvtop" }
 channels = ["conda-forge"]
 dependencies = { tmux = "*" }
 exposed = { tmux = "tmux" }
+
+[envs.mosh]
+channels = ["conda-forge"]
+dependencies = { mosh = "*" }
+exposed = { mosh = "mosh", mosh-client = "mosh-client", mosh-server = "mosh-server" }
+
+[envs.huggingface_hub]
+channels = ["conda-forge"]
+dependencies = { huggingface_hub = "*" }
+exposed = { tiny-agents = "tiny-agents", huggingface-cli = "huggingface-cli" }

@@ -14,6 +14,8 @@ if not vim.loop.fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
+local myconfigs_path = vim.fs.joinpath(vim.env.HOME, "myconfigs")
+
 -----------------
 --- Functions ---
 -----------------
@@ -602,12 +604,11 @@ vim.api.nvim_create_autocmd("BufNewFile", {
   group = vim.api.nvim_create_augroup("templates", { clear = true }),
   desc = "Load template file",
   callback = function(args)
-    local home = os.getenv("HOME")
     local fname = vim.fn.fnamemodify(args.file, ":t")
     local ext = vim.fn.fnamemodify(args.file, ":e")
     for _, candidate in ipairs({ fname, ext }) do
       local templates_dir =
-        vim.fs.joinpath(home, "myconfigs", "neovim", ".config", "nvim", "templates")
+        vim.fs.joinpath(myconfigs_path, "neovim", ".config", "nvim", "templates")
       local tpl = vim.fs.joinpath(templates_dir, candidate .. ".tpl")
       local stpl = vim.fs.joinpath(templates_dir, candidate .. ".stpl")
       if vim.uv.fs_stat(tpl) then
@@ -803,7 +804,7 @@ local servers = {
     name = "clangd",
     filetypes = { "c", "cpp", "cuda" },
     cmd = {
-      vim.fs.joinpath(vim.env.HOME, "myconfigs", ".pixi", "envs", "lsps", "bin", "clangd"),
+      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "lsps", "bin", "clangd"),
       "--completion-style=detailed",
       -- "-log=verbose"
     },
@@ -830,7 +831,7 @@ local servers = {
       "zig",
     },
     cmd = {
-      vim.fs.joinpath(vim.env.HOME, "myconfigs", ".pixi", "envs", "lsps", "bin", "efm-langserver"),
+      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "lsps", "bin", "efm-langserver"),
     },
     init_options = function()
       return {
@@ -854,8 +855,7 @@ local servers = {
           {
             lintAfterOpen = true,
             lintCommand = vim.fs.joinpath(
-              vim.env.HOME,
-              "myconfigs",
+              myconfigs_path,
               ".pixi",
               "envs",
               "linters",
@@ -872,8 +872,7 @@ local servers = {
           },
           {
             formatCommand = vim.fs.joinpath(
-              vim.env.HOME,
-              "myconfigs",
+              myconfigs_path,
               ".pixi",
               "envs",
               "linters",
@@ -885,8 +884,7 @@ local servers = {
           {
             lintAfterOpen = true,
             lintCommand = vim.fs.joinpath(
-              vim.env.HOME,
-              "myconfigs",
+              myconfigs_path,
               ".pixi",
               "envs",
               "linters",
@@ -904,8 +902,7 @@ local servers = {
           {
             lintAfterOpen = true,
             lintCommand = vim.fs.joinpath(
-              vim.env.HOME,
-              "myconfigs",
+              myconfigs_path,
               ".pixi",
               "envs",
               "linters",
@@ -918,8 +915,7 @@ local servers = {
           },
           {
             formatCommand = vim.fs.joinpath(
-              vim.env.HOME,
-              "myconfigs",
+              myconfigs_path,
               ".pixi",
               "envs",
               "linters",
@@ -987,8 +983,7 @@ local servers = {
         yaml = {
           {
             lintCommand = vim.fs.joinpath(
-              vim.env.HOME,
-              "myconfigs",
+              myconfigs_path,
               ".pixi",
               "envs",
               "linters",
@@ -1097,15 +1092,7 @@ local servers = {
     name = "cmake_language_server",
     filetypes = { "cmake" },
     cmd = {
-      vim.fs.joinpath(
-        vim.env.HOME,
-        "myconfigs",
-        ".pixi",
-        "envs",
-        "cmake-lsp",
-        "bin",
-        "cmake-language-server"
-      ),
+      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "cmake-lsp", "bin", "cmake-language-server"),
     },
     init_options = function(file)
       local root_dir = root_dirs.cmake(file)
@@ -1131,15 +1118,7 @@ local servers = {
     name = "jedi_language_server",
     filetypes = { "python" },
     cmd = {
-      vim.fs.joinpath(
-        vim.env.HOME,
-        "myconfigs",
-        ".pixi",
-        "envs",
-        "python-lsp",
-        "bin",
-        "jedi-language-server"
-      ),
+      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "python-lsp", "bin", "jedi-language-server"),
       -- "-vv", "--log-file", "/tmp/logging.txt"
     },
     init_options = function(file)
@@ -1294,7 +1273,7 @@ require("lazy").setup({
     "github/copilot.vim",
     event = "VeryLazy",
     config = function()
-      vim.g.copilot_node_command = vim.env.HOME .. "/myconfigs/.pixi/envs/nodejs/bin/node"
+      vim.g.copilot_node_command = myconfigs_path .. "/.pixi/envs/nodejs/bin/node"
       vim.g.copilot_no_tab_map = true
       vim.g.copilot_no_maps = true
       vim.g.copilot_assume_mapped = true
@@ -1430,7 +1409,7 @@ require("lazy").setup({
         else
           cb({
             type = "executable",
-            command = vim.env.HOME .. "/myconfigs/.pixi/envs/default/bin/python",
+            command = myconfigs_path .. "/.pixi/envs/default/bin/python",
             args = { "-m", "debugpy.adapter" },
             enrich_config = enrich_config,
             options = {
