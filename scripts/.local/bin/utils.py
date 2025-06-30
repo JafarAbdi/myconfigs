@@ -4,7 +4,6 @@ import os
 import subprocess
 from collections.abc import KeysView
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -171,8 +170,8 @@ def get_ros_packages(directory: Path) -> list[str]:
 def run_command(
     cmd: list,
     dry_run: bool,  # noqa: FBT001
-    cwd: Optional[str] = None,  # noqa: UP007
-    env: Optional[dict] = None,  # noqa: UP007
+    cwd: str | None = None,
+    env: dict | None = None,
 ) -> int | None:
     """Run a command.
 
