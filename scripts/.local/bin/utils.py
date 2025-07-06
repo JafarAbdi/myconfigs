@@ -1,5 +1,6 @@
 """Utility functions for the scripts in the repo."""
 
+import json
 import os
 import subprocess
 from collections.abc import KeysView
@@ -93,7 +94,7 @@ def get_package_paths(package_name: str) -> tuple[str, Path]:
     Returns:
         A tuple of the source and build directories for the package
     """
-    import rospkg
+    import rospkg  # noqa: PLC0415
 
     workspace_dir = Path.cwd()
     rospack = rospkg.RosPack([workspace_dir / "src"])
@@ -117,7 +118,7 @@ def get_ros_package_path(directory: Path, package_name: str) -> str:
     Returns:
         The source directory for the package
     """
-    import rospkg
+    import rospkg  # noqa: PLC0415
 
     return rospkg.RosPack([directory]).get_path(package_name)
 
@@ -131,7 +132,7 @@ def get_ros_packages_path(directory: Path) -> list[tuple[str, str]]:
     Returns:
         A list of tuples of the package name and source directory
     """
-    import rospkg
+    import rospkg  # noqa: PLC0415
 
     rospack = rospkg.RosPack([directory])
     packages = rospack.list()
@@ -162,7 +163,7 @@ def get_ros_packages(directory: Path) -> list[str]:
     Returns:
         List of package names
     """
-    import rospkg
+    import rospkg  # noqa: PLC0415
 
     return rospkg.RosPack([directory]).list()
 
@@ -210,8 +211,6 @@ def create_vscode_config(
         build_dir: The build directory for the project
         output_dir: The directory to output the config files to
     """
-    import json
-
     if output_dir is None:
         output_dir = Path()
     vscode_dir = Path(output_dir) / Path(".vscode")
