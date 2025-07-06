@@ -37,7 +37,7 @@ cmakelang = "*"
 jedi-language-server = "*"
 python-lsp-black = "*"
 pylsp-rope = "*"
-pyrefly = "*"
+pyrefly = ">=0.22.0"
 
 [feature.nodejs.dependencies]
 nodejs = ">=22.4.1,<22.5"

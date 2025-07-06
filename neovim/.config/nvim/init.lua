@@ -234,6 +234,10 @@ local runners = {
     if vim.uv.fs_stat(pixi_python_executable) ~= nil then
       python_executable = pixi_python_executable
     end
+    local venv_python_executable = vim.fs.joinpath(root_dir, ".venv", "bin", "python")
+    if vim.uv.fs_stat(venv_python_executable) ~= nil then
+      python_executable = venv_python_executable
+    end
     if is_test then
       if not file_path:match("^test_") and not file_path:match("_test%.py$") then
         vim.notify(
@@ -1107,6 +1111,41 @@ local servers = {
     end,
   },
   {
+    cmd = { "ty", "server" },
+    filetypes = { "python" },
+    root_markers = { "ty.toml", "pyproject.toml", ".git" },
+    init_options = function(file)
+      if vim.env.CONDA_PREFIX then
+        return {
+          settings = {
+            environment = {
+              python = vim.env.CONDA_PREFIX,
+            },
+          },
+        }
+      end
+      local pixi = vim.fs.find(".pixi", {
+        upward = true,
+        stop = vim.uv.os_homedir(),
+        path = vim.uv.fs_realpath(file),
+        type = "directory",
+      })
+      if #pixi > 0 then
+        local pixi_python_executable = vim.fs.joinpath(pixi[1], "envs", "default", "bin", "python")
+        if vim.uv.fs_stat(pixi_python_executable) then
+          return {
+            settings = {
+              environment = {
+                python = pixi[1] .. "/envs/default",
+              },
+            },
+          }
+        end
+      end
+      return {}
+    end,
+  },
+  {
     name = "pyrefly",
     filetypes = { "python" },
     cmd = {
@@ -1130,12 +1169,23 @@ local servers = {
           environmentPath = "/usr/bin/python3",
         },
       }
-      if
-        vim.env.CONDA_PREFIX
-        and vim.env.CONDA_PREFIX ~= vim.fs.joinpath(vim.uv.os_homedir(), ".pixi", "envs", "nvim")
-      then
+      if vim.env.CONDA_PREFIX then
         options.workspace.environmentPath = vim.env.CONDA_PREFIX .. "/bin/python"
       end
+
+      local venv = vim.fs.find(".venv", {
+        upward = true,
+        stop = vim.uv.os_homedir(),
+        path = vim.uv.fs_realpath(file),
+        type = "directory",
+      })
+      if #venv > 0 then
+        local venv_python_executable = vim.fs.joinpath(venv[1], "bin", "python")
+        if vim.uv.fs_stat(venv_python_executable) then
+          options.workspace.environmentPath = venv[1]
+        end
+      end
+
       local pixi = vim.fs.find(".pixi", {
         upward = true,
         stop = vim.uv.os_homedir(),

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 IFS=: read -ra selected < <(
-  pdfgrep --color=always --ignore-case --page-number --recursive --cache "${*:-}" 2> /dev/null | \
+  pdfgrep --with-filename --color=always --ignore-case --page-number --recursive --cache "${@:-}" 2> /dev/null | \
     fzf --height=100% \
         --ansi \
         --delimiter : \

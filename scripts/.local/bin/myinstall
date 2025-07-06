@@ -100,7 +100,14 @@ case "${1:-}" in
         $0 repgrep
         $0 pixi
         $0 uv
+        $0 setup-pixi
+        ;;
+
+    setup-pixi)
         ~/.pixi/bin/pixi global sync
+        pixi_path=${PIXI_PATH:-$HOME/.pixi}
+        # https://pixi.sh/latest/global_tools/trampolines/#trampolines
+        sed -i '/"CONDA_PREFIX":/d' "$pixi_path"/bin/trampoline_configuration/nvim.json
         ;;
 
     nextcloud-sync)
@@ -270,6 +277,7 @@ case "${1:-}" in
         curl -LsSf https://astral.sh/uv/install.sh | sh
         echo 'uv generate-shell-completion fish | source' >> ~/.config/fish/config.fish
         echo 'uvx --generate-shell-completion fish | source' >> ~/.config/fish/config.fish
+        uv tool install ty@latest
         ;;
 
     pixi)
