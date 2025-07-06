@@ -9,7 +9,7 @@
   },
   "copilot.vim": {
     "branch": "release",
-    "commit": "7167958954532a0a1b83f2db2f591b43aebff44c"
+    "commit": "3955014c503b0cd7b30bc56c86c56c0736ca0951"
   },
   "lazy.nvim": {
     "branch": "main",
@@ -21,7 +21,7 @@
   },
   "nvim-dap": {
     "branch": "master",
-    "commit": "8df427aeba0a06c6577dc3ab82de3076964e3b8d"
+    "commit": "2edd6375692d9ac1053d50acfe415c1eb2ba92d0"
   },
   "nvim-fzy": {
     "branch": "main",
@@ -29,14 +29,14 @@
   },
   "nvim-qwahl": {
     "branch": "main",
-    "commit": "1bb6c53320b948e37f32c4f8c8846343ca4df1b2"
+    "commit": "3081cdd8fcbccfbe68381088ed0d6e1ff47da3a6"
   },
   "nvim-treesitter": {
     "branch": "master",
-    "commit": "94ea4f436d2b59c80f02e293466c374584f03b8c"
+    "commit": "42fc28ba918343ebfd5565147a42a26580579482"
   },
   "nvim-treesitter-textobjects": {
     "branch": "master",
-    "commit": "ed373482db797bbf71bdff37a15c7555a84dce47"
+    "commit": "89ebe73cd2836db80a22d9748999ace0241917a5"
   }
 }

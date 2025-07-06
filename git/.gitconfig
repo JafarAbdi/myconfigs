@@ -60,6 +60,7 @@
   grep-all-commits = "!f() { git grep \"$1\" $(git rev-list --all); }; f"
   clone-single = clone --single-branch
   sub = submodule update --init --recursive
+  unsub = submodule deinit --all --force
 [pager]
   branch = true
 [url "ssh://git@github.com/"]

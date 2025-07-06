@@ -1597,6 +1597,7 @@ require("lazy").setup({
   },
   {
     "nvim-treesitter/nvim-treesitter",
+    branch = "master",
     build = ":TSUpdate",
     event = { "VeryLazy" },
     dependencies = {
@@ -1790,6 +1791,9 @@ vim.g.maplocalleader = " "
 vim.treesitter.language.register("xml", { "xacro", "urdf", "srdf" })
 vim.treesitter.language.register("cpp", { "cuda" })
 vim.filetype.add({
+  pattern = {
+    [".*.bazelrc"] = "bazelrc",
+  },
   extension = {
     launch = "xml",
     test = "xml",

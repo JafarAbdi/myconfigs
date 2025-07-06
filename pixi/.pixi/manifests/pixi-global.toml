@@ -95,11 +95,6 @@ channels = ["conda-forge"]
 dependencies = { rattler-build = "*" }
 exposed = { rattler-build = "rattler-build" }
 
-[envs.zig]
-channels = ["conda-forge"]
-dependencies = { zig = "*" }
-exposed = { zig = "zig" }
-
 [envs.gh]
 channels = ["conda-forge"]
 dependencies = { gh = "*" }
@@ -149,3 +144,18 @@ exposed = { mosh = "mosh", mosh-client = "mosh-client", mosh-server = "mosh-serv
 channels = ["conda-forge"]
 dependencies = { huggingface_hub = "*" }
 exposed = { tiny-agents = "tiny-agents", huggingface-cli = "huggingface-cli" }
+
+[envs.platformio]
+channels = ["conda-forge"]
+dependencies = { platformio = "*" }
+exposed = { platformio = "platformio", pio = "pio", piodebuggdb = "piodebuggdb" }
+
+[envs.screen]
+channels = ["conda-forge"]
+dependencies = { screen = "*" }
+exposed = { screen = "screen", "screen-4.8.0" = "screen-4.8.0" }
+
+[envs.bazel]
+channels = ["conda-forge"]
+dependencies = { bazel = "*" }
+exposed = { bazel = "bazel", bazel-real = "bazel-real" }

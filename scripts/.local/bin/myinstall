@@ -100,7 +100,6 @@ case "${1:-}" in
         $0 repgrep
         $0 pixi
         $0 uv
-        $0 nvim nightly
         ~/.pixi/bin/pixi global sync
         ;;
 
@@ -284,6 +283,28 @@ case "${1:-}" in
       ln -s ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
       ;;
 
+    mujoco)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        mkdir -p ~/.mujoco || true
+        # (
+        #   test -d ~/.mujoco && rm -rf ~/.mujoco || true
+        # ) && mkdir -p ~/.mujoco
+        MUJOCO_VERSION="3.3.3"
+        wget https://github.com/google-deepmind/mujoco/releases/download/"$MUJOCO_VERSION"/mujoco-"$MUJOCO_VERSION"-linux-x86_64.tar.gz -O mujoco.tar.gz
+        tar xzf mujoco.tar.gz --strip-components 1 -C ~/.mujoco
+        ;;
+
+    zig)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        wget -O - https://github.com/marler8997/anyzig/releases/latest/download/anyzig-x86_64-linux.tar.gz | tar xz
+        mv zig ~/.local/bin
+        install_from_github zigtools/zls zls-x86_64-linux.tar.xz
+        tar xf zls-x86_64-linux.tar.xz
+        mv zls ~/.local/bin/zls
+        popd || exit 1
+        ;;
+
     gh)
         gh auth login
         gh extension install github/gh-copilot
@@ -303,6 +324,13 @@ case "${1:-}" in
             error "install-from-github requires 2 inputs USER/REPO regex"
         fi
         install_from_github "$2" "$3"
+        ;;
+
+    setup_platformio)
+        pio system completion install fish
+        # https://docs.platformio.org/en/stable/core/installation/udev-rules.html#platformio-udev-rules
+        curl -fsSL https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules | sudo tee /etc/udev/rules.d/99-platformio-udev.rules
+        sudo udevadm control --reload-rules && sudo udevadm trigger
         ;;
 
     setup_fish)

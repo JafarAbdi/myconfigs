@@ -24,6 +24,7 @@ python-lsp = ["python-lsp"]
 nodejs = ["nodejs"]
 cmake-lsp = ["cmake-lsp"]
 lsps = ["lsps"]
+microcontroller = ["microcontroller"]
 
 [feature.linters.pypi-dependencies]
 pylsp-mypy = "*"
@@ -48,3 +49,6 @@ cmake-language-server = ">=0.1.10, <0.2"
 clang-tools = ">=19.1.2,<20"
 clang = ">=19.1.2,<20"
 efm-langserver = ">=0.0.54,<0.0.55"
+
+[feature.microcontroller.pypi-dependencies]
+circup = "*"

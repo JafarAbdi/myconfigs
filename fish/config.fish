@@ -9,9 +9,15 @@ set -x CPP_SCREATCHES_DIR $HOME/workspaces/pixi_workspaces/cpp_ws
 set -x RUST_SCREATCHES_DIR $HOME/workspaces/rust/scratches/src/bin
 export PIXI_FROZEN=true
 export XMODIFIERS="@im=none"
+export RUFF_CACHE_DIR=$HOME/.cache/ruff
+export MYPY_CACHE_DIR=$HOME/.cache/mypy
+export NPM_PACKAGES="$HOME/.npm-packages"
 
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin
+    if test -d $HOME/.mujoco/bin
+      set path $HOME/.mujoco/bin:$path
+    end
     if test -d $HOME/.pixi/bin
       set path $HOME/.pixi/bin:$path
     end
@@ -40,6 +46,9 @@ function get_path
     if test -d $HOME/.config/lua-lsp/bin
       set path $HOME/.config/lua-lsp/bin:$path
     end
+    if test -d $NPM_PACKAGES/bin
+      set -a paths $NPM_PACKAGES/bin
+    end
     if test -d $HOME/.luarocks/bin
       set path $HOME/.luarocks/bin:$path
     end
@@ -47,14 +56,6 @@ function get_path
       set path $HOME/.config/zig:$path
     end
     echo $path
-end
-
-function get_pythonpath
-    set -l pythonpath ""
-    if test -d /opt/drake/lib
-      set pythonpath "/opt/drake/lib/python"(python3 -c 'import sys; print("{0}.{1}".format(*sys.version_info))')"/site-packages"
-    end
-    echo $pythonpath
 end
 
 function get_ld_library_path
@@ -79,7 +80,6 @@ function get_cmake_prefix_path
     echo $cmake_prefix_path
 end
 
-set -xg PYTHONPATH (get_pythonpath)
 set -xg PATH (get_path)
 set -xg LD_LIBRARY_PATH (get_ld_library_path)
 set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
@@ -494,7 +494,6 @@ function source_workspace
   set --erase PYTHONPATH
   fish_add_path -aP (get_path)
   set -xg PATH (get_path)
-  set -xg PYTHONPATH (get_pythonpath)
   set -xg LD_LIBRARY_PATH (get_ld_library_path)
   set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
   if test $argv[1] != "reset"
