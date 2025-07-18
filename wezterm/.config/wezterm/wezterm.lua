@@ -123,7 +123,12 @@ config.keys = {
     action = act.SwitchToWorkspace({
       name = "notes",
       spawn = {
-        cwd = os.getenv("HOME") .. "/mynotes",
+        args = {
+          "bash",
+          "-c",
+          "nvim -c \"lua require('fzy').execute('fd --type f --strip-cwd-prefix --extension md', require('fzy').sinks.edit_file)\"",
+        },
+        cwd = os.getenv("HOME") .. "/Nextcloud/Notes",
       },
     }),
   },

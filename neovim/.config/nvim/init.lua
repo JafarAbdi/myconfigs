@@ -801,6 +801,8 @@ local servers = {
     cmd = {
       "taplo",
       "lsp",
+      "--config",
+      vim.fs.joinpath(myconfigs_path, "taplo.toml"),
       "stdio",
     },
   },
@@ -1110,49 +1112,49 @@ local servers = {
       }
     end,
   },
-  {
-    cmd = { "ty", "server" },
-    filetypes = { "python" },
-    root_markers = { "ty.toml", "pyproject.toml", ".git" },
-    init_options = function(file)
-      if vim.env.CONDA_PREFIX then
-        return {
-          settings = {
-            environment = {
-              python = vim.env.CONDA_PREFIX,
-            },
-          },
-        }
-      end
-      local pixi = vim.fs.find(".pixi", {
-        upward = true,
-        stop = vim.uv.os_homedir(),
-        path = vim.uv.fs_realpath(file),
-        type = "directory",
-      })
-      if #pixi > 0 then
-        local pixi_python_executable = vim.fs.joinpath(pixi[1], "envs", "default", "bin", "python")
-        if vim.uv.fs_stat(pixi_python_executable) then
-          return {
-            settings = {
-              environment = {
-                python = pixi[1] .. "/envs/default",
-              },
-            },
-          }
-        end
-      end
-      return {}
-    end,
-  },
-  {
-    name = "pyrefly",
-    filetypes = { "python" },
-    cmd = {
-      vim.fs.joinpath(vim.env.HOME, "myconfigs", ".pixi", "envs", "python-lsp", "bin", "pyrefly"),
-      "lsp",
-    },
-  },
+  -- {
+  --   cmd = { "ty", "server" },
+  --   filetypes = { "python" },
+  --   root_markers = { "ty.toml", "pyproject.toml", ".git" },
+  --   init_options = function(file)
+  --     if vim.env.CONDA_PREFIX then
+  --       return {
+  --         settings = {
+  --           environment = {
+  --             python = vim.env.CONDA_PREFIX,
+  --           },
+  --         },
+  --       }
+  --     end
+  --     local pixi = vim.fs.find(".pixi", {
+  --       upward = true,
+  --       stop = vim.uv.os_homedir(),
+  --       path = vim.uv.fs_realpath(file),
+  --       type = "directory",
+  --     })
+  --     if #pixi > 0 then
+  --       local pixi_python_executable = vim.fs.joinpath(pixi[1], "envs", "default", "bin", "python")
+  --       if vim.uv.fs_stat(pixi_python_executable) then
+  --         return {
+  --           settings = {
+  --             environment = {
+  --               python = pixi[1] .. "/envs/default",
+  --             },
+  --           },
+  --         }
+  --       end
+  --     end
+  --     return {}
+  --   end,
+  -- },
+  -- {
+  --   name = "pyrefly",
+  --   filetypes = { "python" },
+  --   cmd = {
+  --     vim.fs.joinpath(vim.env.HOME, "myconfigs", ".pixi", "envs", "python-lsp", "bin", "pyrefly"),
+  --     "lsp",
+  --   },
+  -- },
   {
     name = "jedi_language_server",
     filetypes = { "python" },
