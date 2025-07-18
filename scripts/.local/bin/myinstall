@@ -305,8 +305,9 @@ case "${1:-}" in
 
     zig)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
         wget -O - https://github.com/marler8997/anyzig/releases/latest/download/anyzig-x86_64-linux.tar.gz | tar xz
-        mv zig ~/.local/bin
+        mv zig ~/.local/bin/
         install_from_github zigtools/zls zls-x86_64-linux.tar.xz
         tar xf zls-x86_64-linux.tar.xz
         mv zls ~/.local/bin/zls

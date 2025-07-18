@@ -12,6 +12,9 @@ export XMODIFIERS="@im=none"
 export RUFF_CACHE_DIR=$HOME/.cache/ruff
 export MYPY_CACHE_DIR=$HOME/.cache/mypy
 export NPM_PACKAGES="$HOME/.npm-packages"
+# https://man.archlinux.org/man/mosh.1.en#MOSH_ESCAPE_KEY
+# Disable escape key https://github.com/mobile-shell/mosh/issues/215
+export MOSH_ESCAPE_KEY
 
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin
@@ -51,9 +54,6 @@ function get_path
     end
     if test -d $HOME/.luarocks/bin
       set path $HOME/.luarocks/bin:$path
-    end
-    if test -d $HOME/.config/zig
-      set path $HOME/.config/zig:$path
     end
     echo $path
 end
