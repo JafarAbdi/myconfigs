@@ -284,7 +284,7 @@ case "${1:-}" in
       mkdir -p ~/.local/bin || true
       curl -fsSL https://pixi.sh/install.sh | bash
       if command -v fish >/dev/null 2>&1; then
-        ~/.local/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
+        ~/.pixi/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
       fi
       rm -rf ~/.pixi/manifests/pixi-global.toml || true
       mkdir -p ~/.pixi/manifests

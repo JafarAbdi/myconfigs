@@ -159,3 +159,8 @@ exposed = { screen = "screen", "screen-4.8.0" = "screen-4.8.0" }
 channels = ["conda-forge"]
 dependencies = { bazel = "*" }
 exposed = { bazel = "bazel", bazel-real = "bazel-real" }
+
+[envs.yt-dlp]
+channels = ["conda-forge"]
+dependencies = { yt-dlp = "*" }
+exposed = { yt-dlp = "yt-dlp" }

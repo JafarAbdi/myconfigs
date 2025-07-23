@@ -24,7 +24,7 @@ def get_workspaces_yaml() -> dict:
             workspaces = yaml.safe_load(f)
     if ROS_INSTALLATION_DIR.exists():
         for ros_distro in ROS_INSTALLATION_DIR.iterdir():
-            workspaces[ros_distro] = {"ros_distro": ros_distro}
+            workspaces[ros_distro.stem] = {"ros_distro": ros_distro.stem}
     return workspaces
 
 
