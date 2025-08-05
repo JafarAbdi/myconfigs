@@ -152,6 +152,7 @@ local root_dirs = {
     return vim.fs.root(startpath, {
       ".pixi",
       "pixi.toml",
+      ".venv",
     }) or vim.fs.root(startpath, {
       "pyproject.toml",
       "setup.py",

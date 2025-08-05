@@ -286,7 +286,10 @@ case "${1:-}" in
       if command -v fish >/dev/null 2>&1; then
         ~/.pixi/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
       fi
-      rm -rf ~/.pixi/manifests/pixi-global.toml || true
+      # Only remove if it's not a symlink
+      if [ -e ~/.pixi/manifests/pixi-global.toml ] && [ ! -L ~/.pixi/manifests/pixi-global.toml ]; then
+        rm -rf ~/.pixi/manifests/pixi-global.toml
+      fi
       mkdir -p ~/.pixi/manifests
       ln -s ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
       ;;
