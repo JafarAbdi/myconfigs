@@ -278,6 +278,7 @@ case "${1:-}" in
         echo 'uv generate-shell-completion fish | source' >> ~/.config/fish/config.fish
         echo 'uvx --generate-shell-completion fish | source' >> ~/.config/fish/config.fish
         uv tool install ty@latest
+        uv tool install huggingface_hub[hf_transfer]
         ;;
 
     pixi)
@@ -289,9 +290,9 @@ case "${1:-}" in
       # Only remove if it's not a symlink
       if [ -e ~/.pixi/manifests/pixi-global.toml ] && [ ! -L ~/.pixi/manifests/pixi-global.toml ]; then
         rm -rf ~/.pixi/manifests/pixi-global.toml
+        mkdir -p ~/.pixi/manifests
+        ln -s ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
       fi
-      mkdir -p ~/.pixi/manifests
-      ln -s ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
       ;;
 
     mujoco)

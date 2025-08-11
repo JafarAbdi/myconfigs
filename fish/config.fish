@@ -16,6 +16,9 @@ export NPM_PACKAGES="$HOME/.npm-packages"
 # Disable escape key https://github.com/mobile-shell/mosh/issues/215
 export MOSH_ESCAPE_KEY
 
+export HF_HUB_DISABLE_TELEMETRY=True
+export HF_HUB_ENABLE_HF_TRANSFER=1
+
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin
     if test -d $HOME/.mujoco/bin
