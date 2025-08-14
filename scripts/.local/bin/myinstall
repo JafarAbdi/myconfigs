@@ -101,9 +101,9 @@ case "${1:-}" in
 
     minimal)
         mkdir -p ~/.local/bin || true
+        $0 pixi
         $0 setup-fish
         $0 repgrep
-        $0 pixi
         $0 uv
         $0 setup-pixi
         $0 stow
