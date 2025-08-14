@@ -16,7 +16,7 @@
 ## Installation
 
 ```bash
-~/myconfigs/scripts/.local/bin/myinstall setup_fish
+~/myconfigs/scripts/.local/bin/myinstall fish
 ~/myconfigs/scripts/.local/bin/myinstall core
 ~/myconfigs/scripts/.local/bin/myinstall stow
 myinstall i3

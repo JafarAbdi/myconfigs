@@ -632,7 +632,7 @@ function setup_container
   docker exec -it $container_name bash -c "chown -R $USER:$USER $HOME/.local"
   docker exec -it $container_name bash -c "chown -R $USER:$USER $HOME/.config"
   docker exec --user root -it $container_name bash -c "apt update && apt install make stow -y"
-  docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall setup_fish"
+  docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall fish"
   docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall stow"
   docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall core"
 end

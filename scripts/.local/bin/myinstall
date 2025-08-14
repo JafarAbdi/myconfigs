@@ -101,6 +101,7 @@ case "${1:-}" in
 
     minimal)
         mkdir -p ~/.local/bin || true
+        $0 setup-fish
         $0 repgrep
         $0 pixi
         $0 uv
@@ -351,7 +352,7 @@ case "${1:-}" in
         sudo udevadm control --reload-rules && sudo udevadm trigger
         ;;
 
-    setup_fish)
+    fish)
         if [ "$(id -u)" -eq 0 ]; then
           info "Installing packages without sudo..."
           apt update
@@ -364,6 +365,10 @@ case "${1:-}" in
           sudo apt install -y fish
         fi
 
+        $0 setup-fish
+        ;;
+
+    setup-fish)
         rm -rf ~/.config/fish || true
         mkdir -p ~/.config/fish
 
@@ -376,6 +381,7 @@ case "${1:-}" in
         if [ ! -e /.dockerenv ] && [ -z "${PODMAN_NAME:-}" ]; then
             chsh -s /usr/bin/fish
         fi
+        sed -i '/"CONDA_PREFIX":/d' "$pixi_path"/bin/trampoline_configuration/fish.json
         ;;
 
     unstow)
