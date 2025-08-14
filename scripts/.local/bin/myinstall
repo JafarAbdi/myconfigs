@@ -63,6 +63,25 @@ install_from_github() {
       | wget -i -
 }
 
+remove_conda_prefix() {
+    local file_path="$1"
+    pixi run --manifest-path ~/myconfigs/pixi.toml --frozen python -c """
+import os
+import json
+
+# Load the JSON file
+with open(\"${file_path}\", \"r\") as f:
+    data = json.load(f)
+
+# Remove CONDA_PREFIX from env
+del data[\"env\"][\"CONDA_PREFIX\"]
+
+# Save back to file
+with open(\"$file_path\", \"w\") as f:
+    json.dump(data, f, indent=2)
+"""
+}
+
 list_options() {
     grep -E '^[[:space:]]+[a-zA-Z0-9_-]+\)' "$0" | sed 's/)//' | tr -d ' \t' | sort
 }
@@ -102,18 +121,19 @@ case "${1:-}" in
     minimal)
         mkdir -p ~/.local/bin || true
         $0 pixi
+        $0 stow
+        $0 setup-pixi
         $0 setup-fish
         $0 repgrep
         $0 uv
-        $0 setup-pixi
-        $0 stow
         ;;
 
     setup-pixi)
         ~/.pixi/bin/pixi global sync
         pixi_path=${PIXI_PATH:-$HOME/.pixi}
         # https://pixi.sh/latest/global_tools/trampolines/#trampolines
-        sed -i '/"CONDA_PREFIX":/d' "$pixi_path"/bin/trampoline_configuration/nvim.json
+	remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/nvim.json
+	remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/fish.json
         ;;
 
     nextcloud-sync)
@@ -289,8 +309,9 @@ case "${1:-}" in
 
     pixi)
       mkdir -p ~/.local/bin || true
-      curl -fsSL https://pixi.sh/install.sh | bash
+      [[ ! $(command -v pixi) ]] && curl -fsSL https://pixi.sh/install.sh | bash
       if command -v fish >/dev/null 2>&1; then
+	mkdir -p ~/.config/fish/completions
         ~/.pixi/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
       fi
       # Only remove if it's not a symlink
@@ -299,6 +320,7 @@ case "${1:-}" in
         mkdir -p ~/.pixi/manifests
         ln -s ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
       fi
+      source ~/.config/fish/config.fish || true
       ;;
 
     mujoco)
@@ -370,18 +392,12 @@ case "${1:-}" in
 
     setup-fish)
         rm -rf ~/.config/fish || true
-        mkdir -p ~/.config/fish
+        mkdir -p ~/.config/fish/completions
 
         echo "source ~/myconfigs/fish/config.fish" > ~/.config/fish/config.fish
 
         # To be able to source bash scripts
         fish -c "curl -sL https://git.io/fisher | source && fisher install edc/bass"
-
-        # Skip setting fish as the default shell if we are in a docker or podman containers
-        if [ ! -e /.dockerenv ] && [ -z "${PODMAN_NAME:-}" ]; then
-            chsh -s /usr/bin/fish
-        fi
-        sed -i '/"CONDA_PREFIX":/d' "$pixi_path"/bin/trampoline_configuration/fish.json
         ;;
 
     unstow)
@@ -403,8 +419,9 @@ case "${1:-}" in
         ;;
 
     stow)
+        pixi_path=${PIXI_PATH:-$HOME/.pixi}
         pushd ~/myconfigs || exit 1
-        stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow cargo \
+        $pixi_path/bin/stow --no-folding --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow cargo \
                                                                                       clangd \
                                                                                       git \
                                                                                       scripts \
@@ -413,7 +430,7 @@ case "${1:-}" in
                                                                                       ripgrep \
                                                                                       yamllint \
                                                                                       zathura
-        stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
+        $pixi_path/bin/stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                          wezterm \
                                                                          neovim \
                                                                          tmux
