@@ -132,8 +132,9 @@ case "${1:-}" in
         ~/.pixi/bin/pixi global sync
         pixi_path=${PIXI_PATH:-$HOME/.pixi}
         # https://pixi.sh/latest/global_tools/trampolines/#trampolines
-	remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/nvim.json
-	remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/fish.json
+        remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/nvim.json
+        remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/fish.json
+        remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/tmux.json
         ;;
 
     nextcloud-sync)
@@ -311,7 +312,7 @@ case "${1:-}" in
       mkdir -p ~/.local/bin || true
       [[ ! $(command -v pixi) ]] && curl -fsSL https://pixi.sh/install.sh | bash
       if command -v fish >/dev/null 2>&1; then
-	mkdir -p ~/.config/fish/completions
+	      mkdir -p ~/.config/fish/completions
         ~/.pixi/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
       fi
       # Only remove if it's not a symlink

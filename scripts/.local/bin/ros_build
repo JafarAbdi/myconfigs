@@ -55,13 +55,9 @@ def main() -> None:
         nargs="+",
         choices=get_ros_packages(workspace_dir / "src"),
     )
-    src_dir = workspace_dir / "src"
-    if not Path(src_dir).exists():
-        logger.error(f"{workspace_dir} is not a workspace directory")
-        return
 
     postfix = get_colcon_postfix(workspace_dir)
-    packages = get_ros_packages_path(src_dir)
+    packages = get_ros_packages_path(workspace_dir)
     build_path = Path(workspace_dir) / f"build{postfix}"
     create_clangd_config_ros(workspace_dir, build_path)
     for package, path in packages:
