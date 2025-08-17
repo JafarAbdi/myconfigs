@@ -587,12 +587,19 @@ function ros_cd
 end
 
 function ros_msgs
-  if ! set -q ROS_DISTRO
-    echo "ROS_DISTRO is not set"
+  if ! set -q AMENT_PREFIX_PATH
+    echo "AMENT_PREFIX_PATH is not set"
     return 1
   end
-  set -l selected (fd --type file --extension action --extension msg --extension srv --search-path /opt/ros/$ROS_DISTRO \
-    | fzf --delimiter '/' --nth -1 --no-multi --preview 'less {}')
+
+  # Split AMENT_PREFIX_PATH by ':' and build fd command with multiple --search-path options
+  set -l fd_cmd fd --no-ignore --type file --extension action --extension msg --extension srv
+  for path in (string split ':' $AMENT_PREFIX_PATH)
+    set fd_cmd $fd_cmd --search-path $path
+  end
+
+  echo $fd_cmd
+  set -l selected ($fd_cmd | fzf --delimiter '/' --nth -1 --no-multi --preview 'less {}')
   if test -n "$selected"
     less $selected
   end
@@ -768,6 +775,12 @@ function register-argcomplete
   end
 end
 
+function source-argcomplete
+  if command -v $argv[1] &> /dev/null
+    ~/myconfigs/.pixi/envs/default/bin/register-python-argcomplete --shell fish $argv[1] | source
+  end
+end
+
 register-argcomplete clang_tidy
 register-argcomplete config_clangd
 if test -e /usr/share/vcstool-completion/vcs.fish
@@ -784,6 +797,17 @@ register-argcomplete ros2
 register-argcomplete rosidl
 register-argcomplete ament_cmake
 register-argcomplete colcon
+
+function enable-ros2-completions
+  source-argcomplete ros_clang_tidy
+  source-argcomplete _workon_workspace.py
+  source-argcomplete ros_build
+  source-argcomplete ros_test
+  source-argcomplete ros2
+  source-argcomplete rosidl
+  source-argcomplete ament_cmake
+  source-argcomplete colcon
+end
 
 for file in $HOME/.config/fish/completions/*
   source $file
