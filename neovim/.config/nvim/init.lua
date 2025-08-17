@@ -170,7 +170,7 @@ _G.lsp_status = function()
 end
 
 local runners = {
-  python = function(file_path, root_dir, is_test)
+  python = function(file_path, root_dir)
     local python_executable = "python3"
     local pixi_python_executable =
       vim.fs.joinpath(root_dir, ".pixi", "envs", "default", "bin", "python")
@@ -181,42 +181,24 @@ local runners = {
     if vim.uv.fs_stat(venv_python_executable) ~= nil then
       python_executable = venv_python_executable
     end
-    if is_test then
-      if not file_path:match("^test_") and not file_path:match("_test%.py$") then
-        vim.notify(
-          string.format(
-            "Test file '%s' doesn't start/end with 'test_'/'_test' and will be ignored by pytest",
-            file_path
-          ),
-          vim.log.levels.WARN
-        )
-      end
-      return {
-        python_executable,
-        "-m",
-        "pytest",
-        "--capture=no",
-        file_path,
-      }
-    end
     return {
       python_executable,
       file_path,
     }
   end,
-  bash = function(file_path, _, _)
+  bash = function(file_path, _)
     return {
       "bash",
       file_path,
     }
   end,
-  fish = function(file_path, _, _)
+  fish = function(file_path, _)
     return {
       "fish",
       file_path,
     }
   end,
-  xml = function(_, _, _)
+  xml = function(_, _)
     return {
       "curl",
       "-X",
@@ -231,7 +213,7 @@ local runners = {
 
 runners.sh = runners.bash
 
-local run_file = function(is_test)
+local run_file = function()
   local filetype = vim.api.nvim_get_option_value("filetype", {})
   if not filetype or filetype == "" then
     return
@@ -256,7 +238,7 @@ local run_file = function(is_test)
     vim.cmd.write()
   end
 
-  local cmd = runner(vim.fn.expand("%:p"), root_dir, is_test)
+  local cmd = runner(vim.fn.expand("%:p"), root_dir)
   if not cmd then
     return
   end
@@ -1518,11 +1500,8 @@ vim.keymap.set("n", "gs", function()
   q.try(q.lsp_tags, q.buf_tags)
 end, { silent = true })
 
-vim.keymap.set("n", "<leader>t", function()
-  run_file(true)
-end, { silent = true })
 vim.keymap.set("n", "<leader>x", function()
-  run_file(false)
+  run_file()
 end, { silent = true })
 vim.keymap.set("n", "<leader>h", q.helptags, { silent = true })
 vim.keymap.set("n", "<leader><space>", q.buffers, { silent = true })
