@@ -45,8 +45,8 @@ local term = {
 term.close = function()
   if term.open_bufnr and vim.api.nvim_buf_is_valid(term.open_bufnr) then
     vim.api.nvim_buf_delete(term.open_bufnr, { force = true, unload = false })
-    term.open_bufnr = nil
   end
+  term.open_bufnr = nil
   if not term.jobid then
     return
   end
