@@ -104,49 +104,6 @@ term.run = function(cmd, args, opts)
   term.create(cmd, args, opts)
 end
 
-local program = function()
-  return vim.fn.input({
-    prompt = "Path to executable: ",
-    default = vim.fn.expand("%:p"),
-    completion = "file",
-  })
-end
-
-local launch_lldb_in_terminal = {
-  name = "lldb: Launch (integratedTerminal)",
-  type = "lldb",
-  request = "launch",
-  program = program,
-  cwd = "${workspaceFolder}",
-  stopOnEntry = false,
-  args = function()
-    local args_string = vim.fn.input("Arguments: ")
-    return vim.split(args_string, " ")
-  end,
-  runInTerminal = true,
-}
-
-local launch_python_in_terminal = {
-  type = "python",
-  request = "launch",
-  name = "Launch file with arguments",
-  program = program,
-  args = function()
-    local args_string = vim.fn.input("Arguments: ")
-    return vim.split(args_string, " +")
-  end,
-}
-
-local enrich_config = function(config, on_config)
-  -- TODO: Handle when the virtual environment is not activated and .vscode/settings.json exists
-  local venv_path = os.getenv("CONDA_PREFIX")
-  if venv_path then
-    config.pythonPath = venv_path .. "/bin/python"
-  end
-  config.console = "integratedTerminal"
-  on_config(config)
-end
-
 local root_dirs = {
   python = function(startpath)
     return vim.fs.root(startpath, {
@@ -210,21 +167,6 @@ _G.lsp_status = function()
     return ""
   end
   return " | " .. lsp_status
-end
-
-_G.dap_status = function()
-  if require("lazy.core.config").plugins["nvim-dap"]._.loaded == nil then
-    return ""
-  end
-  local ok, dap = pcall(require, "dap")
-  if not ok then
-    return ""
-  end
-  local status = dap.status()
-  if status ~= "" then
-    return " | " .. status
-  end
-  return ""
 end
 
 local runners = {
@@ -470,18 +412,6 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 
 vim.api.nvim_create_autocmd("FileType", {
-  pattern = "dap-repl",
-  callback = function()
-    vim.opt_local.number = false
-    vim.opt_local.relativenumber = false
-    vim.opt_local.colorcolumn = "-1"
-    vim.opt_local.cursorcolumn = false
-    vim.opt_local.winfixbuf = true
-    require("dap.ext.autocompl").attach()
-  end,
-})
-
-vim.api.nvim_create_autocmd("FileType", {
   pattern = { "cpp", "c" },
   group = general_group,
   callback = function()
@@ -680,41 +610,6 @@ vim.api.nvim_create_user_command("Rename", function(kwargs)
     end
   end
 end, { complete = "file", nargs = 1 })
-
-vim.api.nvim_create_user_command("DapAttach", function()
-  -- output format for ps ah
-  --    " 107021 pts/4    Ss     0:00 /bin/zsh <args>"
-  require("fzy").execute("ps ah", function(selection)
-    require("dap").run({
-      -- If you get an "Operation not permitted" error using this, try disabling YAMA:
-      --  echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-      name = "lldb: Attach to process",
-      type = "lldb",
-      request = "attach",
-      pid = tonumber(vim.fn.split(vim.fn.trim(selection), " \\+")[1]),
-      args = {},
-    })
-  end)
-end, {})
-
-vim.api.nvim_create_user_command("DapLaunchLLDB", function()
-  require("dap").run(launch_lldb_in_terminal)
-end, {})
-
-vim.api.nvim_create_user_command("DapLaunchPython", function()
-  require("dap").run(launch_python_in_terminal)
-end, {})
-
-vim.api.nvim_create_user_command("DapLaunchPytest", function()
-  require("dap").run({
-    name = "Pytest: " .. vim.fn.expand("%:p"),
-    type = "python",
-    request = "launch",
-    justMyCode = false,
-    module = "pytest",
-    args = { "-s", vim.fn.expand("%:p") },
-  })
-end, {})
 
 vim.api.nvim_create_user_command("LspStop", function(kwargs)
   local name = kwargs.fargs[1]
@@ -1334,7 +1229,6 @@ require("lazy").setup({
       vim.g.copilot_filetypes = {
         ["*"] = true,
         gitcommit = false,
-        ["dap-repl"] = false,
       }
 
       vim.keymap.set("i", "<M-e>", function()
@@ -1357,168 +1251,6 @@ require("lazy").setup({
       end, { expr = true })
       vim.keymap.set("i", "<C-M-l>", "<Plug>(copilot-accept-line)", { silent = true })
       vim.keymap.set("i", "<C-M-e>", "<Plug>(copilot-accept-word)", { silent = true })
-    end,
-  },
-  {
-    "mfussenegger/nvim-dap",
-    event = "VeryLazy",
-    config = function()
-      local dap = require("dap")
-      local widgets = require("dap.ui.widgets")
-      vim.keymap.set("n", "<F5>", dap.continue, { silent = true })
-      vim.keymap.set("n", "<leader>b", dap.toggle_breakpoint, { silent = true })
-      vim.keymap.set("n", "<leader>db", function()
-        dap.toggle_breakpoint(vim.fn.input({ prompt = "Breakpoint Condition: " }), nil, nil, true)
-      end, { silent = true })
-      vim.keymap.set("n", "<leader>dl", function()
-        dap.list_breakpoints(true)
-      end, { silent = true })
-      vim.keymap.set("n", "<leader>dr", function()
-        dap.repl.toggle({ height = 15 })
-      end, { silent = true })
-      vim.keymap.set({ "n", "v" }, "<leader>dh", widgets.hover, { silent = true })
-      vim.keymap.set({ "n", "v" }, "<leader>dp", widgets.preview, { silent = true })
-      -- dap.defaults.fallback.exception_breakpoints = { "userUnhandled" }
-      dap.defaults.fallback.switchbuf = "usetab,uselast"
-      dap.defaults.fallback.terminal_win_cmd = "tabnew"
-      dap.defaults.fallback.external_terminal = {
-        command = "wezterm",
-        args = { "--skip-config" },
-      }
-
-      ------------------------
-      -- CPP/C/Rust configs --
-      ------------------------
-      -- Fixes issues with lldb-vscode
-      -- When it starts it doesn't report any threads
-      dap.listeners.after.event_initialized["lldb-vscode"] = function(session)
-        session:update_threads()
-      end
-      -- After pausing the threads could be wrong
-      dap.listeners.after.pause["lldb-vscode"] = function(session)
-        session:update_threads()
-      end
-      -- When we continue it report the allThreadsContinued in a very weird way
-      dap.listeners.after.continue["lldb-vscode"] = function(session, _, response)
-        if response.allThreadsContinued then
-          for _, t in pairs(session.threads) do
-            t.stopped = false
-          end
-        else
-          local thread = session.threads[response.threadId]
-          if thread and thread.stopped then
-            thread.stopped = false
-          end
-        end
-      end
-      local lldb_executable_name = "/usr/bin/lldb-vscode"
-      local lldb_executables = vim.split(vim.fn.glob(lldb_executable_name .. "*"), "\n")
-      if vim.fn.empty(lldb_executables) == 1 then
-        vim.api.nvim_notify(
-          "No lldb-vscode executable found -- make sure to install it using 'sudo apt install lldb'",
-          vim.log.levels.ERROR,
-          {}
-        )
-      end
-      local lldb_version = lldb_executables[#lldb_executables]:match("lldb%-vscode%-(%d+)")
-      if lldb_version then
-        if tonumber(lldb_version) < 11 then
-          vim.api.nvim_notify(
-            "lldb-vscode version '" .. lldb_version .. "' doesn't support integratedTerminal",
-            vim.log.levels.DEBUG,
-            {}
-          )
-        end
-      end
-      dap.adapters.lldb = {
-        id = "lldb",
-        type = "executable",
-        command = lldb_executables[#lldb_executables],
-      }
-      local configs = {
-        -- M.launch_console,
-        launch_lldb_in_terminal,
-      }
-      dap.configurations.c = configs
-      dap.configurations.cpp = configs
-      dap.configurations.rust = configs
-
-      ----------------------
-      --- Python configs ---
-      ----------------------
-      dap.adapters.python = function(cb, config)
-        if config.request == "attach" then
-          local port = (config.connect or config).port
-          local host = (config.connect or config).host or "127.0.0.1"
-          cb({
-            type = "server",
-            port = assert(port, "`connect.port` is required for a python `attach` configuration"),
-            host = host,
-            enrich_config = enrich_config,
-            options = {
-              source_filetype = "python",
-            },
-          })
-        else
-          cb({
-            type = "executable",
-            command = myconfigs_path .. "/.pixi/envs/default/bin/python",
-            args = { "-m", "debugpy.adapter" },
-            enrich_config = enrich_config,
-            options = {
-              source_filetype = "python",
-            },
-          })
-        end
-      end
-
-      dap.configurations.python = {
-        {
-          type = "python",
-          request = "launch",
-          name = "Launch file",
-          program = "${file}",
-        },
-        launch_python_in_terminal,
-        {
-          type = "python",
-          request = "attach",
-          name = "Attach remote",
-          connect = function()
-            local host = vim.fn.input("Host [127.0.0.1]: ")
-            host = host ~= "" and host or "127.0.0.1"
-            local port = tonumber(vim.fn.input("Port [5678]: ")) or 5678
-            return { host = host, port = port }
-          end,
-        },
-        {
-          type = "python",
-          request = "launch",
-          name = "Run doctests in file",
-          module = "doctest",
-          args = { "${file}" },
-          noDebug = true,
-        },
-      }
-
-      ----------------------
-      ------- CMake --------
-      ----------------------
-      dap.adapters.cmake = {
-        type = "pipe",
-        pipe = "${pipe}",
-        executable = {
-          command = "cmake",
-          args = { "--debugger", "--debugger-pipe", "${pipe}" },
-        },
-      }
-      dap.configurations.cmake = {
-        {
-          name = "Build",
-          type = "cmake",
-          request = "launch",
-        },
-      }
     end,
   },
   {
@@ -1822,7 +1554,7 @@ vim.opt.matchpairs:append("<:>")
 vim.opt.swapfile = false
 vim.opt.signcolumn = "number"
 vim.opt.laststatus = 3
-vim.opt.statusline = [[%<%f %m%r%{luaeval("lsp_status()")} %= %{luaeval("dap_status()")}]]
+vim.opt.statusline = [[%<%f %m%r%{luaeval("lsp_status()")}]]
 vim.opt.smartindent = false
 vim.opt.pumheight = 20
 vim.opt.completeopt = "menuone,noselect,noinsert,fuzzy"
