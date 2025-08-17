@@ -420,19 +420,6 @@ vim.api.nvim_create_autocmd("BufNewFile", {
   end,
 })
 
-vim.api.nvim_create_user_command("Errors", function()
-  vim.diagnostic.setqflist({
-    title = "Errors",
-    severity = vim.diagnostic.severity.ERROR,
-  })
-end, {})
-
-vim.api.nvim_create_user_command("Warnings", function()
-  vim.diagnostic.setqflist({
-    title = "Warnings",
-    severity = vim.diagnostic.severity.WARN,
-  })
-end, {})
 vim.api.nvim_create_user_command("Rename", function(kwargs)
   local buf = vim.api.nvim_get_current_buf()
   local from = vim.api.nvim_buf_get_name(buf)
