@@ -169,3 +169,13 @@ exposed = { yt-dlp = "yt-dlp" }
 channels = ["conda-forge"]
 dependencies = { fish = "*" }
 exposed = { fish = "fish", fish_indent = "fish_indent", fish_key_reader = "fish_key_reader" }
+
+[envs.lldb]
+channels = ["conda-forge"]
+dependencies = { lldb = "*" }
+exposed = { lldb = "lldb", lldb-argdumper = "lldb-argdumper", lldb-dap = "lldb-dap", lldb-instr = "lldb-instr", lldb-server = "lldb-server" }
+
+[envs.gdb]
+channels = ["conda-forge"]
+dependencies = { gdb = "*" }
+exposed = { ".gdb-post-link" = ".gdb-post-link", gcore = "gcore", gdb = "gdb", gdb-add-index = "gdb-add-index", gdbserver = "gdbserver", gstack = "gstack" }

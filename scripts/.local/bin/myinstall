@@ -111,7 +111,6 @@ case "${1:-}" in
             curl \
             file \
             lld \
-            lldb \
             make \
             gcc \
             sshfs
@@ -500,6 +499,15 @@ case "${1:-}" in
         install_from_github cnr-isti-vclab/meshlab "MeshLab.*linux.AppImage"
         mv MeshLab*.AppImage ~/.local/bin/meshlab
         chmod +x ~/.local/bin/meshlab
+        popd || exit 1
+        ;;
+
+    mergiraf)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        wget https://codeberg.org/mergiraf/mergiraf/releases/download/latest/mergiraf_$(arch)-unknown-linux-musl.tar.gz
+        extract mergiraf_$(arch)-unknown-linux-musl.tar.gz
+        mv mergiraf ~/.local/bin/mergiraf
         popd || exit 1
         ;;
 
