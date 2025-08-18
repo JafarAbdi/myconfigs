@@ -105,26 +105,8 @@ term.run = function(cmd, args, opts)
 end
 
 local program = function()
-  return vim.fn.input({
-    prompt = "Path to executable: ",
-    default = vim.fn.expand("%:p"),
-    completion = "file",
-  })
+  return require("dap.utils").pick_file({})
 end
-
-local launch_lldb_in_terminal = {
-  name = "lldb: Launch (integratedTerminal)",
-  type = "lldb",
-  request = "launch",
-  program = program,
-  cwd = "${workspaceFolder}",
-  stopOnEntry = false,
-  args = function()
-    local args_string = vim.fn.input("Arguments: ")
-    return vim.split(args_string, " ")
-  end,
-  runInTerminal = true,
-}
 
 local launch_python_in_terminal = {
   type = "python",
@@ -694,10 +676,6 @@ vim.api.nvim_create_user_command("DapAttach", function()
       args = {},
     })
   end)
-end, {})
-
-vim.api.nvim_create_user_command("DapLaunchLLDB", function()
-  require("dap").run(launch_lldb_in_terminal)
 end, {})
 
 vim.api.nvim_create_user_command("DapLaunchPython", function()
@@ -1377,7 +1355,6 @@ require("lazy").setup({
       end, { silent = true })
       vim.keymap.set({ "n", "v" }, "<leader>dh", widgets.hover, { silent = true })
       vim.keymap.set({ "n", "v" }, "<leader>dp", widgets.preview, { silent = true })
-      -- dap.defaults.fallback.exception_breakpoints = { "userUnhandled" }
       dap.defaults.fallback.switchbuf = "usetab,uselast"
       dap.defaults.fallback.terminal_win_cmd = "tabnew"
       dap.defaults.fallback.external_terminal = {
@@ -1388,59 +1365,100 @@ require("lazy").setup({
       ------------------------
       -- CPP/C/Rust configs --
       ------------------------
-      -- Fixes issues with lldb-vscode
-      -- When it starts it doesn't report any threads
-      dap.listeners.after.event_initialized["lldb-vscode"] = function(session)
-        session:update_threads()
-      end
-      -- After pausing the threads could be wrong
-      dap.listeners.after.pause["lldb-vscode"] = function(session)
-        session:update_threads()
-      end
-      -- When we continue it report the allThreadsContinued in a very weird way
-      dap.listeners.after.continue["lldb-vscode"] = function(session, _, response)
-        if response.allThreadsContinued then
-          for _, t in pairs(session.threads) do
-            t.stopped = false
-          end
-        else
-          local thread = session.threads[response.threadId]
-          if thread and thread.stopped then
-            thread.stopped = false
-          end
-        end
-      end
-      local lldb_executable_name = "/usr/bin/lldb-vscode"
-      local lldb_executables = vim.split(vim.fn.glob(lldb_executable_name .. "*"), "\n")
-      if vim.fn.empty(lldb_executables) == 1 then
-        vim.api.nvim_notify(
-          "No lldb-vscode executable found -- make sure to install it using 'sudo apt install lldb'",
-          vim.log.levels.ERROR,
-          {}
-        )
-      end
-      local lldb_version = lldb_executables[#lldb_executables]:match("lldb%-vscode%-(%d+)")
-      if lldb_version then
-        if tonumber(lldb_version) < 11 then
-          vim.api.nvim_notify(
-            "lldb-vscode version '" .. lldb_version .. "' doesn't support integratedTerminal",
-            vim.log.levels.DEBUG,
-            {}
-          )
-        end
-      end
-      dap.adapters.lldb = {
-        id = "lldb",
+      dap.adapters.gdb = {
         type = "executable",
-        command = lldb_executables[#lldb_executables],
+        command = "gdb",
+        args = { "-q", "-i", "dap" },
       }
+      dap.adapters.lldb = {
+        type = "executable",
+        command = "lldb-dap",
+        name = "lldb",
+      }
+      -- Dont forget, attach needs permission:
+      --  echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
       local configs = {
-        -- M.launch_console,
-        launch_lldb_in_terminal,
+        {
+          name = "gdb:launch",
+          type = "gdb",
+          request = "launch",
+          program = "${command:pickFile}",
+          cwd = "${workspaceFolder}",
+        },
+        {
+          name = "gdb:attach-pid",
+          type = "gdb",
+          request = "attach",
+          pid = function()
+            return tonumber(vim.fn.input({ prompt = "pid: " }))
+          end,
+          args = {},
+        },
+        {
+          name = "lldb:launch-term",
+          type = "lldb",
+          request = "launch",
+          program = program,
+          cwd = "${workspaceFolder}",
+          stopOnEntry = false,
+          args = {},
+          runInTerminal = true,
+        },
+        {
+          name = "lldb:launch-console",
+          type = "lldb",
+          request = "launch",
+          program = program,
+          cwd = "${workspaceFolder}",
+          stopOnEntry = false,
+          args = {},
+          runInTerminal = false,
+        },
+        {
+          name = "lldb:attach-pick",
+          type = "lldb",
+          request = "attach",
+          pid = require("dap.utils").pick_process,
+          args = {},
+        },
       }
       dap.configurations.c = configs
       dap.configurations.cpp = configs
       dap.configurations.rust = configs
+      dap.configurations.zig = {
+        {
+          name = "run:current-file:gdb",
+          type = "gdb",
+          request = "launch",
+          program = "zig",
+          args = { "run", "${file}" },
+          cwd = "${workspaceFolder}",
+        },
+        {
+          name = "run:prompt:gdb",
+          type = "gdb",
+          request = "launch",
+          program = program,
+          args = {},
+          cwd = "${workspaceFolder}",
+        },
+        {
+          name = "test:file:gdb",
+          type = "gdb",
+          request = "launch",
+          program = "zig",
+          args = { "test", "-fno-strip", "${file}" },
+          cwd = "${workspaceFolder}",
+          setupCommands = {
+            {
+              text = "set follow-fork-mode child",
+            },
+            {
+              text = "set detach-on-fork off",
+            },
+          },
+        },
+      }
 
       ----------------------
       --- Python configs ---
