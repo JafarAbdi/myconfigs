@@ -179,3 +179,13 @@ exposed = { lldb = "lldb", lldb-argdumper = "lldb-argdumper", lldb-dap = "lldb-d
 channels = ["conda-forge"]
 dependencies = { gdb = "*" }
 exposed = { ".gdb-post-link" = ".gdb-post-link", gcore = "gcore", gdb = "gdb", gdb-add-index = "gdb-add-index", gdbserver = "gdbserver", gstack = "gstack" }
+
+[envs.valgrind]
+channels = ["conda-forge"]
+dependencies = { valgrind = "*" }
+exposed = { callgrind_annotate = "callgrind_annotate", callgrind_control = "callgrind_control", cg_annotate = "cg_annotate", cg_diff = "cg_diff", cg_merge = "cg_merge", ms_print = "ms_print", valgrind = "valgrind", valgrind-di-server = "valgrind-di-server", valgrind-listener = "valgrind-listener", vgdb = "vgdb" }
+
+[envs.iperf]
+channels = ["conda-forge"]
+dependencies = { iperf = "*" }
+exposed = { iperf3 = "iperf3" }
