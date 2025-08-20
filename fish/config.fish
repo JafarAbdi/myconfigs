@@ -16,6 +16,9 @@ export NPM_PACKAGES="$HOME/.npm-packages"
 # Disable escape key https://github.com/mobile-shell/mosh/issues/215
 export MOSH_ESCAPE_KEY
 
+# Show pixi's prompt on the left side rather than right side of the screen
+export PIXI_LEFT_PROMPT
+
 export HF_HUB_DISABLE_TELEMETRY=True
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
@@ -876,10 +879,6 @@ function fish_prompt
   if set -q CURRENT_ROS_WORKSPACE
     echo -n -s (set_color D68910) "($CURRENT_ROS_WORKSPACE)" (set_color normal)
   end
-  if set -q PIXI_PROMPT
-    echo -n -s (set_color yellow)$PIXI_PROMPT(set_color normal)
-  end
-
   set -l worktrees_string ""
   if command -sq git
     set -l worktrees (git worktree list 2> /dev/null)
