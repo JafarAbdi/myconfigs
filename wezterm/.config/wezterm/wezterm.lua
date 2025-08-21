@@ -117,6 +117,21 @@ config.keys = {
   { key = "j", mods = "ALT|SHIFT", action = act.SwitchWorkspaceRelative(-1) },
   { key = "n", mods = "ALT|SHIFT", action = act.SwitchToWorkspace },
   {
+    key = "S",
+    mods = "CTRL|SHIFT",
+    action = act.SwitchToWorkspace({
+      name = "code-snippets",
+      spawn = {
+        args = {
+          "bash",
+          "-c",
+          "nvim -c 'set nospell' -c \"lua require('fzy').execute('fd --type f --strip-cwd-prefix', require('fzy').sinks.edit_file)\"",
+        },
+        cwd = os.getenv("HOME") .. "/Nextcloud/Notes/CodeSnippets",
+      },
+    }),
+  },
+  {
     key = "N",
     mods = "CTRL|SHIFT",
     action = act.SwitchToWorkspace({
