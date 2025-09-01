@@ -2,7 +2,6 @@ ci:
     skip: [refurb, luacheck, markdownlint, actionlint]
 default_language_version:
   python: python3.12
-  ruby: 3.0.0
 
 repos:
   # Standard hooks
@@ -91,10 +90,11 @@ repos:
   #   - id: shellcheck
   #     args: ['-x']
   # Markdown
-  - repo: https://github.com/markdownlint/markdownlint
-    rev: v0.12.0
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.18.1
     hooks:
-    - id: markdownlint
+      - id: markdownlint-cli2
+        args: ["--fix"]
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.7
     hooks:

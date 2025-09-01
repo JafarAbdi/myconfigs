@@ -120,8 +120,8 @@ case "${1:-}" in
     minimal)
         mkdir -p ~/.local/bin || true
         $0 pixi
-        $0 stow
         $0 setup-pixi
+        $0 stow
         $0 setup-fish
         $0 repgrep
         $0 uv
@@ -225,11 +225,6 @@ case "${1:-}" in
         ;;
 
     luacheck)
-        if [ "$(uname -s)" = "Darwin" ]; then
-            brew install luarocks
-        else
-            install_package luarocks
-        fi
         luarocks install luacheck --local
         ;;
 
@@ -320,7 +315,6 @@ case "${1:-}" in
         mkdir -p ~/.pixi/manifests
         ln -s ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
       fi
-      source ~/.config/fish/config.fish || true
       ;;
 
     mujoco)
@@ -398,6 +392,7 @@ case "${1:-}" in
 
         # To be able to source bash scripts
         fish -c "curl -sL https://git.io/fisher | source && fisher install edc/bass"
+        sudo chsh -s ~/.pixi/bin/fish $USER
         ;;
 
     unstow)
@@ -510,6 +505,19 @@ case "${1:-}" in
         mv mergiraf ~/.local/bin/mergiraf
         popd || exit 1
         ;;
+
+    github-ssh-keys)
+	  read -p "Enter email associated with github account: " email
+	  ssh-keygen -t rsa -b 4096 -C $email
+
+	  # Adding your SSH key to the ssh-agent
+	  eval $(ssh-agent -s)
+	  mkdir -p ~/.ssh
+	  ssh-add ~/.ssh/id_rsa
+
+	  xclip -sel clip < ~/.ssh/id_rsa.pub # Linux
+	  open https://github.com/settings/ssh
+      ;;
 
     --help)
       list_options

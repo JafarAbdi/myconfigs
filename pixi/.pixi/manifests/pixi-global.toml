@@ -165,11 +165,6 @@ channels = ["conda-forge"]
 dependencies = { yt-dlp = "*" }
 exposed = { yt-dlp = "yt-dlp" }
 
-[envs.fish]
-channels = ["conda-forge"]
-dependencies = { fish = "*" }
-exposed = { fish = "fish", fish_indent = "fish_indent", fish_key_reader = "fish_key_reader" }
-
 [envs.lldb]
 channels = ["conda-forge"]
 dependencies = { lldb = "*" }
@@ -189,3 +184,18 @@ exposed = { callgrind_annotate = "callgrind_annotate", callgrind_control = "call
 channels = ["conda-forge"]
 dependencies = { iperf = "*" }
 exposed = { iperf3 = "iperf3" }
+
+[envs.xclip]
+channels = ["conda-forge"]
+dependencies = { xclip = "*" }
+exposed = { xclip = "xclip", xclip-copyfile = "xclip-copyfile", xclip-cutfile = "xclip-cutfile", xclip-pastefile = "xclip-pastefile" }
+
+[envs.fish]
+channels = ["conda-forge"]
+dependencies = { fish = "*" }
+exposed = { fish = "fish", fish_indent = "fish_indent", fish_key_reader = "fish_key_reader" }
+
+[envs.luarocks]
+channels = ["conda-forge"]
+dependencies = { luarocks = "*" }
+exposed = { luarocks = "luarocks", luarocks-admin = "luarocks-admin" }
