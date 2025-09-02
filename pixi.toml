@@ -34,7 +34,7 @@ yamllint = "*"
 cmakelang = "*"
 
 [feature.python-lsp.pypi-dependencies]
-jedi-language-server = "*"
+jedi-language-server = ">=0.45.1,<1"
 python-lsp-black = "*"
 pylsp-rope = "*"
 pyrefly = ">=0.22.0"
