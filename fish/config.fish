@@ -864,11 +864,7 @@ function fish_prompt
     echo -n -s (set_color yellow) "($TOOLBOX_NAME)" (set_color normal)
   end
   if set -q SSH_CONNECTION
-    if set -q MACHINE_NAME
-      echo -n -s (set_color 877960 --italics) "($MACHINE_NAME)" (set_color normal)
-    else
-      echo -n -s (set_color 877960 --italics) "(ssh)" (set_color normal)
-    end
+    echo -n -s (set_color 877960 --italics) "($(hostname))" (set_color normal)
   end
   if test -e /.dockerenv && ! set -q CONTAINER_NAME
     echo -n -s (set_color 85C1E9)"🐳"(set_color normal)
