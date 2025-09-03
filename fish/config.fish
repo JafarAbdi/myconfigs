@@ -111,7 +111,11 @@ alias rsync 'rsync -uaSHAXhP'
 alias df 'df -h'
 alias free 'free -h'
 alias server 'python3 -m http.server'
-alias copy="xclip -sel clip"
+if test -n "$SSH_TTY"
+  alias copy='osc52'
+else
+  alias copy='xclip -sel clip'
+end
 alias paste="xclip -sel clip -o"
 alias disk_usage="df -h"
 alias grep='grep --color=auto'
