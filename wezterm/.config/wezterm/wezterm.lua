@@ -243,4 +243,9 @@ wezterm.on("bell", function(window, pane)
   window:toast_notification("wezterm", "Bell in pane '" .. pane:get_title() .. "'", nil, 2500)
 end)
 
+config.ssh_domains = wezterm.default_ssh_domains()
+for _, domain in ipairs(config.ssh_domains) do
+  domain.remote_wezterm_path = os.getenv("HOME") .. "/.local/bin/wezterm"
+end
+
 return config

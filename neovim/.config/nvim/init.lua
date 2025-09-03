@@ -1417,7 +1417,7 @@ end
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 if os.getenv("SSH_CLIENT") then
-  vim.g.clipboard = 'osc52'
+  vim.g.clipboard = "osc52"
 end
 
 vim.treesitter.language.register("xml", { "xacro", "urdf", "srdf" })

@@ -132,7 +132,6 @@ case "${1:-}" in
         pixi_path=${PIXI_PATH:-$HOME/.pixi}
         # https://pixi.sh/latest/global_tools/trampolines/#trampolines
         remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/nvim.json
-        remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/fish.json
         remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/tmux.json
         ;;
 
