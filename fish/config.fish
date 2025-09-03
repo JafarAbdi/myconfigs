@@ -100,6 +100,7 @@ export SHELL=fish
 
 if test -e ~/.terminfo/w/wezterm
   export TERM=wezterm
+  export COLORTERM=truecolor
 end
 
 ############
