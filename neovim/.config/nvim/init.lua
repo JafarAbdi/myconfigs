@@ -37,6 +37,25 @@ local set_clangd_opening_path = function(callback)
   end
 end
 
+local cargo_workspace_files = function()
+  local metadata_cmd_output = vim
+    .system({ "cargo", "metadata", "--format-version=1", "--no-deps" }, { cwd = root_dir, text = true })
+    :wait()
+  if metadata_cmd_output.code ~= 0 then
+    vim.notify("Failed with code " .. metadata_cmd_output.code, vim.log.levels.WARN)
+    return {}
+  end
+  local metadata = vim.json.decode(metadata_cmd_output.stdout)
+  local files = {}
+
+  for _, package in ipairs(metadata.packages) do
+    for _, target in ipairs(package.targets) do
+      table.insert(files, target.src_path)
+    end
+  end
+  return files
+end
+
 local term = {
   jobid = nil,
   bufnr = nil,
@@ -147,12 +166,16 @@ local root_dirs = {
     return dir
   end,
   rust = function(startpath)
+    -- local files = cargo_workspace_files()
+    -- if not vim.list_contains(files, vim.fs.normalize(vim.fs.abspath(startpath))) then
+    --   return vim.fs.dirname(startpath)
+    -- end
     local search_fn = function(path)
       return vim.fs.root(path, { "Cargo.toml", "rust-project.json", ".vscode" })
     end
-    local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
-      or vim.fn.getcwd()
-    return dir
+    -- local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
+    --   or vim.fn.getcwd()
+    return search_fn(vim.fn.getcwd())
   end,
   zig = function(startpath)
     return vim.fs.root(startpath, { "build.zig" })
@@ -218,6 +241,39 @@ local runners = {
       "POST",
       "http://127.0.0.1:7777/set_reload_request",
     }
+  end,
+  rust = function(file_path, root_dir)
+    if not vim.uv.fs_stat(vim.fs.joinpath(root_dir, "Cargo.toml")) then
+      vim.notify(root_dir .. " is not a Cargo project", vim.log.levels.WARN)
+    end
+    local cmd_output = vim
+      .system({ "cargo", "metadata", "--format-version=1", "--no-deps" }, { cwd = root_dir, text = true })
+      :wait()
+    if cmd_output.code ~= 0 then
+      vim.notify("Failed with code " .. cmd_output.code, vim.log.levels.WARN)
+      return
+    end
+
+    local metadata = vim.json.decode(cmd_output.stdout)
+
+    for _, package in ipairs(metadata.packages) do
+      for _, target in ipairs(package.targets) do
+        -- if target.kind[1] == "lib" and is_test then
+        --   return { "cargo", "test", "--lib" }
+        -- end
+        if file_path == target.src_path then
+          if target.kind[1] == "bin" then
+            return { "cargo", "run", "--bin", target.name }
+          elseif target.kind[1] == "example" then
+            return { "cargo", "run", "--release", "--example", target.name }
+          else
+            vim.notify("Unsupported target kind " .. vim.inspect(target.kind), vim.log.levels.WARN)
+            return
+          end
+        end
+      end
+    end
+    vim.notify("Can't find a target for " .. file_path, vim.log.levels.WARN)
   end,
   lua = function(file_path, _, _)
     return { "nvim", "-l", file_path }
@@ -375,22 +431,23 @@ vim.api.nvim_create_autocmd("LspAttach", {
       return vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled())
     end, { buffer = args.buf, silent = true })
     local client = vim.lsp.get_client_by_id(args.data.client_id)
-    if client.supports_method("textDocument/documentHighlight") then
-      local group =
-        vim.api.nvim_create_augroup(string.format("lsp-%s-%s", args.buf, args.data.client_id), {})
-      vim.api.nvim_create_autocmd("CursorHold", {
-        group = group,
-        buffer = args.buf,
-        callback = vim.lsp.buf.document_highlight,
-      })
-      vim.api.nvim_create_autocmd("CursorMoved", {
-        group = group,
-        buffer = args.buf,
-        callback = function()
-          pcall(vim.lsp.util.buf_clear_references, args.buf)
-        end,
-      })
-    end
+    client.server_capabilities.semanticTokensProvider = nil
+    -- if client.supports_method("textDocument/documentHighlight") then
+    --   local group =
+    --     vim.api.nvim_create_augroup(string.format("lsp-%s-%s", args.buf, args.data.client_id), {})
+    --   vim.api.nvim_create_autocmd("CursorHold", {
+    --     group = group,
+    --     buffer = args.buf,
+    --     callback = vim.lsp.buf.document_highlight,
+    --   })
+    --   vim.api.nvim_create_autocmd("CursorMoved", {
+    --     group = group,
+    --     buffer = args.buf,
+    --     callback = function()
+    --       pcall(vim.lsp.util.buf_clear_references, args.buf)
+    --     end,
+    --   })
+    -- end
   end,
   group = lsp_group,
 })
@@ -506,6 +563,48 @@ end, {
     end, vim.lsp.get_clients())
   end,
 })
+
+local get_rust_lsp_client = function()
+  local clients = vim.lsp.get_clients({ name = "rust-langserver" })
+  if #clients == 0 then
+    return
+  end
+  assert(#clients == 1, "Multiple rust-analyzer clients attached to this buffer")
+  return clients[1]
+end
+vim.api.nvim_create_user_command("RustExpandMacro", function()
+  local client = get_rust_lsp_client()
+  if not client then
+    vim.notify("rust-analyzer is not attached to this buffer", vim.log.levels.WARN)
+    return
+  end
+  vim.lsp.buf_request_all(
+    0,
+    "rust-analyzer/expandMacro",
+    vim.lsp.util.make_position_params(0, client.offset_encoding),
+    function(result)
+      vim.cmd.vsplit()
+      local buf = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_win_set_buf(0, buf)
+      if result then
+        vim.api.nvim_set_option_value("filetype", "rust", { buf = 0 })
+        for _, res in pairs(result) do
+          if res and res.result and res.result.expansion then
+            vim.api.nvim_buf_set_lines(buf, -1, -1, false, vim.split(res.result.expansion, "\n"))
+          else
+            vim.api.nvim_buf_set_lines(buf, -1, -1, false, {
+              "No expansion available.",
+            })
+          end
+        end
+      else
+        vim.api.nvim_buf_set_lines(buf, -1, -1, false, {
+          "Error: No result returned.",
+        })
+      end
+    end
+  )
+end, {})
 
 -----------------
 --- LSP Setup ---
@@ -799,11 +898,19 @@ local servers = {
     cmd = {
       vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer",
     },
+    -- init_options = function(input_file)
+    --   local files = cargo_workspace_files()
+    --   local filepath = vim.fs.normalize(vim.fs.abspath(input_file))
+    --   return vim.list_contains(files, filepath) and {}
+    --     or {
+    --       detachedFiles = { filepath },
+    --     }
+    -- end,
     settings = {
       -- to enable rust-analyzer settings visit:
       -- https://github.com/rust-analyzer/rust-analyzer/blob/master/docs/user/generated_config.adoc
+      -- https://rust-analyzer.github.io/book/configuration.html
       ["rust-analyzer"] = {
-        -- enable clippy diagnostics on save
         checkOnSave = true,
         completion = {
           snippets = {
@@ -853,36 +960,42 @@ local servers = {
   --   cmd = { "ty", "server" },
   --   filetypes = { "python" },
   --   root_markers = { "ty.toml", "pyproject.toml", ".git" },
-  --   init_options = function(file)
-  --     if vim.env.CONDA_PREFIX then
-  --       return {
-  --         settings = {
-  --           environment = {
-  --             python = vim.env.CONDA_PREFIX,
-  --           },
-  --         },
-  --       }
-  --     end
-  --     local pixi = vim.fs.find(".pixi", {
-  --       upward = true,
-  --       stop = vim.uv.os_homedir(),
-  --       path = vim.uv.fs_realpath(file),
-  --       type = "directory",
-  --     })
-  --     if #pixi > 0 then
-  --       local pixi_python_executable = vim.fs.joinpath(pixi[1], "envs", "default", "bin", "python")
-  --       if vim.uv.fs_stat(pixi_python_executable) then
-  --         return {
-  --           settings = {
-  --             environment = {
-  --               python = pixi[1] .. "/envs/default",
-  --             },
-  --           },
-  --         }
-  --       end
-  --     end
-  --     return {}
-  --   end,
+  --     settings = {
+  --       -- ty = {
+  --       --   diagnosticMode = 'workspace',
+  --       -- },
+  --     },
+  --   -- init_options = function(file)
+  --     -- return settings
+  --     -- if vim.env.CONDA_PREFIX then
+  --     --   return {
+  --     --     settings = {
+  --     --       environment = {
+  --     --         python = vim.env.CONDA_PREFIX,
+  --     --       },
+  --     --     },
+  --     --   }
+  --     -- end
+  --     -- local pixi = vim.fs.find(".pixi", {
+  --     --   upward = true,
+  --     --   stop = vim.uv.os_homedir(),
+  --     --   path = vim.uv.fs_realpath(file),
+  --     --   type = "directory",
+  --     -- })
+  --     -- if #pixi > 0 then
+  --     --   local pixi_python_executable = vim.fs.joinpath(pixi[1], "envs", "default", "bin", "python")
+  --     --   if vim.uv.fs_stat(pixi_python_executable) then
+  --     --     return {
+  --     --       settings = {
+  --     --         environment = {
+  --     --           python = pixi[1] .. "/envs/default",
+  --     --         },
+  --     --       },
+  --     --     }
+  --     --   end
+  --     -- end
+  --     -- return {}
+  --   -- end,
   -- },
   -- {
   --   name = "pyrefly",
@@ -896,8 +1009,7 @@ local servers = {
     name = "jedi_language_server",
     filetypes = { "python" },
     cmd = {
-      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "python-lsp", "bin", "jedi-language-server"),
-      -- "-vv", "--log-file", "/tmp/logging.txt"
+      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "python-lsp", "bin", "jedi-language-server"), "-vv", "--log-file", "/tmp/logging.txt"
     },
     init_options = function(file)
       local options = {
@@ -973,6 +1085,11 @@ for _, server in pairs(servers) do
         end
         local capabilities =
           vim.tbl_deep_extend("force", vim.lsp.protocol.make_client_capabilities(), {
+            -- Rust specific capabilities
+            experimental = {
+              localDocs = true, -- TODO: Support experimental/externalDocs
+              hoverActions = true,
+            },
             workspace = {
               didChangeWatchedFiles = {
                 dynamicRegistration = true,
