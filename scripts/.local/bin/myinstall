@@ -120,8 +120,8 @@ case "${1:-}" in
     minimal)
         mkdir -p ~/.local/bin || true
         $0 pixi
-        $0 stow
         $0 setup-pixi
+        $0 stow
         $0 setup-fish
         $0 repgrep
         $0 uv
@@ -320,7 +320,6 @@ case "${1:-}" in
         mkdir -p ~/.pixi/manifests
         ln -s ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
       fi
-      source ~/.config/fish/config.fish || true
       ;;
 
     mujoco)
