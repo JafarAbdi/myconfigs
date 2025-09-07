@@ -56,7 +56,7 @@ function get_path
       set path $HOME/.config/lua-lsp/bin:$path
     end
     if test -d $NPM_PACKAGES/bin
-      set -a paths $NPM_PACKAGES/bin
+      set path $NPM_PACKAGES/bin:$path
     end
     if test -d $HOME/.luarocks/bin
       set path $HOME/.luarocks/bin:$path
