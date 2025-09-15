@@ -157,9 +157,15 @@ local root_dirs = {
   dockerfile = function(startpath)
     return vim.fs.root(startpath, { "Dockerfile" })
   end,
+  javascript = function(startpath)
+    return vim.fs.root(startpath, { 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'bun.lock', 'deno.lock' })
+  end,
 }
 root_dirs.c = root_dirs.cpp
 root_dirs.cuda = root_dirs.cpp
+root_dirs.typescript = root_dirs.javascript
+root_dirs.tsx = root_dirs.javascript
+root_dirs.jsx = root_dirs.javascript
 
 _G.lsp_status = function()
   local lsp_status = vim.lsp.status()
@@ -921,10 +927,12 @@ local servers = {
         path = vim.uv.fs_realpath(file),
         type = "directory",
       })
+
       if #venv > 0 then
         local venv_python_executable = vim.fs.joinpath(venv[1], "bin", "python")
         if vim.uv.fs_stat(venv_python_executable) then
           options.workspace.environmentPath = venv[1]
+          return options
         end
       end
 
@@ -1485,7 +1493,12 @@ end, { expr = true })
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 
 vim.keymap.set("n", "gs", function()
-  q.try(q.lsp_tags, q.buf_tags)
+  vim.lsp.buf.document_symbol({
+    on_list = function(options)
+      vim.fn.setqflist({}, " ", options)
+      q.quickfix()
+    end,
+  })
 end, { silent = true })
 
 vim.keymap.set("n", "<leader>x", function()

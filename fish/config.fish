@@ -174,7 +174,7 @@ function ex
   if test "$file_extension" = "conda"
     pixi run --manifest-path ~/myconfigs/pixi.toml cph extract $argv[1]
   else
-    atool -qx $argv[1]
+    atool -qx $argv
   end
 end
 
@@ -343,20 +343,6 @@ end
 
 function git-untracked
   git-fzf '\?\?'
-end
-
-function ros_setup_wt
-  if test (count $argv) -ne 1
-    echo "Usage: ros_setup_wt <worktree name>"
-    return 1
-  end
-  for worktree in (__fish_git_worktree_paths)
-    if test (basename $worktree) = $argv[1]
-      rm $worktree/COLCON_IGNORE 2> /dev/null || true
-    else
-      touch $worktree/COLCON_IGNORE
-    end
-  end
 end
 
 function wt

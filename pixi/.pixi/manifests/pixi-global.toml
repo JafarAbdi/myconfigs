@@ -199,3 +199,8 @@ exposed = { fish = "fish", fish_indent = "fish_indent", fish_key_reader = "fish_
 channels = ["conda-forge"]
 dependencies = { luarocks = "*" }
 exposed = { luarocks = "luarocks", luarocks-admin = "luarocks-admin" }
+
+[envs.jless]
+channels = ["conda-forge"]
+dependencies = { jless = "*" }
+exposed = { jless = "jless" }
