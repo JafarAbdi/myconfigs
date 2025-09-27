@@ -320,12 +320,11 @@ case "${1:-}" in
     mujoco)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1
-        mkdir -p ~/.mujoco || true
-        # (
-        #   test -d ~/.mujoco && rm -rf ~/.mujoco || true
-        # ) && mkdir -p ~/.mujoco
-        MUJOCO_VERSION="3.3.3"
+        MUJOCO_VERSION="3.3.6"
         wget https://github.com/google-deepmind/mujoco/releases/download/"$MUJOCO_VERSION"/mujoco-"$MUJOCO_VERSION"-linux-x86_64.tar.gz -O mujoco.tar.gz
+        (
+          test -d ~/.mujoco && rm -rf ~/.mujoco || true
+        ) && mkdir -p ~/.mujoco
         tar xzf mujoco.tar.gz --strip-components 1 -C ~/.mujoco
         ;;
 
@@ -455,16 +454,6 @@ case "${1:-}" in
         $0 colcon
         ;;
 
-    ollama)
-        rm -rf ~/.local/lib/ollama ~/.local/bin/ollama || true
-        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
-        pushd "$TMP_DIR" || exit 1
-        install_from_github ollama/ollama ollama-linux-$arch_name.tgz
-        extract ollama-linux-$arch_name.tgz
-        tar -C ~/.local -xzf ollama-linux-$arch_name.tgz
-        popd || exit 1
-        ;;
-
     bun)
         curl -fsSL https://bun.sh/install | bash
         ;;
@@ -506,22 +495,38 @@ case "${1:-}" in
         popd || exit 1
         ;;
 
+    bluetui)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        wget https://github.com/pythops/bluetui/releases/latest/download/bluetui-$(arch)-linux-gnu -O ~/.local/bin/bluetui
+        chmod +x ~/.local/bin/bluetui
+        popd || exit 1
+        ;;
+
+    oryx)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        wget https://github.com/pythops/oryx/releases/latest/download/oryx-$(arch)-unknown-linux-musl  -O ~/.local/bin/oryx
+        chmod +x ~/.local/bin/oryx
+        popd || exit 1
+        ;;
+
     github-ssh-keys)
-	  read -p "Enter email associated with github account: " email
-	  ssh-keygen -t rsa -b 4096 -C $email
+        read -p "Enter email associated with github account: " email
+        ssh-keygen -t rsa -b 4096 -C $email
 
-	  # Adding your SSH key to the ssh-agent
-	  eval $(ssh-agent -s)
-	  mkdir -p ~/.ssh
-	  ssh-add ~/.ssh/id_rsa
+        # Adding your SSH key to the ssh-agent
+        eval $(ssh-agent -s)
+        mkdir -p ~/.ssh
+        ssh-add ~/.ssh/id_rsa
 
-	  xclip -sel clip < ~/.ssh/id_rsa.pub # Linux
-	  open https://github.com/settings/ssh
-      ;;
+        xclip -sel clip < ~/.ssh/id_rsa.pub # Linux
+        open https://github.com/settings/ssh
+        ;;
 
     --help)
-      list_options
-      ;;
+        list_options
+        ;;
 
     *)
         info "Usage: $(basename "$0") <option>" >&2

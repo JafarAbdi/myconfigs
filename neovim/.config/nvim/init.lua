@@ -158,7 +158,10 @@ local root_dirs = {
     return vim.fs.root(startpath, { "Dockerfile" })
   end,
   javascript = function(startpath)
-    return vim.fs.root(startpath, { 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'bun.lock', 'deno.lock' })
+    return vim.fs.root(
+      startpath,
+      { "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock", "deno.lock" }
+    )
   end,
 }
 root_dirs.c = root_dirs.cpp
@@ -586,6 +589,7 @@ local servers = {
     },
     cmd = {
       vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "lsps", "bin", "efm-langserver"),
+      -- "-loglevel=5", "-logfile=/tmp/efm.log"
     },
     init_options = function()
       return {
@@ -644,12 +648,13 @@ local servers = {
               "linters",
               "bin",
               "ruff"
-            ) .. " check --quiet ${INPUT}",
+            ) .. " check --output-format=concise --quiet ${INPUT}",
             lintStdin = true,
             lintFormats = {
               "%f:%l:%c: %m",
             },
             lintSeverity = vim.diagnostic.severity.WARN,
+            lintIgnoreExitCode = true,
           },
         },
         cmake = {
