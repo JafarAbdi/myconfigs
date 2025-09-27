@@ -1,5 +1,5 @@
 ci:
-    skip: [refurb, luacheck, markdownlint, actionlint]
+    skip: [refurb, luacheck, actionlint]
 default_language_version:
   python: python3.12
 
@@ -44,7 +44,7 @@ repos:
         pass_filenames: false
         entry: pixi run refurb scripts/.local/bin
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.9
+    rev: v0.13.1
     hooks:
       - id: ruff
         args: ['--output-format=full', '--fix', '--config', 'ruff/.config/ruff/pyproject.toml']
@@ -64,7 +64,7 @@ repos:
   #     - id: cspell
   # Lua
   - repo: https://github.com/JohnnyMorganz/StyLua
-    rev: v2.1.0
+    rev: v2.2.0
     hooks:
       - id: stylua-github
         args: ['--config-path', 'stylua/.config/stylua/.stylua.toml']
@@ -74,7 +74,7 @@ repos:
       - id: luacheck
   # Docker
   - repo: https://github.com/hadolint/hadolint
-    rev: v2.13.1-beta
+    rev: v2.14.0
     hooks:
       - id: hadolint-docker
         args: ['--config', 'hadolint/.config/hadolint.yaml']
