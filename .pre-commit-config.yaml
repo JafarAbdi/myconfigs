@@ -1,5 +1,5 @@
 ci:
-    skip: [refurb, luacheck, markdownlint, actionlint]
+    skip: [refurb, luacheck, actionlint]
 default_language_version:
   python: python3.12
 
