@@ -633,9 +633,7 @@ function setup_container
   docker exec -it $container_name bash -c "chown -R $USER:$USER $HOME/.local"
   docker exec -it $container_name bash -c "chown -R $USER:$USER $HOME/.config"
   docker exec --user root -it $container_name bash -c "apt update && apt install make stow -y"
-  docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall fish"
-  docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall stow"
-  docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall core"
+  docker exec --user $USER -it $container_name bash -c "~/myconfigs/scripts/.local/bin/myinstall minimal"
 end
 
 complete -c setup_container -x -a '(docker ps -a --no-trunc --filter status=running --format "{{.ID}}\n{{.Names}}")'
@@ -694,6 +692,7 @@ function start_container -d "Start a podman|docker image with gpu support"
                      --device /dev/fuse \
                      --device /dev/snd \
                      -v /run/user/$user_id/pulse:/run/user/$user_id/pulse \
+                     -v /run/user/$user_id/wezterm:/run/user/$user_id/wezterm \
                      -e PULSE_SERVER=unix:$XDG_RUNTIME_DIR/pulse/native \
                      -v $XDG_RUNTIME_DIR/pulse/native:$XDG_RUNTIME_DIR/pulse/native \
                      # --group-add $audio_group_id
@@ -702,6 +701,7 @@ function start_container -d "Start a podman|docker image with gpu support"
                      -v $HOME/myconfigs:$HOME/myconfigs:ro \
                      -v $HOME/.ssh:$HOME/.ssh:ro \
                      -v $HOME/.local/share/nvim:$HOME/.local/share/nvim \
+                     -e SSH_AUTH_SOCK \
                      -e QT_X11_NO_MITSHM=1 \
                      -e DISPLAY \
                      -e NVIDIA_VISIBLE_DEVICES=all \
