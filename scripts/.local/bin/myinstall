@@ -65,7 +65,7 @@ install_from_github() {
 
 remove_conda_prefix() {
     local file_path="$1"
-    pixi run --manifest-path ~/myconfigs/pixi.toml --frozen python -c """
+    ~/.pixi/bin/pixi run --manifest-path ~/myconfigs/pixi.toml --frozen python -c """
 import os
 import json
 
@@ -298,8 +298,8 @@ case "${1:-}" in
         curl -LsSf https://astral.sh/uv/install.sh | sh
         echo 'uv generate-shell-completion fish | source' >> ~/.config/fish/config.fish
         echo 'uvx --generate-shell-completion fish | source' >> ~/.config/fish/config.fish
-        uv tool install ty@latest
-        uv tool install huggingface_hub[hf_transfer]
+        ~/.local/bin/uv tool install ty@latest
+        ~/.local/bin/uv tool install huggingface_hub[hf_transfer]
         ;;
 
     pixi)
@@ -390,7 +390,7 @@ case "${1:-}" in
         echo "source ~/myconfigs/fish/config.fish" > ~/.config/fish/config.fish
 
         # To be able to source bash scripts
-        fish -c "curl -sL https://git.io/fisher | source && fisher install edc/bass"
+        ~/.pixi/bin/fish -c "curl -sL https://git.io/fisher | source && fisher install edc/bass"
         sudo chsh -s ~/.pixi/bin/fish $USER
         ;;
 
