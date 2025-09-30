@@ -204,3 +204,8 @@ exposed = { luarocks = "luarocks", luarocks-admin = "luarocks-admin" }
 channels = ["conda-forge"]
 dependencies = { jless = "*" }
 exposed = { jless = "jless" }
+
+[envs.file]
+channels = ["conda-forge"]
+dependencies = { file = "*" }
+exposed = { file = "file" }

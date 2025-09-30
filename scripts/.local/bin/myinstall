@@ -73,8 +73,8 @@ import json
 with open(\"${file_path}\", \"r\") as f:
     data = json.load(f)
 
-# Remove CONDA_PREFIX from env
-del data[\"env\"][\"CONDA_PREFIX\"]
+# Remove all env variables
+data[\"env\"] = {}
 
 # Save back to file
 with open(\"$file_path\", \"w\") as f:
@@ -119,6 +119,7 @@ case "${1:-}" in
 
     minimal)
         mkdir -p ~/.local/bin || true
+        install_package --no-install-recommends curl ca-certificates wget
         $0 pixi
         $0 setup-pixi
         $0 stow
@@ -309,12 +310,11 @@ case "${1:-}" in
 	      mkdir -p ~/.config/fish/completions
         ~/.pixi/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
       fi
-      # Only remove if it's not a symlink
-      if [ -e ~/.pixi/manifests/pixi-global.toml ] && [ ! -L ~/.pixi/manifests/pixi-global.toml ]; then
-        rm -rf ~/.pixi/manifests/pixi-global.toml
-        mkdir -p ~/.pixi/manifests
-        ln -s ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
-      fi
+      mkdir -p ~/.pixi/manifests
+      # Remove if it's a regular file (not a symlink)
+      [ -f ~/.pixi/manifests/pixi-global.toml ] && [ ! -L ~/.pixi/manifests/pixi-global.toml ] && rm ~/.pixi/manifests/pixi-global.toml
+      # Force create symlink
+      ln -sf ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
       ;;
 
     mujoco)

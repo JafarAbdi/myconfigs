@@ -467,7 +467,7 @@ function workon
   source_workspace $argv[1]
   if test $argv[1] = "reset"
     test -e $CURRENT_ROS_WORKSPACE_FILE && rm $CURRENT_ROS_WORKSPACE_FILE
-    set --erase current_ros_workspace
+    set --erase CURRENT_ROS_WORKSPACE
   else
     set -l workspace_path (_workon_workspace.py --workspace-path $argv[1])
     cd $workspace_path
@@ -693,6 +693,7 @@ function start_container -d "Start a podman|docker image with gpu support"
                      --device /dev/snd \
                      -v /run/user/$user_id/pulse:/run/user/$user_id/pulse \
                      -v /run/user/$user_id/wezterm:/run/user/$user_id/wezterm \
+                     -v /run/user/$user_id/gnupg:/run/user/$user_id/gnupg \
                      -e PULSE_SERVER=unix:$XDG_RUNTIME_DIR/pulse/native \
                      -v $XDG_RUNTIME_DIR/pulse/native:$XDG_RUNTIME_DIR/pulse/native \
                      # --group-add $audio_group_id
