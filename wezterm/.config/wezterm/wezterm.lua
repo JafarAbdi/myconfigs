@@ -245,7 +245,7 @@ end)
 
 config.ssh_domains = wezterm.default_ssh_domains()
 for _, domain in ipairs(config.ssh_domains) do
-  domain.remote_wezterm_path = os.getenv("HOME") .. "/.local/bin/wezterm"
+  domain.remote_wezterm_path = "$HOME/.local/bin/wezterm"
 end
 
 return config

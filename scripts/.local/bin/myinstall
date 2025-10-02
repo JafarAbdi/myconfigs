@@ -511,6 +511,10 @@ case "${1:-}" in
         popd || exit 1
         ;;
 
+    claude-code)
+        curl -fsSL https://claude.ai/install.sh | bash
+        ;;
+
     github-ssh-keys)
         read -p "Enter email associated with github account: " email
         ssh-keygen -t rsa -b 4096 -C $email
