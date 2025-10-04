@@ -611,24 +611,6 @@ local servers = {
         },
         python = {
           {
-            lintAfterOpen = true,
-            lintCommand = vim.fs.joinpath(
-              myconfigs_path,
-              ".pixi",
-              "envs",
-              "linters",
-              "bin",
-              "mypy"
-            )
-              .. " --show-column-numbers --install-types --non-interactive --hide-error-codes --hide-error-context --no-color-output --no-error-summary --no-pretty",
-            lintFormats = {
-              "%f:%l:%c: error: %m",
-              "%f:%l:%c: %tarning: %m",
-              "%f:%l:%c: %tote: %m",
-            },
-            lintSeverity = vim.diagnostic.severity.WARN,
-          },
-          {
             formatCommand = vim.fs.joinpath(
               myconfigs_path,
               ".pixi",
