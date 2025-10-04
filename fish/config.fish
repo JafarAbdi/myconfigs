@@ -599,6 +599,17 @@ function ros_msgs
   end
 end
 
+function ros_kill
+  if ! set -q ROS_DISTRO
+    echo "ROS_DISTRO is not set"
+    return 1
+  end
+  kill -9 $(pgrep -af $ROS_DISTRO | cut -d' ' -f1) \
+          $(pgrep -af ros2cli.daemon.daemonize | cut -d' ' -f1) \
+          $(pgrep -af gzserver | cut -d' ' -f1) \
+          $(pgrep -af gzclient | cut -d' ' -f1)
+end
+
 get_current_ros_workspace > /dev/null
 if [ "$current_ros_workspace" != "" ]
   source_workspace $current_ros_workspace
@@ -702,7 +713,7 @@ function start_container -d "Start a podman|docker image with gpu support"
                      -v $HOME/myconfigs:$HOME/myconfigs:ro \
                      -v $HOME/.ssh:$HOME/.ssh:ro \
                      -v $HOME/.local/share/nvim:$HOME/.local/share/nvim \
-                     -e SSH_AUTH_SOCK \
+                     -e SSH_AUTH_SOCK=$(readlink -f $SSH_AUTH_SOCK) \
                      -e QT_X11_NO_MITSHM=1 \
                      -e DISPLAY \
                      -e NVIDIA_VISIBLE_DEVICES=all \
@@ -878,17 +889,6 @@ function fish_prompt
   set -l git (set_color green)$worktrees_string(fish_git_prompt | string trim)(set_color normal)
   set -l user (set_color ff99ff)"($USER)"(set_color normal)
   echo "$user""$git" (basename (prompt_pwd))"\$ "
-end
-
-function ros_kill
-  if ! set -q ROS_DISTRO
-    echo "ROS_DISTRO is not set"
-    return 1
-  end
-  kill -9 $(pgrep -af $ROS_DISTRO | cut -d' ' -f1) \
-          $(pgrep -af ros2cli.daemon.daemonize | cut -d' ' -f1) \
-          $(pgrep -af gzserver | cut -d' ' -f1) \
-          $(pgrep -af gzclient | cut -d' ' -f1)
 end
 
 function reset_cuda
