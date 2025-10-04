@@ -12,6 +12,7 @@ WORKSPACE_NAME:
         - <underlay2>
         - ...
 """
+
 import argparse
 import sys
 from pathlib import Path
@@ -95,10 +96,10 @@ elif args.ros_package_path:
     rosdistro = get_workspace_distro(workspace)
     paths = [f"/opt/ros/{rosdistro}"]
     paths.extend(
-        f"{home_dir / get_workspace_path(underlay)}"
+        (home_dir / get_workspace_path(underlay)).as_posix()
         for underlay in get_workspace_underlays(workspace) or []
     )
-    paths.append(f"{home_dir / get_workspace_path(workspace)}")
+    paths.append((home_dir / get_workspace_path(workspace)).as_posix())
     print(" ".join(paths))  # noqa: T201
 elif args.workspace_path:
     if workspace_path := get_workspace_path(args.workspace_path):

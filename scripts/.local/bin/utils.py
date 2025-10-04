@@ -70,7 +70,7 @@ def get_workspace_path(workspace: str) -> str | None:
     Returns:
         The path for the workspace relative to the home directory
     """
-    return os.path.expanduser(get_workspace_parameters(workspace).get("path"))
+    return Path(get_workspace_parameters(workspace).get("path")).expanduser()
 
 
 def get_workspace_underlays(workspace: str) -> list[str] | None:
