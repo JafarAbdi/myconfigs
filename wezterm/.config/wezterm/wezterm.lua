@@ -153,6 +153,8 @@ config.keys = {
     mods = "LEADER|CTRL",
     action = act.SendString("\x11"),
   },
+  -- To make Claude code happy
+  { key = "Enter", mods = "SHIFT", action = act.SendString("\x1b\r") },
 }
 
 config.key_tables = {

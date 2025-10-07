@@ -172,9 +172,10 @@ local root_dirs = {
 }
 root_dirs.c = root_dirs.cpp
 root_dirs.cuda = root_dirs.cpp
-root_dirs.typescript = root_dirs.javascript
 root_dirs.tsx = root_dirs.javascript
 root_dirs.jsx = root_dirs.javascript
+root_dirs.typescript = root_dirs.javascript
+root_dirs.typescriptreact = root_dirs.javascript
 
 _G.lsp_status = function()
   local lsp_status = vim.lsp.status()
