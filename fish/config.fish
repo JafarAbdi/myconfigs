@@ -19,6 +19,7 @@ export MOSH_ESCAPE_KEY
 # Show pixi's prompt on the left side rather than right side of the screen
 export PIXI_LEFT_PROMPT
 
+export TURBO_TELEMETRY_DISABLED=1
 export HF_HUB_DISABLE_TELEMETRY=True
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
@@ -60,6 +61,9 @@ function get_path
     end
     if test -d $HOME/.luarocks/bin
       set path $HOME/.luarocks/bin:$path
+    end
+    if test -d $HOME/.local/share/fnm
+      set path $HOME/.local/share/fnm:$path
     end
     echo $path
 end

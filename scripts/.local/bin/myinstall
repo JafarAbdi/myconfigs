@@ -528,6 +528,16 @@ case "${1:-}" in
         open https://github.com/settings/ssh
         ;;
 
+    nodejs)
+        if [ -z "${2:-}" ]; then
+            error "nodejs requires a version argument. Usage: $0 nodejs <version>"
+        fi
+        curl -o- https://fnm.vercel.app/install | bash
+        ~/.local/share/fnm/fnm install "$2"
+        echo 'fnm env | source' >> ~/.config/fish/config.fish
+        curl -fsSL https://get.pnpm.io/install.sh | sh -
+        ;;
+
     --help)
         list_options
         ;;
