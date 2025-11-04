@@ -106,23 +106,20 @@ end
 
 local root_dirs = {
   python = function(startpath)
-    return vim.fs.root(
-      startpath,
+    return vim.fs.root(startpath, {
       {
-        {
-          ".pixi",
-          "pixi.toml",
-          ".venv",
-        },
-        {
-          "pyproject.toml",
-          "setup.py",
-          "setup.cfg",
-          "requirements.txt",
-          "Pipfile",
-        },
-      }
-    )
+        ".pixi",
+        "pixi.toml",
+        ".venv",
+      },
+      {
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        "Pipfile",
+      },
+    })
   end,
   cmake = function(startpath)
     return vim.fs.root(startpath, { ".vscode" })
