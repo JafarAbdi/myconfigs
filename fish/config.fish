@@ -23,6 +23,8 @@ export TURBO_TELEMETRY_DISABLED=1
 export HF_HUB_DISABLE_TELEMETRY=True
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin
     if test -d $HOME/.mujoco/bin

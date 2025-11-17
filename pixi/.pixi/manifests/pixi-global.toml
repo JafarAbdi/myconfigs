@@ -209,3 +209,23 @@ exposed = { jless = "jless" }
 channels = ["conda-forge"]
 dependencies = { file = "*" }
 exposed = { file = "file" }
+
+[envs.mergiraf]
+channels = ["conda-forge"]
+dependencies = { mergiraf = "*" }
+exposed = { mergiraf = "mergiraf" }
+
+[envs.just]
+channels = ["conda-forge"]
+dependencies = { just = "*" }
+exposed = { just = "just" }
+
+[envs.cmake]
+channels = ["conda-forge"]
+dependencies = { cmake = "*" }
+exposed = { ccmake = "ccmake", cmake = "cmake", cpack = "cpack", ctest = "ctest" }
+
+[envs.patchelf]
+channels = ["conda-forge"]
+dependencies = { patchelf = "*" }
+exposed = { patchelf = "patchelf" }

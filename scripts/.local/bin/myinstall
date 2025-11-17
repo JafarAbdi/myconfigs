@@ -301,6 +301,7 @@ case "${1:-}" in
         echo 'uvx --generate-shell-completion fish | source' >> ~/.config/fish/config.fish
         ~/.local/bin/uv tool install ty@latest
         ~/.local/bin/uv tool install huggingface_hub[hf_transfer]
+        ~/.local/bin/uv tool install rerun-sdk@latest
         ;;
 
     pixi)
