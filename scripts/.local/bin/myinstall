@@ -302,6 +302,7 @@ case "${1:-}" in
         ~/.local/bin/uv tool install ty@latest
         ~/.local/bin/uv tool install huggingface_hub[hf_transfer]
         ~/.local/bin/uv tool install rerun-sdk@latest
+        ~/.local/bin/uv tool install awscli@latest
         ;;
 
     pixi)
@@ -428,7 +429,8 @@ case "${1:-}" in
         $pixi_path/bin/stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                          wezterm \
                                                                          neovim \
-                                                                         tmux
+                                                                         tmux \
+                                                                         claude
         popd || exit 1
         ;;
 
@@ -538,6 +540,11 @@ case "${1:-}" in
         echo 'fnm env | source' >> ~/.config/fish/config.fish
         curl -fsSL https://get.pnpm.io/install.sh | sh -
         ;;
+
+    mc)
+       wget https://dl.min.io/client/mc/release/linux-$arch/mc -O ~/.local/bin/mc
+       chmod +x ~/.local/bin/mc
+       ;;
 
     --help)
         list_options
