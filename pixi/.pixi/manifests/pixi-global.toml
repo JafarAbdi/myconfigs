@@ -115,20 +115,10 @@ channels = ["conda-forge"]
 dependencies = { openssh = "*" }
 exposed = { scp = "scp", sftp = "sftp", ssh = "ssh", ssh-add = "ssh-add", ssh-agent = "ssh-agent", ssh-keygen = "ssh-keygen", ssh-keyscan = "ssh-keyscan", sshd = "sshd" }
 
-[envs.graphviz]
-channels = ["conda-forge"]
-dependencies = { graphviz = "*" }
-exposed = { ".graphviz-post-link" = ".graphviz-post-link", acyclic = "acyclic", bcomps = "bcomps", ccomps = "ccomps", circo = "circo", cluster = "cluster", diffimg = "diffimg", dijkstra = "dijkstra", dot = "dot", dot2gxl = "dot2gxl", dot_builtins = "dot_builtins", dot_sandbox = "dot_sandbox", edgepaint = "edgepaint", fdp = "fdp", gc = "gc", gml2gv = "gml2gv", graphml2gv = "graphml2gv", gv2gml = "gv2gml", gv2gxl = "gv2gxl", gvcolor = "gvcolor", gvgen = "gvgen", gvmap = "gvmap", gvpack = "gvpack", gvpr = "gvpr", gxl2dot = "gxl2dot", gxl2gv = "gxl2gv", mm2gv = "mm2gv", neato = "neato", nop = "nop", osage = "osage", patchwork = "patchwork", prune = "prune", sccmap = "sccmap", sfdp = "sfdp", tred = "tred", twopi = "twopi", unflatten = "unflatten" }
-
 [envs.nvitop]
 channels = ["conda-forge"]
 dependencies = { nvitop = "*" }
 exposed = { nvitop = "nvitop", nvisel = "nvisel" }
-
-[envs.nvtop]
-channels = ["conda-forge"]
-dependencies = { nvtop = "*" }
-exposed = { nvtop = "nvtop" }
 
 [envs.tmux]
 channels = ["conda-forge"]
@@ -140,11 +130,6 @@ channels = ["conda-forge"]
 dependencies = { mosh = "*" }
 exposed = { mosh = "mosh", mosh-client = "mosh-client", mosh-server = "mosh-server" }
 
-[envs.huggingface_hub]
-channels = ["conda-forge"]
-dependencies = { huggingface_hub = "*" }
-exposed = { tiny-agents = "tiny-agents", huggingface-cli = "huggingface-cli" }
-
 [envs.platformio]
 channels = ["conda-forge"]
 dependencies = { platformio = "*" }
@@ -154,11 +139,6 @@ exposed = { platformio = "platformio", pio = "pio", piodebuggdb = "piodebuggdb" 
 channels = ["conda-forge"]
 dependencies = { screen = "*" }
 exposed = { screen = "screen", "screen-4.8.0" = "screen-4.8.0" }
-
-[envs.bazel]
-channels = ["conda-forge"]
-dependencies = { bazel = "*" }
-exposed = { bazel = "bazel", bazel-real = "bazel-real" }
 
 [envs.yt-dlp]
 channels = ["conda-forge"]
