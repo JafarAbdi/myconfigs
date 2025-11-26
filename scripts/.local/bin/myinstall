@@ -9,7 +9,7 @@ readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
 readonly NC='\033[0m' # No Color
-readonly arch=$(uname --hardware-platform)
+readonly arch=$(uname -m)
 case "$arch" in
   x86_64|amd64)
     arch_name="amd64"
@@ -287,10 +287,9 @@ case "${1:-}" in
 
     gcloud)
         export GCSFUSE_REPO="gcsfuse-$(lsb_release -c -s)"
-        echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
-        echo "deb https://packages.cloud.google.com/apt $GCSFUSE_REPO main" | sudo tee /etc/apt/sources.list.d/gcsfuse.list
-        curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-        sudo apt-get update && sudo apt-get install google-cloud-cli fuse gcsfuse
+        echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+        curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg
+        sudo apt-get update && sudo apt-get install -y google-cloud-cli
         gcloud init
         gcloud auth application-default login
         ;;
@@ -514,6 +513,10 @@ case "${1:-}" in
         popd || exit 1
         ;;
 
+    amp-code)
+        curl -fsSL https://ampcode.com/install.sh | bash
+        ;;
+
     claude-code)
         curl -fsSL https://claude.ai/install.sh | bash
         ;;
@@ -542,7 +545,7 @@ case "${1:-}" in
         ;;
 
     mc)
-       wget https://dl.min.io/client/mc/release/linux-$arch/mc -O ~/.local/bin/mc
+       wget https://dl.min.io/client/mc/release/linux-$arch_name/mc -O ~/.local/bin/mc
        chmod +x ~/.local/bin/mc
        ;;
 
