@@ -247,7 +247,7 @@ local runners = {
       vim.notify(root_dir .. " is not a Cargo project", vim.log.levels.WARN)
     end
     local cmd_output = vim
-      .system({ "cargo", "metadata", "--format-version=1", "--no-deps" }, { cwd = root_dir, text = true })
+      .system({ "cargo", "metadata", "--format-version=1", "--no-deps", "--offline"}, { cwd = root_dir, text = true })
       :wait()
     if cmd_output.code ~= 0 then
       vim.notify("Failed with code " .. cmd_output.code, vim.log.levels.WARN)
@@ -572,6 +572,16 @@ local get_rust_lsp_client = function()
   assert(#clients == 1, "Multiple rust-analyzer clients attached to this buffer")
   return clients[1]
 end
+vim.api.nvim_create_user_command("RustReloadWorkspace", function()
+  local client = get_rust_lsp_client()
+  vim.notify 'Reloading Cargo Workspace'
+    client.request('rust-analyzer/reloadWorkspace', nil, function(err)
+      if err then
+        vim.notify('Error reloading Cargo workspace: ' .. vim.inspect(err), vim.log.levels.WARN)
+      end
+      vim.notify 'Cargo workspace reloaded'
+    end)
+end, {})
 vim.api.nvim_create_user_command("RustExpandMacro", function()
   local client = get_rust_lsp_client()
   if not client then
