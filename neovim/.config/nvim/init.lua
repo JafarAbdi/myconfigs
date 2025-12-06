@@ -247,7 +247,10 @@ local runners = {
       vim.notify(root_dir .. " is not a Cargo project", vim.log.levels.WARN)
     end
     local cmd_output = vim
-      .system({ "cargo", "metadata", "--format-version=1", "--no-deps", "--offline"}, { cwd = root_dir, text = true })
+      .system(
+        { "cargo", "metadata", "--format-version=1", "--no-deps", "--offline" },
+        { cwd = root_dir, text = true }
+      )
       :wait()
     if cmd_output.code ~= 0 then
       vim.notify("Failed with code " .. cmd_output.code, vim.log.levels.WARN)
@@ -574,13 +577,13 @@ local get_rust_lsp_client = function()
 end
 vim.api.nvim_create_user_command("RustReloadWorkspace", function()
   local client = get_rust_lsp_client()
-  vim.notify 'Reloading Cargo Workspace'
-    client.request('rust-analyzer/reloadWorkspace', nil, function(err)
-      if err then
-        vim.notify('Error reloading Cargo workspace: ' .. vim.inspect(err), vim.log.levels.WARN)
-      end
-      vim.notify 'Cargo workspace reloaded'
-    end)
+  vim.notify("Reloading Cargo Workspace")
+  client.request("rust-analyzer/reloadWorkspace", nil, function(err)
+    if err then
+      vim.notify("Error reloading Cargo workspace: " .. vim.inspect(err), vim.log.levels.WARN)
+    end
+    vim.notify("Cargo workspace reloaded")
+  end)
 end, {})
 vim.api.nvim_create_user_command("RustExpandMacro", function()
   local client = get_rust_lsp_client()
@@ -1019,7 +1022,10 @@ local servers = {
     name = "jedi_language_server",
     filetypes = { "python" },
     cmd = {
-      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "python-lsp", "bin", "jedi-language-server"), "-vv", "--log-file", "/tmp/logging.txt"
+      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "python-lsp", "bin", "jedi-language-server"),
+      "-vv",
+      "--log-file",
+      "/tmp/logging.txt",
     },
     init_options = function(file)
       local options = {
