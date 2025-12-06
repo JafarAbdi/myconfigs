@@ -325,7 +325,7 @@ case "${1:-}" in
         ~/.local/bin/uv tool install ty@latest
         ~/.local/bin/uv tool install huggingface_hub[hf_transfer]
         ~/.local/bin/uv tool install rerun-sdk@latest
-        ~/.local/bin/uv tool install awscli@latest
+        ~/.local/bin/uv tool install hf@latest
         ;;
 
     pixi)
