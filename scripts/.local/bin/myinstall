@@ -206,6 +206,21 @@ case "${1:-}" in
         popd || exit 1
         ;;
 
+    f3d)
+        F3D_VERSION="${2:-3.3.0}"
+        mkdir -p ~/.config/f3d
+        rm -rf ~/.config/f3d/* 2> /dev/null
+        pushd ~/.config/f3d || exit 1
+        wget "https://github.com/f3d-app/f3d/releases/download/v${F3D_VERSION}/F3D-${F3D_VERSION}-Linux-x86_64.tar.xz"
+        tar xf "F3D-${F3D_VERSION}-Linux-x86_64.tar.xz" --strip-components=1
+        rm "F3D-${F3D_VERSION}-Linux-x86_64.tar.xz"
+        if command -v fish >/dev/null 2>&1; then
+            mkdir -p ~/.config/fish/completions
+            cp share/fish/vendor_completions.d/f3d.fish ~/.config/fish/completions/
+        fi
+        popd || exit 1
+        ;;
+
     lua-lsp)
         mkdir -p ~/.config/lua-lsp
         rm -rf ~/.config/lua-lsp/* 2> /dev/null
@@ -249,6 +264,15 @@ case "${1:-}" in
         $0 lua-lsp
         $0 markdown-lsp
         $0 xml-lsp
+        ;;
+
+    ghostty)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github pkgforge-dev/ghostty-appimage "Ghostty-.*$arch.AppImage"
+        chmod +x Ghostty-*$arch.AppImage
+        mv Ghostty-*$arch.AppImage ~/.local/bin/ghostty
+        popd || exit 1
         ;;
 
     wezterm)
@@ -337,6 +361,19 @@ case "${1:-}" in
         install_from_github zigtools/zls zls-x86_64-linux.tar.xz
         tar xf zls-x86_64-linux.tar.xz
         mv zls ~/.local/bin/zls
+        popd || exit 1
+        ;;
+
+    protoc)
+        PROTOC_VERSION="${2:-33.0}"
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        wget "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+        unzip "protoc-${PROTOC_VERSION}-linux-x86_64.zip" -d protoc
+        mv protoc/bin/protoc ~/.local/bin/protoc
+        chmod +x ~/.local/bin/protoc
+        mkdir -p ~/.local/include
+        cp -r protoc/include/google ~/.local/include/
         popd || exit 1
         ;;
 

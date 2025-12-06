@@ -140,7 +140,7 @@ config.keys = {
         args = {
           "bash",
           "-c",
-          "nvim -c \"lua require('fzy').execute('fd --type f --strip-cwd-prefix --extension md', require('fzy').sinks.edit_file)\"",
+          "nvim -c 'normal Gzz' " .. os.getenv("HOME") .. "/Nextcloud/Notes/TODO.md",
         },
         cwd = os.getenv("HOME") .. "/Nextcloud/Notes",
       },

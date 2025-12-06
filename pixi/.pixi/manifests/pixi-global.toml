@@ -209,3 +209,13 @@ exposed = { ccmake = "ccmake", cmake = "cmake", cpack = "cpack", ctest = "ctest"
 channels = ["conda-forge"]
 dependencies = { patchelf = "*" }
 exposed = { patchelf = "patchelf" }
+
+[envs.lld]
+channels = ["conda-forge"]
+dependencies = { lld = "*" }
+exposed = { "ld.lld" = "ld.lld", "ld64.lld" = "ld64.lld", lld = "lld", lld-link = "lld-link", wasm-ld = "wasm-ld" }
+
+[envs.sqlite]
+channels = ["conda-forge"]
+dependencies = { sqlite = "*" }
+exposed = { sqlite3 = "sqlite3" }

@@ -23,7 +23,11 @@ export TURBO_TELEMETRY_DISABLED=1
 export HF_HUB_DISABLE_TELEMETRY=True
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
+# To prevent JAX from allocating all GPU memory
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+# To fix rerun freezing issue. See https://rerun.io/docs/getting-started/troubleshooting#multiple-gpus
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.x86_64.json
 
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin
@@ -57,6 +61,9 @@ function get_path
     end
     if test -d $HOME/.config/lua-lsp/bin
       set path $HOME/.config/lua-lsp/bin:$path
+    end
+    if test -d $HOME/.config/f3d/bin
+      set path $HOME/.config/f3d/bin:$path
     end
     if test -d $NPM_PACKAGES/bin
       set path $NPM_PACKAGES/bin:$path
