@@ -37,25 +37,6 @@ local set_clangd_opening_path = function(callback)
   end
 end
 
-local cargo_workspace_files = function()
-  local metadata_cmd_output = vim
-    .system({ "cargo", "metadata", "--format-version=1", "--no-deps" }, { cwd = root_dir, text = true })
-    :wait()
-  if metadata_cmd_output.code ~= 0 then
-    vim.notify("Failed with code " .. metadata_cmd_output.code, vim.log.levels.WARN)
-    return {}
-  end
-  local metadata = vim.json.decode(metadata_cmd_output.stdout)
-  local files = {}
-
-  for _, package in ipairs(metadata.packages) do
-    for _, target in ipairs(package.targets) do
-      table.insert(files, target.src_path)
-    end
-  end
-  return files
-end
-
 local term = {
   jobid = nil,
   bufnr = nil,
@@ -165,16 +146,10 @@ local root_dirs = {
     clangd_opening_root_dir = nil
     return dir
   end,
-  rust = function(startpath)
-    -- local files = cargo_workspace_files()
-    -- if not vim.list_contains(files, vim.fs.normalize(vim.fs.abspath(startpath))) then
-    --   return vim.fs.dirname(startpath)
-    -- end
+  rust = function(_)
     local search_fn = function(path)
       return vim.fs.root(path, { "Cargo.toml", "rust-project.json", ".vscode" })
     end
-    -- local dir = vim.F.if_nil(search_fn(startpath), search_fn(vim.fn.expand("%:p:h")))
-    --   or vim.fn.getcwd()
     return search_fn(vim.fn.getcwd())
   end,
   zig = function(startpath)
@@ -247,7 +222,10 @@ local runners = {
       vim.notify(root_dir .. " is not a Cargo project", vim.log.levels.WARN)
     end
     local cmd_output = vim
-      .system({ "cargo", "metadata", "--format-version=1", "--no-deps", "--offline"}, { cwd = root_dir, text = true })
+      .system(
+        { "cargo", "metadata", "--format-version=1", "--no-deps", "--offline" },
+        { cwd = root_dir, text = true }
+      )
       :wait()
     if cmd_output.code ~= 0 then
       vim.notify("Failed with code " .. cmd_output.code, vim.log.levels.WARN)
@@ -574,13 +552,13 @@ local get_rust_lsp_client = function()
 end
 vim.api.nvim_create_user_command("RustReloadWorkspace", function()
   local client = get_rust_lsp_client()
-  vim.notify 'Reloading Cargo Workspace'
-    client.request('rust-analyzer/reloadWorkspace', nil, function(err)
-      if err then
-        vim.notify('Error reloading Cargo workspace: ' .. vim.inspect(err), vim.log.levels.WARN)
-      end
-      vim.notify 'Cargo workspace reloaded'
-    end)
+  vim.notify("Reloading Cargo Workspace")
+  client.request("rust-analyzer/reloadWorkspace", nil, function(err)
+    if err then
+      vim.notify("Error reloading Cargo workspace: " .. vim.inspect(err), vim.log.levels.WARN)
+    end
+    vim.notify("Cargo workspace reloaded")
+  end)
 end, {})
 vim.api.nvim_create_user_command("RustExpandMacro", function()
   local client = get_rust_lsp_client()
@@ -908,14 +886,6 @@ local servers = {
     cmd = {
       vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer",
     },
-    -- init_options = function(input_file)
-    --   local files = cargo_workspace_files()
-    --   local filepath = vim.fs.normalize(vim.fs.abspath(input_file))
-    --   return vim.list_contains(files, filepath) and {}
-    --     or {
-    --       detachedFiles = { filepath },
-    --     }
-    -- end,
     settings = {
       -- to enable rust-analyzer settings visit:
       -- https://github.com/rust-analyzer/rust-analyzer/blob/master/docs/user/generated_config.adoc
@@ -1019,7 +989,10 @@ local servers = {
     name = "jedi_language_server",
     filetypes = { "python" },
     cmd = {
-      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "python-lsp", "bin", "jedi-language-server"), "-vv", "--log-file", "/tmp/logging.txt"
+      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "python-lsp", "bin", "jedi-language-server"),
+      -- "-vv",
+      -- "--log-file",
+      -- "/tmp/logging.txt",
     },
     init_options = function(file)
       local options = {
