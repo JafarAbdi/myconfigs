@@ -50,5 +50,8 @@ clang-tools = ">=19.1.2,<20"
 clang = ">=19.1.2,<20"
 efm-langserver = ">=0.0.54,<0.0.55"
 
+[feature.lsps.pypi-dependencies]
+jedi = { git = "https://github.com/JafarAbdi/jedi.git", branch = "master" }
+
 [feature.microcontroller.pypi-dependencies]
 circup = "*"

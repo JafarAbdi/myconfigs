@@ -981,7 +981,7 @@ local servers = {
   --   name = "pyrefly",
   --   filetypes = { "python" },
   --   cmd = {
-  --     vim.fs.joinpath(vim.env.HOME, "myconfigs", ".pixi", "envs", "python-lsp", "bin", "pyrefly"),
+  --     "pyrefly",
   --     "lsp",
   --   },
   -- },
