@@ -38,6 +38,7 @@ jedi-language-server = ">=0.45.1,<1"
 python-lsp-black = "*"
 pylsp-rope = "*"
 pyrefly = ">=0.22.0"
+jedi = { git = "https://github.com/JafarAbdi/jedi.git", branch = "master" }
 
 [feature.nodejs.dependencies]
 nodejs = ">=22.4.1,<22.5"
@@ -49,9 +50,6 @@ cmake-language-server = ">=0.1.10, <0.2"
 clang-tools = ">=19.1.2,<20"
 clang = ">=19.1.2,<20"
 efm-langserver = ">=0.0.54,<0.0.55"
-
-[feature.lsps.pypi-dependencies]
-jedi = { git = "https://github.com/JafarAbdi/jedi.git", branch = "master" }
 
 [feature.microcontroller.pypi-dependencies]
 circup = "*"
