@@ -273,11 +273,6 @@ function set-timezone
   sudo timedatectl set-timezone $argv[1]
 end
 
-function sfs
-  # We have to use allow_other if we want to mount it in a docker container. See https://stackoverflow.com/a/61686833
-  sshfs -o identityfile=$HOME/.ssh/id_rsa,uid=(id -u),gid=(id -g),allow_other,reconnect,default_permissions,auto_cache,no_readahead,Ciphers=chacha20-poly1305@openssh.com $argv[1] $argv[2]
-end
-
 function rs-scratch
   nvim $RUST_SCREATCHES_DIR/$argv[1]
 end
@@ -420,7 +415,6 @@ end
 
 complete -c wt -x -a "(__fish_wt)"
 complete -c myinstall -x -a "(myinstall --help)"
-complete -c sfs -w sshfs
 complete -c set-timezone -a "(timedatectl list-timezones)"
 
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
@@ -911,3 +905,26 @@ end
 function postexec --on-event fish_postexec
     echo -e '\a'
 end
+
+# sfs wrapper and completions
+function sfs --wraps sfs --description 'SSHFS mount manager'
+  if test "$argv[1]" = "connect"
+    command sfs $argv && cd ~/mnt/$argv[2]
+  else
+    command sfs $argv
+  end
+end
+
+function __fish_sfs_remote_paths
+  set -l tokens (commandline -opc)
+  set -l host $tokens[3]
+  set -l current (commandline -ct | string unescape 2>/dev/null)
+  test -z "$current" && set current '~/'
+  command ssh -o 'BatchMode yes' $host "command ls -dp $current* 2>/dev/null" 2>/dev/null | string escape -n
+end
+
+complete -c sfs -f
+complete -c sfs -n "__fish_is_first_arg" -a "connect disconnect ssh list home"
+complete -c sfs -n "__fish_seen_subcommand_from connect ssh home; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
+complete -c sfs -n "__fish_seen_subcommand_from disconnect" -a "(ls ~/mnt 2>/dev/null)"
+complete -c sfs -n "__fish_seen_subcommand_from connect ssh; and test (count (commandline -opc)) -ge 3" -a "(__fish_sfs_remote_paths)"
