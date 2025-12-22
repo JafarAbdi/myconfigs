@@ -44,7 +44,6 @@ config.use_fancy_tab_bar = false
 config.show_new_tab_button_in_tab_bar = false
 config.tab_max_width = 25
 config.disable_default_key_bindings = true
-config.default_gui_startup_args = { "start", "--always-new-process" }
 
 config.window_padding = {
   left = 0,
@@ -229,9 +228,7 @@ config.key_tables = {
 }
 
 config.warn_about_missing_glyphs = false
-
 config.force_reverse_video_cursor = true
-config.front_end = "OpenGL"
 config.font =
   wezterm.font({ family = "JetBrains Mono", harfbuzz_features = { "calt=0", "clig=0", "liga=0" } })
 config.term = "wezterm"
