@@ -10,7 +10,7 @@
 set -euo pipefail
 
 readonly SOCKET_DIR="${HOME}/.ssh/sockets"
-readonly MOUNT_DIR="${HOME}/mnt"
+readonly MOUNT_DIR="${HOME}/.local/mnt/sfs"
 
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'

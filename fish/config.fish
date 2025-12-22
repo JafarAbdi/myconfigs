@@ -25,6 +25,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=1
 
 # To prevent JAX from allocating all GPU memory
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export HWLOC_HIDE_ERRORS=2
 
 # To fix rerun freezing issue. See https://rerun.io/docs/getting-started/troubleshooting#multiple-gpus
 export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.x86_64.json
@@ -909,7 +910,7 @@ end
 # sfs wrapper and completions
 function sfs --wraps sfs --description 'SSHFS mount manager'
   if test "$argv[1]" = "connect"
-    command sfs $argv && cd ~/mnt/$argv[2]
+    command sfs $argv && cd ~/.local/mnt/sfs/$argv[2]
   else
     command sfs $argv
   end
@@ -926,5 +927,5 @@ end
 complete -c sfs -f
 complete -c sfs -n "__fish_is_first_arg" -a "connect disconnect ssh list home"
 complete -c sfs -n "__fish_seen_subcommand_from connect ssh home; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
-complete -c sfs -n "__fish_seen_subcommand_from disconnect" -a "(ls ~/mnt 2>/dev/null)"
+complete -c sfs -n "__fish_seen_subcommand_from disconnect" -a "(ls ~/.local/mnt/sfs/ 2>/dev/null)"
 complete -c sfs -n "__fish_seen_subcommand_from connect ssh; and test (count (commandline -opc)) -ge 3" -a "(__fish_sfs_remote_paths)"
