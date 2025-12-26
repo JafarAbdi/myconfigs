@@ -61,6 +61,7 @@
   clone-single = clone --single-branch
   sub = submodule update --init --recursive
   unsub = submodule deinit --all --force
+  prune-local = !git branch -vv | grep ': gone]' | sed 's/^[+* ]*//' | awk '{print $1}' | xargs git branch -D
 [pager]
   branch = true
 [url "ssh://git@github.com/"]

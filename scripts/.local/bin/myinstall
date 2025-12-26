@@ -327,6 +327,9 @@ case "${1:-}" in
         ~/.local/bin/uv tool install rerun-sdk@latest
         ~/.local/bin/uv tool install hf@latest
         ~/.local/bin/uv tool install pyrefly
+        ~/.local/bin/uv tool install maturin
+        ~/.local/bin/uv tool install trackio
+        ~/.local/bin/rerun analytics disable
         ;;
 
     pixi)
@@ -550,6 +553,15 @@ case "${1:-}" in
         chmod +x ~/.local/bin/oryx
         popd || exit 1
         ;;
+
+    # Requires iwd
+    # impala)
+    #     TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+    #     pushd "$TMP_DIR" || exit 1
+    #     wget https://github.com/pythops/impala/releases/latest/download/impala-$(arch)-unknown-linux-gnu  -O ~/.local/bin/impala
+    #     chmod +x ~/.local/bin/impala
+    #     popd || exit 1
+    #     ;;
 
     amp-code)
         curl -fsSL https://ampcode.com/install.sh | bash
