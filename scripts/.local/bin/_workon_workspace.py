@@ -95,11 +95,11 @@ elif args.ros_package_path:
         sys.exit(0)
     rosdistro = get_workspace_distro(workspace)
     paths = [f"/opt/ros/{rosdistro}"]
-    paths.extend(
-        (home_dir / get_workspace_path(underlay)).as_posix()
-        for underlay in get_workspace_underlays(workspace) or []
-    )
-    paths.append((home_dir / get_workspace_path(workspace)).as_posix())
+    for underlay in get_workspace_underlays(workspace) or []:
+        if underlay_path := get_workspace_path(underlay):
+            paths.append((home_dir / underlay_path).as_posix())
+    if workspace_path := get_workspace_path(workspace):
+        paths.append((home_dir / workspace_path).as_posix())
     print(" ".join(paths))  # noqa: T201
 elif args.workspace_path:
     if workspace_path := get_workspace_path(args.workspace_path):

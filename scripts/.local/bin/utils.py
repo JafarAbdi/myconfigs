@@ -61,7 +61,7 @@ def get_workspace_distro(workspace: str) -> str | None:
     return get_workspace_parameters(workspace).get("ros_distro")
 
 
-def get_workspace_path(workspace: str) -> str | None:
+def get_workspace_path(workspace: str) -> Path | None:
     """Get the path for a workspace.
 
     Args:
@@ -70,7 +70,9 @@ def get_workspace_path(workspace: str) -> str | None:
     Returns:
         The path for the workspace relative to the home directory
     """
-    return Path(get_workspace_parameters(workspace).get("path")).expanduser()
+    if path := get_workspace_parameters(workspace).get("path"):
+        return Path(path).expanduser()
+    return None
 
 
 def get_workspace_underlays(workspace: str) -> list[str] | None:
