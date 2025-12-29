@@ -219,3 +219,18 @@ exposed = { "ld.lld" = "ld.lld", "ld64.lld" = "ld64.lld", lld = "lld", lld-link 
 channels = ["conda-forge"]
 dependencies = { sqlite = "*" }
 exposed = { sqlite3 = "sqlite3" }
+
+[envs.hyperfine]
+channels = ["conda-forge"]
+dependencies = { hyperfine = "*" }
+exposed = { hyperfine = "hyperfine" }
+
+[envs.numbat]
+channels = ["conda-forge"]
+dependencies = { numbat = "*" }
+exposed = { numbat = "numbat" }
+
+[envs.pipe-rename]
+channels = ["conda-forge"]
+dependencies = { pipe-rename = "*" }
+exposed = { renamer = "renamer" }
