@@ -1162,8 +1162,8 @@ require("lazy").setup({
   { "mfussenegger/nvim-fzy" },
   {
     "github/copilot.vim",
-    event = "VeryLazy",
-    config = function()
+    lazy = false, -- Load at startup so VimEnter autocmd fires and copilot#Init() runs
+    init = function()
       vim.g.copilot_node_command = myconfigs_path .. "/.pixi/envs/nodejs/bin/node"
       vim.g.copilot_no_tab_map = true
       vim.g.copilot_no_maps = true
@@ -1173,7 +1173,8 @@ require("lazy").setup({
         ["*"] = true,
         gitcommit = false,
       }
-
+    end,
+    config = function()
       vim.keymap.set("i", "<M-e>", function()
         return vim.api.nvim_feedkeys(
           vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
