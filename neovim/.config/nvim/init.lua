@@ -1193,8 +1193,12 @@ require("lazy").setup({
         vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
         return vim.fn["copilot#Dismiss"]()
       end, { expr = true })
-      vim.keymap.set("i", "<C-M-l>", "<Plug>(copilot-accept-line)", { silent = true })
-      vim.keymap.set("i", "<C-M-e>", "<Plug>(copilot-accept-word)", { silent = true })
+      vim.keymap.set("i", "<C-M-l>", function()
+        return vim.fn["copilot#AcceptLine"]()
+      end, { expr = true, silent = true })
+      vim.keymap.set("i", "<C-M-e>", function()
+        return vim.fn["copilot#AcceptWord"]()
+      end, { expr = true, silent = true })
     end,
   },
   {
