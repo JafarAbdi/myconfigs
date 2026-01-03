@@ -105,6 +105,7 @@ set -xg LD_LIBRARY_PATH (get_ld_library_path)
 set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
 set -xg BROWSER "firefox"
 
+abbr -a ash "autossh -M 0 -q"
 alias myconfigs "cd ~/myconfigs"
 alias myconfigsr "source ~/.config/fish/config.fish"
 alias cuda_architectures "nvidia-smi --query-gpu=compute_cap --format=csv,noheader"

@@ -1,337 +1,65 @@
 #!/bin/bash
-#
-# sshfs.sh - Simple SSHFS mount manager
-# Linux only, requires: sshfs, ssh, findmnt, fusermount/umount
-#
-# Note: For VM/trusted network use cases, consider directport/vsock options:
-# https://github.com/libfuse/sshfs?tab=readme-ov-file#bypassing-ssh
-#
+# sfs - Simple SSHFS mount manager (relies on ~/.ssh/config for ControlMaster)
 
 set -euo pipefail
 
-readonly SOCKET_DIR="${HOME}/.ssh/sockets"
 readonly MOUNT_DIR="${HOME}/.local/mnt/sfs"
+readonly RED='\033[0;31m' GREEN='\033[0;32m' NC='\033[0m'
 
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly NC='\033[0m'
+error() { echo -e "[${RED}error${NC}]: $1" >&2; exit 1; }
+info() { echo -e "[${GREEN}info${NC}]: $1" >&2; }
 
-# ------------------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------------------
-
-check_deps() {
-    local -a missing=()
-    for cmd in sshfs ssh findmnt; do
-        command -v "$cmd" &>/dev/null || missing+=("$cmd")
-    done
-    [[ ${#missing[@]} -eq 0 ]] || { echo "Missing dependencies: ${missing[*]}" >&2; exit 1; }
-}
-
-is_mounted() {
-    findmnt -t fuse.sshfs -n "$1" &>/dev/null
-}
-
-# ------------------------------------------------------------------------------
-# Logging
-# ------------------------------------------------------------------------------
-
-error() {
-    echo -e "[${RED}error${NC}]: ${1}" >&2
-    exit 1
-}
-
-warning() {
-    echo -e "[${YELLOW}warning${NC}]: ${1}" >&2
-}
-
-info() {
-    echo -e "[${GREEN}info${NC}]: ${1}" >&2
-}
-
-get_socket_path() {
-    local host="$1"
-    printf '%s/%s' "$SOCKET_DIR" "$host"
-}
-
-get_mount_point() {
-    local host="$1"
-    printf '%s/%s' "$MOUNT_DIR" "$host"
-}
-
-ensure_dir() {
-    [[ -d "$1" ]] || mkdir -p "$1"
-}
-
-# ------------------------------------------------------------------------------
-# SSH Connection
-# ------------------------------------------------------------------------------
-
-ssh_batch_connect() {
-    local host="$1"
-    local socket="$2"
-
-    ssh -o ControlMaster=yes \
-        -o "ControlPath=$socket" \
-        -o ControlPersist=10m \
-        -o BatchMode=yes \
-        "$host" exit 2>/dev/null
-}
-
-ssh_interactive_connect() {
-    local host="$1"
-    local socket="$2"
-
-    ssh -o ControlMaster=yes \
-        -o "ControlPath=$socket" \
-        -o ControlPersist=10m \
-        "$host" exit
-}
-
-ssh_cleanup() {
-    local host="$1"
-    local socket="$2"
-
-    ssh -o "ControlPath=$socket" -O exit "$host" 2>/dev/null || true
-}
-
-get_remote_home() {
-    local host="$1"
-    local socket="$2"
-
-    ssh -o "ControlPath=$socket" "$host" 'readlink -f $HOME 2>/dev/null || echo $HOME'
-}
-
-# ------------------------------------------------------------------------------
-# Mount Operations
-# ------------------------------------------------------------------------------
+is_mounted() { findmnt -t fuse.sshfs -n "$1" &>/dev/null; }
 
 do_mount() {
-    local host="$1"
-    local remote_path="$2"
-    local mount_point="$3"
-    local socket="${4:-}"
+    local host="$1" remote_path="$2" mount_point="$3"
+    local opts="reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,uid=$(id -u),gid=$(id -g),auto_cache"
 
-    local -a opts=(
-        "reconnect"
-        "ServerAliveInterval=15"
-        "ServerAliveCountMax=3"
-        "uid=$(id -u)"
-        "gid=$(id -g)"
-        "auto_cache"
-    )
-
-    [[ -n "$socket" ]] && opts+=("ssh_command=ssh -o ControlPath=$socket")
-
-    ensure_dir "$mount_point"
-
-    local -a cmd=(sshfs "${host}:${remote_path}" "$mount_point" -o "$(IFS=,; printf '%s' "${opts[*]}")")
-
-    if "${cmd[@]}"; then
-        info "Mounted ${host}:${remote_path} at ${mount_point}"
-        return 0
-    else
-        warning "Mount failed"
-        return 1
-    fi
+    mkdir -p "$mount_point"
+    sshfs "${host}:${remote_path}" "$mount_point" -o "$opts" && info "Mounted at $mount_point"
 }
 
 do_unmount() {
-    local mount_point="$1"
-
-    local -a methods=(
-        "fusermount -u"
-        "fusermount3 -u"
-        "umount -l"
-    )
-
-    for method in "${methods[@]}"; do
-        local cmd="${method%% *}"
-        if command -v "$cmd" &>/dev/null; then
-            if $method "$mount_point" 2>/dev/null; then
-                rmdir "$mount_point" 2>/dev/null || true
-                return 0
-            fi
-        fi
-    done
-
-    return 1
+    local mp="$1"
+    fusermount -u "$mp" 2>/dev/null || fusermount3 -u "$mp" 2>/dev/null || umount -l "$mp"
+    rmdir "$mp" 2>/dev/null || true
 }
-
-list_mounts() {
-    findmnt -t fuse.sshfs -n -o SOURCE,TARGET 2>/dev/null || true
-}
-
-# ------------------------------------------------------------------------------
-# High-Level Commands
-# ------------------------------------------------------------------------------
 
 cmd_connect() {
-    local host="$1"
-    local remote_path="${2:-\$HOME}"
-
-    ensure_dir "$SOCKET_DIR"
-
-    local socket mount_point
-    socket=$(get_socket_path "$host")
-    mount_point=$(get_mount_point "$host")
+    local host="$1" remote_path="${2:-}"
+    local mount_point="${MOUNT_DIR}/${host}"
 
     is_mounted "$mount_point" && error "Already mounted: $mount_point"
 
-    # Try batch (key-based) auth first, fall back to interactive
-    if ssh_batch_connect "$host" "$socket"; then
-        info "Connected (key-based auth)"
-    elif ssh_interactive_connect "$host" "$socket"; then
-        info "Connected (interactive auth)"
-    else
-        error "SSH authentication failed"
-    fi
-
-    # Resolve $HOME on remote if needed
-    if [[ "$remote_path" == "\$HOME" ]]; then
-        remote_path=$(get_remote_home "$host" "$socket")
-        [[ -z "$remote_path" ]] && error "Failed to resolve remote home directory"
-    fi
-
-    do_mount "$host" "$remote_path" "$mount_point" "$socket"
+    [[ -z "$remote_path" ]] && remote_path=$(ssh "$host" 'echo $HOME')
+    do_mount "$host" "$remote_path" "$mount_point"
 }
 
 cmd_disconnect() {
     local host="$1"
-
-    local socket mount_point
-    socket=$(get_socket_path "$host")
-    mount_point=$(get_mount_point "$host")
-
+    local mount_point="${MOUNT_DIR}/${host}"
     is_mounted "$mount_point" || error "Not mounted: $mount_point"
-
-    if do_unmount "$mount_point"; then
-        ssh_cleanup "$host" "$socket"
-        info "Disconnected from ${host}"
-    else
-        error "Failed to unmount ${mount_point}"
-    fi
+    do_unmount "$mount_point" && info "Disconnected from $host"
 }
 
-cmd_terminal() {
-    local host="$1"
-    local remote_path="${2:-}"
-
-    local socket
-    socket=$(get_socket_path "$host")
-
-    local -a cmd=(
-        ssh
-        -o ControlMaster=auto
-        -o "ControlPath=$socket"
-        -o ControlPersist=10m
-        "$host"
-    )
-
+cmd_ssh() {
+    local host="$1" remote_path="${2:-}"
     if [[ -n "$remote_path" ]]; then
-        cmd+=(-t "cd $(printf '%q' "$remote_path") && exec \$SHELL -l")
-    fi
-
-    exec "${cmd[@]}"
-}
-
-cmd_list() {
-    local mounts
-    mounts=$(list_mounts)
-
-    if [[ -z "$mounts" ]]; then
-        info "No active SSHFS mounts"
+        exec ssh -t "$host" "cd $(printf '%q' "$remote_path") && exec \$SHELL -l"
     else
-        printf 'SOURCE\t\t\t\tTARGET\n'
-        printf '%s\n' "$mounts"
+        exec ssh "$host"
     fi
 }
 
 cmd_home() {
-    local host="$1"
-
-    local socket
-    socket=$(get_socket_path "$host")
-
-    if [[ ! -S "$socket" ]]; then
-        error "No active connection to ${host}"
-    fi
-
-    get_remote_home "$host" "$socket"
+    ssh "$1" 'echo $HOME'
 }
 
-# ------------------------------------------------------------------------------
-# Main
-# ------------------------------------------------------------------------------
-
-usage() {
-    cat <<EOF
-Usage: ${0##*/} <command> [options]
-
-Commands:
-    connect <host> [remote_path]
-        Connect and mount remote filesystem
-        Remote path defaults to \$HOME
-        Mount point: ${MOUNT_DIR}/<host>
-        For non-standard ports, use ~/.ssh/config
-
-    disconnect <host>
-        Unmount and cleanup connection
-
-    ssh <host> [remote_path]
-        Open SSH terminal (uses existing connection if available)
-
-    list
-        List active SSHFS mounts
-
-    home <host>
-        Print remote home directory (requires active connection)
-
-Examples:
-    ${0##*/} connect myserver
-    ${0##*/} connect myserver /var/www
-    ${0##*/} disconnect myserver
-    ${0##*/} ssh myserver /var/www
-    ${0##*/} list
-EOF
-}
-
-main() {
-    [[ $# -lt 1 ]] && { usage; exit 1; }
-
-    check_deps
-
-    local cmd="$1"
-    shift
-
-    case "$cmd" in
-        connect)
-            [[ $# -lt 1 ]] && error "Usage: ${0##*/} connect <host> [remote_path]"
-            cmd_connect "$@"
-            ;;
-        disconnect)
-            [[ $# -lt 1 ]] && error "Usage: ${0##*/} disconnect <host>"
-            cmd_disconnect "$@"
-            ;;
-        ssh)
-            [[ $# -lt 1 ]] && error "Usage: ${0##*/} ssh <host> [remote_path]"
-            cmd_terminal "$@"
-            ;;
-        list)
-            cmd_list
-            ;;
-        home)
-            [[ $# -lt 1 ]] && error "Usage: ${0##*/} home <host>"
-            cmd_home "$@"
-            ;;
-        -h|--help)
-            usage
-            ;;
-        *)
-            error "Unknown command: $cmd"
-            ;;
-    esac
-}
-
-main "$@"
+case "${1:-}" in
+    connect)    [[ $# -ge 2 ]] || error "Usage: sfs connect <host> [path]"; cmd_connect "$2" "${3:-}" ;;
+    disconnect) [[ $# -ge 2 ]] || error "Usage: sfs disconnect <host>"; cmd_disconnect "$2" ;;
+    ssh)        [[ $# -ge 2 ]] || error "Usage: sfs ssh <host> [path]"; cmd_ssh "$2" "${3:-}" ;;
+    list)       findmnt -t fuse.sshfs -o SOURCE,TARGET 2>/dev/null || info "No mounts" ;;
+    home)       [[ $# -ge 2 ]] || error "Usage: sfs home <host>"; cmd_home "$2" ;;
+    *)          echo "Usage: sfs {connect|disconnect|ssh|list|home} [args]" ;;
+esac
