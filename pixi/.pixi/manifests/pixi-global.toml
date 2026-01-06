@@ -234,3 +234,13 @@ exposed = { numbat = "numbat" }
 channels = ["conda-forge"]
 dependencies = { pipe-rename = "*" }
 exposed = { renamer = "renamer" }
+
+[envs.sccache]
+channels = ["conda-forge"]
+dependencies = { sccache = "*" }
+exposed = { sccache = "sccache" }
+
+[envs.bacon]
+channels = ["conda-forge"]
+dependencies = { bacon = "*" }
+exposed = { bacon = "bacon" }

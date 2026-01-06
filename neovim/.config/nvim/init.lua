@@ -241,7 +241,7 @@ local runners = {
         -- end
         if file_path == target.src_path then
           if target.kind[1] == "bin" then
-            return { "cargo", "run", "--bin", target.name }
+            return { "cargo", "run", "--release", "--bin", target.name }
           elseif target.kind[1] == "example" then
             return { "cargo", "run", "--release", "--example", target.name }
           else
@@ -759,15 +759,19 @@ local servers = {
         },
         json = {
           {
-            lintCommand = "python3 -m json.tool",
-            lintStdin = true,
-            lintFormats = {
-              "%m: line %l column %c (char %r)",
-            },
-          },
-          {
-            formatCommand = "python3 -m json.tool",
+            formatCommand = "bunx @fsouza/prettierd ${INPUT}",
             formatStdin = true,
+            rootMarkers = {
+              ".prettierrc",
+              ".prettierrc.json",
+              ".prettierrc.js",
+              ".prettierrc.yml",
+              ".prettierrc.yaml",
+              ".prettierrc.json5",
+              ".prettierrc.mjs",
+              ".prettierrc.cjs",
+              ".prettierrc.toml",
+            },
           },
         },
         markdown = {

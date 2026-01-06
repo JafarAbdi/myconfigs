@@ -7,7 +7,6 @@ set -x ROS_WS_DIR $WORKSPACE_DIR/ros
 set MAMBA_LEFT_PROMPT
 set -x CPP_SCREATCHES_DIR $HOME/workspaces/pixi_workspaces/cpp_ws
 set -x RUST_SCREATCHES_DIR $HOME/workspaces/rust/scratches/src/bin
-export PIXI_FROZEN=true
 export XMODIFIERS="@im=none"
 export RUFF_CACHE_DIR=$HOME/.cache/ruff
 export MYPY_CACHE_DIR=$HOME/.cache/mypy
@@ -906,6 +905,20 @@ end
 
 function postexec --on-event fish_postexec
     echo -e '\a'
+end
+
+function gh-comments --description 'Show PR review comments for current branch or given PR number'
+  set -l pr $argv[1]
+  if test -z "$pr"
+    set pr (gh pr list --head (git branch --show-current) --json number -q '.[0].number')
+  end
+  if test -z "$pr"
+    echo (set_color yellow)"[warning]"(set_color normal)": No PR found" >&2
+    return 1
+  end
+
+  gh api "repos/{owner}/{repo}/pulls/$pr/comments" --cache 30m \
+    | jq -r '.[] | select(.line != null) | "\(.path):\(.line): \(.body)"'
 end
 
 # sfs wrapper and completions
