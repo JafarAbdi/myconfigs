@@ -1,0 +1,21 @@
+{
+  "python.languageServer": "Jedi",
+  "search.followSymlinks": false,
+  "telemetry.telemetryLevel": "off",
+  "window.customMenuBarAltFocus": false,
+  "window.menuBarVisibility": "hidden",
+  "window.restoreFullscreen": true,
+  "window.restoreWindows": "none",
+  "window.titleBarStyle": "custom",
+  "workbench.activityBar.location": "hidden",
+  "workbench.colorTheme": "One Dark Pro Mix",
+  "workbench.editor.decorations.badges": false,
+  "workbench.editor.decorations.colors": false,
+  "workbench.editor.revealIfOpen": true,
+  "workbench.editor.tabActionCloseVisibility": false,
+  "workbench.editor.tabCloseButton": "off",
+  "workbench.editor.tabSizing": "shrink",
+  "workbench.layoutControl.enabled": false,
+  "workbench.startupEditor": "none",
+  "workbench.tips.enabled": false
+}

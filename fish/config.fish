@@ -31,6 +31,9 @@ export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.x86_64.json
 
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin
+    if test -d $HOME/.vscodium/bin
+      set path $HOME/.vscodium/bin:$path
+    end
     if test -d $HOME/.mujoco/bin
       set path $HOME/.mujoco/bin:$path
     end

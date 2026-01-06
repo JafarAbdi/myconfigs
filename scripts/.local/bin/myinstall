@@ -474,6 +474,7 @@ case "${1:-}" in
                                                                                       fd \
                                                                                       ripgrep \
                                                                                       yamllint \
+                                                                                      codium \
                                                                                       zathura
         $pixi_path/bin/stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                          wezterm \
@@ -578,6 +579,46 @@ case "${1:-}" in
 
     claude-code)
         curl -fsSL https://claude.ai/install.sh | bash
+        ;;
+
+    setup-codium)
+        codium="$HOME/.vscodium/bin/codium"
+        if [[ ! -x "$codium" ]]; then
+            $0 codium
+        fi
+        mapfile -d '' vscode_extensions < ~/.config/VSCodium/extensions
+        installed_extensions=$("$codium" --list-extensions 2>/dev/null)
+        install_extensions=$(comm -13 <(echo "$installed_extensions" | sort) <(printf "%s\n" "${vscode_extensions[@]}" | sort))
+        uninstall_extensions=$(comm -23 <(echo "$installed_extensions" | sort) <(printf "%s\n" "${vscode_extensions[@]}" | sort))
+        for ext in $install_extensions; do
+            "$codium" --install-extension "$ext" --force
+        done
+        for ext in $uninstall_extensions; do
+            "$codium" --uninstall-extension "$ext"
+        done
+        ;;
+
+    codium)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        case "$arch" in
+          x86_64|amd64)
+            codium_arch="x64"
+            ;;
+          aarch64|arm64)
+            codium_arch="arm64"
+            ;;
+          *)
+            error "Unsupported architecture: $arch"
+            ;;
+        esac
+        codium_version=$(curl -s https://api.github.com/repos/VSCodium/vscodium/releases/latest | grep -oP '"tag_name": "\K[^"]+')
+        wget "https://github.com/VSCodium/vscodium/releases/download/${codium_version}/VSCodium-linux-${codium_arch}-${codium_version}.tar.gz"
+        (
+          test -d ~/.vscodium && rm -rf ~/.vscodium || true
+        ) && mkdir -p ~/.vscodium
+        tar xzvf VSCodium-linux-${codium_arch}-${codium_version}.tar.gz -C ~/.vscodium
+        popd || exit 1
         ;;
 
     github-ssh-keys)
