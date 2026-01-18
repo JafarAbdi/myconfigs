@@ -22,8 +22,6 @@ case "$arch" in
     ;;
 esac
 
-echo "Architecture: $arch_name"
-
 extract() {
   atool -qx "$1"
 }
@@ -121,20 +119,11 @@ case "${1:-}" in
         mkdir -p ~/.local/bin || true
         install_package --no-install-recommends curl ca-certificates wget
         $0 pixi
-        $0 setup-pixi
+        $0 pixi-core
         $0 stow
         $0 setup-fish
         $0 repgrep
         $0 uv
-        ;;
-
-    setup-pixi)
-        ~/.pixi/bin/pixi global sync
-        pixi_path=${PIXI_PATH:-$HOME/.pixi}
-        # https://pixi.sh/latest/global_tools/trampolines/#trampolines
-        remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/nvim.json
-        remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/tmux.json
-        remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/fish.json
         ;;
 
     nextcloud-sync)
@@ -288,9 +277,10 @@ case "${1:-}" in
         if [ "$(uname -s)" = "Darwin" ]; then
             brew install --cask wezterm@nightly
         else
+            mkdir -p ~/.local/bin
             wget https://github.com/wez/wezterm/releases/download/nightly/WezTerm-nightly-Ubuntu20.04.AppImage -O ~/.local/bin/wezterm
             chmod +x ~/.local/bin/wezterm
-            wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
+            ~/.local/bin/wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
             # Install terminfo
             tempfile=$(mktemp)
             curl -o "$tempfile" https://raw.githubusercontent.com/wez/wezterm/master/termwiz/data/wezterm.terminfo
@@ -648,6 +638,82 @@ case "${1:-}" in
        wget https://dl.min.io/client/mc/release/linux-$arch_name/mc -O ~/.local/bin/mc
        chmod +x ~/.local/bin/mc
        ;;
+
+    remote)
+        if [ $# -lt 3 ]; then
+            error "remote requires HOST and COMMAND. Usage: $0 remote <host> <command> [args...]"
+        fi
+        host="$2"
+        shift 2
+        scp "$0" "$host:/tmp/myinstall"
+        ssh "$host" "chmod +x /tmp/myinstall && /tmp/myinstall $*; rm -f /tmp/myinstall"
+        ;;
+
+    sync-remote)
+        if [ $# -lt 2 ]; then
+            error "sync-remote requires HOST. Usage: $0 sync-remote <host>"
+        fi
+        host="$2"
+        script_dir="$( cd "$( dirname "$(realpath "${BASH_SOURCE[0]}")" )" &> /dev/null && pwd )"
+        myconfigs_dir="$( cd "$script_dir/../../.." && pwd )"
+        info "Syncing myconfigs $myconfigs_dir to $host:$HOME/myconfigs/"
+        # -v verbose, -u skip newer files on receiver, -a archive mode (recursive + preserve permissions/times/symlinks/owner/group)
+        # -S handle sparse files, -H preserve hardlinks, -A preserve ACLs, -X preserve xattrs, -h human readable, -P progress + keep partial
+        rsync -vuaSHAXhP \
+            --exclude='.pixi' \
+            --exclude='.git' \
+            --exclude='.venv' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            "$myconfigs_dir/" "$host:$HOME/myconfigs/"
+        ;;
+
+    pixi-core)
+        info "Installing core tools..."
+        pixi global install git git-lfs stow less file fish openssh ripgrep fd-find fzf bat nvim unzip tmux atool xclip pipe-rename
+
+        pixi_path=${PIXI_PATH:-$HOME/.pixi}
+        # https://pixi.sh/latest/global_tools/trampolines/#trampolines
+        remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/nvim.json
+        remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/tmux.json
+        remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/fish.json
+        ;;
+
+    pixi-devtools)
+        info "Installing dev tools..."
+        pixi global install cmake ninja taplo stylua actionlint mergiraf luarocks platformio just
+        ;;
+
+    pixi-build-rust)
+        info "Installing Rust build tools..."
+        pixi global install mold ccache lld patchelf rattler-build sccache bacon
+        ;;
+
+    pixi-debug-profile)
+        info "Installing debug/profiling tools..."
+        pixi global install gdb lldb valgrind hyperfine nvitop
+        ;;
+
+    pixi-network-remote)
+        info "Installing network/remote tools..."
+        pixi global install mosh iperf
+        ;;
+
+    pixi-utils)
+        info "Installing utility tools..."
+        pixi global install gh yt-dlp jless difftastic numbat please
+        ;;
+
+    pixi-all)
+        info "Installing all pixi global packages..."
+        $0 pixi-core
+        $0 pixi-devtools
+        $0 pixi-build-rust
+        $0 pixi-debug-profile
+        $0 pixi-network-remote
+        $0 pixi-utils
+        info "Done!"
+        ;;
 
     --help)
         list_options

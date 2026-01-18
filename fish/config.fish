@@ -21,6 +21,7 @@ export PIXI_LEFT_PROMPT
 export TURBO_TELEMETRY_DISABLED=1
 export HF_HUB_DISABLE_TELEMETRY=True
 export HF_HUB_ENABLE_HF_TRANSFER=1
+export HF_XET_HIGH_PERFORMANCE=1
 
 # To prevent JAX from allocating all GPU memory
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
@@ -235,6 +236,9 @@ end
 if command -v fzf &> /dev/null
   fzf --fish | source
 end
+if command -v sccache &> /dev/null
+  export RUSTC_WRAPPER="$(which sccache)"
+end
 # gdb
 alias gdbrun='gdb --ex run --args '
 alias colorless='sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g"'
@@ -283,6 +287,28 @@ end
 
 function cpp-scratch
   nvim $CPP_SCREATCHES_DIR/$argv[1]
+end
+
+function mem-monitor
+    # Monitor process memory usage in real-time
+    # Usage: mem-monitor [process_name] [interval]
+    # Examples:
+    #   mem-monitor chrome        # Monitor chrome with 0.1s interval
+    #   mem-monitor firefox 0.5   # Monitor firefox with 0.5s interval
+    #   mem-monitor "Google Chrome" 1  # Monitor with spaces in name
+
+    if test (count $argv) -lt 1 -o (count $argv) -gt 2
+        echo "Usage: mem-monitor [process_name] [interval]"
+        return
+    end
+
+    set -l process_name $argv[1]
+    set -l interval 0.1
+    if test (count $argv) -eq 2
+        set interval $argv[2]
+    end
+
+    watch -n $interval "ps aux | grep '$process_name' | grep -v grep | awk '{sum+=\$6} END {if (sum > 0) print \"Total Memory: \" sum/1024 \" MB\"; else print \"Process not found\"}'"
 end
 
 # fzf settings
@@ -418,7 +444,6 @@ function diffdir
 end
 
 complete -c wt -x -a "(__fish_wt)"
-complete -c myinstall -x -a "(myinstall --help)"
 complete -c set-timezone -a "(timedatectl list-timezones)"
 
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
@@ -946,3 +971,13 @@ complete -c sfs -n "__fish_is_first_arg" -a "connect disconnect ssh list home"
 complete -c sfs -n "__fish_seen_subcommand_from connect ssh home; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
 complete -c sfs -n "__fish_seen_subcommand_from disconnect" -a "(ls ~/.local/mnt/sfs/ 2>/dev/null)"
 complete -c sfs -n "__fish_seen_subcommand_from connect ssh; and test (count (commandline -opc)) -ge 3" -a "(__fish_sfs_remote_paths)"
+
+# myinstall completions
+function __fish_myinstall_commands
+    myinstall --help 2>/dev/null
+end
+complete -c myinstall -f
+complete -c myinstall -n "__fish_is_first_arg" -a "(__fish_myinstall_commands)"
+complete -c myinstall -n "__fish_seen_subcommand_from remote; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
+complete -c myinstall -n "__fish_seen_subcommand_from remote; and test (count (commandline -opc)) -ge 3" -a "(__fish_myinstall_commands)"
+complete -c myinstall -n "__fish_seen_subcommand_from sync-remote; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
