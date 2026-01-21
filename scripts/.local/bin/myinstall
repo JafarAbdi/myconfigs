@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# Ensure pixi is in PATH for remote execution (SSH non-interactive shells don't source .bashrc)
+[[ -d "$HOME/.pixi/bin" ]] && export PATH="$HOME/.pixi/bin:$PATH"
+
 WORKSPACE_DIR="$HOME/workspace"
 CPP_SCREATCHES_DIR="$WORKSPACE_DIR/cpp/scratches"
 
@@ -338,11 +341,6 @@ case "${1:-}" in
 	      mkdir -p ~/.config/fish/completions
         ~/.pixi/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
       fi
-      mkdir -p ~/.pixi/manifests
-      # Remove if it's a regular file (not a symlink)
-      [ -f ~/.pixi/manifests/pixi-global.toml ] && [ ! -L ~/.pixi/manifests/pixi-global.toml ] && rm ~/.pixi/manifests/pixi-global.toml
-      # Force create symlink
-      ln -sf ~/myconfigs/pixi/.pixi/manifests/pixi-global.toml ~/.pixi/manifests/pixi-global.toml
       ;;
 
     mujoco)
@@ -406,22 +404,6 @@ case "${1:-}" in
         # https://docs.platformio.org/en/stable/core/installation/udev-rules.html#platformio-udev-rules
         curl -fsSL https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules | sudo tee /etc/udev/rules.d/99-platformio-udev.rules
         sudo udevadm control --reload-rules && sudo udevadm trigger
-        ;;
-
-    fish)
-        if [ "$(id -u)" -eq 0 ]; then
-          info "Installing packages without sudo..."
-          apt update
-          apt install -y software-properties-common curl wget && apt-add-repository -y ppa:fish-shell/release-3
-          apt install -y fish
-        else
-          info "Installing packages with sudo..."
-          sudo apt update
-          sudo apt install -y software-properties-common curl wget && sudo apt-add-repository -y ppa:fish-shell/release-3
-          sudo apt install -y fish
-        fi
-
-        $0 setup-fish
         ;;
 
     setup-fish)
@@ -646,7 +628,7 @@ case "${1:-}" in
         host="$2"
         shift 2
         scp "$0" "$host:/tmp/myinstall"
-        ssh "$host" "chmod +x /tmp/myinstall && /tmp/myinstall $*; rm -f /tmp/myinstall"
+        ssh -t "$host" "chmod +x /tmp/myinstall && /tmp/myinstall $*; rm -f /tmp/myinstall"
         ;;
 
     sync-remote)
@@ -656,7 +638,7 @@ case "${1:-}" in
         host="$2"
         script_dir="$( cd "$( dirname "$(realpath "${BASH_SOURCE[0]}")" )" &> /dev/null && pwd )"
         myconfigs_dir="$( cd "$script_dir/../../.." && pwd )"
-        info "Syncing myconfigs $myconfigs_dir to $host:$HOME/myconfigs/"
+        info "Syncing myconfigs $myconfigs_dir to $host:~/myconfigs/"
         # -v verbose, -u skip newer files on receiver, -a archive mode (recursive + preserve permissions/times/symlinks/owner/group)
         # -S handle sparse files, -H preserve hardlinks, -A preserve ACLs, -X preserve xattrs, -h human readable, -P progress + keep partial
         rsync -vuaSHAXhP \
@@ -665,7 +647,7 @@ case "${1:-}" in
             --exclude='.venv' \
             --exclude='node_modules' \
             --exclude='__pycache__' \
-            "$myconfigs_dir/" "$host:$HOME/myconfigs/"
+            "$myconfigs_dir/" "$host:~/myconfigs/"
         ;;
 
     pixi-core)
