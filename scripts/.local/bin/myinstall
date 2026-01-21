@@ -280,7 +280,7 @@ case "${1:-}" in
             mkdir -p ~/.local/bin
             wget https://github.com/wez/wezterm/releases/download/nightly/WezTerm-nightly-Ubuntu20.04.AppImage -O ~/.local/bin/wezterm
             chmod +x ~/.local/bin/wezterm
-            ~/.local/bin/wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
+            mkdir -p ~/.config/fish/completions && ~/.local/bin/wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
             # Install terminfo
             tempfile=$(mktemp)
             curl -o "$tempfile" https://raw.githubusercontent.com/wez/wezterm/master/termwiz/data/wezterm.terminfo
