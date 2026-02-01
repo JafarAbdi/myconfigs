@@ -663,7 +663,7 @@ case "${1:-}" in
 
     pixi-devtools)
         info "Installing dev tools..."
-        pixi global install cmake ninja taplo stylua actionlint mergiraf luarocks platformio just
+        pixi global install cmake ninja taplo stylua actionlint mergiraf luarocks platformio just prek
         ~/.pixi/bin/just --completions fish > ~/.config/fish/completions/justfile.fish
         ;;
 

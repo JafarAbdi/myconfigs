@@ -37,72 +37,37 @@ local set_clangd_opening_path = function(callback)
   end
 end
 
-local term = {
-  jobid = nil,
-  bufnr = nil,
-  open_bufnr = nil,
+local wezterm = {
+  run = function(cmd, opts)
+    opts = opts or {}
+    local args = { "wezterm", "cli", "split-pane", "--bottom", "--percent", "25" }
+    if opts.cwd then
+      table.insert(args, "--cwd")
+      table.insert(args, opts.cwd)
+    end
+    local escaped = table.concat(vim.tbl_map(vim.fn.shellescape, cmd), " ")
+    vim.list_extend(args, { "bash", "-c", escaped .. '; read -p "Press Enter to close..."' })
+    vim.system(args)
+  end,
+  spawn = function(cmd, opts)
+    opts = opts or {}
+    local args = { "wezterm", "cli", "spawn" }
+    if opts.new_window then
+      table.insert(args, "--new-window")
+    end
+    if opts.cwd then
+      table.insert(args, "--cwd")
+      table.insert(args, opts.cwd)
+    end
+    local escaped = table.concat(vim.tbl_map(vim.fn.shellescape, cmd), " ")
+    vim.list_extend(args, { "bash", "-c", escaped .. '; read -p "Press Enter to close..."' })
+    vim.system(args)
+  end,
+  notify = function(title, body)
+    local cmd = string.format("\x1b]777;notify;%s;%s\x1b\\", title or "", body or "")
+    vim.api.nvim_chan_send(vim.v.stderr, cmd)
+  end,
 }
-term.close = function()
-  if term.open_bufnr and vim.api.nvim_buf_is_valid(term.open_bufnr) then
-    vim.api.nvim_buf_delete(term.open_bufnr, { force = true, unload = false })
-  end
-  term.open_bufnr = nil
-  if not term.jobid then
-    return
-  end
-  vim.fn.jobstop(term.jobid)
-  vim.fn.jobwait({ term.jobid })
-end
-term.create = function(cmd, args, opts)
-  opts = vim.tbl_extend("keep", opts or {}, {
-    auto_close = true,
-    focus_terminal = false,
-  })
-  args = args or {}
-  vim.cmd.new({ mods = { split = "botright" }, range = { math.floor(vim.opt.lines:get() / 4) } })
-  term.bufnr = vim.api.nvim_win_get_buf(vim.fn.win_getid())
-  vim.api.nvim_buf_set_option(0, "buftype", "nofile")
-  vim.api.nvim_buf_set_option(0, "bufhidden", "wipe")
-  vim.api.nvim_buf_set_option(0, "buflisted", false)
-  vim.api.nvim_buf_set_option(0, "swapfile", false)
-  vim.api.nvim_buf_set_option(0, "spell", false)
-  local term_opts = {
-    cwd = opts.cwd or vim.loop.cwd(),
-    on_exit = function()
-      term.jobid = nil
-      if opts.auto_close then
-        if vim.api.nvim_buf_is_valid(term.bufnr) then
-          vim.api.nvim_buf_delete(term.bufnr, { force = true, unload = false })
-        end
-      else
-        if term.open_bufnr then
-          print(
-            string.format(
-              "open_bufnr: %s -- it should be nil you forgot to cleanup the previous terminal buffer",
-              term.open_bufnr
-            )
-          )
-        end
-        term.open_bufnr = term.bufnr
-      end
-      term.bufnr = nil
-    end,
-  }
-  if opts.env and not vim.tbl_isempty(opts.env) then
-    term_opts.env = opts.env
-  end
-  term.jobid = vim.fn.termopen(cmd .. " " .. vim.fn.join(args, " "), term_opts)
-
-  if opts.focus_terminal then
-    vim.cmd.startinsert({ bang = true })
-  else
-    vim.cmd.wincmd("p")
-  end
-end
-term.run = function(cmd, args, opts)
-  term.close()
-  term.create(cmd, args, opts)
-end
 
 local root_dirs = {
   python = function(startpath)
@@ -289,7 +254,7 @@ local run_file = function()
   if not cmd then
     return
   end
-  term.run(cmd[1], vim.list_slice(cmd, 2), { cwd = root_dir, auto_close = false })
+  wezterm.run(cmd, root_dir)
 end
 
 ----------------
@@ -1629,7 +1594,6 @@ end, { silent = true })
 
 local win_pre_copen = nil
 vim.keymap.set("n", "<leader>c", function()
-  term.close()
   local api = vim.api
   for _, win in pairs(api.nvim_list_wins()) do
     local buf = api.nvim_win_get_buf(win)
