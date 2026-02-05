@@ -384,6 +384,18 @@ case "${1:-}" in
         gh config set git_protocol ssh
         ;;
 
+    gh-remote)
+        if [ $# -lt 2 ]; then
+            error "gh-remote requires HOST. Usage: $0 gh-remote <host>"
+        fi
+        host="$2"
+        if ! gh auth token >/dev/null 2>&1; then
+            error "No local gh auth token found. Run 'gh auth login' first."
+        fi
+        gh auth token | ssh -- "$host" "gh auth login --with-token && gh config set git_protocol ssh"
+        info "gh auth configured on $host"
+        ;;
+
     clang-build-analyzer)
         pushd ~/.local/bin
         install_from_github aras-p/ClangBuildAnalyzer ClangBuildAnalyzer-linux
