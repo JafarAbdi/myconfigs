@@ -25,10 +25,11 @@ export HF_XET_HIGH_PERFORMANCE=1
 
 # To prevent JAX from allocating all GPU memory
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export JAX_COMPILATION_CACHE_DIR=/tmp/jax_cache
 export HWLOC_HIDE_ERRORS=2
 
 # To fix rerun freezing issue. See https://rerun.io/docs/getting-started/troubleshooting#multiple-gpus
-export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.x86_64.json
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.json
 
 function get_path
     set -l path /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.local/bin

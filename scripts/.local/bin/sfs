@@ -38,8 +38,14 @@ cmd_connect() {
 cmd_disconnect() {
     local host="$1"
     local mount_point="${MOUNT_DIR}/${host}"
-    is_mounted "$mount_point" || error "Not mounted: $mount_point"
-    do_unmount "$mount_point" && info "Disconnected from $host"
+
+    if is_mounted "$mount_point"; then
+        do_unmount "$mount_point" && info "Disconnected from $host"
+    elif [[ -d "$mount_point" ]]; then
+        rmdir "$mount_point" 2>/dev/null && info "Cleaned up stale mount: $mount_point"
+    else
+        error "Not mounted: $mount_point"
+    fi
 }
 
 cmd_ssh() {
