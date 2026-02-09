@@ -16,12 +16,15 @@ readonly arch=$(uname -m)
 case "$arch" in
   x86_64|amd64)
     arch_name="amd64"
+    oc_arch="x64"
     ;;
   aarch64|arm64)
     arch_name="arm64"
+    oc_arch="arm64"
     ;;
   *)
     arch_name="unknown"  # Handle other architectures if needed
+    oc_arch="unknown"
     ;;
 esac
 
@@ -464,7 +467,8 @@ case "${1:-}" in
                                                                          wezterm \
                                                                          neovim \
                                                                          tmux \
-                                                                         claude
+                                                                         claude \
+                                                                         opencode
         popd || exit 1
         ;;
 
@@ -563,6 +567,23 @@ case "${1:-}" in
 
     claude-code)
         curl -fsSL https://claude.ai/install.sh | bash
+        ;;
+
+    opencode)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        oc_target="linux-${oc_arch}"
+        if [ "$oc_arch" = "x64" ] && ! grep -qi avx2 /proc/cpuinfo 2>/dev/null; then
+            oc_target="${oc_target}-baseline"
+        fi
+        if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then
+            oc_target="${oc_target}-musl"
+        fi
+        wget "https://github.com/anomalyco/opencode/releases/latest/download/opencode-${oc_target}.tar.gz"
+        tar xzf "opencode-${oc_target}.tar.gz"
+        mv opencode ~/.local/bin/opencode
+        chmod +x ~/.local/bin/opencode
+        popd || exit 1
         ;;
 
     setup-codium)
