@@ -387,16 +387,27 @@ case "${1:-}" in
         gh config set git_protocol ssh
         ;;
 
-    gh-remote)
+    setup-remote)
         if [ $# -lt 2 ]; then
-            error "gh-remote requires HOST. Usage: $0 gh-remote <host>"
+            error "setup-remote requires HOST. Usage: $0 setup-remote <host>"
         fi
         host="$2"
+
+        info "Setting up GitHub authentication on $host..."
         if ! gh auth token >/dev/null 2>&1; then
             error "No local gh auth token found. Run 'gh auth login' first."
         fi
         gh auth token | ssh -- "$host" "gh auth login --with-token && gh config set git_protocol ssh"
         info "gh auth configured on $host"
+
+        info "Setting up opencode credentials on $host..."
+        ssh -- "$host" "mkdir -p ~/.local/share/opencode ~/.local/state/opencode"
+        scp -q ~/.local/share/opencode/auth.json "$host:~/.local/share/opencode/auth.json" || warning "Failed to copy auth.json"
+        scp -q ~/.local/state/opencode/model.json "$host:~/.local/state/opencode/model.json" || warning "Failed to copy model.json"
+        scp -q ~/.local/state/opencode/kv.json "$host:~/.local/state/opencode/kv.json" || warning "Failed to copy kv.json"
+        info "opencode credentials synced to $host"
+
+        info "Remote setup complete for $host"
         ;;
 
     clang-build-analyzer)
