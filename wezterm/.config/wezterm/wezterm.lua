@@ -278,8 +278,12 @@ local make_docker_fixup_func = function(id)
       "-it",
       "--user",
       os.getenv("USER"),
-      id,
     }
+    for k, v in pairs(cmd.set_environment_variables) do
+      table.insert(wrapped, "-e")
+      table.insert(wrapped, k .. "=" .. v)
+    end
+    table.insert(wrapped, id)
     for _, arg in ipairs(cmd.args) do
       table.insert(wrapped, arg)
     end
