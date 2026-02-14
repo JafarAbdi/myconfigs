@@ -338,6 +338,8 @@ set -xg FZF_DEFAULT_OPTS "--no-mouse --height 100% --reverse --multi --info=inli
 set -xg FZF_CTRL_R_OPTS "--preview=''"
 
 set -xg FZF_CTRL_T_OPTS "--prompt='Files> '" \
+                        "--preview 'fzf_preview {}'" \
+                        "--preview-window 'right,~3'" \
                         "--header='CTRL-D: Directories / CTRL-F: Files / CTRL-H: Show hidden files / CTRL-O: no-ignore'" \
                         "--bind='ctrl-d:change-prompt(Directories> )+reload(fd --type d)'" \
                         "--bind='ctrl-f:change-prompt(Files> )+reload($FZF_DEFAULT_COMMAND)'" \

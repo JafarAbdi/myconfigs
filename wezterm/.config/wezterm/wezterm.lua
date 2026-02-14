@@ -126,7 +126,7 @@ config.keys = {
           "-c",
           "nvim -c 'set nospell' -c \"lua require('fzy').execute('fd --type f --strip-cwd-prefix', require('fzy').sinks.edit_file)\"",
         },
-        cwd = os.getenv("HOME") .. "/Nextcloud/Notes/CodeSnippets",
+        cwd = os.getenv("HOME") .. "/Nextcloud/Notes/code_snippets",
       },
     }),
   },
