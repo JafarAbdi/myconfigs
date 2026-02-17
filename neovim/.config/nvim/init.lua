@@ -860,7 +860,7 @@ local servers = {
       -- https://github.com/rust-analyzer/rust-analyzer/blob/master/docs/user/generated_config.adoc
       -- https://rust-analyzer.github.io/book/configuration.html
       ["rust-analyzer"] = {
-        checkOnSave = true,
+        check = true,
         completion = {
           snippets = {
             custom = {
