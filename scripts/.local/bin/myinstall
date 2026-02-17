@@ -563,6 +563,15 @@ case "${1:-}" in
         popd || exit 1
         ;;
 
+    rustnet)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github domcyrus/rustnet "rustnet-.*-$(arch)-unknown-linux-gnu.tar.gz"
+        tar xzf rustnet-*.tar.gz --strip-components=1
+        mv rustnet ~/.local/bin
+        popd || exit 1
+        ;;
+
     # Requires iwd
     # impala)
     #     TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
