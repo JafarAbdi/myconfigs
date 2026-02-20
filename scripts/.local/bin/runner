@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: runner [--wait] FILE [ARGS...]
+# Usage: runner [--wait] [-n|--no-build] [-r|--release] FILE [ARGS...]
 # Runs FILE with the appropriate interpreter/compiler based on extension
 
 readonly RED='\033[0;31m'
@@ -15,12 +15,18 @@ info()  { echo -e "[${GREEN}info${NC}] $1" >&2; }
 run()   { info "$ $*"; "$@"; }
 
 wait_after=false
-if [[ "${1:-}" == "--wait" ]]; then
-  wait_after=true
-  shift
-fi
+no_build=false
+release=false
+while [[ "${1:-}" == --* ]] || [[ "${1:-}" == -[nr] ]]; do
+  case "$1" in
+    --wait)        wait_after=true; shift ;;
+    -n|--no-build) no_build=true; shift ;;
+    -r|--release)  release=true; shift ;;
+    *) break ;;
+  esac
+done
 
-filepath="${1:?Usage: runner [--wait] FILE [ARGS...]}"
+filepath="${1:?Usage: runner [--wait] [-n|--no-build] [-r|--release] FILE [ARGS...]}"
 shift
 args=("$@")
 filepath="$(realpath "$filepath")"
@@ -74,20 +80,47 @@ run_rust() {
   if [[ ! -f "$root/Cargo.toml" ]]; then
     error "Not a Cargo project"
   fi
-  local target
-  target=$(cargo metadata --manifest-path "$root/Cargo.toml" --format-version=1 2>/dev/null | \
-    jq -r --arg file "$filepath" '
-      .packages[].targets[] |
-      select(.src_path == $file) |
-      if .kind[0] == "bin" then "run --release --bin \(.name)"
-      elif .kind[0] == "example" then "run --release --example \(.name)"
-      else empty end
-    ' | head -1)
-  if [[ -z "$target" ]]; then
+  local metadata
+  metadata=$(cargo metadata --manifest-path "$root/Cargo.toml" --format-version=1 2>/dev/null)
+  local target_dir
+  target_dir=$(echo "$metadata" | jq -r '.target_directory')
+  local target_info
+  target_info=$(echo "$metadata" | jq -r --arg file "$filepath" '
+    .packages[].targets[] |
+    select(.src_path == $file) |
+    if .kind[0] == "bin" then "\(.name) bin"
+    elif .kind[0] == "example" then "\(.name) example"
+    else empty end
+  ' | head -1)
+  if [[ -z "$target_info" ]]; then
     error "Can't find Cargo target for $filepath"
   fi
-  # shellcheck disable=SC2086
-  run cargo $target --manifest-path "$root/Cargo.toml" -- "${args[@]}"
+  local name="${target_info% *}"
+  local kind="${target_info#* }"
+
+  local profile="debug"
+  $release && profile="release"
+
+  if $no_build; then
+    local bin
+    if [[ "$kind" == "example" ]]; then
+      bin="$target_dir/$profile/examples/$name"
+    else
+      bin="$target_dir/$profile/$name"
+    fi
+    [[ -x "$bin" ]] || error "Binary not found: $bin (build first without -n)"
+    run "$bin" "${args[@]}"
+  else
+    local cargo_cmd
+    if [[ "$kind" == "example" ]]; then
+      cargo_cmd="run --example $name"
+    else
+      cargo_cmd="run --bin $name"
+    fi
+    $release && cargo_cmd+=" --release"
+    # shellcheck disable=SC2086
+    run cargo $cargo_cmd --manifest-path "$root/Cargo.toml" -- "${args[@]}"
+  fi
 }
 
 get_build_dir_from_clangd() {
