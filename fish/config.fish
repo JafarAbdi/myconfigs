@@ -115,7 +115,7 @@ alias myconfigsr "source ~/.config/fish/config.fish"
 alias cuda_architectures "nvidia-smi --query-gpu=compute_cap --format=csv,noheader"
 
 export MYPYPATH=$HOME/.cache/python-stubs/stubs
-export SHELL=fish
+export SHELL=$(which fish)
 
 if test -e ~/.terminfo/w/wezterm
   export TERM=wezterm
@@ -239,6 +239,7 @@ if command -v fzf &> /dev/null
 end
 if command -v sccache &> /dev/null
   export RUSTC_WRAPPER="$(which sccache)"
+  export SCCACHE_CACHE_SIZE="50G"
 end
 # gdb
 alias gdbrun='gdb --ex run --args '
