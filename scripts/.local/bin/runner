@@ -81,7 +81,7 @@ run_rust() {
     error "Not a Cargo project"
   fi
   local metadata
-  metadata=$(cargo metadata --manifest-path "$root/Cargo.toml" --format-version=1 2>/dev/null)
+  metadata=$(cargo metadata --no-deps --frozen --manifest-path "$root/Cargo.toml" --format-version=1 2>/dev/null)
   local target_dir
   target_dir=$(echo "$metadata" | jq -r '.target_directory')
   local target_info
