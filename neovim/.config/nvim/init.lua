@@ -145,116 +145,13 @@ _G.lsp_status = function()
   return " | " .. lsp_status
 end
 
-local runners = {
-  python = function(file_path, root_dir)
-    local python_executable = "python3"
-    local pixi_python_executable =
-      vim.fs.joinpath(root_dir, ".pixi", "envs", "default", "bin", "python")
-    if vim.uv.fs_stat(pixi_python_executable) ~= nil then
-      python_executable = pixi_python_executable
-    end
-    local venv_python_executable = vim.fs.joinpath(root_dir, ".venv", "bin", "python")
-    if vim.uv.fs_stat(venv_python_executable) ~= nil then
-      python_executable = venv_python_executable
-    end
-    return {
-      python_executable,
-      file_path,
-    }
-  end,
-  bash = function(file_path, _)
-    return {
-      "bash",
-      file_path,
-    }
-  end,
-  fish = function(file_path, _)
-    return {
-      "fish",
-      file_path,
-    }
-  end,
-  xml = function(_, _)
-    return {
-      "curl",
-      "-X",
-      "POST",
-      "http://127.0.0.1:7777/set_reload_request",
-    }
-  end,
-  rust = function(file_path, root_dir)
-    if not vim.uv.fs_stat(vim.fs.joinpath(root_dir, "Cargo.toml")) then
-      vim.notify(root_dir .. " is not a Cargo project", vim.log.levels.WARN)
-    end
-    local cmd_output = vim
-      .system(
-        { "cargo", "metadata", "--format-version=1", "--no-deps", "--offline" },
-        { cwd = root_dir, text = true }
-      )
-      :wait()
-    if cmd_output.code ~= 0 then
-      vim.notify("Failed with code " .. cmd_output.code, vim.log.levels.WARN)
-      return
-    end
-
-    local metadata = vim.json.decode(cmd_output.stdout)
-
-    for _, package in ipairs(metadata.packages) do
-      for _, target in ipairs(package.targets) do
-        -- if target.kind[1] == "lib" and is_test then
-        --   return { "cargo", "test", "--lib" }
-        -- end
-        if file_path == target.src_path then
-          if target.kind[1] == "bin" then
-            return { "cargo", "run", "--release", "--bin", target.name }
-          elseif target.kind[1] == "example" then
-            return { "cargo", "run", "--release", "--example", target.name }
-          else
-            vim.notify("Unsupported target kind " .. vim.inspect(target.kind), vim.log.levels.WARN)
-            return
-          end
-        end
-      end
-    end
-    vim.notify("Can't find a target for " .. file_path, vim.log.levels.WARN)
-  end,
-  lua = function(file_path, _, _)
-    return { "nvim", "-l", file_path }
-  end,
-}
-
-runners.sh = runners.bash
-
 local run_file = function()
-  local filetype = vim.api.nvim_get_option_value("filetype", {})
-  if not filetype or filetype == "" then
-    return
-  end
-
-  local runner = runners[filetype]
-  if not runner then
-    vim.notify("No runner found for filetype: '" .. filetype .. "'", vim.log.levels.WARN)
-    return
-  end
-
-  local dirname = vim.fn.expand("%:p:h")
-  local root_dir = root_dirs[filetype]
-    or function(startpath)
-      return vim.fs.root(startpath, { ".git" })
-    end
-  root_dir = root_dir(dirname) or dirname
-
   if
     not vim.api.nvim_buf_get_option(0, "readonly") and vim.api.nvim_buf_get_option(0, "modified")
   then
     vim.cmd.write()
   end
-
-  local cmd = runner(vim.fn.expand("%:p"), root_dir)
-  if not cmd then
-    return
-  end
-  wezterm.run(cmd, root_dir)
+  wezterm.run({ "runner", "--wait", vim.fn.expand("%:p") })
 end
 
 ----------------

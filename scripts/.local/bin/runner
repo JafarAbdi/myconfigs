@@ -1,0 +1,309 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage: runner [--wait] FILE [ARGS...]
+# Runs FILE with the appropriate interpreter/compiler based on extension
+
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly NC='\033[0m'
+
+error() { echo -e "[${RED}error${NC}] $1" >&2; exit 1; }
+warn()  { echo -e "[${YELLOW}warn${NC}] $1" >&2; }
+info()  { echo -e "[${GREEN}info${NC}] $1" >&2; }
+run()   { info "$ $*"; "$@"; }
+
+wait_after=false
+if [[ "${1:-}" == "--wait" ]]; then
+  wait_after=true
+  shift
+fi
+
+filepath="${1:?Usage: runner [--wait] FILE [ARGS...]}"
+shift
+args=("$@")
+filepath="$(realpath "$filepath")"
+dir="$(dirname "$filepath")"
+basename="$(basename "$filepath")"
+
+# Get extension, or detect from mime type if no extension
+if [[ "$basename" == *.* ]]; then
+  ext="${basename##*.}"
+else
+  mime="$(file -b --mime-type "$filepath")"
+  case "$mime" in
+    text/x-script.python) ext="py" ;;
+    text/x-shellscript)   ext="sh" ;;
+    *) error "Unknown mime type: $mime" ;;
+  esac
+  info "Detected type from mime: $ext"
+fi
+
+# Find project root by looking for marker files
+find_root() {
+  local markers=("$@")
+  local current="$dir"
+  while [[ "$current" != "/" ]]; do
+    for marker in "${markers[@]}"; do
+      if [[ -e "$current/$marker" ]]; then
+        echo "$current"
+        return 0
+      fi
+    done
+    current="$(dirname "$current")"
+  done
+  echo "$dir"
+}
+
+run_python() {
+  local root
+  root=$(find_root .pixi pixi.toml .venv pyproject.toml setup.py setup.cfg .git)
+  if [[ -d "$root/.pixi" ]]; then
+    run pixi run --manifest-path "$root/pixi.toml" python "$filepath" "${args[@]}"
+  elif [[ -d "$root/.venv" ]]; then
+    run "$root/.venv/bin/python" "$filepath" "${args[@]}"
+  else
+    run python3 "$filepath" "${args[@]}"
+  fi
+}
+
+run_rust() {
+  local root
+  root=$(find_root Cargo.toml)
+  if [[ ! -f "$root/Cargo.toml" ]]; then
+    error "Not a Cargo project"
+  fi
+  local target
+  target=$(cargo metadata --manifest-path "$root/Cargo.toml" --format-version=1 2>/dev/null | \
+    jq -r --arg file "$filepath" '
+      .packages[].targets[] |
+      select(.src_path == $file) |
+      if .kind[0] == "bin" then "run --release --bin \(.name)"
+      elif .kind[0] == "example" then "run --release --example \(.name)"
+      else empty end
+    ' | head -1)
+  if [[ -z "$target" ]]; then
+    error "Can't find Cargo target for $filepath"
+  fi
+  # shellcheck disable=SC2086
+  run cargo $target --manifest-path "$root/Cargo.toml" -- "${args[@]}"
+}
+
+get_build_dir_from_clangd() {
+  # Parse .clangd and find CompilationDatabase for the given file
+  local clangd_file="$1"
+  local source_file="$2"
+  local clangd_dir
+  clangd_dir="$(dirname "$clangd_file")"
+
+  python3 -c "
+import yaml
+import sys
+import re
+from pathlib import Path
+
+clangd_file = Path('$clangd_file')
+source_file = Path('$source_file')
+clangd_dir = Path('$clangd_dir')
+
+with open(clangd_file) as f:
+    docs = list(yaml.safe_load_all(f))
+
+for doc in docs:
+    if not doc:
+        continue
+    path_match = doc.get('If', {}).get('PathMatch', [])
+    compile_db = doc.get('CompileFlags', {}).get('CompilationDatabase')
+    if not compile_db:
+        continue
+    # Make compile_db absolute
+    compile_db = Path(compile_db)
+    if not compile_db.is_absolute():
+        compile_db = clangd_dir / compile_db
+    # If no PathMatch, this is the default
+    if not path_match:
+        print(compile_db)
+        sys.exit(0)
+    # Check if file matches any pattern
+    rel_path = source_file.relative_to(clangd_dir)
+    for pattern in path_match:
+        if re.match(pattern, str(rel_path)):
+            print(compile_db)
+            sys.exit(0)
+
+# No match found
+sys.exit(1)
+" 2>/dev/null
+}
+
+run_c_cmake() {
+  local root="$1"
+  local build_dir=""
+
+  # Try .clangd first for build directory
+  if [[ -f "$root/.clangd" ]]; then
+    build_dir=$(get_build_dir_from_clangd "$root/.clangd" "$filepath") || true
+  fi
+
+  # Default to build/ if .clangd didn't provide a build dir
+  if [[ -z "$build_dir" ]]; then
+    build_dir="$root/build"
+  fi
+
+  # Configure CMake if build dir doesn't exist
+  if [[ ! -d "$build_dir" ]]; then
+    info "Configuring CMake..."
+    # Create CMake API query file
+    mkdir -p "$build_dir/.cmake/api/v1/query"
+    touch "$build_dir/.cmake/api/v1/query/codemodel-v2"
+    run cmake -B "$build_dir" -S "$root" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON || { warn "CMake configure failed"; return 1; }
+  fi
+
+  local reply_dir="$build_dir/.cmake/api/v1/reply"
+  [[ -d "$reply_dir" ]] || { warn "CMake API reply dir not found: $reply_dir"; return 1; }
+
+  local index_file
+  index_file=$(find "$reply_dir" -maxdepth 1 -name 'index-*.json' | head -1)
+  [[ -n "$index_file" ]] || { warn "No CMake index file found in $reply_dir"; return 1; }
+
+  local codemodel_file
+  codemodel_file=$(jq -r '.reply["codemodel-v2"].jsonFile // empty' "$index_file")
+  [[ -n "$codemodel_file" ]] || { warn "No codemodel in CMake index"; return 1; }
+
+  local target_info
+  target_info=$(jq -r --arg file "$filepath" --arg root "$root" '
+    .configurations[0].targets[] |
+    .jsonFile as $tf |
+    $tf
+  ' "$reply_dir/$codemodel_file" | while read -r target_file; do
+    jq -r --arg file "$filepath" --arg root "$root" --arg build "$build_dir" '
+      select(.type == "EXECUTABLE") |
+      select(.sources[0].path as $src | ($root + "/" + $src) == $file) |
+      "\(.name) \($build)/\(.artifacts[0].path)"
+    ' "$reply_dir/$target_file" 2>/dev/null
+  done | head -1)
+
+  [[ -n "$target_info" ]] || { warn "No executable target found for $filepath"; return 1; }
+
+  local target_name target_exe
+  target_name="${target_info%% *}"
+  target_exe="${target_info#* }"
+
+  run cmake --build "$build_dir" --target "$target_name" && run "$target_exe" "${args[@]}"
+}
+
+run_c_clang() {
+  local root="$1"
+  local output ret
+  output=$(mktemp)
+  local cmd=(clang++ "$filepath" -o "$output")
+  if command -v mold &>/dev/null; then
+    cmd+=(-fuse-ld=mold)
+  fi
+  if [[ -f "$root/compile_flags.txt" ]]; then
+    mapfile -t flags < "$root/compile_flags.txt"
+    cmd+=("${flags[@]}")
+  fi
+  if [[ -d "$root/.pixi/envs/default" ]]; then
+    local env="$root/.pixi/envs/default"
+    cmd+=(-isystem "$env/include" "-L$env/lib" "-Wl,-rpath,$env/lib")
+    while IFS= read -r lib; do
+      name="${lib##*/lib}"
+      name="${name%.so*}"
+      cmd+=("-l$name")
+    done < <(find "$env/lib" -maxdepth 1 -name '*.so' 2>/dev/null)
+  fi
+  if ! run "${cmd[@]}"; then
+    rm -f "$output"
+    return 1
+  fi
+  run "$output" "${args[@]}"
+  ret=$?
+  rm -f "$output"
+  return $ret
+}
+
+run_c() {
+  local root
+  root=$(find_root .clangd CMakeLists.txt compile_flags.txt .git)
+  if [[ -f "$root/.clangd" ]] || [[ -f "$root/CMakeLists.txt" ]]; then
+    run_c_cmake "$root"
+  else
+    run_c_clang "$root"
+  fi
+}
+
+run_zig() {
+  run zig run "$filepath" -- "${args[@]}"
+}
+
+run_lua() {
+  if command -v nvim &>/dev/null; then
+    run nvim -l "$filepath" "${args[@]}"
+  else
+    run lua "$filepath" "${args[@]}"
+  fi
+}
+
+run_bash() {
+  run bash "$filepath" "${args[@]}"
+}
+
+run_fish() {
+  run fish "$filepath" "${args[@]}"
+}
+
+run_javascript() {
+  if command -v bun &>/dev/null; then
+    run bun "$filepath" "${args[@]}"
+  elif command -v node &>/dev/null; then
+    run node "$filepath" "${args[@]}"
+  else
+    error "No JavaScript runtime found (need bun or node)"
+  fi
+}
+
+run_typescript() {
+  if command -v bun &>/dev/null; then
+    run bun "$filepath" "${args[@]}"
+  elif command -v npx &>/dev/null; then
+    run npx tsx "$filepath" "${args[@]}"
+  else
+    error "No TypeScript runtime found (need bun or npx)"
+  fi
+}
+
+run_go() {
+  run go run "$filepath" "${args[@]}"
+}
+
+run_xml() {
+  run curl -X POST "http://127.0.0.1:7777/set_reload_request"
+}
+
+# Main dispatch
+case "$ext" in
+  py)      run_python ;;
+  rs)      run_rust ;;
+  c|cpp|cc|cxx)  run_c ;;
+  zig)     run_zig ;;
+  lua)     run_lua ;;
+  sh|bash) run_bash ;;
+  fish)    run_fish ;;
+  js|mjs)  run_javascript ;;
+  ts|mts)  run_typescript ;;
+  go)      run_go ;;
+  xml|xacro|urdf|srdf|launch|test) run_xml ;;
+  *)
+    error "Unknown file type: $ext"
+    ;;
+esac
+
+exit_code=$?
+
+if $wait_after; then
+  read -rp "Press Enter to close..."
+fi
+
+exit $exit_code
