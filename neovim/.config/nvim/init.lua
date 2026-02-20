@@ -151,7 +151,7 @@ local run_file = function()
   then
     vim.cmd.write()
   end
-  wezterm.run({ "runner", "--wait", vim.fn.expand("%:p") })
+  wezterm.run({ "runner", vim.fn.expand("%:p") })
 end
 
 ----------------
