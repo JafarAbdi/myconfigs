@@ -86,6 +86,20 @@ with open(\"$file_path\", \"w\") as f:
 """
 }
 
+sync_to_remote() {
+    local host="$1"
+    local script_dir="$( cd "$( dirname "$(realpath "${BASH_SOURCE[0]}")" )" &> /dev/null && pwd )"
+    local myconfigs_dir="$( cd "$script_dir/../../.." && pwd )"
+    info "Syncing myconfigs to $host..."
+    rsync -vuaSHAXhP \
+        --exclude='.pixi' \
+        --exclude='.git' \
+        --exclude='.venv' \
+        --exclude='node_modules' \
+        --exclude='__pycache__' \
+        "$myconfigs_dir/" "$host:~/myconfigs/"
+}
+
 list_options() {
     grep -E '^[[:space:]]+[a-zA-Z0-9_-]+\)' "$0" | sed 's/)//' | tr -d ' \t' | sort
 }
@@ -393,6 +407,8 @@ case "${1:-}" in
         fi
         host="$2"
 
+        sync_to_remote "$host"
+
         info "Setting up GitHub authentication on $host..."
         if ! gh auth token >/dev/null 2>&1; then
             error "No local gh auth token found. Run 'gh auth login' first."
@@ -406,6 +422,9 @@ case "${1:-}" in
         scp -q ~/.local/state/opencode/model.json "$host:~/.local/state/opencode/model.json" || warning "Failed to copy model.json"
         scp -q ~/.local/state/opencode/kv.json "$host:~/.local/state/opencode/kv.json" || warning "Failed to copy kv.json"
         info "opencode credentials synced to $host"
+
+        $0 remote "$host" wezterm
+        $0 remote "$host" minimal
 
         info "Remote setup complete for $host"
         ;;
@@ -680,27 +699,9 @@ case "${1:-}" in
         fi
         host="$2"
         shift 2
+        sync_to_remote "$host"
         scp "$0" "$host:/tmp/myinstall"
         ssh -t "$host" "chmod +x /tmp/myinstall && /tmp/myinstall $*; rm -f /tmp/myinstall"
-        ;;
-
-    sync-remote)
-        if [ $# -lt 2 ]; then
-            error "sync-remote requires HOST. Usage: $0 sync-remote <host>"
-        fi
-        host="$2"
-        script_dir="$( cd "$( dirname "$(realpath "${BASH_SOURCE[0]}")" )" &> /dev/null && pwd )"
-        myconfigs_dir="$( cd "$script_dir/../../.." && pwd )"
-        info "Syncing myconfigs $myconfigs_dir to $host:~/myconfigs/"
-        # -v verbose, -u skip newer files on receiver, -a archive mode (recursive + preserve permissions/times/symlinks/owner/group)
-        # -S handle sparse files, -H preserve hardlinks, -A preserve ACLs, -X preserve xattrs, -h human readable, -P progress + keep partial
-        rsync -vuaSHAXhP \
-            --exclude='.pixi' \
-            --exclude='.git' \
-            --exclude='.venv' \
-            --exclude='node_modules' \
-            --exclude='__pycache__' \
-            "$myconfigs_dir/" "$host:~/myconfigs/"
         ;;
 
     pixi-core)
@@ -716,7 +717,7 @@ case "${1:-}" in
 
     pixi-devtools)
         info "Installing dev tools..."
-        pixi global install cmake ninja taplo stylua actionlint mergiraf luarocks platformio just prek
+        pixi global install cmake ninja taplo stylua actionlint mergiraf luarocks platformio just prek # podman. Requires sudo apt install uidmap passt
         ~/.pixi/bin/just --completions fish > ~/.config/fish/completions/justfile.fish
         ;;
 
