@@ -625,23 +625,6 @@ case "${1:-}" in
         popd || exit 1
         ;;
 
-    setup-codium)
-        codium="$HOME/.vscodium/bin/codium"
-        if [[ ! -x "$codium" ]]; then
-            $0 codium
-        fi
-        mapfile -d '' vscode_extensions < ~/.config/VSCodium/extensions
-        installed_extensions=$("$codium" --list-extensions 2>/dev/null)
-        install_extensions=$(comm -13 <(echo "$installed_extensions" | sort) <(printf "%s\n" "${vscode_extensions[@]}" | sort))
-        uninstall_extensions=$(comm -23 <(echo "$installed_extensions" | sort) <(printf "%s\n" "${vscode_extensions[@]}" | sort))
-        for ext in $install_extensions; do
-            "$codium" --install-extension "$ext" --force
-        done
-        for ext in $uninstall_extensions; do
-            "$codium" --uninstall-extension "$ext"
-        done
-        ;;
-
     codium)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1
