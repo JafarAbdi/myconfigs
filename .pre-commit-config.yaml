@@ -44,14 +44,14 @@ repos:
         pass_filenames: false
         entry: pixi run refurb scripts/.local/bin
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.4
+    rev: v0.15.5
     hooks:
       - id: ruff
         args: ['--output-format=full', '--fix', '--config', 'ruff/.config/ruff/pyproject.toml']
       - id: ruff-format
   # Spelling
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
+    rev: v2.4.2
     hooks:
       - id: codespell
         args: ['--write-changes',
@@ -64,7 +64,7 @@ repos:
   #     - id: cspell
   # Lua
   - repo: https://github.com/JohnnyMorganz/StyLua
-    rev: v2.3.1
+    rev: v2.4.0
     hooks:
       - id: stylua-github
         args: ['--config-path', 'stylua/.config/stylua/.stylua.toml']
