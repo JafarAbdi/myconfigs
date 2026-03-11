@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+# https://github.com/junegunn/fzf/blob/master/ADVANCED.md#switching-between-ripgrep-mode-and-fzf-mode
+
+# Interactive Ripgrep launcher with fzf
+# 1. Search for text in files using Ripgrep (re-runs on every keystroke)
+# 2. Switch between Ripgrep mode (ctrl-r) and fzf filtering mode (ctrl-f)
+# 3. Open the file in Nvim
+extra_args=""
+fzf_extra_args=""
+while getopts ":hnze" opt; do
+  case ${opt} in
+    h )
+      extra_args="$extra_args --hidden"
+      ;;
+    n )
+      extra_args="$extra_args --no-ignore"
+      ;;
+    z )
+      extra_args="$extra_args --search-zip"
+      ;;
+    e )
+      fzf_extra_args="--exact"
+      ;;
+    \? )
+      echo "Invalid option: -$OPTARG" 1>&2
+      exit 1
+      ;;
+    : )
+      echo "Option -$OPTARG requires an argument." 1>&2
+      exit 1
+      ;;
+  esac
+done
+shift $((OPTIND -1))
+
+RG_PREFIX="rg --column --line-number --no-heading --color=always --smart-case ${extra_args:-}"
+INITIAL_QUERY="${*:-}"
+
+# Temp files for preserving queries when switching modes
+rm -f /tmp/rg-fzf-{r,f}
+trap 'rm -f /tmp/rg-fzf-{r,f}' EXIT
+
+fzf --height=100% \
+    --ansi --disabled --query "$INITIAL_QUERY" \
+    --color "hl:-1:underline,hl+:-1:underline:reverse" \
+    --prompt '1. ripgrep> ' \
+    --delimiter : \
+    --header '/ ctrl-r (ripgrep mode) / ctrl-f (fzf mode) /' \
+    --preview 'bash -c '\''[[ {1} == *.gz ]] && zcat {1} | bat --color=always -l log --highlight-line {2} || bat --color=always {1} --highlight-line {2}'\''' \
+    --preview-window 'up,60%,border-bottom,+{2}+3/3,~3' \
+    --bind "start:reload:$RG_PREFIX {q} || true" \
+    --bind "change:reload:sleep 0.1; $RG_PREFIX {q} || true" \
+    --bind "ctrl-f:unbind(change,ctrl-f)+change-prompt(2. fzf> )+enable-search+rebind(ctrl-r)+transform-query(echo {q} > /tmp/rg-fzf-r; cat /tmp/rg-fzf-f)" \
+    --bind "ctrl-r:unbind(ctrl-r)+change-prompt(1. ripgrep> )+disable-search+reload($RG_PREFIX {q} || true)+rebind(change,ctrl-f)+transform-query(echo {q} > /tmp/rg-fzf-f; cat /tmp/rg-fzf-r)" \
+    --bind 'enter:become(nvim {1} +{2})' \
+    --bind 'f3:become(nvim {1}:{2} < /dev/tty > /dev/tty 2>&1)' \
+    ${fzf_extra_args:-}

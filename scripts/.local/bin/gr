@@ -7,13 +7,16 @@
 # 3. Open the file in Vim
 extra_args=""
 fzf_extra_args=""
-while getopts ":hne" opt; do
+while getopts ":hnze" opt; do
   case ${opt} in
     h )
       extra_args="$extra_args --hidden"
       ;;
     n )
       extra_args="$extra_args --no-ignore"
+      ;;
+    z )
+      extra_args="$extra_args --search-zip"
       ;;
     e )
       fzf_extra_args="--exact"
@@ -36,7 +39,7 @@ IFS=: read -ra selected < <(
         --ansi \
         --color "hl:-1:underline,hl+:-1:underline:reverse" \
         --delimiter : \
-        --preview 'bat --color=always {1} --highlight-line {2}' \
+        --preview 'bash -c '\''[[ {1} == *.gz ]] && zcat {1} | bat --color=always -l log --highlight-line {2} || bat --color=always {1} --highlight-line {2}'\''' \
         --bind='f3:become(nvim {1}:{2} < /dev/tty > /dev/tty 2>&1)' \
         --preview-window 'up,60%,border-bottom,+{2}+3/3,~3' \
         ${fzf_extra_args:-}

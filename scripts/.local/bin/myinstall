@@ -342,7 +342,6 @@ case "${1:-}" in
         echo 'uv generate-shell-completion fish | source' >> ~/.config/fish/config.fish
         echo 'uvx --generate-shell-completion fish | source' >> ~/.config/fish/config.fish
         ~/.local/bin/uv tool install ty@latest
-        ~/.local/bin/uv tool install huggingface_hub[hf_transfer]
         ~/.local/bin/uv tool install rerun-sdk@latest
         ~/.local/bin/uv tool install hf@latest
         ~/.local/bin/uv tool install pyrefly
@@ -409,13 +408,6 @@ case "${1:-}" in
 
         sync_to_remote "$host"
 
-        info "Setting up GitHub authentication on $host..."
-        if ! gh auth token >/dev/null 2>&1; then
-            error "No local gh auth token found. Run 'gh auth login' first."
-        fi
-        gh auth token | ssh -- "$host" "gh auth login --with-token && gh config set git_protocol ssh"
-        info "gh auth configured on $host"
-
         info "Setting up opencode credentials on $host..."
         ssh -- "$host" "mkdir -p ~/.local/share/opencode ~/.local/state/opencode"
         scp -q ~/.local/share/opencode/auth.json "$host:~/.local/share/opencode/auth.json" || warning "Failed to copy auth.json"
@@ -425,6 +417,14 @@ case "${1:-}" in
 
         $0 remote "$host" wezterm
         $0 remote "$host" minimal
+        $0 remote "$host" pixi-utils
+
+        info "Setting up GitHub authentication on $host..."
+        if ! gh auth token >/dev/null 2>&1; then
+            error "No local gh auth token found. Run 'gh auth login' first."
+        fi
+        gh auth token | ssh -- "$host" "~/.pixi/bin/gh auth login --with-token && ~/.pixi/bin/gh config set git_protocol ssh"
+        info "gh auth configured on $host"
 
         info "Remote setup complete for $host"
         ;;
@@ -491,7 +491,6 @@ case "${1:-}" in
                                                                                       fd \
                                                                                       ripgrep \
                                                                                       yamllint \
-                                                                                      codium \
                                                                                       zathura
         $pixi_path/bin/stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                          wezterm \
@@ -721,7 +720,7 @@ case "${1:-}" in
 
     pixi-utils)
         info "Installing utility tools..."
-        pixi global install gh yt-dlp jless difftastic numbat please
+        pixi global install gh jless difftastic numbat # yt-dlp
         ;;
 
     pixi-all)
