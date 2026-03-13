@@ -688,7 +688,7 @@ case "${1:-}" in
 
     pixi-core)
         info "Installing core tools..."
-        pixi global install git git-lfs stow less file fish openssh ripgrep fd-find fzf bat nvim unzip tmux atool xclip pipe-rename
+        pixi global install git git-lfs stow less file fish openssh ripgrep fd-find fzf bat nvim unzip tmux atool xclip pipe-rename tree-sitter-cli
 
         pixi_path=${PIXI_PATH:-$HOME/.pixi}
         # https://pixi.sh/latest/global_tools/trampolines/#trampolines
