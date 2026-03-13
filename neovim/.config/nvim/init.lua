@@ -69,6 +69,678 @@ local wezterm = {
   end,
 }
 
+-- Float image preview (Kitty Graphics Protocol — native pixel quality)
+local imgcat = (function()
+  local hover = nil -- { win, buf, src, id, width, height }
+  local img_id = 0
+  local cell_px = nil -- { w, h } pixels per cell
+
+  local function get_cell_pixels()
+    if cell_px then
+      return cell_px
+    end
+    pcall(function()
+      local ffi = require("ffi")
+      -- pcall the cdef separately: another plugin may have already defined these symbols
+      pcall(
+        ffi.cdef,
+        [[
+        typedef struct { unsigned short row; unsigned short col; unsigned short xpixel; unsigned short ypixel; } winsize_t;
+        int ioctl(int, int, ...);
+      ]]
+      )
+      local sz = ffi.new("winsize_t")
+      if ffi.C.ioctl(1, 0x5413, sz) == 0 and sz.col > 0 and sz.row > 0 and sz.xpixel > 0 then
+        cell_px = { w = sz.xpixel / sz.col, h = sz.ypixel / sz.row }
+      end
+    end)
+    cell_px = cell_px or { w = 9, h = 18 }
+    return cell_px
+  end
+
+  local function kitty(opts)
+    local parts = {}
+    for k, v in pairs(opts) do
+      if k ~= "data" then
+        parts[#parts + 1] = k .. "=" .. v
+      end
+    end
+    local msg = "\27_Gq=2," .. table.concat(parts, ",")
+    if opts.data then
+      msg = msg .. ";" .. opts.data
+    end
+    vim.api.nvim_ui_send(msg .. "\27\\")
+  end
+
+  local function close()
+    if not hover then
+      return
+    end
+    kitty({ a = "d", d = "i", i = hover.id })
+    pcall(vim.api.nvim_win_close, hover.win, true)
+    pcall(vim.api.nvim_buf_delete, hover.buf, { force = true })
+    hover = nil
+  end
+
+  local function image_size(path)
+    local out = vim.fn.system({ "file", path })
+    local w, h = out:match("(%d+)%s*x%s*(%d+)")
+    if w and h then
+      return tonumber(w), tonumber(h)
+    end
+  end
+
+  local function render()
+    if not hover then
+      return
+    end
+    if not vim.api.nvim_win_is_valid(hover.win) then
+      return
+    end
+    local pos = vim.api.nvim_win_get_position(hover.win)
+    -- Save cursor, move to float, place image, restore cursor
+    vim.api.nvim_ui_send("\27[s") -- DECSC: save cursor position
+    vim.api.nvim_ui_send("\27[" .. (pos[1] + 1) .. ";" .. (pos[2] + 1) .. "H")
+    kitty({ a = "p", i = hover.id, p = hover.id, C = 1, c = hover.width, r = hover.height })
+    vim.api.nvim_ui_send("\27[u") -- DECRC: restore cursor position
+  end
+
+  local function place(path)
+    if hover and hover.src == path then
+      return
+    end
+    close()
+
+    img_id = img_id + 1
+    local cur_id = img_id
+
+    -- Compute float size from image pixel dimensions
+    local cp = get_cell_pixels()
+    local img_w, img_h = image_size(path)
+    if not img_w then
+      img_w, img_h = 800, 600
+    end
+
+    -- Colorcolumn is the max left boundary — float must not cross it
+    -- Account for gutter (line numbers, signs, fold) shifting text rightward
+    local cc = tonumber(vim.wo.colorcolumn) or vim.bo.textwidth
+    -- getwininfo(id) returns { { winid, bufnr, height, width, textoff, ... } }
+    -- textoff = columns used by gutter (line numbers + sign column + fold column)
+    local gutter = vim.fn.getwininfo(vim.api.nvim_get_current_win())[1].textoff
+    local min_col = (cc and cc > 0) and (cc + gutter) or math.floor(vim.o.columns * 0.5)
+    local max_w = vim.o.columns - min_col
+    local max_h = vim.o.lines - 4
+    local nat_w = math.floor(img_w / cp.w)
+    local nat_h = math.floor(img_h / cp.h)
+
+    -- Scale down to fit, preserving aspect
+    local scale = math.min(1, max_w / nat_w, max_h / nat_h)
+    local width = math.max(10, math.floor(nat_w * scale))
+    local height = math.max(5, math.floor(nat_h * scale))
+
+    -- Anchor to top-right, but never left of colorcolumn
+    local float_col = math.max(min_col, vim.o.columns - width)
+
+    -- Transmit original file (terminal reads it directly)
+    kitty({ t = "f", i = cur_id, f = 100, data = vim.base64.encode(path) })
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    local win = vim.api.nvim_open_win(buf, false, {
+      relative = "editor",
+      row = 0,
+      col = float_col,
+      width = width,
+      height = height,
+      style = "minimal",
+      focusable = false,
+    })
+
+    hover = {
+      win = win,
+      buf = buf,
+      src = path,
+      id = cur_id,
+      width = width,
+      height = height,
+    }
+    vim.schedule(render)
+  end
+
+  local image_exts = { png = true, jpg = true, jpeg = true, gif = true, webp = true, avif = true }
+
+  ---------------------------------------------------------------------------
+  -- Path resolution
+  ---------------------------------------------------------------------------
+
+  local function resolve_image_path(path)
+    if path:match("^%w+://") then
+      return
+    end
+    if not path:match("^/") then
+      path = vim.fn.fnamemodify(vim.fn.expand("%:p:h") .. "/" .. path, ":p")
+    end
+    return vim.fn.filereadable(path) == 1 and path or nil
+  end
+
+  local function resolve_obsidian(name)
+    local file_dir = vim.fn.expand("%:p:h")
+    local try = file_dir .. "/" .. name
+    if vim.fn.filereadable(try) == 1 then
+      return try
+    end
+    local vault = vim.fs.root(file_dir, ".obsidian")
+    if not vault then
+      return
+    end
+    local fd = io.open(vault .. "/.obsidian/app.json", "r")
+    if fd then
+      local ok, conf = pcall(vim.json.decode, fd:read("*a"))
+      fd:close()
+      if ok and conf.attachmentFolderPath then
+        local att = conf.attachmentFolderPath:gsub("^%./", "")
+        try = file_dir .. "/" .. att .. "/" .. name
+        if vim.fn.filereadable(try) == 1 then
+          return try
+        end
+        try = vault .. "/" .. att .. "/" .. name
+        if vim.fn.filereadable(try) == 1 then
+          return try
+        end
+      end
+    end
+    return vim.fs.find(name, { path = vault, type = "file" })[1]
+  end
+
+  ---------------------------------------------------------------------------
+  -- Treesitter helpers
+  ---------------------------------------------------------------------------
+
+  --- Strip $ or $$ delimiters from LaTeX content for rendering.
+  local function strip_latex_delimiters(text)
+    return vim.trim(text:gsub("^%$%$?", ""):gsub("%$%$?$", ""))
+  end
+
+  --- Walk ancestors of `node` until `predicate(node)` returns true.
+  local function find_ancestor(node, predicate)
+    while node do
+      if predicate(node) then
+        return node
+      end
+      node = node:parent()
+    end
+  end
+
+  --- Get fenced code block language and content.
+  local function get_code_block_info(node)
+    local lang, content
+    for child in node:iter_children() do
+      if child:type() == "info_string" then
+        local lang_node = child:named_child(0)
+        if lang_node then
+          lang = vim.treesitter.get_node_text(lang_node, 0)
+        end
+      elseif child:type() == "code_fence_content" then
+        content = vim.treesitter.get_node_text(child, 0)
+      end
+    end
+    return lang, content
+  end
+
+  --- Get command name from a generic_command node (e.g. "\\mathbf").
+  local function get_command_name(node)
+    for child in node:iter_children() do
+      if child:type() == "command_name" then
+        return vim.treesitter.get_node_text(child, 0)
+      end
+    end
+  end
+
+  ---------------------------------------------------------------------------
+  -- Detection: what is under the cursor?
+  -- Uses parser:for_each_tree() to handle injected languages.
+  -- Pattern from nvim-treesitter-textobjects/shared.lua.
+  --
+  -- Priority: latex(3) > markdown_inline(2) > markdown(1)
+  -- Multiple trees can cover the same range (e.g. $E=mc^2$ lives in both
+  -- markdown_inline and an injected latex tree). Priority ensures the most
+  -- specific tree wins regardless of iteration order.
+  ---------------------------------------------------------------------------
+
+  local function detect_image(node)
+    for child in node:iter_children() do
+      if child:type() == "link_destination" then
+        return resolve_image_path(vim.treesitter.get_node_text(child, 0))
+      elseif child:type() == "image_description" then
+        local desc = vim.treesitter.get_node_text(child, 0)
+        local name = desc:match("^%[(.-)%]$") or desc
+        local ext = name:match("%.(%w+)$")
+        if ext and image_exts[ext:lower()] then
+          return resolve_obsidian(name)
+        end
+      end
+    end
+  end
+
+  --- Inspect all parsed trees and find what's under the cursor.
+  --- Separated from parsing so it can be called after async parse completes.
+  local function inspect_trees(parser, row, col)
+    local result, priority
+
+    parser:for_each_tree(function(tree, lang_tree)
+      if priority and priority >= 3 then
+        return
+      end
+      local root = tree:root()
+      if not vim.treesitter.is_in_node_range(root, row, col) then
+        return
+      end
+
+      local lang = lang_tree:lang()
+
+      if lang == "latex" then
+        -- Priority 3: directly inside the injected latex tree
+        local eq = root
+        for child in root:iter_children() do
+          local t = child:type()
+          if t == "displayed_equation" or t == "inline_formula" then
+            eq = child
+            break
+          end
+        end
+        local text = vim.treesitter.get_node_text(eq, 0)
+        if text and #text > 0 then
+          result = { kind = "latex", content = text, root = root }
+          priority = 3
+        end
+      elseif lang == "markdown_inline" then
+        local node = root:named_descendant_for_range(row, col, row, col)
+        local ancestor = find_ancestor(node, function(n)
+          local t = n:type()
+          return t == "image" or t == "latex_block" or t == "latex_span"
+        end)
+        if not ancestor then
+          return
+        end
+        local t = ancestor:type()
+        if t == "image" then
+          local path = detect_image(ancestor)
+          if path then
+            result = { kind = "image", path = path }
+          end
+        elseif (t == "latex_block" or t == "latex_span") and (not priority or priority < 2) then
+          -- Priority 2: cursor on delimiters ($, ^, _, etc.) owned by markdown_inline
+          local text = vim.treesitter.get_node_text(ancestor, 0)
+          if text and #text > 0 then
+            result = { kind = "latex", content = text }
+            priority = 2
+          end
+        end
+      elseif lang == "python" then
+        -- Detect :math:`...` and .. math:: blocks inside docstrings.
+        -- docstring_to_markdown converts these to $...$ / $$...$$ for LSP hover,
+        -- but we render them directly from source without needing the LSP.
+        local node = root:named_descendant_for_range(row, col, row, col)
+        local str_node = find_ancestor(node, function(n)
+          return n:type() == "string_content"
+        end)
+        if str_node then
+          local str_text = vim.treesitter.get_node_text(str_node, 0)
+          local _, str_sc = str_node:range()
+          -- Find which line of the string the cursor is on
+          local str_sr = select(1, str_node:range())
+          local line_in_str = row - str_sr
+          local lines = vim.split(str_text, "\n")
+          local cursor_line = lines[line_in_str + 1] or ""
+
+          -- Inline: :math:`...`
+          local s = 1
+          while true do
+            local ms, me, latex = cursor_line:find(":math:`([^`]+)`", s)
+            if not ms then
+              break
+            end
+            -- Compute column range relative to buffer
+            local line_start_col = (line_in_str == 0) and str_sc or 0
+            if col >= line_start_col + ms - 1 and col < line_start_col + me then
+              result = { kind = "latex", content = latex }
+              return
+            end
+            s = me + 1
+          end
+
+          -- Block: .. math:: — search backwards for the directive,
+          -- collect indented content, check if cursor is within.
+          local cursor_idx = line_in_str + 1
+          for i = cursor_idx, 1, -1 do
+            if lines[i]:match("^%s*%.%. math::") then
+              local indent = #lines[i]:match("^(%s*)")
+              local content_lines = {}
+              local block_end = i
+              for j = i + 1, #lines do
+                if lines[j]:match("^%s*$") then
+                  content_lines[#content_lines + 1] = ""
+                  block_end = j
+                elseif #(lines[j]:match("^(%s*)") or "") > indent then
+                  content_lines[#content_lines + 1] = vim.trim(lines[j])
+                  block_end = j
+                else
+                  break
+                end
+              end
+              if cursor_idx >= i and cursor_idx <= block_end then
+                local content = table.concat(content_lines, "\n")
+                if #content > 0 then
+                  result = { kind = "latex", content = content }
+                end
+                return
+              end
+              break
+            end
+            if not lines[i]:match("^%s") and not lines[i]:match("^$") then
+              break
+            end
+          end
+        end
+      elseif lang == "markdown" then
+        local node = root:named_descendant_for_range(row, col, row, col)
+        local block = find_ancestor(node, function(n)
+          return n:type() == "fenced_code_block"
+        end)
+        if not block then
+          return
+        end
+        local block_lang, content = get_code_block_info(block)
+        if block_lang == "mermaid" and content then
+          result = { kind = "mermaid", content = content }
+        elseif (block_lang == "math" or block_lang == "latex") and content then
+          result = { kind = "latex", content = content }
+        end
+      end
+    end)
+
+    return result
+  end
+
+  --- Detect what's under the cursor.
+  --- Uses async parse (pattern from neovim/runtime/lua/vim/treesitter/highlighter.lua):
+  ---   parser:parse(range, on_parse) — internally uses coroutine, yields every 3ms.
+  ---   Callback always fires (sync or async), so we only need the callback path.
+  local function detect_at_cursor(on_result)
+    local ok, parser = pcall(vim.treesitter.get_parser, 0)
+    if not ok or not parser then
+      return on_result(nil)
+    end
+
+    local row, col = unpack(vim.api.nvim_win_get_cursor(0)) ---@type integer, integer
+    row = row - 1
+
+    -- on_parse fires synchronously if parse completes in <3ms, else async via vim.schedule
+    parser:parse({ row, row + 1 }, function(err)
+      if err then
+        return on_result(nil)
+      end
+      on_result(inspect_trees(parser, row, col))
+    end)
+  end
+
+  ---------------------------------------------------------------------------
+  -- LaTeX highlighting: wrap the generic_command under cursor with
+  -- \textcolor{cyan}{...} + adjacent sub/superscripts.
+  -- Only generic_command is safe to wrap — sub/superscripts and \text*
+  -- commands break when wrapped.
+  ---------------------------------------------------------------------------
+
+  local function latex_with_highlight(content, latex_root)
+    if not content then
+      return content
+    end
+    local node = vim.treesitter.get_node({ ignore_injections = false })
+    if not node then
+      return content
+    end
+
+    -- Only generic_command nodes are safe to wrap with \textcolor.
+    -- Sub/superscripts break when wrapped. \text* commands aren't supported by mitex.
+    local cmd = find_ancestor(node, function(n)
+      return n:type() == "generic_command"
+    end)
+    if not cmd then
+      return content
+    end
+    local name = get_command_name(cmd)
+    if name and name:match("^\\text") then
+      return content
+    end
+
+    -- Extend range to include adjacent subscript/superscript siblings
+    local _, _, start_byte, _, _, end_byte = cmd:range(true)
+    local sibling = cmd:next_named_sibling()
+    while sibling and (sibling:type() == "subscript" or sibling:type() == "superscript") do
+      _, _, _, _, _, end_byte = sibling:range(true)
+      sibling = sibling:next_named_sibling()
+    end
+
+    -- content keeps $ delimiters, so node byte offsets map directly.
+    -- Just subtract the root's start byte to get positions within content.
+    local root = latex_root or find_ancestor(cmd, function(n)
+      return not n:parent()
+    end)
+    local _, _, root_byte = root:range(true)
+    local hl_start = start_byte - root_byte + 1
+    local hl_end = end_byte - root_byte
+    if hl_start < 1 or hl_end > #content or hl_start > hl_end then
+      return content
+    end
+
+    return content:sub(1, hl_start - 1)
+      .. "\\textcolor{cyan}{"
+      .. content:sub(hl_start, hl_end)
+      .. "}"
+      .. content:sub(hl_end + 1)
+  end
+
+  ---------------------------------------------------------------------------
+  -- Minimal coroutine-based async (from nvim-treesitter/async.lua).
+  -- Lets us write flat sequential code that runs fully non-blocking.
+  --
+  --   async.run(function()
+  --     local stat = async.await(2, vim.uv.fs_stat, path)
+  --     local r = async.await(3, vim.system, cmd, {})
+  --     vim.schedule(function() place(r) end)
+  --   end)
+  ---------------------------------------------------------------------------
+
+  local async = {}
+
+  --- Yield the coroutine, call fn(..., callback). Resume when callback fires.
+  --- argc = position of the callback argument in fn's signature.
+  --- @async
+  function async.await(argc, fn, ...)
+    local args = { ... }
+    return coroutine.yield(function(resume)
+      args[argc] = resume
+      return fn(unpack(args, 1, argc))
+    end)
+  end
+
+  --- Yield to the Neovim event loop (required before calling vim.api.*)
+  --- @async
+  function async.schedule()
+    coroutine.yield(function(resume)
+      vim.schedule(resume)
+    end)
+  end
+
+  --- Run fn in a new coroutine. Non-blocking.
+  function async.run(fn)
+    local co = coroutine.create(fn)
+    local function step(...)
+      local ok, yielded = coroutine.resume(co, ...)
+      if not ok then
+        vim.schedule(function()
+          vim.notify("imgcat: " .. tostring(yielded), vim.log.levels.WARN)
+        end)
+      end
+      if coroutine.status(co) ~= "dead" and type(yielded) == "function" then
+        yielded(step)
+      end
+    end
+    step()
+  end
+
+  ---------------------------------------------------------------------------
+  -- Async rendering pipeline
+  ---------------------------------------------------------------------------
+
+  local render_cache = {} -- content hash -> output path
+  local cache_dir = (os.getenv("TMPDIR") or "/tmp") .. "/nvim-imgcat"
+  vim.fn.mkdir(cache_dir, "p")
+
+  --- @async
+  --- Write source to temp file, run cmd, return output path or nil.
+  local function render_to_png(content, ext, source, cmd_fn)
+    -- Use vim.text.hexencode of a simple hash — safe in fast event context (no Vimscript)
+    local h = 0x811c9dc5 -- FNV-1a
+    for i = 1, #content do
+      h = bit.bxor(h, content:byte(i))
+      h = bit.band(h * 0x01000193, 0xFFFFFFFF)
+    end
+    local key = string.format("%08x", h)
+    if render_cache[key] then
+      return render_cache[key]
+    end
+
+    local input = cache_dir .. "/" .. key .. ext
+    local output = cache_dir .. "/" .. key .. ".png"
+
+    -- Async file write
+    local err, fd = async.await(4, vim.uv.fs_open, input, "w", 420) -- 0644
+    if err or not fd then
+      return
+    end
+    async.await(4, vim.uv.fs_write, fd, source, 0)
+    async.await(2, vim.uv.fs_close, fd)
+
+    -- Async external process
+    local r = async.await(3, vim.system, cmd_fn(input, output), {})
+
+    -- Clean up input file immediately (pattern from nvim-treesitter/install.lua)
+    async.await(2, vim.uv.fs_unlink, input)
+
+    if r.code ~= 0 then
+      -- DEBUG: uncomment to see rendering errors (async.schedule needed for vim.notify in fast context)
+      -- async.schedule()
+      -- vim.notify(("imgcat: render failed (exit %d)\n%s"):format(r.code, r.stderr or ""), vim.log.levels.WARN)
+      async.await(2, vim.uv.fs_unlink, output)
+      return
+    end
+
+    render_cache[key] = output
+    return output
+  end
+
+  --- @async
+  local function render_latex(content)
+    return render_to_png(
+      content,
+      ".typ",
+      table.concat({
+        '#set page(width: auto, height: auto, margin: 10pt, fill: rgb("#1e1e2e"))',
+        "#set text(fill: white, size: 16pt)",
+        '#import "@preview/mitex:0.2.5": *',
+        "#mitex(`" .. content .. "`)",
+      }, "\n"),
+      function(input, output)
+        return { "typst", "compile", "--format", "png", "--ppi", "300", input, output }
+      end
+    )
+  end
+
+  --- @async
+  local function render_mermaid(content)
+    local cp = get_cell_pixels()
+    local px_w = math.floor((vim.o.columns - 4) * cp.w)
+    local px_h = math.floor((vim.o.lines - 4) * cp.h)
+    return render_to_png(content .. px_w, ".mmd", content, function(input, output)
+      return {
+        "mmdr",
+        "-i",
+        input,
+        "-o",
+        output,
+        "-e",
+        "png",
+        "-w",
+        tostring(px_w),
+        "-H",
+        tostring(px_h),
+      }
+    end)
+  end
+
+  ---------------------------------------------------------------------------
+  -- Update: detect → render (async) → place
+  -- render_id ensures stale results are discarded when cursor moves.
+  ---------------------------------------------------------------------------
+
+  local render_id = 0
+
+  local function update()
+    render_id = render_id + 1
+    local this_id = render_id
+
+    detect_at_cursor(function(detected)
+      if render_id ~= this_id then
+        return
+      end -- cursor moved, discard
+      if not detected then
+        close()
+        return
+      end
+
+      -- DEBUG: uncomment to see what was detected
+      -- vim.notify(("imgcat: detected %s content=%s"):format(detected.kind, (detected.content or ""):sub(1,40)))
+
+      if detected.kind == "image" then
+        place(detected.path)
+        return
+      end
+
+      async.run(function()
+        local path
+        if detected.kind == "latex" then
+          local highlighted = latex_with_highlight(detected.content, detected.root)
+          -- Strip $ delimiters at render time (content keeps them for offset math)
+          path = render_latex(strip_latex_delimiters(highlighted))
+            or render_latex(strip_latex_delimiters(detected.content))
+        elseif detected.kind == "mermaid" then
+          path = render_mermaid(detected.content)
+        end
+        async.schedule()
+        if path and render_id == this_id then
+          place(path)
+        end
+      end)
+    end)
+  end
+
+  -- Debounced updates: normal mode (50ms) and insert mode (300ms).
+  -- Prevents detect_at_cursor + for_each_tree from running on every single keystroke.
+  local debounce_timer = vim.uv.new_timer()
+  local function update_debounced(ms)
+    return function()
+      debounce_timer:stop()
+      debounce_timer:start(ms, 0, vim.schedule_wrap(update))
+    end
+  end
+
+  return {
+    update = update_debounced(50),
+    update_insert = update_debounced(300),
+    close = close,
+  }
+end)()
+
 local root_dirs = {
   python = function(startpath)
     return vim.fs.root(startpath, {
@@ -194,6 +866,7 @@ vim.api.nvim_create_autocmd("FileType", {
   callback = function()
     vim.opt_local.wrap = true
     vim.opt_local.conceallevel = 3
+    vim.opt_local.colorcolumn = "100"
   end,
 })
 -- A terrible way to handle symlinks
@@ -328,6 +1001,21 @@ vim.api.nvim_create_autocmd("BufNewFile", {
       end
     end
   end,
+})
+
+-- Float image preview: show on hover, close when cursor moves away
+vim.api.nvim_create_autocmd("CursorMoved", {
+  group = general_group,
+  callback = imgcat.update,
+})
+vim.api.nvim_create_autocmd({ "TextChangedI", "CursorMovedI" }, {
+  group = general_group,
+  callback = imgcat.update_insert,
+})
+
+vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, {
+  group = general_group,
+  callback = imgcat.close,
 })
 
 vim.api.nvim_create_user_command("Rename", function(kwargs)
@@ -851,6 +1539,12 @@ local servers = {
   --     "lsp",
   --   },
   -- },
+  -- {
+  --   Doesn't work with bindings (import mujoco;mujoco.XXX) doesn't complete MjModel etc
+  --   name = "zubanls",
+  --   filetypes = { "python" },
+  --   cmd = { "zuban", "server" },
+  -- },
   {
     name = "jedi_language_server",
     filetypes = { "python" },
@@ -1204,16 +1898,16 @@ require("lazy").setup({
         "bash",
         "c",
         "cmake",
+        "comment",
         "cpp",
         "dockerfile",
         "fish",
         "html",
-        "xml",
         "http",
         "javascript",
         "json",
+        "latex",
         "lua",
-        "comment",
         "make",
         "markdown",
         "markdown_inline",
@@ -1227,9 +1921,9 @@ require("lazy").setup({
         "typescript",
         "vim",
         "vimdoc",
+        "xml",
         "yaml",
         "zig",
-        "latex",
       })
     end,
   },
@@ -1311,7 +2005,7 @@ vim.api.nvim_create_autocmd("FileType", {
   callback = function(args)
     local lang = vim.treesitter.language.get_lang(args.match)
     if lang and pcall(vim.treesitter.language.add, lang) then
-      vim.treesitter.start()
+      pcall(vim.treesitter.start)
     end
   end,
 })
