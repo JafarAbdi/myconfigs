@@ -44,7 +44,7 @@ repos:
         pass_filenames: false
         entry: pixi run refurb scripts/.local/bin
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.5
+    rev: v0.15.6
     hooks:
       - id: ruff
         args: ['--output-format=full', '--fix', '--config', 'ruff/.config/ruff/pyproject.toml']
