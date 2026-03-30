@@ -1,7 +1,7 @@
 vim.opt.shell = "bash"
 
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
-if not vim.loop.fs_stat(lazypath) then
+if not vim.uv.fs_stat(lazypath) then
   -- bootstrap lazy.nvim
   vim.fn.system({
     "git",
@@ -15,7 +15,6 @@ end
 vim.opt.rtp:prepend(lazypath)
 
 local myconfigs_path = vim.fs.joinpath(vim.env.HOME, "myconfigs")
-
 -----------------
 --- Functions ---
 -----------------
@@ -809,18 +808,8 @@ root_dirs.jsx = root_dirs.javascript
 root_dirs.typescript = root_dirs.javascript
 root_dirs.typescriptreact = root_dirs.javascript
 
-_G.lsp_status = function()
-  local lsp_status = vim.lsp.status()
-  if lsp_status == "" then
-    return ""
-  end
-  return " | " .. lsp_status
-end
-
 local run_file = function()
-  if
-    not vim.api.nvim_buf_get_option(0, "readonly") and vim.api.nvim_buf_get_option(0, "modified")
-  then
+  if not vim.bo.readonly and vim.bo.modified then
     vim.cmd.write()
   end
   wezterm.run({ "runner", vim.fn.expand("%:p") })
@@ -886,11 +875,6 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
     end)
   end,
   group = general_group,
-})
-
-vim.api.nvim_create_autocmd("LspProgress", {
-  group = lsp_group,
-  command = "redrawstatus",
 })
 
 vim.api.nvim_create_autocmd("TermOpen", {
@@ -1032,7 +1016,7 @@ vim.api.nvim_create_user_command("Rename", function(kwargs)
     },
   }
 
-  local clients = (vim.lsp.get_clients or vim.lsp.get_active_clients)()
+  local clients = vim.lsp.get_clients()
   for _, client in ipairs(clients) do
     if client.supports_method("workspace/willRenameFiles") then
       local resp = client.request_sync("workspace/willRenameFiles", changes, 1000, 0)
@@ -1054,43 +1038,6 @@ vim.api.nvim_create_user_command("Rename", function(kwargs)
     end
   end
 end, { complete = "file", nargs = 1 })
-
-vim.api.nvim_create_user_command("LspStop", function(kwargs)
-  local name = kwargs.fargs[1]
-  for _, client in ipairs(vim.lsp.get_clients({ name = name })) do
-    client.stop()
-  end
-end, {
-  nargs = 1,
-  complete = function()
-    return vim.tbl_map(function(c)
-      return c.name
-    end, vim.lsp.get_clients())
-  end,
-})
-vim.api.nvim_create_user_command("LspRestart", function(kwargs)
-  local name = kwargs.fargs[1]
-  for _, client in ipairs(vim.lsp.get_clients({ name = name })) do
-    local bufs = vim.lsp.get_buffers_by_client_id(client.id)
-    client.stop()
-    vim.wait(30000, function()
-      return vim.lsp.get_client_by_id(client.id) == nil
-    end)
-    local client_id = vim.lsp.start_client(client.config)
-    if client_id then
-      for _, buf in ipairs(bufs) do
-        vim.lsp.buf_attach_client(buf, client_id)
-      end
-    end
-  end
-end, {
-  nargs = 1,
-  complete = function()
-    return vim.tbl_map(function(c)
-      return c.name
-    end, vim.lsp.get_clients())
-  end,
-})
 
 local get_rust_lsp_client = function()
   local clients = vim.lsp.get_clients({ name = "rust-langserver" })
@@ -2101,6 +2048,7 @@ vim.filetype.add({
 })
 
 vim.cmd.packadd("cfilter")
+vim.cmd.packadd("nvim.undotree")
 
 vim.cmd.colorscheme("vim")
 vim.cmd.colorscheme("onedark")
@@ -2132,6 +2080,10 @@ end, { expr = true })
 vim.keymap.set({ "i", "s" }, "<S-Tab>", function()
   return try_jump(-1, "<S-Tab>")
 end, { expr = true })
+-- Incremental treesitter node selection (built-in an/in) with old keymaps
+vim.keymap.set("n", "<A-w>", "van", { remap = true, silent = true })
+vim.keymap.set("x", "<A-w>", "an", { remap = true, silent = true })
+vim.keymap.set("x", "<A-S-w>", "in", { remap = true, silent = true })
 
 vim.keymap.set("t", "<ESC>", [[<C-\><C-n>]], { silent = true })
 vim.keymap.set({ "i", "s" }, "<ESC>", function()
@@ -2241,7 +2193,7 @@ vim.keymap.set({ "n" }, "<leader>m", function()
     local letter = global_mark_names:sub(i, i)
     local ok, mark = pcall(vim.api.nvim_get_mark, letter, {}) -- Returns (0, 0, 0, "") if not set
     if ok and not (mark[1] == 0 and mark[2] == 0 and mark[3] == 0 and mark[4] == "") then
-      if vim.loop.fs_stat(vim.fs.normalize(mark[4])) then
+      if vim.uv.fs_stat(vim.fs.normalize(mark[4])) then
         table.insert(marks, { name = letter, value = mark })
       end
     end
