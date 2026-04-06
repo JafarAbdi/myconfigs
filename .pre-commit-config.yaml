@@ -44,7 +44,7 @@ repos:
         pass_filenames: false
         entry: pixi run refurb scripts/.local/bin
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.8
+    rev: v0.15.9
     hooks:
       - id: ruff
         args: ['--output-format=full', '--fix', '--config', 'ruff/.config/ruff/pyproject.toml']
@@ -64,7 +64,7 @@ repos:
   #     - id: cspell
   # Lua
   - repo: https://github.com/JohnnyMorganz/StyLua
-    rev: v2.4.0
+    rev: v2.4.1
     hooks:
       - id: stylua-github
         args: ['--config-path', 'stylua/.config/stylua/.stylua.toml']
