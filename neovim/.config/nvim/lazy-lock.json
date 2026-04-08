@@ -1,23 +1,11 @@
 {
-  "cmp-buffer": {
-    "branch": "main",
-    "commit": "b74fab3656eea9de20a9b8116afa3cfc4ec09657"
-  },
-  "cmp-nvim-lsp": {
-    "branch": "main",
-    "commit": "cbc7b02bb99fae35cb42f514762b89b5126651ef"
-  },
   "copilot.vim": {
     "branch": "release",
-    "commit": "206011a8bc5078a02560d5c44177e9849e8f8d6c"
+    "commit": "a12fd5672110c8aa7e3c8419e28c96943ca179be"
   },
   "lazy.nvim": {
     "branch": "main",
     "commit": "306a05526ada86a7b30af95c5cc81ffba93fef97"
-  },
-  "nvim-cmp": {
-    "branch": "main",
-    "commit": "d97d85e01339f01b842e6ec1502f639b080cb0fc"
   },
   "nvim-fzy": {
     "branch": "main",
@@ -28,11 +16,11 @@
     "commit": "3081cdd8fcbccfbe68381088ed0d6e1ff47da3a6"
   },
   "nvim-treesitter": {
-    "branch": "master",
-    "commit": "42fc28ba918343ebfd5565147a42a26580579482"
+    "branch": "main",
+    "commit": "493890b87a81dfe6a7e577dbc364ae33fa482da9"
   },
   "nvim-treesitter-textobjects": {
-    "branch": "master",
-    "commit": "5ca4aaa6efdcc59be46b95a3e876300cfead05ef"
+    "branch": "main",
+    "commit": "4e91b5d0394329a229725b021a8ea217099826ef"
   }
 }

@@ -599,6 +599,40 @@ case "${1:-}" in
     #     popd || exit 1
     #     ;;
 
+    # pixi's mermaid-ascii package doesn't work, so we install from GitHub
+    # https://github.com/1jehuang/mermaid-rs-renderer
+    mermaid-ascii)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github AlexanderGrooff/mermaid-ascii "mermaid-ascii_$(uname -s)_$(uname -m).tar.gz"
+        tar xzf mermaid-ascii_*.tar.gz
+        mv mermaid-ascii ~/.local/bin/mermaid-ascii
+        chmod +x ~/.local/bin/mermaid-ascii
+        popd || exit 1
+        ;;
+
+    # https://github.com/1jehuang/mermaid-rs-renderer
+    mmdr)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github 1jehuang/mermaid-rs-renderer "mmdr-$(arch)-unknown-linux-gnu.tar.gz"
+        tar xzf mmdr-*.tar.gz
+        mv mmdr ~/.local/bin/mmdr
+        chmod +x ~/.local/bin/mmdr
+        popd || exit 1
+        ;;
+
+    # https://github.com/typst/typst
+    typst)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github typst/typst "typst-$(arch)-unknown-linux-musl.tar.xz"
+        tar xf typst-*.tar.xz --strip-components=1
+        mv typst ~/.local/bin/typst
+        chmod +x ~/.local/bin/typst
+        popd || exit 1
+        ;;
+
     amp-code)
         curl -fsSL https://ampcode.com/install.sh | bash
         ;;
@@ -688,13 +722,17 @@ case "${1:-}" in
 
     pixi-core)
         info "Installing core tools..."
-        pixi global install git git-lfs stow less file fish openssh ripgrep fd-find fzf bat nvim unzip tmux atool xclip pipe-rename
+        pixi global install git git-lfs stow less file fish openssh ripgrep fd-find fzf bat nvim unzip tmux atool xclip pipe-rename tree-sitter-cli
 
         pixi_path=${PIXI_PATH:-$HOME/.pixi}
         # https://pixi.sh/latest/global_tools/trampolines/#trampolines
         remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/nvim.json
         remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/tmux.json
         remove_conda_prefix "$pixi_path"/bin/trampoline_configuration/fish.json
+
+        # Neovim inline preview tools (imgcat: LaTeX + mermaid rendering)
+        $0 typst
+        $0 mmdr
         ;;
 
     pixi-devtools)
