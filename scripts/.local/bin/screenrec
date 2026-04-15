@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# screenrec - Screen recorder with fzf-based option selection
+#
+# Defaults to primary monitor, 30fps, no audio, libx264.
+# Run without args for instant recording; use -i for interactive mode.
+
+set -euo pipefail
+
+readonly GREEN='\033[0;32m' RED='\033[0;31m' NC='\033[0m'
+info() { echo -e "[${GREEN}info${NC}]: $1" >&2; }
+error() { echo -e "[${RED}error${NC}]: $1" >&2; exit 1; }
+
+pick() {
+    local prompt="$1" default="$2"; shift 2
+    printf '%s\n' "$default" "$@" | awk '!seen[$0]++' \
+        | fzf --prompt="$prompt" --no-multi --reverse --no-preview
+}
+
+primary_monitor() {
+    if command -v xrandr &>/dev/null; then
+        xrandr --current 2>/dev/null \
+            | grep ' connected' \
+            | sed -n 's/^\([^ ]*\).* \([0-9]*x[0-9]*+[0-9]*+[0-9]*\).*/\1 \2/p' \
+            | head -1
+    fi
+}
+
+all_monitors() {
+    if command -v xrandr &>/dev/null; then
+        xrandr --current 2>/dev/null \
+            | grep ' connected' \
+            | sed -n 's/^\([^ ]*\).* \([0-9]*x[0-9]*+[0-9]*+[0-9]*\).*/\1 \2/p'
+    fi
+}
+
+audio_sources() {
+    echo "none"
+    echo "default"
+    if command -v pactl &>/dev/null; then
+        pactl list short sources 2>/dev/null | awk '{print $2}'
+    fi
+}
+
+parse_geometry() {
+    if [[ "$1" =~ ([0-9]+)x([0-9]+)\+([0-9]+)\+([0-9]+) ]]; then
+        resolution="${BASH_REMATCH[1]}x${BASH_REMATCH[2]}"
+        grab_x="${BASH_REMATCH[3]}" grab_y="${BASH_REMATCH[4]}"
+    else
+        error "Could not parse geometry from: $1"
+    fi
+}
+
+monitor=$(primary_monitor)
+[[ -z "$monitor" ]] && error "No monitors found"
+parse_geometry "$monitor"
+fps=30
+audio=default
+codec=libx264
+interactive=false
+
+while getopts ":io:" opt; do
+    case $opt in
+        i) interactive=true ;;
+        o) output="$OPTARG" ;;
+        *) echo "Usage: screenrec [-i] [-o output.mp4]" >&2; exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+output="${output:-${1:-recording_$(date +%Y%m%d_%H%M%S).mp4}}"
+
+mapfile -t avail_monitors < <(all_monitors)
+if [[ ${#avail_monitors[@]} -gt 1 ]]; then
+    monitor=$(pick "Monitor: " "$monitor" "${avail_monitors[@]}") || exit 0
+    parse_geometry "$monitor"
+fi
+
+if [[ "$interactive" == true ]]; then
+    fps=$(pick "Framerate: " "$fps" 60 24 15) || exit 0
+
+    mapfile -t avail_audio < <(audio_sources)
+    audio=$(pick "Audio: " "$audio" "${avail_audio[@]}") || exit 0
+
+    codec=$(pick "Codec: " "$codec" libx265 libvpx-vp9 copy) || exit 0
+fi
+
+display="${DISPLAY:-:0}"
+cmd=(ffmpeg -f x11grab -r "$fps" -s "$resolution" -grab_x "$grab_x" -grab_y "$grab_y" -i "$display")
+
+if [[ "$audio" != "none" ]]; then
+    cmd+=(-f pulse -i "$audio")
+fi
+
+cmd+=(-c:v "$codec")
+
+case "$codec" in
+    libx264)     cmd+=(-preset ultrafast -crf 18 -pix_fmt yuv420p) ;;
+    libx265)     cmd+=(-preset ultrafast -crf 20 -pix_fmt yuv420p) ;;
+    libvpx-vp9)  cmd+=(-deadline realtime -b:v 0 -crf 30) ;;
+esac
+
+if [[ "$audio" != "none" ]]; then
+    cmd+=(-c:a aac -b:a 192k)
+fi
+
+cmd+=("$output")
+
+info "Monitor: $monitor"
+info "Recording → $output  [${resolution} ${fps}fps ${codec} audio:${audio}]"
+info "Press q to stop"
+echo "+ ${cmd[*]}" >&2
+
+exec "${cmd[@]}"

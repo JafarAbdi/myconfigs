@@ -1,18 +1,5 @@
 vim.opt.shell = "bash"
-
-local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
-if not vim.uv.fs_stat(lazypath) then
-  -- bootstrap lazy.nvim
-  vim.fn.system({
-    "git",
-    "clone",
-    "--filter=blob:none",
-    "https://github.com/folke/lazy.nvim.git",
-    "--branch=stable",
-    lazypath,
-  })
-end
-vim.opt.rtp:prepend(lazypath)
+vim.g.loaded_matchparen = 1
 
 local myconfigs_path = vim.fs.joinpath(vim.env.HOME, "myconfigs")
 -----------------
@@ -67,6 +54,113 @@ local wezterm = {
     vim.api.nvim_chan_send(vim.v.stderr, cmd)
   end,
 }
+
+---------------------------------------------------------------------------
+-- Minimal coroutine-based async (from nvim-treesitter/async.lua).
+-- Lets us write flat sequential code that runs fully non-blocking.
+--
+--   async.run(function()
+--     local stat = async.await(2, vim.uv.fs_stat, path)
+--     local r = async.await(3, vim.system, cmd, {})
+--     vim.schedule(function() place(r) end)
+--   end)
+---------------------------------------------------------------------------
+
+local async = {}
+
+--- Yield the coroutine, call fn(..., callback). Resume when callback fires.
+--- argc = position of the callback argument in fn's signature.
+--- @async
+function async.await(argc, fn, ...)
+  local args = { ... }
+  return coroutine.yield(function(resume)
+    args[argc] = resume
+    return fn(unpack(args, 1, argc))
+  end)
+end
+
+--- Yield to the Neovim event loop (required before calling vim.api.*)
+--- @async
+function async.schedule()
+  coroutine.yield(function(resume)
+    vim.schedule(resume)
+  end)
+end
+
+--- Run fn in a new coroutine. Non-blocking.
+function async.run(fn)
+  local co = coroutine.create(fn)
+  local function step(...)
+    local ok, yielded = coroutine.resume(co, ...)
+    if not ok then
+      vim.schedule(function()
+        vim.notify("async: " .. tostring(yielded), vim.log.levels.WARN)
+      end)
+    end
+    if coroutine.status(co) ~= "dead" and type(yielded) == "function" then
+      yielded(step)
+    end
+  end
+  step()
+end
+
+-- Obsidian vault attachment folder: absolute path where attachments for the
+-- note in `file_dir` should live (for reads) / be saved (for writes). Honors
+-- `attachmentFolderPath` in .obsidian/app.json:
+--   ""/unset   → sibling of the current note
+--   "/"        → vault root
+--   "./sub"    → relative to current note
+--   "sub"      → relative to vault root
+-- Returns (att_dir, vault) or (nil, nil) when not inside an Obsidian vault.
+-- Dual-mode: awaits libuv fs primitives when called from inside a coroutine;
+-- falls back to blocking io.open on the main thread so the synchronous
+-- preview-side caller (resolve_obsidian → inspect_trees) keeps working.
+local function obsidian_paths(file_dir)
+  local vault = vim.fs.root(file_dir, ".obsidian")
+  if not vault then
+    return nil, nil
+  end
+  local cfg_path = vault .. "/.obsidian/app.json"
+  local data
+  local co, is_main = coroutine.running()
+  if co and not is_main then
+    local open_err, fd = async.await(4, vim.uv.fs_open, cfg_path, "r", 0)
+    if not open_err and fd then
+      local stat_err, stat = async.await(2, vim.uv.fs_fstat, fd)
+      if not stat_err and stat and stat.size > 0 then
+        local read_err, contents = async.await(4, vim.uv.fs_read, fd, stat.size, 0)
+        if not read_err then
+          data = contents
+        end
+      end
+      async.await(2, vim.uv.fs_close, fd)
+    end
+  else
+    local fd = io.open(cfg_path, "r")
+    if fd then
+      data = fd:read("*a")
+      fd:close()
+    end
+  end
+  local att = ""
+  if data then
+    local ok, conf = pcall(vim.json.decode, data)
+    if ok and type(conf.attachmentFolderPath) == "string" then
+      att = conf.attachmentFolderPath
+    end
+  end
+  local att_dir
+  if att == "" then
+    att_dir = file_dir
+  elseif att == "/" then
+    att_dir = vault
+  elseif att:match("^%./") then
+    att_dir = vim.fs.joinpath(file_dir, att:sub(3))
+  else
+    att_dir = vim.fs.joinpath(vault, att)
+  end
+  return att_dir, vault
+end
 
 -- Float image preview (Kitty Graphics Protocol — native pixel quality)
 local imgcat = (function()
@@ -223,29 +317,17 @@ local imgcat = (function()
 
   local function resolve_obsidian(name)
     local file_dir = vim.fn.expand("%:p:h")
-    local try = file_dir .. "/" .. name
+    local try = vim.fs.joinpath(file_dir, name)
     if vim.fn.filereadable(try) == 1 then
       return try
     end
-    local vault = vim.fs.root(file_dir, ".obsidian")
-    if not vault then
+    local att_dir, vault = obsidian_paths(file_dir)
+    if not att_dir then
       return
     end
-    local fd = io.open(vault .. "/.obsidian/app.json", "r")
-    if fd then
-      local ok, conf = pcall(vim.json.decode, fd:read("*a"))
-      fd:close()
-      if ok and conf.attachmentFolderPath then
-        local att = conf.attachmentFolderPath:gsub("^%./", "")
-        try = file_dir .. "/" .. att .. "/" .. name
-        if vim.fn.filereadable(try) == 1 then
-          return try
-        end
-        try = vault .. "/" .. att .. "/" .. name
-        if vim.fn.filereadable(try) == 1 then
-          return try
-        end
-      end
+    try = vim.fs.joinpath(att_dir, name)
+    if vim.fn.filereadable(try) == 1 then
+      return try
     end
     return vim.fs.find(name, { path = vault, type = "file" })[1]
   end
@@ -465,8 +547,8 @@ local imgcat = (function()
   ---   parser:parse(range, on_parse) — internally uses coroutine, yields every 3ms.
   ---   Callback always fires (sync or async), so we only need the callback path.
   local function detect_at_cursor(on_result)
-    local ok, parser = pcall(vim.treesitter.get_parser, 0)
-    if not ok or not parser then
+    local parser = vim.treesitter.get_parser(0)
+    if not parser then
       return on_result(nil)
     end
 
@@ -536,55 +618,6 @@ local imgcat = (function()
       .. content:sub(hl_start, hl_end)
       .. "}"
       .. content:sub(hl_end + 1)
-  end
-
-  ---------------------------------------------------------------------------
-  -- Minimal coroutine-based async (from nvim-treesitter/async.lua).
-  -- Lets us write flat sequential code that runs fully non-blocking.
-  --
-  --   async.run(function()
-  --     local stat = async.await(2, vim.uv.fs_stat, path)
-  --     local r = async.await(3, vim.system, cmd, {})
-  --     vim.schedule(function() place(r) end)
-  --   end)
-  ---------------------------------------------------------------------------
-
-  local async = {}
-
-  --- Yield the coroutine, call fn(..., callback). Resume when callback fires.
-  --- argc = position of the callback argument in fn's signature.
-  --- @async
-  function async.await(argc, fn, ...)
-    local args = { ... }
-    return coroutine.yield(function(resume)
-      args[argc] = resume
-      return fn(unpack(args, 1, argc))
-    end)
-  end
-
-  --- Yield to the Neovim event loop (required before calling vim.api.*)
-  --- @async
-  function async.schedule()
-    coroutine.yield(function(resume)
-      vim.schedule(resume)
-    end)
-  end
-
-  --- Run fn in a new coroutine. Non-blocking.
-  function async.run(fn)
-    local co = coroutine.create(fn)
-    local function step(...)
-      local ok, yielded = coroutine.resume(co, ...)
-      if not ok then
-        vim.schedule(function()
-          vim.notify("imgcat: " .. tostring(yielded), vim.log.levels.WARN)
-        end)
-      end
-      if coroutine.status(co) ~= "dead" and type(yielded) == "function" then
-        yielded(step)
-      end
-    end
-    step()
   end
 
   ---------------------------------------------------------------------------
@@ -1664,287 +1697,280 @@ local get_buffer_snippets = function(filetype)
   return ft_snippets
 end
 
-require("lazy").setup({
-  { "mfussenegger/nvim-qwahl" },
-  { "mfussenegger/nvim-fzy" },
-  {
-    "github/copilot.vim",
-    lazy = false, -- Load at startup so VimEnter autocmd fires and copilot#Init() runs
-    init = function()
-      vim.g.copilot_node_command = myconfigs_path .. "/.pixi/envs/nodejs/bin/node"
-      vim.g.copilot_no_tab_map = true
-      vim.g.copilot_no_maps = true
-      vim.g.copilot_assume_mapped = true
-      vim.g.copilot_tab_fallback = ""
-      vim.g.copilot_filetypes = {
-        ["*"] = true,
-        gitcommit = false,
-      }
-    end,
-    config = function()
-      vim.keymap.set("i", "<M-e>", function()
-        return vim.api.nvim_feedkeys(
-          vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
-          "n",
-          true
-        )
-      end, { expr = true })
-      vim.keymap.set("i", "<c-;>", function()
-        return vim.fn["copilot#Next"]()
-      end, { expr = true })
-      vim.keymap.set("i", "<c-,>", function()
-        return vim.fn["copilot#Previous"]()
-      end, { expr = true })
-      vim.keymap.set("i", "<c-c>", function()
-        -- Leave insert mode and cancel completion
-        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
-        return vim.fn["copilot#Dismiss"]()
-      end, { expr = true })
-      vim.keymap.set("i", "<C-M-l>", function()
-        return vim.fn["copilot#AcceptLine"]()
-      end, { expr = true, silent = true })
-      vim.keymap.set("i", "<C-M-e>", function()
-        return vim.fn["copilot#AcceptWord"]()
-      end, { expr = true, silent = true })
-    end,
-  },
-  {
-    "hrsh7th/nvim-cmp",
-    event = { "InsertEnter" },
-    dependencies = {
-      "hrsh7th/cmp-nvim-lsp",
-      "hrsh7th/cmp-buffer",
-    },
-    config = function()
-      local cmp = require("cmp")
-      local compare = require("cmp.config.compare")
-      local cache = {}
-      local cmp_source = {
-        complete = function(_, params, callback)
-          local bufnr = vim.api.nvim_get_current_buf()
-          if not cache[bufnr] then
-            local completion_items = vim.tbl_map(function(snippet)
-              ---@type lsp.CompletionItem
-              local item = {
-                documentation = {
-                  kind = cmp.lsp.MarkupKind.PlainText,
-                  value = snippet.description or "",
-                },
-                word = snippet.trigger,
-                label = snippet.trigger,
-                kind = vim.lsp.protocol.CompletionItemKind.Snippet,
-                insertText = type(snippet.body) == "function" and snippet.body() or snippet.body,
-                insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet,
-              }
-              return item
-            end, get_buffer_snippets(params.context.filetype))
-            cache[bufnr] = completion_items
-          end
+---------------
+--- Plugins ---
+---------------
 
-          callback(cache[bufnr])
-        end,
-      }
+local gh = function(x)
+  return "https://github.com/" .. x
+end
 
-      cmp.register_source("snippets", cmp_source)
-      cmp.setup({
-        snippet = {
-          expand = function(args)
-            vim.snippet.expand(args.body)
-          end,
-        },
-        mapping = cmp.mapping.preset.insert({
-          ["Tab"] = cmp.config.disable,
-          ["S-Tab"] = cmp.config.disable,
-          ["<C-f>"] = cmp.config.disable,
-          ["<C-d>"] = cmp.mapping.scroll_docs(4),
-          ["<C-u>"] = cmp.mapping.scroll_docs(-4),
-          ["<CR>"] = cmp.mapping.confirm({
-            behavior = cmp.ConfirmBehavior.Insert,
-            select = false,
-          }),
-        }),
-        sources = {
-          { name = "nvim_lsp" },
-          { name = "snippets" },
-          {
-            name = "buffer",
-            option = {
-              get_bufnrs = function()
-                return vim.api.nvim_list_bufs()
-              end,
+-- Copilot globals must be set before the plugin loads
+vim.g.copilot_node_command = myconfigs_path .. "/.pixi/envs/nodejs/bin/node"
+vim.g.copilot_no_tab_map = true
+vim.g.copilot_no_maps = true
+vim.g.copilot_assume_mapped = true
+vim.g.copilot_tab_fallback = ""
+vim.g.copilot_filetypes = {
+  ["*"] = true,
+  gitcommit = false,
+}
+
+-- TSUpdate on install/update
+vim.api.nvim_create_autocmd("PackChanged", {
+  callback = function(ev)
+    if
+      ev.data.spec.name == "nvim-treesitter"
+      and (ev.data.kind == "install" or ev.data.kind == "update")
+    then
+      if not ev.data.active then
+        vim.cmd.packadd("nvim-treesitter")
+      end
+      vim.cmd("TSUpdate")
+    end
+  end,
+})
+
+vim.pack.add({
+  gh("mfussenegger/nvim-qwahl"),
+  gh("mfussenegger/nvim-fzy"),
+  gh("github/copilot.vim"),
+  gh("hrsh7th/nvim-cmp"),
+  gh("hrsh7th/cmp-nvim-lsp"),
+  gh("hrsh7th/cmp-buffer"),
+  { src = gh("nvim-treesitter/nvim-treesitter"), version = "main" },
+  { src = gh("nvim-treesitter/nvim-treesitter-textobjects"), version = "main" },
+})
+
+-- Copilot keymaps
+vim.keymap.set("i", "<M-e>", function()
+  return vim.api.nvim_feedkeys(
+    vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
+    "n",
+    true
+  )
+end, { expr = true })
+vim.keymap.set("i", "<c-;>", function()
+  return vim.fn["copilot#Next"]()
+end, { expr = true })
+vim.keymap.set("i", "<c-,>", function()
+  return vim.fn["copilot#Previous"]()
+end, { expr = true })
+vim.keymap.set("i", "<c-c>", function()
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
+  return vim.fn["copilot#Dismiss"]()
+end, { expr = true })
+vim.keymap.set("i", "<C-M-l>", function()
+  return vim.fn["copilot#AcceptLine"]()
+end, { expr = true, silent = true })
+vim.keymap.set("i", "<C-M-e>", function()
+  return vim.fn["copilot#AcceptWord"]()
+end, { expr = true, silent = true })
+
+-- nvim-cmp
+do
+  local cmp = require("cmp")
+  local compare = require("cmp.config.compare")
+  local cache = {}
+  local cmp_source = {
+    complete = function(_, params, callback)
+      local bufnr = vim.api.nvim_get_current_buf()
+      if not cache[bufnr] then
+        local completion_items = vim.tbl_map(function(snippet)
+          ---@type lsp.CompletionItem
+          local item = {
+            documentation = {
+              kind = cmp.lsp.MarkupKind.PlainText,
+              value = snippet.description or "",
             },
-          },
-        },
-        formatting = {
-          format = function(entry, vim_item)
-            vim_item.menu = ({
-              buffer = "[Buffer]",
-              nvim_lsp = "[LSP]",
-              snippets = "[Snippet]",
-            })[entry.source.name]
-            local label = vim_item.abbr
-            -- https://github.com/hrsh7th/nvim-cmp/discussions/609
-            local ELLIPSIS_CHAR = "…"
-            local MAX_LABEL_WIDTH = math.floor(vim.o.columns * 0.4)
-            local truncated_label = vim.fn.strcharpart(label, 0, MAX_LABEL_WIDTH)
-            if truncated_label ~= label then
-              vim_item.abbr = truncated_label .. ELLIPSIS_CHAR
-            end
-            return vim_item
+            word = snippet.trigger,
+            label = snippet.trigger,
+            kind = vim.lsp.protocol.CompletionItemKind.Snippet,
+            insertText = type(snippet.body) == "function" and snippet.body() or snippet.body,
+            insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet,
+          }
+          return item
+        end, get_buffer_snippets(params.context.filetype))
+        cache[bufnr] = completion_items
+      end
+
+      callback(cache[bufnr])
+    end,
+  }
+
+  cmp.register_source("snippets", cmp_source)
+  cmp.setup({
+    snippet = {
+      expand = function(args)
+        vim.snippet.expand(args.body)
+      end,
+    },
+    mapping = cmp.mapping.preset.insert({
+      ["Tab"] = cmp.config.disable,
+      ["S-Tab"] = cmp.config.disable,
+      ["<C-f>"] = cmp.config.disable,
+      ["<C-d>"] = cmp.mapping.scroll_docs(4),
+      ["<C-u>"] = cmp.mapping.scroll_docs(-4),
+      ["<CR>"] = cmp.mapping.confirm({
+        behavior = cmp.ConfirmBehavior.Insert,
+        select = false,
+      }),
+    }),
+    sources = {
+      { name = "nvim_lsp" },
+      { name = "snippets" },
+      {
+        name = "buffer",
+        option = {
+          get_bufnrs = function()
+            return vim.api.nvim_list_bufs()
           end,
         },
-        sorting = {
-          comparators = {
-            compare.offset,
-            compare.exact,
-            -- compare.score,
-            -- https://github.com/p00f/clangd_extensions.nvim/blob/main/lua/clangd_extensions/cmp_scores.lua
-            function(entry1, entry2)
-              local diff
-              if entry1.completion_item.score and entry2.completion_item.score then
-                diff = (entry2.completion_item.score * entry2.score)
-                  - (entry1.completion_item.score * entry1.score)
-              else
-                diff = entry2.score - entry1.score
-              end
-              if diff < 0 then
-                return true
-              elseif diff > 0 then
-                return false
-              end
-            end,
-            -- https://github.com/lukas-reineke/cmp-under-comparator
-            function(entry1, entry2)
-              local _, entry1_under = entry1.completion_item.label:find("^_+")
-              local _, entry2_under = entry2.completion_item.label:find("^_+")
-              entry1_under = entry1_under or 0
-              entry2_under = entry2_under or 0
-              if entry1_under > entry2_under then
-                return false
-              elseif entry1_under < entry2_under then
-                return true
-              end
-            end,
-            compare.recently_used,
-            compare.kind,
-            compare.sort_text,
-            compare.length,
-            compare.order,
-          },
-        },
-      })
-    end,
-  },
-  {
-    "nvim-treesitter/nvim-treesitter",
-    branch = "main",
-    build = ":TSUpdate",
-    lazy = false,
-    config = function()
-      require("nvim-treesitter").install({
-        "bash",
-        "c",
-        "cmake",
-        "comment",
-        "cpp",
-        "dockerfile",
-        "fish",
-        "html",
-        "http",
-        "javascript",
-        "json",
-        "latex",
-        "lua",
-        "make",
-        "markdown",
-        "markdown_inline",
-        "ninja",
-        "proto",
-        "python",
-        "query",
-        "rst",
-        "rust",
-        "toml",
-        "typescript",
-        "vim",
-        "vimdoc",
-        "xml",
-        "yaml",
-        "zig",
-      })
-    end,
-  },
-  {
-    "nvim-treesitter/nvim-treesitter-textobjects",
-    branch = "main",
-    event = { "VeryLazy" },
-    config = function()
-      local ts_textobjects = require("nvim-treesitter-textobjects")
-      ts_textobjects.setup({
-        select = { lookahead = true },
-        move = { set_jumps = true },
-      })
-
-      local select = require("nvim-treesitter-textobjects.select").select_textobject
-      for _, mapping in ipairs({
-        { "af", "@function.outer" },
-        { "if", "@function.inner" },
-        { "ac", "@class.outer" },
-        { "ic", "@class.inner" },
-        { "ap", "@parameter.outer" },
-        { "ip", "@parameter.inner" },
-        { "ao", "@conditional.outer" },
-        { "io", "@conditional.inner" },
-        { "al", "@loop.outer" },
-        { "il", "@loop.inner" },
-      }) do
-        vim.keymap.set({ "x", "o" }, mapping[1], function()
-          select(mapping[2], "textobjects")
-        end)
-      end
-
-      local swap = require("nvim-treesitter-textobjects.swap")
-      vim.keymap.set("n", "<leader>a", function()
-        swap.swap_next("@parameter.inner")
-      end)
-      vim.keymap.set("n", "<leader>A", function()
-        swap.swap_previous("@parameter.inner")
-      end)
-
-      local move = require("nvim-treesitter-textobjects.move")
-      for _, mapping in ipairs({
-        { "]f", "goto_next_start", "@function.outer" },
-        { "]c", "goto_next_start", "@class.outer" },
-        { "]F", "goto_next_end", "@function.outer" },
-        { "]C", "goto_next_end", "@class.outer" },
-        { "[f", "goto_previous_start", "@function.outer" },
-        { "[c", "goto_previous_start", "@class.outer" },
-        { "[F", "goto_previous_end", "@function.outer" },
-        { "[C", "goto_previous_end", "@class.outer" },
-      }) do
-        vim.keymap.set({ "n", "x", "o" }, mapping[1], function()
-          move[mapping[2]](mapping[3], "textobjects")
-        end)
-      end
-    end,
-  },
-}, {
-  defaults = {
-    lazy = true, -- every plugin is lazy-loaded by default
-  },
-  checker = { enabled = false }, -- automatically check for plugin updates
-  performance = {
-    rtp = {
-      disabled_plugins = {
-        "matchparen",
       },
     },
-  },
-  change_detection = {
-    enabled = false,
-    notify = false,
-  },
+    formatting = {
+      format = function(entry, vim_item)
+        vim_item.menu = ({
+          buffer = "[Buffer]",
+          nvim_lsp = "[LSP]",
+          snippets = "[Snippet]",
+        })[entry.source.name]
+        local label = vim_item.abbr
+        -- https://github.com/hrsh7th/nvim-cmp/discussions/609
+        local ELLIPSIS_CHAR = "…"
+        local MAX_LABEL_WIDTH = math.floor(vim.o.columns * 0.4)
+        local truncated_label = vim.fn.strcharpart(label, 0, MAX_LABEL_WIDTH)
+        if truncated_label ~= label then
+          vim_item.abbr = truncated_label .. ELLIPSIS_CHAR
+        end
+        return vim_item
+      end,
+    },
+    sorting = {
+      comparators = {
+        compare.offset,
+        compare.exact,
+        -- compare.score,
+        -- https://github.com/p00f/clangd_extensions.nvim/blob/main/lua/clangd_extensions/cmp_scores.lua
+        function(entry1, entry2)
+          local diff
+          if entry1.completion_item.score and entry2.completion_item.score then
+            diff = (entry2.completion_item.score * entry2.score)
+              - (entry1.completion_item.score * entry1.score)
+          else
+            diff = entry2.score - entry1.score
+          end
+          if diff < 0 then
+            return true
+          elseif diff > 0 then
+            return false
+          end
+        end,
+        -- https://github.com/lukas-reineke/cmp-under-comparator
+        function(entry1, entry2)
+          local _, entry1_under = entry1.completion_item.label:find("^_+")
+          local _, entry2_under = entry2.completion_item.label:find("^_+")
+          entry1_under = entry1_under or 0
+          entry2_under = entry2_under or 0
+          if entry1_under > entry2_under then
+            return false
+          elseif entry1_under < entry2_under then
+            return true
+          end
+        end,
+        compare.recently_used,
+        compare.kind,
+        compare.sort_text,
+        compare.length,
+        compare.order,
+      },
+    },
+  })
+end
+
+-- nvim-treesitter
+require("nvim-treesitter").install({
+  "bash",
+  "c",
+  "cmake",
+  "comment",
+  "cpp",
+  "dockerfile",
+  "fish",
+  "html",
+  "http",
+  "javascript",
+  "json",
+  "latex",
+  "lua",
+  "make",
+  "markdown",
+  "markdown_inline",
+  "ninja",
+  "proto",
+  "python",
+  "query",
+  "rst",
+  "rust",
+  "toml",
+  "typescript",
+  "vim",
+  "vimdoc",
+  "xml",
+  "yaml",
+  "zig",
 })
+
+-- nvim-treesitter-textobjects
+do
+  local ts_textobjects = require("nvim-treesitter-textobjects")
+  ts_textobjects.setup({
+    select = { lookahead = true },
+    move = { set_jumps = true },
+  })
+
+  local select = require("nvim-treesitter-textobjects.select").select_textobject
+  for _, mapping in ipairs({
+    { "af", "@function.outer" },
+    { "if", "@function.inner" },
+    { "ac", "@class.outer" },
+    { "ic", "@class.inner" },
+    { "ap", "@parameter.outer" },
+    { "ip", "@parameter.inner" },
+    { "ao", "@conditional.outer" },
+    { "io", "@conditional.inner" },
+    { "al", "@loop.outer" },
+    { "il", "@loop.inner" },
+  }) do
+    vim.keymap.set({ "x", "o" }, mapping[1], function()
+      select(mapping[2], "textobjects")
+    end)
+  end
+
+  local swap = require("nvim-treesitter-textobjects.swap")
+  vim.keymap.set("n", "<leader>a", function()
+    swap.swap_next("@parameter.inner")
+  end)
+  vim.keymap.set("n", "<leader>A", function()
+    swap.swap_previous("@parameter.inner")
+  end)
+
+  local move = require("nvim-treesitter-textobjects.move")
+  for _, mapping in ipairs({
+    { "]f", "goto_next_start", "@function.outer" },
+    { "]c", "goto_next_start", "@class.outer" },
+    { "]F", "goto_next_end", "@function.outer" },
+    { "]C", "goto_next_end", "@class.outer" },
+    { "[f", "goto_previous_start", "@function.outer" },
+    { "[c", "goto_previous_start", "@class.outer" },
+    { "[F", "goto_previous_end", "@function.outer" },
+    { "[C", "goto_previous_end", "@class.outer" },
+  }) do
+    vim.keymap.set({ "n", "x", "o" }, mapping[1], function()
+      move[mapping[2]](mapping[3], "textobjects")
+    end)
+  end
+end
 
 -- Enable treesitter highlighting for filetypes with an installed parser
 vim.api.nvim_create_autocmd("FileType", {
@@ -1971,7 +1997,9 @@ vim.diagnostic.config({
   severity_sort = true,
   signs = false,
   jump = {
-    float = true,
+    on_jump = function(_, bufnr)
+      vim.diagnostic.open_float({ bufnr = bufnr })
+    end,
   },
 })
 vim.opt.smoothscroll = true
@@ -2005,7 +2033,14 @@ vim.opt.matchpairs:append("<:>")
 vim.opt.swapfile = false
 vim.opt.signcolumn = "number"
 vim.opt.laststatus = 3
-vim.opt.statusline = [[%<%f %m%r%{luaeval("lsp_status()")}]]
+vim.opt.statusline =
+  "%<%f %m%r %{%v:lua.vim.lsp.status()%} %{%v:lua.vim.ui.progress_status()%}%= %{%v:lua.vim.diagnostic.status()%} "
+vim.api.nvim_create_autocmd("LspProgress", {
+  group = lsp_group,
+  callback = function()
+    vim.cmd.redrawstatus()
+  end,
+})
 vim.opt.smartindent = false
 vim.opt.pumheight = 20
 vim.opt.completeopt = "menuone,noselect,noinsert,fuzzy"
@@ -2124,6 +2159,74 @@ vim.keymap.set("n", "<M-o>", function()
   fzy.execute("fd --hidden --type f --strip-cwd-prefix", fzy.sinks.edit_file)
 end, { silent = true })
 vim.keymap.set("n", "<leader>j", q.jumplist, { silent = true })
+
+-- Paste: handle images from clipboard, fall through to default for text
+vim.paste = (function(overridden)
+  -- Relative path from `from_dir` to `to_path` (both absolute). Unlike
+  -- vim.fs.relpath, this emits `..` segments when `to_path` is not a
+  -- descendant of `from_dir`.
+  local function rel_path(from_dir, to_path)
+    local from = vim.split(vim.fs.normalize(from_dir), "/", { plain = true, trimempty = true })
+    local to = vim.split(vim.fs.normalize(to_path), "/", { plain = true, trimempty = true })
+    local i = 1
+    while from[i] and to[i] and from[i] == to[i] do
+      i = i + 1
+    end
+    local parts = {}
+    for _ = i, #from do
+      table.insert(parts, "..")
+    end
+    for j = i, #to do
+      table.insert(parts, to[j])
+    end
+    return table.concat(parts, "/")
+  end
+
+  return function(lines, phase)
+    -- TARGETS probe stays sync: vim.paste's return value decides sync vs.
+    -- image-handling path, and text paste must fall through without delay.
+    local targets = vim.fn.system("xclip -selection clipboard -t TARGETS -o 2>/dev/null")
+    if not targets:find("image/png") then
+      return overridden(lines, phase)
+    end
+    local file_dir = vim.fn.expand("%:p:h")
+    async.run(function()
+      -- Save into Obsidian's configured attachment folder, or a visible
+      -- sibling `attachments/` (no leading dot — Obsidian ignores hidden
+      -- folders) when not inside a vault.
+      local dir = obsidian_paths(file_dir) or vim.fs.joinpath(file_dir, "attachments")
+      -- obsidian_paths' async branch resumes us from a libuv callback (fast
+      -- context); schedule back to the main loop before any vim.fn.* call.
+      async.schedule()
+      vim.fn.mkdir(dir, "p")
+      local fname = os.date("%Y%m%d_%H%M%S") .. ".png"
+      local path = vim.fs.joinpath(dir, fname)
+      local link = rel_path(file_dir, path)
+      local r = async.await(
+        3,
+        vim.system,
+        { "xclip", "-selection", "clipboard", "-t", "image/png", "-o" },
+        {}
+      )
+      if r.code ~= 0 then
+        async.schedule()
+        vim.notify("Failed to read image from clipboard", vim.log.levels.ERROR)
+        return
+      end
+      local err, fd = async.await(4, vim.uv.fs_open, path, "w", 420)
+      if err or not fd then
+        async.schedule()
+        vim.notify("Failed to save image: " .. (err or "unknown"), vim.log.levels.ERROR)
+        return
+      end
+      async.await(4, vim.uv.fs_write, fd, r.stdout, 0)
+      async.await(2, vim.uv.fs_close, fd)
+      async.schedule()
+      vim.api.nvim_put({ string.format("![image](%s)", link) }, "c", true, true)
+    end)
+    return true
+  end
+end)(vim.paste)
 
 -- Diagnostic keymaps
 vim.keymap.set("n", "<leader>q", q.quickfix, { silent = true })
