@@ -1705,15 +1705,30 @@ local gh = function(x)
   return "https://github.com/" .. x
 end
 
--- Copilot globals must be set before the plugin loads
-vim.g.copilot_node_command = myconfigs_path .. "/.pixi/envs/nodejs/bin/node"
-vim.g.copilot_no_tab_map = true
-vim.g.copilot_no_maps = true
-vim.g.copilot_assume_mapped = true
-vim.g.copilot_tab_fallback = ""
-vim.g.copilot_filetypes = {
-  ["*"] = true,
-  gitcommit = false,
+-- llama.vim config must be set before the plugin loads
+vim.g.llama_config = {
+  endpoint_fim = "http://desktop.tail79ed4.ts.net:8012/infill",
+  endpoint_inst = "http://desktop.tail79ed4.ts.net:8012/v1/chat/completions",
+
+  show_info = 0,
+
+  -- Preserve previous accept-key muscle memory
+  keymap_fim_accept_full = "<M-e>",
+  keymap_fim_accept_line = "<C-M-l>",
+  keymap_fim_accept_word = "<C-M-e>",
+
+  -- Disable all leader-prefixed keymaps. `mapleader = " "`, and defaults
+  -- like `<leader>llf` put Vim into pending-mapping state on every <Space>
+  -- press in insert mode, causing a `timeoutlen` (1s) stall waiting for
+  -- the rest of the sequence. Setting to "" tells llama.vim to skip the
+  -- mapping entirely (see autoload/llama.vim:358).
+  keymap_fim_trigger = "",
+  keymap_debug_toggle = "",
+  keymap_inst_trigger = "",
+  keymap_inst_rerun = "",
+  keymap_inst_continue = "",
+  keymap_inst_accept = "",
+  keymap_inst_cancel = "",
 }
 
 -- TSUpdate on install/update
@@ -1734,7 +1749,7 @@ vim.api.nvim_create_autocmd("PackChanged", {
 vim.pack.add({
   gh("mfussenegger/nvim-qwahl"),
   gh("mfussenegger/nvim-fzy"),
-  gh("github/copilot.vim"),
+  gh("ggml-org/llama.vim"),
   gh("hrsh7th/nvim-cmp"),
   gh("hrsh7th/cmp-nvim-lsp"),
   gh("hrsh7th/cmp-buffer"),
@@ -1742,30 +1757,13 @@ vim.pack.add({
   { src = gh("nvim-treesitter/nvim-treesitter-textobjects"), version = "main" },
 })
 
--- Copilot keymaps
-vim.keymap.set("i", "<M-e>", function()
-  return vim.api.nvim_feedkeys(
-    vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
-    "n",
-    true
-  )
-end, { expr = true })
-vim.keymap.set("i", "<c-;>", function()
-  return vim.fn["copilot#Next"]()
-end, { expr = true })
-vim.keymap.set("i", "<c-,>", function()
-  return vim.fn["copilot#Previous"]()
-end, { expr = true })
-vim.keymap.set("i", "<c-c>", function()
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
-  return vim.fn["copilot#Dismiss"]()
-end, { expr = true })
-vim.keymap.set("i", "<C-M-l>", function()
-  return vim.fn["copilot#AcceptLine"]()
-end, { expr = true, silent = true })
-vim.keymap.set("i", "<C-M-e>", function()
-  return vim.fn["copilot#AcceptWord"]()
-end, { expr = true, silent = true })
+-- Disable llama.vim in gitcommit buffers
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "gitcommit",
+  callback = function()
+    vim.cmd("LlamaDisable")
+  end,
+})
 
 -- nvim-cmp
 do
