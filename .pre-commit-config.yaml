@@ -1,3 +1,4 @@
+exclude: ^claude/
 ci:
     skip: [refurb, luacheck, actionlint]
 default_language_version:

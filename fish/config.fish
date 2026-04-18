@@ -199,7 +199,9 @@ function ffmpeg-extract-images
     echo "ffmpeg-extract-images expects one input ffmpeg-extract-images filename"
     return
   end
-  ffmpeg -i $argv[1] -vsync 0 %d.png
+  set -l outdir (path change-extension '' $argv[1])
+  mkdir -p $outdir
+  ffmpeg -i $argv[1] -vsync 0 $outdir/%d.png
 end
 
 function ffmpeg-remove-audio
