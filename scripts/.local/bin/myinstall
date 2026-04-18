@@ -648,6 +648,13 @@ case "${1:-}" in
         curl -fsSL https://claude.ai/install.sh | bash
         ;;
 
+    claude-mcp)
+        # User-scope MCP servers live in ~/.claude.json (17k+ lines, not git-friendly).
+        # Re-register here so the list is versioned in this repo instead.
+        claude mcp remove ast-grep -s user 2>/dev/null || true
+        claude mcp add ast-grep -s user -- uvx --from git+https://github.com/ast-grep/ast-grep-mcp ast-grep-server
+        ;;
+
     opencode)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
         pushd "$TMP_DIR" || exit 1
@@ -729,7 +736,7 @@ case "${1:-}" in
 
     pixi-core)
         info "Installing core tools..."
-        pixi global install git git-lfs stow less file fish openssh ripgrep fd-find fzf bat nvim unzip tmux atool xclip pipe-rename tree-sitter-cli
+        pixi global install git git-lfs stow less file fish openssh ripgrep fd-find fzf bat nvim unzip tmux atool xclip pipe-rename tree-sitter-cli ast-grep
 
         pixi_path=${PIXI_PATH:-$HOME/.pixi}
         # https://pixi.sh/latest/global_tools/trampolines/#trampolines
