@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__whiteboard__*"
+    ],
+    "defaultMode": "auto"
+  },
+  "enabledPlugins": {
+    "astral@astral-sh": true,
+    "ast-grep@ast-grep-marketplace": true
+  },
+  "extraKnownMarketplaces": {
+    "astral-sh": {
+      "source": {
+        "source": "github",
+        "repo": "astral-sh/claude-code-plugins"
+      }
+    },
+    "ast-grep-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "ast-grep/agent-skill"
+      }
+    }
+  },
+  "alwaysThinkingEnabled": true,
+  "advisorModel": "opus",
+  "voiceEnabled": false,
+  "skipAutoPermissionPrompt": true
+}

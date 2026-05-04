@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+LLAMA_URL="${LLAMA_URL:-http://localhost:8080}"
+
+fail() {
+  notify-send -u critical "eq2latex" "$1"
+  exit 1
+}
+
+PAYLOAD=$(mktemp --suffix=.json)
+
+flameshot gui --raw --accept-on-select \
+  | base64 -w 0 \
+  | jq -Rs '{
+      model: "llama",
+      temperature: 0.0,
+      top_k: 1,
+      messages: [
+        {role: "user", content: [
+          {type: "image_url", image_url: {url: ("data:image/png;base64," + .)}},
+          {type: "text", text: "OCR"}
+        ]}
+      ]
+    }' > "$PAYLOAD"
+
+RESPONSE=$(curl -sS --fail-with-body --max-time 30 "$LLAMA_URL/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  --data-binary @"$PAYLOAD" 2>&1) || fail "llama.cpp unreachable at $LLAMA_URL"
+
+LATEX=$(jq -r '.choices[0].message.content // empty' <<<"$RESPONSE") \
+  || fail "Invalid JSON from llama.cpp: $RESPONSE"
+[[ -n "$LATEX" ]] || fail "Empty LaTeX in response: $RESPONSE"
+
+printf '%s' "$LATEX" | xsel --clipboard --input
+
+notify-send "eq2latex" "Done! LaTeX copied."
