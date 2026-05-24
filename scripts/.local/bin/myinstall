@@ -177,6 +177,15 @@ case "${1:-}" in
         popd || exit 1
         ;;
 
+    mutagen)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github mutagen-io/mutagen "mutagen_linux_amd64_v.*\.tar\.gz"
+        tar -xzf mutagen_linux_amd64_v*.tar.gz
+        mv mutagen ~/.local/bin/mutagen
+        popd || exit 1
+        ;;
+
     docker)
         if ! command -v docker &> /dev/null; then
             sudo apt install -y curl
@@ -347,6 +356,7 @@ case "${1:-}" in
         ~/.local/bin/uv tool install pyrefly
         ~/.local/bin/uv tool install maturin
         ~/.local/bin/uv tool install trackio
+        ~/.local/bin/uv tool install py-spy
         ~/.local/bin/rerun analytics disable
         ;;
 
@@ -736,7 +746,7 @@ case "${1:-}" in
 
     pixi-core)
         info "Installing core tools..."
-        pixi global install git git-lfs stow less file fish openssh ripgrep fd-find fzf bat nvim unzip tmux atool xclip pipe-rename tree-sitter-cli ast-grep
+        pixi global install git git-lfs stow less file fish openssh ripgrep fd-find fzf bat nvim unzip tmux atool xclip pipe-rename tree-sitter-cli ast-grep witr
 
         pixi_path=${PIXI_PATH:-$HOME/.pixi}
         # https://pixi.sh/latest/global_tools/trampolines/#trampolines
@@ -784,6 +794,20 @@ case "${1:-}" in
         $0 pixi-network-remote
         $0 pixi-utils
         info "Done!"
+        ;;
+
+    gimp)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        GIMP_MAJOR=$(curl -sL https://download.gimp.org/gimp/ | grep -oP 'href="\Kv[0-9]+\.[0-9]+' | sort -V | tail -1)
+        GIMP_VERSION=$(curl -sL "https://download.gimp.org/gimp/${GIMP_MAJOR}/linux/" | grep -oP 'GIMP-\K[0-9]+\.[0-9]+\.[0-9]+(?=-x86_64\.AppImage)' | grep -v RC | sort -V | tail -1)
+        if [ "$arch_name" = "arm64" ]; then
+            wget "https://download.gimp.org/gimp/${GIMP_MAJOR}/linux/GIMP-${GIMP_VERSION}-aarch64.AppImage" -O ~/.local/bin/gimp
+        else
+            wget "https://download.gimp.org/gimp/${GIMP_MAJOR}/linux/GIMP-${GIMP_VERSION}-x86_64.AppImage" -O ~/.local/bin/gimp
+        fi
+        chmod +x ~/.local/bin/gimp
+        popd || exit 1
         ;;
 
     --help)

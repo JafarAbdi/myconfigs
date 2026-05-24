@@ -1,0 +1,180 @@
+#!/bin/bash
+# mdev - Mutagen dev sync manager (per-host two-way sync to a local mirror)
+
+set -euo pipefail
+
+readonly MIRROR_DIR="${HOME}/.local/mnt/mdev"
+readonly STATE_DIR="${HOME}/.local/state/mdev"
+readonly RED='\033[0;31m' GREEN='\033[0;32m' YELLOW='\033[0;33m' NC='\033[0m'
+
+readonly DEFAULT_IGNORES=(
+    node_modules .venv venv target dist build .cache .pixi
+    __pycache__ .next .DS_Store .pytest_cache .ruff_cache '*.log'
+)
+
+error() { echo -e "[${RED}error${NC}]: $1" >&2; exit 1; }
+info()  { echo -e "[${GREEN}info${NC}]:  $1" >&2; }
+warn()  { echo -e "[${YELLOW}warn${NC}]:  $1" >&2; }
+
+require_mutagen() { command -v mutagen >/dev/null || error "mutagen not on PATH"; }
+
+session_name() { echo "mdev-$1"; }
+mirror_path()  { echo "${MIRROR_DIR}/$1"; }
+state_path()   { echo "${STATE_DIR}/$1.path"; }
+
+session_exists() {
+    mutagen sync list "$(session_name "$1")" 2>/dev/null \
+        | grep -q "^Name: $(session_name "$1")$"
+}
+
+remote_home() { ssh -o 'BatchMode=yes' "$1" 'echo $HOME'; }
+
+cmd_connect() {
+    local host="$1" remote_path="${2:-}"
+    local name; name="$(session_name "$host")"
+    local mirror; mirror="$(mirror_path "$host")"
+    local state; state="$(state_path "$host")"
+
+    session_exists "$host" && error "Session already exists for $host (try: mdev resume $host)"
+
+    [[ -z "$remote_path" ]] && remote_path="$(remote_home "$host")"
+    [[ -z "$remote_path" ]] && error "Failed to resolve remote path for $host"
+
+    mkdir -p "$mirror" "$STATE_DIR"
+    echo "$remote_path" > "$state"
+
+    local ignore_args=()
+    for pat in "${DEFAULT_IGNORES[@]}"; do
+        ignore_args+=(-i "$pat")
+    done
+
+    info "Creating sync $name: $mirror <-> ${host}:${remote_path}"
+    mutagen sync create \
+        --name "$name" \
+        --mode two-way-resolved \
+        --ignore-vcs \
+        --label mdev=true \
+        --label "mdev.host=${host}" \
+        "${ignore_args[@]}" \
+        "$mirror" "${host}:${remote_path}"
+
+    info "Flushing initial sync (this may take a while)..."
+    mutagen sync flush "$name"
+    info "Ready at $mirror"
+}
+
+cmd_disconnect() {
+    local host="$1"
+    session_exists "$host" || error "No session for $host"
+    mutagen sync pause "$(session_name "$host")"
+    info "Paused $host (use: mdev resume $host)"
+}
+
+cmd_resume() {
+    local host="$1"
+    session_exists "$host" || error "No session for $host (try: mdev connect $host)"
+    mutagen sync resume "$(session_name "$host")"
+    info "Resumed $host"
+}
+
+cmd_terminate() {
+    local host="$1" force="${2:-}"
+    local mirror; mirror="$(mirror_path "$host")"
+    local state; state="$(state_path "$host")"
+
+    if session_exists "$host"; then
+        mutagen sync terminate "$(session_name "$host")"
+        info "Terminated session for $host"
+    fi
+
+    if [[ -d "$mirror" ]]; then
+        if [[ "$force" == "--purge" ]]; then
+            rm -rf "$mirror"
+            info "Purged mirror $mirror"
+        elif [[ -z "$(ls -A "$mirror" 2>/dev/null)" ]]; then
+            rmdir "$mirror"
+        else
+            warn "Mirror $mirror not empty; kept. Use 'mdev terminate $host --purge' to delete."
+        fi
+    fi
+
+    [[ -f "$state" ]] && rm -f "$state"
+}
+
+cmd_flush()    { session_exists "$1" || error "No session"; mutagen sync flush    "$(session_name "$1")"; }
+cmd_monitor()  { session_exists "$1" || error "No session"; mutagen sync monitor  "$(session_name "$1")"; }
+cmd_status()   { session_exists "$1" || error "No session"; mutagen sync list --long "$(session_name "$1")"; }
+
+cmd_conflicts() {
+    local host="$1"
+    session_exists "$host" || error "No session for $host"
+    local out; out="$(mutagen sync list --long "$(session_name "$host")")"
+    if echo "$out" | grep -qE '^Conflicts:'; then
+        echo "$out" | awk '/^Conflicts:/,/^$/'
+    else
+        info "No conflicts for $host"
+    fi
+}
+
+cmd_list() {
+    if ! mutagen sync list --label-selector 'mdev=true' 2>/dev/null | grep -q '^Name:'; then
+        info "No mdev sessions"
+        return
+    fi
+    mutagen sync list --label-selector 'mdev=true'
+}
+
+cmd_ssh() {
+    local host="$1" remote_path="${2:-}"
+    if [[ -z "$remote_path" && -f "$(state_path "$host")" ]]; then
+        remote_path="$(cat "$(state_path "$host")")"
+    fi
+    if [[ -n "$remote_path" ]]; then
+        exec ssh -t "$host" "cd $(printf '%q' "$remote_path") && exec \$SHELL -l"
+    else
+        exec ssh "$host"
+    fi
+}
+
+cmd_home() { remote_home "$1"; }
+
+usage() {
+    cat <<EOF
+mdev - mutagen dev sync manager
+
+Usage:
+  mdev connect    <host> [path]   Create + flush two-way sync (path defaults to remote \$HOME)
+  mdev disconnect <host>          Pause session (keeps state; preferred over terminate)
+  mdev resume     <host>          Resume paused session
+  mdev terminate  <host> [--purge]  Destroy session; --purge also deletes mirror dir
+  mdev flush      <host>          Block until converged
+  mdev monitor    <host>          Stream live sync status
+  mdev status     <host>          Show session detail
+  mdev conflicts  <host>          Show conflicts (if any)
+  mdev list                       List all mdev sessions
+  mdev ssh        <host> [path]   SSH into host (cd to stored or given path)
+  mdev home       <host>          Print remote \$HOME
+
+Mirror dir:  ~/.local/mnt/mdev/<host>
+State dir:   ~/.local/state/mdev/
+Default mode: two-way-resolved, --ignore-vcs, ignores: ${DEFAULT_IGNORES[*]}
+EOF
+}
+
+require_mutagen
+
+case "${1:-}" in
+    connect)    [[ $# -ge 2 ]] || error "Usage: mdev connect <host> [path]";    cmd_connect    "$2" "${3:-}" ;;
+    disconnect) [[ $# -ge 2 ]] || error "Usage: mdev disconnect <host>";        cmd_disconnect "$2" ;;
+    resume)     [[ $# -ge 2 ]] || error "Usage: mdev resume <host>";            cmd_resume     "$2" ;;
+    terminate)  [[ $# -ge 2 ]] || error "Usage: mdev terminate <host> [--purge]"; cmd_terminate "$2" "${3:-}" ;;
+    flush)      [[ $# -ge 2 ]] || error "Usage: mdev flush <host>";             cmd_flush      "$2" ;;
+    monitor)    [[ $# -ge 2 ]] || error "Usage: mdev monitor <host>";           cmd_monitor    "$2" ;;
+    status)     [[ $# -ge 2 ]] || error "Usage: mdev status <host>";            cmd_status     "$2" ;;
+    conflicts)  [[ $# -ge 2 ]] || error "Usage: mdev conflicts <host>";         cmd_conflicts  "$2" ;;
+    list)       cmd_list ;;
+    ssh)        [[ $# -ge 2 ]] || error "Usage: mdev ssh <host> [path]";        cmd_ssh        "$2" "${3:-}" ;;
+    home)       [[ $# -ge 2 ]] || error "Usage: mdev home <host>";              cmd_home       "$2" ;;
+    -h|--help|help|"") usage ;;
+    *)          error "Unknown command: $1 (try: mdev help)" ;;
+esac

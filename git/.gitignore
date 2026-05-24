@@ -57,3 +57,5 @@ nvim/plugin/*
 ## Zig ##
 .zig-cache
 zig-out
+
+**/.claude/settings.local.json

@@ -195,13 +195,17 @@ function ex
 end
 
 function ffmpeg-extract-images
-  if test (count $argv) -ne 1
-    echo "ffmpeg-extract-images expects one input ffmpeg-extract-images filename"
+  if test (count $argv) -lt 1 -o (count $argv) -gt 2
+    echo "Usage: ffmpeg-extract-images <filename> [fps=30]"
     return
+  end
+  set -l fps 30
+  if test (count $argv) -eq 2
+    set fps $argv[2]
   end
   set -l outdir (path change-extension '' $argv[1])
   mkdir -p $outdir
-  ffmpeg -i $argv[1] -vsync 0 $outdir/%d.png
+  ffmpeg -i $argv[1] -vf fps=$fps $outdir/%d.png
 end
 
 function ffmpeg-remove-audio
@@ -974,6 +978,35 @@ complete -c sfs -n "__fish_is_first_arg" -a "connect disconnect ssh list home"
 complete -c sfs -n "__fish_seen_subcommand_from connect ssh home; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
 complete -c sfs -n "__fish_seen_subcommand_from disconnect" -a "(ls ~/.local/mnt/sfs/ 2>/dev/null)"
 complete -c sfs -n "__fish_seen_subcommand_from connect ssh; and test (count (commandline -opc)) -ge 3" -a "(__fish_sfs_remote_paths)"
+
+# mdev wrapper and completions
+function mdev --wraps mdev --description 'Mutagen dev sync manager'
+  if test (count $argv) -ge 2 -a "$argv[1]" = "connect"
+    command mdev $argv && cd ~/.local/mnt/mdev/$argv[2]
+  else
+    command mdev $argv
+  end
+end
+
+function __fish_mdev_hosts
+  ls ~/.local/state/mdev/ 2>/dev/null | string replace -r '\.path$' ''
+end
+
+function __fish_mdev_remote_paths
+  set -l tokens (commandline -opc)
+  set -l host $tokens[3]
+  set -l current (commandline -ct | string unescape 2>/dev/null)
+  test -z "$current" && set current '~/'
+  command ssh -o 'BatchMode yes' $host "command ls -dp $current* 2>/dev/null" 2>/dev/null | string escape -n
+end
+
+complete -c mdev -f
+complete -c mdev -n "__fish_is_first_arg" -a "connect disconnect resume terminate flush monitor status conflicts list ssh home help"
+complete -c mdev -n "__fish_seen_subcommand_from connect ssh home; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
+complete -c mdev -n "__fish_seen_subcommand_from disconnect resume terminate flush monitor status conflicts" -a "(__fish_mdev_hosts)"
+complete -c mdev -n "__fish_seen_subcommand_from ssh; and test (count (commandline -opc)) -eq 2" -a "(__fish_mdev_hosts)"
+complete -c mdev -n "__fish_seen_subcommand_from connect ssh; and test (count (commandline -opc)) -ge 3" -a "(__fish_mdev_remote_paths)"
+complete -c mdev -n "__fish_seen_subcommand_from terminate; and test (count (commandline -opc)) -ge 3" -a "--purge"
 
 # myinstall completions
 function __fish_myinstall_commands

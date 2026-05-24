@@ -23,8 +23,22 @@
       }
     }
   },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/activate-skills.py"
+          }
+        ]
+      }
+    ]
+  },
   "alwaysThinkingEnabled": true,
+  "effortLevel": "medium",
   "advisorModel": "opus",
+  "skipAutoPermissionPrompt": true,
   "voiceEnabled": false,
-  "skipAutoPermissionPrompt": true
+  "preferredNotifChannel": "kitty"
 }

@@ -15,7 +15,7 @@
       "name": "llama-server (local)",
       "npm": "@ai-sdk/openai-compatible",
       "options": {
-        "baseURL": "http://juruc-desktop.local:8080/v1"
+        "baseURL": "http://desktop.tail79ed4.ts.net:8080/v1"
       }
     }
   }

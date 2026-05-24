@@ -10,6 +10,7 @@ end
 
 config.scrollback_lines = 20000
 config.max_fps = 120
+config.enable_kitty_keyboard = true
 
 -- Show which key table is active in the status area
 wezterm.on("update-right-status", function(window, pane)
@@ -154,8 +155,6 @@ config.keys = {
   },
   { key = "UpArrow", mods = "SHIFT", action = act.ScrollToPrompt(-1) },
   { key = "DownArrow", mods = "SHIFT", action = act.ScrollToPrompt(1) },
-  -- To make Claude code happy
-  { key = "Enter", mods = "SHIFT", action = act.SendString("\x1b\r") },
 }
 
 config.key_tables = {
