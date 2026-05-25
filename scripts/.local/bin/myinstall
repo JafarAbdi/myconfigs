@@ -360,6 +360,22 @@ case "${1:-}" in
         ~/.local/bin/rerun analytics disable
         ;;
 
+    pi-code)
+        curl -fsSL https://pi.dev/install.sh | sh
+        mkdir -p ~/.pi/agent/extensions
+        curl -fsSL https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/examples/extensions/permission-gate.ts -o ~/.pi/agent/extensions/permission-gate.ts
+        curl -fsSL https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/examples/extensions/protected-paths.ts -o ~/.pi/agent/extensions/protected-paths.ts
+        curl -fsSL https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/examples/extensions/notify.ts -o ~/.pi/agent/extensions/notify.ts
+        curl -fsSL https://raw.githubusercontent.com/mitsuhiko/agent-stuff/main/extensions/uv.ts -o ~/.pi/agent/extensions/uv.ts
+        mkdir -p ~/.pi/agent/intercepted-commands
+        curl -fsSL https://raw.githubusercontent.com/mitsuhiko/agent-stuff/main/intercepted-commands/pip -o ~/.pi/agent/intercepted-commands/pip
+        curl -fsSL https://raw.githubusercontent.com/mitsuhiko/agent-stuff/main/intercepted-commands/pip3 -o ~/.pi/agent/intercepted-commands/pip3
+        curl -fsSL https://raw.githubusercontent.com/mitsuhiko/agent-stuff/main/intercepted-commands/poetry -o ~/.pi/agent/intercepted-commands/poetry
+        curl -fsSL https://raw.githubusercontent.com/mitsuhiko/agent-stuff/main/intercepted-commands/python -o ~/.pi/agent/intercepted-commands/python
+        curl -fsSL https://raw.githubusercontent.com/mitsuhiko/agent-stuff/main/intercepted-commands/python3 -o ~/.pi/agent/intercepted-commands/python3
+        chmod +x ~/.pi/agent/intercepted-commands/pip ~/.pi/agent/intercepted-commands/pip3 ~/.pi/agent/intercepted-commands/poetry ~/.pi/agent/intercepted-commands/python ~/.pi/agent/intercepted-commands/python3
+        ;;
+
     pixi)
       mkdir -p ~/.local/bin || true
       [[ ! $(command -v pixi) ]] && curl -fsSL https://pixi.sh/install.sh | bash
@@ -536,6 +552,10 @@ case "${1:-}" in
 
     bun)
         curl -fsSL https://bun.sh/install | bash
+        ;;
+
+    deno)
+        curl -fsSL https://deno.land/install.sh | sh
         ;;
 
     mujoco_simulator)
