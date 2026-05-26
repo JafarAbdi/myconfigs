@@ -983,6 +983,20 @@ complete -c sfs -n "__fish_seen_subcommand_from connect ssh; and test (count (co
 function mdev --wraps mdev --description 'Mutagen dev sync manager'
   if test (count $argv) -ge 2 -a "$argv[1]" = "connect"
     command mdev $argv && cd ~/.local/mnt/mdev/$argv[2]
+  else if test "$argv[1]" = "cd"
+    set -l name $argv[2]
+    if test -z "$name"
+      set name (__fish_mdev_hosts | fzf --no-multi --prompt='mdev> ' --preview '')
+    end
+    if test -z "$name"
+      return 1
+    end
+    set -l mount ~/.local/mnt/mdev/$name
+    if not test -d $mount
+      echo "mdev: no mount at $mount" >&2
+      return 1
+    end
+    cd $mount
   else
     command mdev $argv
   end
@@ -1001,7 +1015,8 @@ function __fish_mdev_remote_paths
 end
 
 complete -c mdev -f
-complete -c mdev -n "__fish_is_first_arg" -a "connect disconnect resume terminate flush monitor status conflicts list ssh home help"
+complete -c mdev -n "__fish_is_first_arg" -a "connect disconnect resume terminate flush monitor status conflicts list ssh home cd help"
+complete -c mdev -n "__fish_seen_subcommand_from cd" -a "(__fish_mdev_hosts)"
 complete -c mdev -n "__fish_seen_subcommand_from connect ssh home; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
 complete -c mdev -n "__fish_seen_subcommand_from disconnect resume terminate flush monitor status conflicts" -a "(__fish_mdev_hosts)"
 complete -c mdev -n "__fish_seen_subcommand_from ssh; and test (count (commandline -opc)) -eq 2" -a "(__fish_mdev_hosts)"
