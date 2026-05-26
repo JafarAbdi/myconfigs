@@ -183,6 +183,7 @@ case "${1:-}" in
         install_from_github mutagen-io/mutagen "mutagen_linux_amd64_v.*\.tar\.gz"
         tar -xzf mutagen_linux_amd64_v*.tar.gz
         mv mutagen ~/.local/bin/mutagen
+        mv mutagen-agents.tar.gz ~/.local/bin/mutagen-agents.tar.gz
         popd || exit 1
         ;;
 
