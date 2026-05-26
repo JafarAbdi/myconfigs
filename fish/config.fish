@@ -1021,6 +1021,7 @@ complete -c mdev -n "__fish_seen_subcommand_from connect ssh home; and test (cou
 complete -c mdev -n "__fish_seen_subcommand_from disconnect resume terminate flush monitor status conflicts" -a "(__fish_mdev_hosts)"
 complete -c mdev -n "__fish_seen_subcommand_from ssh; and test (count (commandline -opc)) -eq 2" -a "(__fish_mdev_hosts)"
 complete -c mdev -n "__fish_seen_subcommand_from connect ssh; and test (count (commandline -opc)) -ge 3" -a "(__fish_mdev_remote_paths)"
+complete -c mdev -n "__fish_seen_subcommand_from connect; and test (count (commandline -opc)) -ge 3" -a "--with-git"
 complete -c mdev -n "__fish_seen_subcommand_from terminate; and test (count (commandline -opc)) -ge 3" -a "--purge"
 
 # myinstall completions

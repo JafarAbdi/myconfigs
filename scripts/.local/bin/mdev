@@ -30,7 +30,14 @@ session_exists() {
 remote_home() { ssh -o 'BatchMode=yes' "$1" 'echo $HOME'; }
 
 cmd_connect() {
-    local host="$1" remote_path="${2:-}"
+    local host="$1"; shift
+    local remote_path="" with_git=0
+    for arg in "$@"; do
+        case "$arg" in
+            --with-git) with_git=1 ;;
+            *) remote_path="$arg" ;;
+        esac
+    done
     local name; name="$(session_name "$host")"
     local mirror; mirror="$(mirror_path "$host")"
     local state; state="$(state_path "$host")"
@@ -47,12 +54,16 @@ cmd_connect() {
     for pat in "${DEFAULT_IGNORES[@]}"; do
         ignore_args+=(-i "$pat")
     done
+    local vcs_args=(--ignore-vcs)
+    if [[ $with_git -eq 1 ]]; then
+        vcs_args=()
+    fi
 
     info "Creating sync $name: $mirror <-> ${host}:${remote_path}"
     mutagen sync create \
         --name "$name" \
         --mode two-way-resolved \
-        --ignore-vcs \
+        "${vcs_args[@]}" \
         --label mdev=true \
         --label "mdev.host=${host}" \
         "${ignore_args[@]}" \
@@ -143,7 +154,7 @@ usage() {
 mdev - mutagen dev sync manager
 
 Usage:
-  mdev connect    <host> [path]   Create + flush two-way sync (path defaults to remote \$HOME)
+  mdev connect    <host> [path] [--with-git]  Create + flush two-way sync (path defaults to remote \$HOME; --with-git keeps .git in sync)
   mdev disconnect <host>          Pause session (keeps state; preferred over terminate)
   mdev resume     <host>          Resume paused session
   mdev terminate  <host> [--purge]  Destroy session; --purge also deletes mirror dir
@@ -164,7 +175,7 @@ EOF
 require_mutagen
 
 case "${1:-}" in
-    connect)    [[ $# -ge 2 ]] || error "Usage: mdev connect <host> [path]";    cmd_connect    "$2" "${3:-}" ;;
+    connect)    [[ $# -ge 2 ]] || error "Usage: mdev connect <host> [path] [--with-git]"; shift; cmd_connect "$@" ;;
     disconnect) [[ $# -ge 2 ]] || error "Usage: mdev disconnect <host>";        cmd_disconnect "$2" ;;
     resume)     [[ $# -ge 2 ]] || error "Usage: mdev resume <host>";            cmd_resume     "$2" ;;
     terminate)  [[ $# -ge 2 ]] || error "Usage: mdev terminate <host> [--purge]"; cmd_terminate "$2" "${3:-}" ;;
