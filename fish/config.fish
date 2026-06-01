@@ -22,6 +22,7 @@ export TURBO_TELEMETRY_DISABLED=1
 export HF_HUB_DISABLE_TELEMETRY=True
 export HF_HUB_ENABLE_HF_TRANSFER=1
 export HF_XET_HIGH_PERFORMANCE=1
+export PI_TELEMETRY=0
 
 # To prevent JAX from allocating all GPU memory
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
