@@ -84,7 +84,12 @@ if [[ "$interactive" == true ]]; then
 fi
 
 display="${DISPLAY:-:0}"
-cmd=(ffmpeg -f x11grab -r "$fps" -s "$resolution" -grab_x "$grab_x" -grab_y "$grab_y" -i "$display")
+# Use system ffmpeg: conda-forge/pixi ffmpeg is built without libxcb, so x11grab
+# is unavailable (long-standing conda-forge/ffmpeg-feedstock issue #84, open since 2020).
+# To re-check if pixi ffmpeg ever gains x11grab support:
+#   ffmpeg -hide_banner -devices 2>&1 | grep x11grab
+# If it lists "x11grab", switch this back to plain `ffmpeg`.
+cmd=(/usr/bin/ffmpeg -f x11grab -r "$fps" -s "$resolution" -i "${display}+${grab_x},${grab_y}")
 
 if [[ "$audio" != "none" ]]; then
     cmd+=(-f pulse -i "$audio")
