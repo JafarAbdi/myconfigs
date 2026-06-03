@@ -18,7 +18,7 @@ warn()  { echo -e "[${YELLOW}warn${NC}]:  $1" >&2; }
 
 require_mutagen() { command -v mutagen >/dev/null || error "mutagen not on PATH"; }
 
-session_name() { echo "mdev-$1"; }
+session_name() { echo "mdev-${1//./-}"; }
 mirror_path()  { echo "${MIRROR_DIR}/$1"; }
 state_path()   { echo "${STATE_DIR}/$1.path"; }
 
@@ -59,7 +59,7 @@ cmd_connect() {
         vcs_args=()
     fi
 
-    info "Creating sync $name: $mirror <-> ${host}:${remote_path}"
+    info "Creating sync mdev-${host//./-}: $mirror <-> ${host}:${remote_path}"
     mutagen sync create \
         --name "$name" \
         --mode two-way-resolved \
