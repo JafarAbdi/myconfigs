@@ -308,8 +308,9 @@ case "${1:-}" in
             brew install --cask wezterm@nightly
         else
             mkdir -p ~/.local/bin
-            wget https://github.com/wez/wezterm/releases/download/nightly/WezTerm-nightly-Ubuntu20.04.AppImage -O ~/.local/bin/wezterm
-            chmod +x ~/.local/bin/wezterm
+            wget https://github.com/wez/wezterm/releases/download/nightly/WezTerm-nightly-Ubuntu20.04.AppImage -O ~/.local/bin/wezterm.new
+            chmod +x ~/.local/bin/wezterm.new
+            mv -f ~/.local/bin/wezterm.new ~/.local/bin/wezterm
             mkdir -p ~/.config/fish/completions && ~/.local/bin/wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
             # Install terminfo
             tempfile=$(mktemp)
@@ -760,9 +761,8 @@ case "${1:-}" in
         fi
         host="$2"
         shift 2
-        sync_to_remote "$host"
         scp "$0" "$host:/tmp/myinstall"
-        ssh -t "$host" "chmod +x /tmp/myinstall && /tmp/myinstall $*; rm -f /tmp/myinstall"
+        ssh -t "$host" "bash /tmp/myinstall $*; rm -f /tmp/myinstall"
         ;;
 
     pixi-core)
