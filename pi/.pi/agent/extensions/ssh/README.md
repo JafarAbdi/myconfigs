@@ -51,7 +51,7 @@ SSH mode requires ownership of execution tools so all execution runs on the remo
 
 ## Tool bootstrap
 
-If remote `fd` or `rg` is missing, pi downloads and caches Linux `amd64`/`arm64` binaries on the host, then installs missing tools on the remote. If remote `uv` is available, pi also installs Python command wrappers that route agents toward `uv`. Both host cache and remote install use:
+If remote `fd`, `rg`, or `fzf` is missing, pi downloads and caches Linux `amd64`/`arm64` binaries on the host, then installs missing tools on the remote. `fzf` ranks path autocomplete candidates (`/ssh-cd` and `@` references). If remote `uv` is available, pi also installs Python command wrappers that route agents toward `uv`. Both host cache and remote install use:
 
 ```text
 ~/.cache/pi/ssh-tools/
@@ -73,6 +73,7 @@ Inside pi:
 !shopt login_shell
 !fd --version
 !rg --version
+!fzf --version
 ```
 
 Expected:

@@ -9,7 +9,13 @@ import {
 	PYTHON_UV_COMMAND_NAMES,
 } from "./python-uv-commands.ts";
 import { shellQuote, toDisplayPath } from "./shell.ts";
-import { ensureLocalSshTools, type LocalSshToolsCache, type SshToolName, type SshToolPlatform } from "./tools-cache.ts";
+import {
+	ensureLocalSshTools,
+	type LocalSshToolsCache,
+	SSH_TOOL_NAMES,
+	type SshToolName,
+	type SshToolPlatform,
+} from "./tools-cache.ts";
 
 export class SshConnection {
 	readonly remote: string;
@@ -17,6 +23,7 @@ export class SshConnection {
 	remoteCwd = ".";
 	fdPath: string | undefined;
 	rgPath: string | undefined;
+	fzfPath: string | undefined;
 	remoteToolBinDir: string | undefined;
 	remotePythonUvCommandsBinDir: string | undefined;
 	remoteUvBinDir: string | undefined;
@@ -78,29 +85,31 @@ export class SshConnection {
 
 	async bootstrapTools(onStatus?: (status: string) => void): Promise<void> {
 		onStatus?.("checking tools");
-		const fdPath = await this.findRemoteTool("fd");
-		const rgPath = await this.findRemoteTool("rg");
-		if (fdPath && rgPath) {
-			this.fdPath = fdPath;
-			this.rgPath = rgPath;
-			await this.bootstrapPythonUvCommands(onStatus);
-			return;
+		const probed = {} as Record<SshToolName, string | undefined>;
+		for (const tool of SSH_TOOL_NAMES) {
+			probed[tool] = await this.findRemoteTool(tool);
+		}
+		const missingTools = SSH_TOOL_NAMES.filter((tool) => !probed[tool]);
+
+		const resolved = { ...probed } as Record<SshToolName, string>;
+		if (missingTools.length > 0) {
+			const platform = await this.detectRemotePlatform();
+			onStatus?.("caching tools");
+			const cache = await ensureLocalSshTools();
+			onStatus?.(`installing tools for ${platform}`);
+			const installed = await this.installRemoteTools(cache, platform, missingTools);
+			this.remoteToolBinDir = installed.binDir;
+			for (const tool of missingTools) {
+				resolved[tool] = installed.paths[tool];
+			}
+			for (const tool of missingTools) {
+				await this.verifyRemoteTool(tool, resolved[tool]);
+			}
 		}
 
-		const platform = await this.detectRemotePlatform();
-		onStatus?.("caching tools");
-		const cache = await ensureLocalSshTools();
-		const missingTools: SshToolName[] = [];
-		if (!fdPath) missingTools.push("fd");
-		if (!rgPath) missingTools.push("rg");
-
-		onStatus?.(`installing tools for ${platform}`);
-		const installed = await this.installRemoteTools(cache, platform, missingTools);
-		this.fdPath = fdPath ?? installed.fd;
-		this.rgPath = rgPath ?? installed.rg;
-		this.remoteToolBinDir = installed.binDir;
-		await this.verifyRemoteTool("fd", this.fdPath);
-		await this.verifyRemoteTool("rg", this.rgPath);
+		this.fdPath = resolved.fd;
+		this.rgPath = resolved.rg;
+		this.fzfPath = resolved.fzf;
 		await this.bootstrapPythonUvCommands(onStatus);
 	}
 
@@ -116,6 +125,13 @@ export class SshConnection {
 			throw new Error("remote rg is not initialized");
 		}
 		return this.rgPath;
+	}
+
+	requireFzfPath(): string {
+		if (!this.fzfPath) {
+			throw new Error("remote fzf is not initialized");
+		}
+		return this.fzfPath;
 	}
 
 	exec(command: string, options?: { signal?: AbortSignal }): Promise<Buffer> {
@@ -199,7 +215,7 @@ export class SshConnection {
 		cache: LocalSshToolsCache,
 		platform: SshToolPlatform,
 		tools: SshToolName[],
-	): Promise<{ binDir: string; fd: string; rg: string }> {
+	): Promise<{ binDir: string; paths: Record<SshToolName, string> }> {
 		const cacheHome = (await this.exec('printf "%s\\n" "$HOME/.cache"')).toString("utf8").trim();
 		const rootDir = `${cacheHome}/pi/ssh-tools/search-tools/${cache.cacheKey}/${platform}`;
 		const binDir = `${rootDir}/bin`;
@@ -215,7 +231,11 @@ export class SshConnection {
 				`rm -f ${shellQuote(remoteArchivePath)}`,
 			].join(" && "),
 		);
-		return { binDir, fd: `${binDir}/fd`, rg: `${binDir}/rg` };
+		const paths = {} as Record<SshToolName, string>;
+		for (const tool of tools) {
+			paths[tool] = `${binDir}/${tool}`;
+		}
+		return { binDir, paths };
 	}
 
 	private async bootstrapPythonUvCommands(onStatus?: (status: string) => void): Promise<void> {

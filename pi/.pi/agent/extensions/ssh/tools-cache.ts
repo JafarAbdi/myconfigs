@@ -6,17 +6,17 @@ import { join } from "node:path";
 
 export const SSH_TOOL_PLATFORMS = ["linux_amd64", "linux_arm64"] as const;
 export type SshToolPlatform = (typeof SSH_TOOL_PLATFORMS)[number];
-export type SshToolName = "fd" | "rg";
+export const SSH_TOOL_NAMES = ["fd", "rg", "fzf"] as const;
+export type SshToolName = (typeof SSH_TOOL_NAMES)[number];
 
-export interface SshToolVersions {
-	fd: string;
-	rg: string;
-}
+export type SshToolVersions = Record<SshToolName, string>;
+
+export type SshToolPaths = Record<SshToolName, string>;
 
 export interface LocalSshToolsPlatformCache {
 	archivePath: string;
 	binDir: string;
-	tools: Record<SshToolName, string>;
+	tools: SshToolPaths;
 }
 
 export interface LocalSshToolsCache {
@@ -70,6 +70,7 @@ interface ActiveSshToolsCache {
 const DEFAULT_SSH_TOOL_VERSIONS: SshToolVersions = {
 	fd: "10.4.2",
 	rg: "15.1.0",
+	fzf: "0.73.1",
 };
 
 const TOOL_CONFIGS: Record<SshToolName, ToolConfig> = {
@@ -94,6 +95,14 @@ const TOOL_CONFIGS: Record<SshToolName, ToolConfig> = {
 			];
 		},
 	},
+	fzf: {
+		repo: "junegunn/fzf",
+		binaryName: "fzf",
+		tagPrefix: "v",
+		assetNames(version, platform) {
+			return [`fzf-${version}-${platform}.tar.gz`];
+		},
+	},
 };
 
 const NETWORK_TIMEOUT_MS = 10_000;
@@ -107,11 +116,7 @@ function sshToolsCacheRoot(): string {
 }
 
 function cacheKey(versions: SshToolVersions): string {
-	return `fd-${versions.fd}-rg-${versions.rg}`;
-}
-
-function versionForTool(versions: SshToolVersions, tool: SshToolName): string {
-	return tool === "fd" ? versions.fd : versions.rg;
+	return SSH_TOOL_NAMES.map((tool) => `${tool}-${versions[tool]}`).join("-");
 }
 
 function isOfflineModeEnabled(): boolean {
@@ -126,9 +131,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseVersions(value: unknown): SshToolVersions | undefined {
 	if (!isRecord(value)) return undefined;
-	if (typeof value.fd !== "string") return undefined;
-	if (typeof value.rg !== "string") return undefined;
-	return { fd: value.fd, rg: value.rg };
+	const versions = {} as SshToolVersions;
+	for (const tool of SSH_TOOL_NAMES) {
+		const version = value[tool];
+		versions[tool] = typeof version === "string" ? version : DEFAULT_SSH_TOOL_VERSIONS[tool];
+	}
+	return versions;
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -251,6 +259,14 @@ async function sha256File(filePath: string): Promise<string> {
 		.digest("hex");
 }
 
+function toolPathsForBinDir(binDir: string): SshToolPaths {
+	const tools = {} as SshToolPaths;
+	for (const tool of SSH_TOOL_NAMES) {
+		tools[tool] = join(binDir, tool);
+	}
+	return tools;
+}
+
 function cacheDescriptor(versions: SshToolVersions): LocalSshToolsCache {
 	const key = cacheKey(versions);
 	const rootDir = join(sshToolsCacheRoot(), key);
@@ -261,10 +277,7 @@ function cacheDescriptor(versions: SshToolVersions): LocalSshToolsCache {
 		platforms[platform] = {
 			archivePath: join(rootDir, `${platform}.tar.gz`),
 			binDir,
-			tools: {
-				fd: join(binDir, "fd"),
-				rg: join(binDir, "rg"),
-			},
+			tools: toolPathsForBinDir(binDir),
 		};
 	}
 	return { cacheKey: key, rootDir, versions, platforms };
@@ -284,8 +297,9 @@ async function validateCache(cache: LocalSshToolsCache): Promise<boolean> {
 		for (const platform of SSH_TOOL_PLATFORMS) {
 			const platformCache = cache.platforms[platform];
 			await assertPathExists(platformCache.archivePath);
-			await assertPathExists(platformCache.tools.fd);
-			await assertPathExists(platformCache.tools.rg);
+			for (const tool of SSH_TOOL_NAMES) {
+				await assertPathExists(platformCache.tools[tool]);
+			}
 		}
 		return true;
 	} catch (error) {
@@ -302,7 +316,7 @@ async function installToolBinary(options: {
 	tool: SshToolName;
 	tmpDir: string;
 }): Promise<ToolManifestEntry> {
-	const version = versionForTool(options.cache.versions, options.tool);
+	const version = options.cache.versions[options.tool];
 	const asset = await selectReleaseAsset(options.tool, version, options.platform);
 	const archivePath = join(options.tmpDir, asset.name);
 	const extractDir = join(options.tmpDir, `${options.tool}-extract`);
@@ -336,10 +350,7 @@ async function buildLocalSshToolsCache(versions: SshToolVersions): Promise<Local
 		tmpCache.platforms[platform] = {
 			archivePath: join(tmpDir, `${platform}.tar.gz`),
 			binDir,
-			tools: {
-				fd: join(binDir, "fd"),
-				rg: join(binDir, "rg"),
-			},
+			tools: toolPathsForBinDir(binDir),
 		};
 	}
 
@@ -352,8 +363,9 @@ async function buildLocalSshToolsCache(versions: SshToolVersions): Promise<Local
 			const toolTmpDir = join(tmpDir, `${platform}-downloads`);
 			await mkdir(toolTmpDir, { recursive: true });
 			const tools = {} as Record<SshToolName, ToolManifestEntry>;
-			tools.fd = await installToolBinary({ cache: tmpCache, platform, tool: "fd", tmpDir: toolTmpDir });
-			tools.rg = await installToolBinary({ cache: tmpCache, platform, tool: "rg", tmpDir: toolTmpDir });
+			for (const tool of SSH_TOOL_NAMES) {
+				tools[tool] = await installToolBinary({ cache: tmpCache, platform, tool, tmpDir: toolTmpDir });
+			}
 			await runCommand("tar", [
 				"czf",
 				tmpCache.platforms[platform].archivePath,
@@ -383,8 +395,8 @@ async function buildLocalSshToolsCache(versions: SshToolVersions): Promise<Local
 }
 
 export async function getLatestSshToolVersions(): Promise<SshToolVersions> {
-	const [fd, rg] = await Promise.all([getLatestVersion("fd"), getLatestVersion("rg")]);
-	return { fd, rg };
+	const entries = await Promise.all(SSH_TOOL_NAMES.map(async (tool) => [tool, await getLatestVersion(tool)] as const));
+	return Object.fromEntries(entries) as SshToolVersions;
 }
 
 export async function installLatestSshTools(): Promise<LocalSshToolsCache> {

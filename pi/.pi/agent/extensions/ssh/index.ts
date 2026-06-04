@@ -8,7 +8,12 @@ import {
 	createReadTool,
 	createWriteTool,
 } from "@earendil-works/pi-coding-agent";
-import { createRemoteAtAutocompleteProvider, getRemoteDirectoryCompletions } from "./autocomplete.ts";
+import {
+	type CompletionErrorReporter,
+	createRemoteAtAutocompleteProvider,
+	getRemoteDirectoryCompletions,
+	parseHiddenFlag,
+} from "./autocomplete.ts";
 import { SshConnection } from "./connection.ts";
 import { SSH_STATE_CUSTOM_TYPE } from "./constants.ts";
 import { executeRemoteGrep } from "./grep.ts";
@@ -218,11 +223,14 @@ export default function (pi: ExtensionAPI) {
 		pi.appendEntry(SSH_STATE_CUSTOM_TYPE, makeSshSessionState(ssh.remote, ssh.remoteCwd));
 	};
 
+	let lastCompletionError = "";
+	let reportCompletionError: CompletionErrorReporter = () => {};
+
 	pi.registerCommand("ssh-cd", {
-		description: "Change SSH remote working directory",
+		description: "Change SSH remote working directory (-h to include hidden dirs)",
 		getArgumentCompletions: async (argumentPrefix) => {
 			const ssh = getConnection();
-			return ssh ? getRemoteDirectoryCompletions(ssh, argumentPrefix) : null;
+			return ssh ? getRemoteDirectoryCompletions(ssh, argumentPrefix, reportCompletionError) : null;
 		},
 		handler: async (args, ctx) => {
 			const ssh = getConnection();
@@ -236,7 +244,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			try {
-				const nextRemoteCwd = await ssh.changeRemoteCwd(args);
+				const nextRemoteCwd = await ssh.changeRemoteCwd(parseHiddenFlag(args).rest);
 				persistConnection(ssh);
 				updateSshStatus(ctx, ssh);
 				ctx.ui.notify(`SSH cwd: ${ssh.remote}:${nextRemoteCwd}`, "info");
@@ -249,6 +257,13 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		reportCompletionError = (error) => {
+			const message = error instanceof Error ? error.message : String(error);
+			if (message === lastCompletionError) return;
+			lastCompletionError = message;
+			ctx.ui.notify(`SSH completion failed: ${message}`, "error");
+		};
+
 		const arg = pi.getFlag("ssh") as string | undefined;
 		const persistedState = getPersistedSshState(ctx);
 		const target = arg ? parseSshFlag(arg) : persistedState ? targetFromState(persistedState) : undefined;
@@ -277,7 +292,9 @@ export default function (pi: ExtensionAPI) {
 
 		if (!autocompleteProviderRegistered) {
 			autocompleteProviderRegistered = true;
-			ctx.ui.addAutocompleteProvider((current) => createRemoteAtAutocompleteProvider(current, getConnection));
+			ctx.ui.addAutocompleteProvider((current) =>
+				createRemoteAtAutocompleteProvider(current, getConnection, reportCompletionError),
+			);
 		}
 		updateSshStatus(ctx, connection);
 		ctx.ui.notify(`SSH mode: ${sshStatusText(connection)}`, "info");

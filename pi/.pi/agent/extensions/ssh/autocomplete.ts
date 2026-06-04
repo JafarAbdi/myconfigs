@@ -1,13 +1,11 @@
 import type { AutocompleteItem, AutocompleteProvider, AutocompleteSuggestions } from "@earendil-works/pi-tui";
 import type { SshConnection } from "./connection.ts";
-import {
-	REMOTE_AUTOCOMPLETE_CANDIDATES_MAX,
-	REMOTE_AUTOCOMPLETE_SUGGESTIONS_MAX,
-	REMOTE_FD_EXCLUDES,
-} from "./constants.ts";
-import { buildFdPathQuery, fdExcludeArgs, shellQuote, toDisplayPath } from "./shell.ts";
+import { REMOTE_AUTOCOMPLETE_SUGGESTIONS_MAX, REMOTE_FD_CANDIDATES_MAX, REMOTE_FD_EXCLUDES } from "./constants.ts";
+import { fdExcludeArgs, shellQuote, toDisplayPath } from "./shell.ts";
 
 const PATH_DELIMITERS = new Set([" ", "\t", '"', "'", "="]);
+
+export type CompletionErrorReporter = (error: unknown) => void;
 
 type RemoteSearch = { baseDir: string; displayBase: string; query: string };
 type RemoteDirectorySearch = RemoteSearch & { isQuoted: boolean };
@@ -89,20 +87,10 @@ function buildAtCompletionValue(remotePath: string, isDirectory: boolean, isQuot
 	return `@"${path}"`;
 }
 
-function scoreRemoteEntry(remotePath: string, query: string, isDirectory: boolean): number {
-	const fileName = pathBasename(remotePath);
-	const lowerFileName = fileName.toLowerCase();
-	const lowerQuery = query.toLowerCase();
-
-	let score = 0;
-	if (!lowerQuery) score = 1;
-	else if (lowerFileName === lowerQuery) score = 100;
-	else if (lowerFileName.startsWith(lowerQuery)) score = 80;
-	else if (lowerFileName.includes(lowerQuery)) score = 50;
-	else if (remotePath.toLowerCase().includes(lowerQuery)) score = 30;
-
-	if (isDirectory && score > 0) score += 10;
-	return score;
+function remoteFilterStage(fzfPath: string, query: string): string {
+	const cap = `head -n ${REMOTE_AUTOCOMPLETE_SUGGESTIONS_MAX}`;
+	if (!query) return `sort | ${cap}`;
+	return `${shellQuote(fzfPath)} --filter ${shellQuote(query)} | ${cap}`;
 }
 
 function resolveRemoteSearch(rawQuery: string): RemoteSearch {
@@ -118,6 +106,15 @@ function resolveRemoteSearch(rawQuery: string): RemoteSearch {
 		displayBase,
 		query: normalizedQuery.slice(slashIndex + 1),
 	};
+}
+
+export function parseHiddenFlag(input: string): { includeHidden: boolean; rest: string } {
+	const trimmed = input.trimStart();
+	const match = /^-h(\s+|$)/.exec(trimmed);
+	if (match) {
+		return { includeHidden: true, rest: trimmed.slice(match[0].length) };
+	}
+	return { includeHidden: false, rest: input };
 }
 
 function parseRemoteDirectorySearch(argumentPrefix: string): RemoteDirectorySearch {
@@ -138,13 +135,13 @@ function remoteBaseDirExpression(baseDir: string): string {
 	return shellQuote(baseDir);
 }
 
-function createRemoteFindCommand(remoteCwd: string, fdPath: string, search: RemoteSearch): string {
+function createRemoteFindCommand(remoteCwd: string, fdPath: string, fzfPath: string, search: RemoteSearch): string {
 	const baseDir = shellQuote(search.baseDir);
 	const fdArgs = [
 		"--base-directory",
 		search.baseDir,
 		"--max-results",
-		String(REMOTE_AUTOCOMPLETE_CANDIDATES_MAX),
+		String(REMOTE_FD_CANDIDATES_MAX),
 		"--type",
 		"f",
 		"--type",
@@ -153,12 +150,6 @@ function createRemoteFindCommand(remoteCwd: string, fdPath: string, search: Remo
 		"--hidden",
 		...fdExcludeArgs(REMOTE_FD_EXCLUDES),
 	];
-	if (toDisplayPath(search.query).includes("/")) {
-		fdArgs.push("--full-path");
-	}
-	if (search.query) {
-		fdArgs.push(buildFdPathQuery(search.query));
-	}
 
 	const markDirectoriesCommand = [
 		'while IFS= read -r p; do [ -n "$p" ] || continue',
@@ -168,26 +159,27 @@ function createRemoteFindCommand(remoteCwd: string, fdPath: string, search: Remo
 		"else printf '%s\\n' \"$clean\"; fi; done",
 	].join("; ");
 	const fdCommand = `${shellQuote(fdPath)} ${fdArgs.map(shellQuote).join(" ")}`;
-	return [`cd ${shellQuote(remoteCwd)}`, `${fdCommand} | ${markDirectoriesCommand}`].join(" && ");
+	const filter = remoteFilterStage(fzfPath, search.query);
+	return [`cd ${shellQuote(remoteCwd)}`, `${fdCommand} | ${filter} | ${markDirectoriesCommand}`].join(" && ");
 }
 
-function createRemoteDirectoryCommand(remoteCwd: string, fdPath: string, search: RemoteDirectorySearch): string {
+function createRemoteDirectoryCommand(
+	remoteCwd: string,
+	fdPath: string,
+	fzfPath: string,
+	search: RemoteDirectorySearch,
+	includeHidden: boolean,
+): string {
 	const baseDir = remoteBaseDirExpression(search.baseDir);
 	const fdArgs = [
 		"--max-results",
-		String(REMOTE_AUTOCOMPLETE_CANDIDATES_MAX),
+		String(REMOTE_FD_CANDIDATES_MAX),
 		"--type",
 		"d",
 		"--follow",
-		"--hidden",
+		...(includeHidden ? ["--hidden"] : []),
 		...fdExcludeArgs(REMOTE_FD_EXCLUDES),
 	];
-	if (toDisplayPath(search.query).includes("/")) {
-		fdArgs.push("--full-path");
-	}
-	if (search.query) {
-		fdArgs.push(buildFdPathQuery(search.query));
-	}
 
 	const markDirectoriesCommand = [
 		'while IFS= read -r p; do [ -n "$p" ] || continue',
@@ -197,7 +189,8 @@ function createRemoteDirectoryCommand(remoteCwd: string, fdPath: string, search:
 		"done",
 	].join("; ");
 	const fdCommand = `${shellQuote(fdPath)} --base-directory ${baseDir} ${fdArgs.map(shellQuote).join(" ")}`;
-	return [`cd ${shellQuote(remoteCwd)}`, `${fdCommand} | ${markDirectoriesCommand}`].join(" && ");
+	const filter = remoteFilterStage(fzfPath, search.query);
+	return [`cd ${shellQuote(remoteCwd)}`, `${fdCommand} | ${filter} | ${markDirectoriesCommand}`].join(" && ");
 }
 
 function buildDirectoryCompletionValue(remotePath: string, isQuotedPrefix: boolean): string {
@@ -217,11 +210,8 @@ function formatRemoteDirectoryCompletionItems(entries: string[], search: RemoteD
 			seen.add(entry);
 			return true;
 		})
-		.map((entry) => ({ entry, score: scoreRemoteEntry(entry, search.query, true) }))
-		.filter((item) => item.score > 0)
-		.sort((a, b) => b.score - a.score || a.entry.localeCompare(b.entry))
 		.slice(0, REMOTE_AUTOCOMPLETE_SUGGESTIONS_MAX)
-		.map(({ entry }) => {
+		.map((entry) => {
 			const directory = entry.endsWith("/") ? entry : `${entry}/`;
 			const displayPath = `${search.displayBase}${directory}`;
 			return {
@@ -235,14 +225,23 @@ function formatRemoteDirectoryCompletionItems(entries: string[], search: RemoteD
 export async function getRemoteDirectoryCompletions(
 	connection: SshConnection,
 	argumentPrefix: string,
+	onError: CompletionErrorReporter,
 ): Promise<AutocompleteItem[] | null> {
-	const search = parseRemoteDirectorySearch(argumentPrefix);
+	const { includeHidden, rest } = parseHiddenFlag(argumentPrefix);
+	const search = parseRemoteDirectorySearch(rest);
 	try {
 		const output = await connection.exec(
-			createRemoteDirectoryCommand(connection.remoteCwd, connection.requireFdPath(), search),
+			createRemoteDirectoryCommand(
+				connection.remoteCwd,
+				connection.requireFdPath(),
+				connection.requireFzfPath(),
+				search,
+				includeHidden,
+			),
 		);
 		return formatRemoteDirectoryCompletionItems(output.toString("utf8").split("\n"), search);
-	} catch {
+	} catch (error) {
+		onError(error);
 		return null;
 	}
 }
@@ -261,11 +260,8 @@ function formatRemoteAutocompleteItems(
 			seen.add(entry);
 			return true;
 		})
-		.map((entry) => ({ entry, score: scoreRemoteEntry(entry, search.query, entry.endsWith("/")) }))
-		.filter((item) => item.score > 0)
-		.sort((a, b) => b.score - a.score || a.entry.localeCompare(b.entry))
 		.slice(0, REMOTE_AUTOCOMPLETE_SUGGESTIONS_MAX)
-		.map(({ entry }) => {
+		.map((entry) => {
 			const isDirectory = entry.endsWith("/");
 			const displayPath = `${search.displayBase}${entry}`;
 			return {
@@ -279,6 +275,7 @@ function formatRemoteAutocompleteItems(
 export function createRemoteAtAutocompleteProvider(
 	current: AutocompleteProvider,
 	getConnection: () => SshConnection | null,
+	onError: CompletionErrorReporter,
 ): AutocompleteProvider {
 	return {
 		async getSuggestions(lines, cursorLine, cursorCol, options): Promise<AutocompleteSuggestions | null> {
@@ -294,7 +291,7 @@ export function createRemoteAtAutocompleteProvider(
 			const search = resolveRemoteSearch(parsed.query);
 			try {
 				const output = await connection.exec(
-					createRemoteFindCommand(connection.remoteCwd, connection.requireFdPath(), search),
+					createRemoteFindCommand(connection.remoteCwd, connection.requireFdPath(), connection.requireFzfPath(), search),
 					{
 						signal: options.signal,
 					},
@@ -305,7 +302,10 @@ export function createRemoteAtAutocompleteProvider(
 
 				const items = formatRemoteAutocompleteItems(output.toString("utf8").split("\n"), search, parsed.isQuoted);
 				return items.length > 0 ? { items, prefix } : null;
-			} catch {
+			} catch (error) {
+				if (!options.signal.aborted) {
+					onError(error);
+				}
 				return null;
 			}
 		},
