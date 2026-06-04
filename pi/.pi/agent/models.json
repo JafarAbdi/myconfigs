@@ -1,0 +1,163 @@
+{
+  "providers": {
+    "deepseek": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.deepseek.com",
+      "models": [
+        {
+          "compat": {
+            "reasoningEffortMap": {
+              "high": "high",
+              "low": "high",
+              "medium": "high",
+              "minimal": "high",
+              "xhigh": "max"
+            },
+            "requiresReasoningContentOnAssistantMessages": true,
+            "thinkingFormat": "deepseek"
+          },
+          "contextWindow": 1000000,
+          "cost": {
+            "cacheRead": 0.145,
+            "cacheWrite": 0,
+            "input": 1.74,
+            "output": 3.48
+          },
+          "id": "deepseek-v4-pro",
+          "input": [
+            "text"
+          ],
+          "maxTokens": 384000,
+          "name": "DeepSeek V4 Pro",
+          "reasoning": true
+        },
+        {
+          "compat": {
+            "reasoningEffortMap": {
+              "high": "high",
+              "low": "high",
+              "medium": "high",
+              "minimal": "high",
+              "xhigh": "max"
+            },
+            "requiresReasoningContentOnAssistantMessages": true,
+            "thinkingFormat": "deepseek"
+          },
+          "contextWindow": 1000000,
+          "cost": {
+            "cacheRead": 0.028,
+            "cacheWrite": 0,
+            "input": 0.14,
+            "output": 0.28
+          },
+          "id": "deepseek-v4-flash",
+          "input": [
+            "text"
+          ],
+          "maxTokens": 384000,
+          "name": "DeepSeek V4 Flash",
+          "reasoning": true
+        }
+      ]
+    },
+    "llama.cpp": {
+      "api": "openai-completions",
+      "apiKey": "no-key",
+      "baseUrl": "http://desktop.tail79ed4.ts.net:8080/v1",
+      "models": [
+        {
+          "id": "unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q5_K_XL",
+          "input": [
+            "text",
+            "image"
+          ],
+          "reasoning": true
+        },
+        {
+          "id": "unsloth/gemma-4-31B-it-GGUF:Q4_K_XL",
+          "input": [
+            "text",
+            "image"
+          ],
+          "reasoning": true
+        }
+      ]
+    },
+    "local": {
+      "api": "openai-completions",
+      "apiKey": "no-key",
+      "baseUrl": "http://localhost:8080/v1",
+      "models": [
+        {
+          "id": "local",
+          "input": [
+            "text",
+            "image"
+          ],
+          "reasoning": true
+        }
+      ]
+    },
+    "makora": {
+      "api": "openai-completions",
+      "apiKey": "!jq -r '.makora.key' /home/juruc/.pi/agent/auth.json",
+      "baseUrl": "https://inference.makora.com/deepseek-v4-flash/v1",
+      "models": [
+        {
+          "compat": {
+            "reasoningEffortMap": {
+              "high": "high",
+              "low": "high",
+              "medium": "high",
+              "minimal": "high",
+              "xhigh": "max"
+            },
+            "requiresReasoningContentOnAssistantMessages": true,
+            "thinkingFormat": "deepseek"
+          },
+          "contextWindow": 1000000,
+          "cost": {
+            "cacheRead": 0.0,
+            "cacheWrite": 0.0,
+            "input": 0.0,
+            "output": 0.0
+          },
+          "id": "deepseek-v4-pro",
+          "input": [
+            "text"
+          ],
+          "maxTokens": 384000,
+          "name": "DeepSeek V4 Pro",
+          "reasoning": true
+        },
+        {
+          "compat": {
+            "reasoningEffortMap": {
+              "high": "high",
+              "low": "high",
+              "medium": "high",
+              "minimal": "high",
+              "xhigh": "max"
+            },
+            "requiresReasoningContentOnAssistantMessages": true,
+            "thinkingFormat": "deepseek"
+          },
+          "contextWindow": 1000000,
+          "cost": {
+            "cacheRead": 0.0,
+            "cacheWrite": 0.0,
+            "input": 0.0,
+            "output": 0.0
+          },
+          "id": "deepseek-ai/DeepSeek-V4-Flash",
+          "input": [
+            "text"
+          ],
+          "maxTokens": 384000,
+          "name": "DeepSeek V4 Flash",
+          "reasoning": true
+        }
+      ]
+    }
+  }
+}

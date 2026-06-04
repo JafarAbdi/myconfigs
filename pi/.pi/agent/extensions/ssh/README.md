@@ -1,0 +1,90 @@
+# SSH extension
+
+Remote SSH mode for pi tools.
+
+## Start
+
+```bash
+pi -e packages/coding-agent/examples/extensions/ssh.ts --ssh desktop.local:/home/juruc
+```
+
+The extension is safe to install globally. It registers execution-tool overrides only when `--ssh` or persisted SSH state is active.
+
+`--ssh` accepts:
+
+```text
+user@host
+user@host:/remote/path
+host:/remote/path
+```
+
+## Commands
+
+```text
+/ssh-cd <remote-dir>
+```
+
+`/ssh-cd` supports remote directory autocomplete.
+
+## Behavior
+
+- `read`, `write`, `edit`, `bash`, `ls`, `find`, and `grep` run on the remote.
+- `@` autocomplete uses the remote cwd.
+- Footer shows `ssh host:/remote/cwd`.
+- Remote commands run with clean bash:
+
+  ```bash
+  env -u BASH_ENV bash --noprofile --norc -c ...
+  ```
+
+- SSH ControlMaster uses:
+
+  ```text
+  ~/.ssh/sockets/%r@%h:%p
+  ```
+
+- Pi does not delete SSH sockets on exit.
+
+## Execution tool ownership
+
+SSH mode requires ownership of execution tools so all execution runs on the remote host. If another extension registers `read`, `write`, `edit`, `bash`, `ls`, `find`, or `grep`, SSH startup fails with the conflicting owner path. Change those extensions to use policy hooks instead of registering execution tools.
+
+## Tool bootstrap
+
+If remote `fd` or `rg` is missing, pi downloads and caches Linux `amd64`/`arm64` binaries on the host, then installs missing tools on the remote. If remote `uv` is available, pi also installs Python command wrappers that route agents toward `uv`. Both host cache and remote install use:
+
+```text
+~/.cache/pi/ssh-tools/
+  search-tools/
+  python-uv-commands/
+```
+
+## Resume
+
+Sessions started with `--ssh` persist SSH target and remote cwd. Resuming without `--ssh` reconnects automatically. If reconnect fails, startup fails.
+
+## Test
+
+Inside pi:
+
+```text
+!pwd
+!echo "$BASH_ENV"
+!shopt login_shell
+!fd --version
+!rg --version
+```
+
+Expected:
+
+```text
+BASH_ENV is empty
+login_shell off
+```
+
+Autocomplete:
+
+```text
+@.ssh/con<Tab>
+/ssh-cd work<Tab>
+```

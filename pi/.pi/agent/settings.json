@@ -1,0 +1,26 @@
+{
+  "defaultModel": "unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q5_K_XL",
+  "defaultProvider": "llama.cpp",
+  "defaultThinkingLevel": "high",
+  "enabledModels": [
+    "deepseek/deepseek-v4-flash",
+    "deepseek/deepseek-v4-pro",
+    "local/local",
+    "makora/deepseek-v4-pro",
+    "makora/deepseek-ai/DeepSeek-V4-Flash",
+    "openai-codex/gpt-5.5",
+    "llama.cpp/unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q5_K_XL",
+    "llama.cpp/unsloth/gemma-4-31B-it-GGUF:Q4_K_XL"
+  ],
+  "hideThinkingBlock": true,
+  "lastChangelogVersion": "0.78.0",
+  "packages": [],
+  "prompts": [
+    "~/.claude/commands",
+    "~/.claude/commands/opencode",
+    "~/.claude/commands/gh"
+  ],
+  "skills": [
+    "~/.claude/skills"
+  ]
+}

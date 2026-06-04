@@ -5,6 +5,18 @@
     ],
     "defaultMode": "auto"
   },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/activate-skills.py"
+          }
+        ]
+      }
+    ]
+  },
   "enabledPlugins": {
     "astral@astral-sh": true,
     "ast-grep@ast-grep-marketplace": true
@@ -23,22 +35,14 @@
       }
     }
   },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/activate-skills.py"
-          }
-        ]
-      }
-    ]
-  },
   "alwaysThinkingEnabled": true,
   "effortLevel": "medium",
   "advisorModel": "opus",
+  "preferredNotifChannel": "kitty",
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false,
-  "preferredNotifChannel": "kitty"
+  "voiceEnabled": true,
+  "voice": {
+    "enabled": true,
+    "mode": "hold"
+  }
 }

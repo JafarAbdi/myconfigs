@@ -1,0 +1,8 @@
+{
+  "ignores": [
+    "pi/.pi/agent/prompts",
+    "pi/.pi/agent/skills",
+    "pi/.pi/agent/extensions",
+    "pi/.pi/agent/sessions"
+  ]
+}

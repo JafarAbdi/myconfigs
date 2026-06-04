@@ -1,0 +1,9 @@
+{
+  "author": "",
+  "dependencies": {},
+  "description": "Headless web search via Exa public MCP endpoint - no browser or API key required",
+  "license": "MIT",
+  "name": "exa-search",
+  "type": "module",
+  "version": "1.0.0"
+}

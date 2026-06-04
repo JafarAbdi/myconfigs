@@ -1,3 +1,8 @@
+---
+name: python-modern
+description: ALWAYS load before writing, editing, or creating any Python (.py) code — do not write Python without loading it first. Modern syntax preferences for 3.8-3.14 (walrus, pattern matching, exception groups, TaskGroup, generic syntax, type aliases, t-strings). Also use when reviewing Python.
+---
+
 # Python Modern Features — Use These When Available
 
 > Assume **Python 3.11+** unless a `pyproject.toml` or `.python-version` specifies otherwise.
@@ -31,7 +36,7 @@ match command.split():
     case ["go", direction]:
         move(direction)
     case ["get", obj] if obj in room.items:
-        pick_up(obj)
+        pick(obj)
     case _:
         print("Unknown command")
 
@@ -165,17 +170,6 @@ python -m asyncio ps <PID>
 
 # Hierarchical task tree: visualise TaskGroup nesting + blocked tasks
 python -m asyncio pstree <PID>
-```
-
-```
-# pstree example output
-└── (T) Task-1
-    ├── (T) Chill
-    │   ├── (T) A  sleep -> play
-    │   └── (T) B  sleep -> play
-    └── (T) Jams
-        ├── (T) C  sleep -> play
-        └── (T) D  sleep -> play
 ```
 
 **Use cases:** deadlock detection, hung task diagnosis, production debugging without restarting. Pairs with PEP 768 zero-overhead debugger attach.
