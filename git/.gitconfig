@@ -77,3 +77,5 @@
   recurse = true
 [rebase]
 	autostash = true
+[worktree]
+	useRelativePaths = true
