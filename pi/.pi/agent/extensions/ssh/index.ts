@@ -66,7 +66,7 @@ function updateSshStatus(ctx: ExtensionContext, connection: SshConnection | null
 		return;
 	}
 	if (!connection) {
-		ctx.ui.setStatus("ssh", `${label} ${theme.fg("muted", "disabled")}`);
+		ctx.ui.setStatus("ssh", undefined);
 		return;
 	}
 	ctx.ui.setStatus("ssh", `${label} ${theme.fg("success", sshStatusText(connection))}`);
