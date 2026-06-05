@@ -1,11 +1,18 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 const PACKAGE_ROOT_SEARCH_MAX = 32;
 
-export type SshPathRoute = "local-runtime" | "remote";
+export type SshPathRoute = "local-readonly" | "local-writable" | "remote";
+
+export interface LocalRuntimeRoots {
+	readonly: string[];
+	writable: string[];
+}
 
 function realpathOrResolve(path: string): string {
 	try {
@@ -47,8 +54,24 @@ function isPathInside(path: string, root: string): boolean {
 	return !isAbsolute(relativePath);
 }
 
-function normalizeToolPath(path: string): string {
-	return path.startsWith("@") ? path.slice(1) : path;
+function uniquePaths(paths: Array<string | undefined>): string[] {
+	return [...new Set(paths.filter((path): path is string => path !== undefined))];
+}
+
+function rootPaths(path: string | undefined): string[] {
+	if (!path) return [];
+	return uniquePaths([resolve(path), realpathOrResolve(path)]);
+}
+
+function expandHomePath(path: string): string {
+	if (path === "~") return homedir();
+	if (path.startsWith("~/")) return join(homedir(), path.slice(2));
+	return path;
+}
+
+export function normalizeToolPath(path: string): string {
+	const pathWithoutReferencePrefix = path.startsWith("@") ? path.slice(1) : path;
+	return expandHomePath(pathWithoutReferencePrefix);
 }
 
 function filePathFromSpecifier(specifier: string): string | undefined {
@@ -64,16 +87,20 @@ function resolveModuleEntry(specifier: string): string | undefined {
 	}
 }
 
-export function createLocalRuntimeRoots(): string[] {
+export function createLocalRuntimeRoots(): LocalRuntimeRoots {
 	const extensionRoot = dirname(fileURLToPath(import.meta.url));
 	const piEntry = resolveModuleEntry(PI_PACKAGE_NAME) ?? process.argv[1];
 	const piPackageRoot = findPackageRoot(piEntry, PI_PACKAGE_NAME);
-	return [extensionRoot, piPackageRoot].filter((root): root is string => root !== undefined);
+
+	return {
+		readonly: rootPaths(piPackageRoot),
+		writable: uniquePaths([...rootPaths(getAgentDir()), ...rootPaths(extensionRoot)]),
+	};
 }
 
 export function routePath(
 	path: string | undefined,
-	localRuntimeRoots: readonly string[],
+	localRuntimeRoots: LocalRuntimeRoots,
 ): SshPathRoute {
 	if (!path) return "remote";
 
@@ -81,6 +108,37 @@ export function routePath(
 	if (!isAbsolute(normalizedPath)) return "remote";
 
 	const absolutePath = resolve(normalizedPath);
-	const routeLocal = localRuntimeRoots.some((root) => isPathInside(absolutePath, root));
-	return routeLocal ? "local-runtime" : "remote";
+	if (localRuntimeRoots.writable.some((root) => isPathInside(absolutePath, root))) {
+		return "local-writable";
+	}
+	if (localRuntimeRoots.readonly.some((root) => isPathInside(absolutePath, root))) {
+		return "local-readonly";
+	}
+	return "remote";
+}
+
+export function isLocalPathRoute(route: SshPathRoute): boolean {
+	return route === "local-readonly" || route === "local-writable";
+}
+
+function isPathlikeToken(token: string): boolean {
+	return token.startsWith("/") || token.startsWith("~/") || token === "~";
+}
+
+export function extractAbsolutePaths(command: string): string[] {
+	const paths: string[] = [];
+	for (const token of command.split(/\s+/)) {
+		const cleaned = token.replace(/^['"]|['"]$/g, "");
+		if (isPathlikeToken(cleaned)) paths.push(cleaned);
+	}
+	return paths;
+}
+
+export function hasLocalPathTarget(
+	command: string,
+	localRuntimeRoots: LocalRuntimeRoots,
+): boolean {
+	return extractAbsolutePaths(command).some(
+		(path) => isLocalPathRoute(routePath(path, localRuntimeRoots)),
+	);
 }

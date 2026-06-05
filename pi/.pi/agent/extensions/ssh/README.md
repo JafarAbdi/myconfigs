@@ -30,8 +30,10 @@ host:/remote/path
 
 - `read`, `ls`, `find`, and `grep` run on the remote, except host-local pi runtime paths
   are read locally.
-- `write` and `edit` run on the remote, and refuse to modify host-local pi runtime paths.
+- `write` and `edit` run on the remote, except `~/.pi/agent` and this extension root are
+  written locally. Pi package install paths are read-only.
 - `bash` always runs on the remote.
+- `--ssh-debug-routing` prints local roots at startup and per-tool route decisions.
 - `@` autocomplete uses the remote cwd.
 - Footer shows `ssh host:/remote/cwd`.
 - Remote commands run with clean bash:
