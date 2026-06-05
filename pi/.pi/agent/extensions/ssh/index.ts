@@ -25,6 +25,7 @@ import {
 	createRemoteReadOps,
 	createRemoteWriteOps,
 } from "./operations.ts";
+import { createLocalRuntimeRoots, routePath } from "./path-router.ts";
 import { getPersistedSshState, makeSshSessionState, type SshSessionState } from "./state.ts";
 
 const SSH_EXECUTION_TOOL_NAMES = ["read", "write", "edit", "bash", "ls", "find", "grep"] as const;
@@ -127,6 +128,14 @@ function requireConnection(connection: SshConnection | null): SshConnection {
 }
 
 function registerSshToolOverrides(pi: ExtensionAPI, localCwd: string, getConnection: () => SshConnection | null): void {
+	const localRuntimeRoots = createLocalRuntimeRoots();
+	const isLocalRuntimePath = (path: string | undefined): boolean =>
+		routePath(path, localRuntimeRoots) === "local-runtime";
+	const assertRemoteMutationPath = (path: string): void => {
+		if (!isLocalRuntimePath(path)) return;
+		throw new Error(`Refusing to modify host runtime path in SSH mode: ${path}`);
+	};
+
 	const localRead = createReadTool(localCwd);
 	const localWrite = createWriteTool(localCwd);
 	const localEdit = createEditTool(localCwd);
@@ -138,6 +147,7 @@ function registerSshToolOverrides(pi: ExtensionAPI, localCwd: string, getConnect
 	pi.registerTool({
 		...localRead,
 		async execute(id, params, signal, onUpdate, toolCtx) {
+			if (isLocalRuntimePath(params.path)) return localRead.execute(id, params, signal, onUpdate);
 			const ssh = requireConnection(getConnection());
 			const tool = createReadTool(toolCtx.cwd, {
 				operations: createRemoteReadOps(ssh),
@@ -149,6 +159,7 @@ function registerSshToolOverrides(pi: ExtensionAPI, localCwd: string, getConnect
 	pi.registerTool({
 		...localWrite,
 		async execute(id, params, signal, onUpdate, toolCtx) {
+			assertRemoteMutationPath(params.path);
 			const ssh = requireConnection(getConnection());
 			const tool = createWriteTool(toolCtx.cwd, {
 				operations: createRemoteWriteOps(ssh),
@@ -160,6 +171,7 @@ function registerSshToolOverrides(pi: ExtensionAPI, localCwd: string, getConnect
 	pi.registerTool({
 		...localEdit,
 		async execute(id, params, signal, onUpdate, toolCtx) {
+			assertRemoteMutationPath(params.path);
 			const ssh = requireConnection(getConnection());
 			const tool = createEditTool(toolCtx.cwd, {
 				operations: createRemoteEditOps(ssh),
@@ -182,6 +194,7 @@ function registerSshToolOverrides(pi: ExtensionAPI, localCwd: string, getConnect
 	pi.registerTool({
 		...localLs,
 		async execute(id, params, signal, onUpdate, toolCtx) {
+			if (isLocalRuntimePath(params.path)) return localLs.execute(id, params, signal, onUpdate);
 			const ssh = requireConnection(getConnection());
 			const tool = createLsTool(toolCtx.cwd, {
 				operations: createRemoteLsOps(ssh),
@@ -193,6 +206,7 @@ function registerSshToolOverrides(pi: ExtensionAPI, localCwd: string, getConnect
 	pi.registerTool({
 		...localFind,
 		async execute(id, params, signal, onUpdate, toolCtx) {
+			if (isLocalRuntimePath(params.path)) return localFind.execute(id, params, signal, onUpdate);
 			const ssh = requireConnection(getConnection());
 			const tool = createFindTool(toolCtx.cwd, {
 				operations: createRemoteFindOps(ssh),
@@ -203,7 +217,8 @@ function registerSshToolOverrides(pi: ExtensionAPI, localCwd: string, getConnect
 
 	pi.registerTool({
 		...localGrep,
-		async execute(_id, params, signal) {
+		async execute(id, params, signal, onUpdate) {
+			if (isLocalRuntimePath(params.path)) return localGrep.execute(id, params, signal, onUpdate);
 			const ssh = requireConnection(getConnection());
 			return executeRemoteGrep(ssh, params, signal);
 		},

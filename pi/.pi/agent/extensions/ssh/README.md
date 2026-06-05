@@ -28,7 +28,10 @@ host:/remote/path
 
 ## Behavior
 
-- `read`, `write`, `edit`, `bash`, `ls`, `find`, and `grep` run on the remote.
+- `read`, `ls`, `find`, and `grep` run on the remote, except host-local pi runtime paths
+  are read locally.
+- `write` and `edit` run on the remote, and refuse to modify host-local pi runtime paths.
+- `bash` always runs on the remote.
 - `@` autocomplete uses the remote cwd.
 - Footer shows `ssh host:/remote/cwd`.
 - Remote commands run with clean bash:
