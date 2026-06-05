@@ -64,6 +64,12 @@
       "api": "openai-completions",
       "apiKey": "no-key",
       "baseUrl": "http://desktop.tail79ed4.ts.net:8080/v1",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "maxTokensField": "max_tokens",
+        "thinkingFormat": "qwen-chat-template"
+      },
       "models": [
         {
           "id": "unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q5_K_XL",
