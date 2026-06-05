@@ -1,7 +1,7 @@
 {
   "defaultModel": "gpt-5.5",
   "defaultProvider": "openai-codex",
-  "defaultThinkingLevel": "medium",
+  "defaultThinkingLevel": "high",
   "enabledModels": [
     "deepseek/deepseek-v4-flash",
     "deepseek/deepseek-v4-pro",
@@ -10,7 +10,8 @@
     "makora/deepseek-ai/DeepSeek-V4-Flash",
     "openai-codex/gpt-5.5",
     "llama.cpp/unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q5_K_XL",
-    "llama.cpp/unsloth/gemma-4-31B-it-GGUF:Q4_K_XL"
+    "llama.cpp/unsloth/gemma-4-31B-it-GGUF:Q4_K_XL",
+    "llama.cpp/google/gemma-4-31B-it-qat-q4_0-gguf"
   ],
   "hideThinkingBlock": false,
   "lastChangelogVersion": "0.78.1",

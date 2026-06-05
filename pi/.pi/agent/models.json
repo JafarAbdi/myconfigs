@@ -77,7 +77,23 @@
             "text",
             "image"
           ],
-          "reasoning": true
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "minimal": null,
+            "xhigh": "xhigh"
+          }
+        },
+        {
+          "id": "google/gemma-4-31B-it-qat-q4_0-gguf",
+          "input": [
+            "text",
+            "image"
+          ],
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "minimal": null,
+            "xhigh": "xhigh"
+          }
         },
         {
           "id": "unsloth/gemma-4-31B-it-GGUF:Q4_K_XL",
@@ -85,7 +101,11 @@
             "text",
             "image"
           ],
-          "reasoning": true
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "minimal": null,
+            "xhigh": "xhigh"
+          }
         }
       ]
     },

@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-type BudgetLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+type BudgetLevel = "off" | "low" | "medium" | "high" | "max" | "xhigh";
 
 type RequestPayload = {
     model?: string;
@@ -11,10 +11,10 @@ type RequestPayload = {
 
 const DEFAULT_BUDGETS: Record<BudgetLevel, number> = {
     off: 0,
-    minimal: 512,
     low: 1024,
     medium: 4096,
     high: 8192,
+    max: 16384,
     xhigh: -1,
 };
 
@@ -45,13 +45,15 @@ function payloadThinkingEnabled(payload: RequestPayload): boolean | undefined {
     return undefined;
 }
 
+function normalizeLevel(level: unknown): BudgetLevel {
+    if (level === "minimal") return "low";
+    if (typeof level === "string" && level in DEFAULT_BUDGETS) return level as BudgetLevel;
+    return "medium";
+}
+
 function currentLevel(pi: ExtensionAPI, payload: RequestPayload): BudgetLevel {
     if (payloadThinkingEnabled(payload) === false) return "off";
-
-    const level = pi.getThinkingLevel() as BudgetLevel;
-    if (level in DEFAULT_BUDGETS) return level;
-
-    return "medium";
+    return normalizeLevel(pi.getThinkingLevel());
 }
 
 export default function (pi: ExtensionAPI) {
