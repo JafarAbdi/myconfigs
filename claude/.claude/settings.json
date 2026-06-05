@@ -5,18 +5,6 @@
     ],
     "defaultMode": "auto"
   },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/activate-skills.py"
-          }
-        ]
-      }
-    ]
-  },
   "enabledPlugins": {
     "astral@astral-sh": true,
     "ast-grep@ast-grep-marketplace": true
