@@ -1,4 +1,4 @@
-exclude: ^claude/
+exclude: ^claude/|^pi/\.pi/agent/skills/pdf/scripts/
 ci:
     skip: [refurb, luacheck, actionlint]
 default_language_version:

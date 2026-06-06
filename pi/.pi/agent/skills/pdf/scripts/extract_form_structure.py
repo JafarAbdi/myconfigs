@@ -1,8 +1,7 @@
 # /// script
 # dependencies = ["pymupdf"]
 # ///
-"""
-Extract form structure from a non-fillable PDF.
+"""Extract form structure from a non-fillable PDF.
 
 This script analyzes the PDF to find:
 - Text labels with their exact coordinates
@@ -35,7 +34,7 @@ def extract_page_words(page: pymupdf.Page, page_number: int) -> list[dict]:
                 "top": round(word[1], 1),
                 "x1": round(word[2], 1),
                 "bottom": round(word[3], 1),
-            }
+            },
         )
     return result
 
@@ -67,7 +66,7 @@ def extract_page_drawings(
                             "y": round(min(start.y, end.y), 1),
                             "x0": round(min(start.x, end.x), 1),
                             "x1": round(max(start.x, end.x), 1),
-                        }
+                        },
                     )
 
             elif item_type == "re":
@@ -90,7 +89,7 @@ def extract_page_drawings(
                             "bottom": round(rect.y1, 1),
                             "center_x": round((rect.x0 + rect.x1) / 2, 1),
                             "center_y": round((rect.y0 + rect.y1) / 2, 1),
-                        }
+                        },
                     )
 
     return lines, checkboxes
@@ -117,7 +116,7 @@ def compute_row_boundaries(
                     "row_top": y_coords[i],
                     "row_bottom": y_coords[i + 1],
                     "row_height": round(y_coords[i + 1] - y_coords[i], 1),
-                }
+                },
             )
 
     return row_boundaries
@@ -145,13 +144,15 @@ def extract_form_structure(pdf_path: str) -> dict:
                 "page_number": page_number,
                 "width": round(page_width, 1),
                 "height": round(page_height, 1),
-            }
+            },
         )
 
         structure["labels"].extend(extract_page_words(page, page_number))
 
         page_lines, page_checkboxes = extract_page_drawings(
-            page, page_number, page_width
+            page,
+            page_number,
+            page_width,
         )
         structure["lines"].extend(page_lines)
         structure["checkboxes"].extend(page_checkboxes)

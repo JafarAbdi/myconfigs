@@ -105,7 +105,7 @@ def get_field_info(doc: pymupdf.Document) -> list[dict]:
                         {
                             "value": on_state,
                             "rect": rect,
-                        }
+                        },
                     )
                 continue
 

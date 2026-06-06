@@ -36,7 +36,7 @@ def convert(
         pixmap.save(image_path)
         print(
             f"Saved page {page_index + 1} as {image_path}"
-            f" (size: {pixmap.width}x{pixmap.height})"
+            f" (size: {pixmap.width}x{pixmap.height})",
         )
 
     print(f"Converted {len(doc)} pages to PNG images")

@@ -31,7 +31,7 @@ def extract_pages(input_path: str, output_path: str, page_spec: str) -> None:
     pages = parse_page_spec(page_spec, len(doc))
     if not pages:
         print(
-            f"Error: no valid pages in spec '{page_spec}' (document has {len(doc)} pages)"
+            f"Error: no valid pages in spec '{page_spec}' (document has {len(doc)} pages)",
         )
         sys.exit(1)
 

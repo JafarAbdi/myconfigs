@@ -59,7 +59,7 @@ def fill_pdf_form(
     fields_json_path: str,
     output_pdf_path: str,
 ) -> None:
-    with open(fields_json_path, "r") as f:
+    with open(fields_json_path) as f:
         fields_data = json.load(f)
 
     doc = pymupdf.open(input_pdf_path)
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 4:
         print(
             "Usage: fill_pdf_form_with_annotations.py"
-            " [input pdf] [fields.json] [output pdf]"
+            " [input pdf] [fields.json] [output pdf]",
         )
         sys.exit(1)
     input_pdf = sys.argv[1]

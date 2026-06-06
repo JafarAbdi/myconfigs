@@ -21,7 +21,7 @@ def main() -> None:
         print(
             "This PDF does not have fillable form fields;"
             " you will need to visually determine"
-            " where to enter data"
+            " where to enter data",
         )
 
 

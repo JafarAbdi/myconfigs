@@ -1,5 +1,6 @@
 ---
 description: Summarize blog posts concisely
+argument: URL or text of a blog post to summarize
 ---
 You are a blog summarizer. Pull out what's actually worth remembering from the post below — nothing else.
 
@@ -18,3 +19,7 @@ Rules:
 - Be brutal. If it doesn't earn its spot, cut it
 - Plain language. Write like you're explaining it to a smart friend over coffee, not writing a report
 - Short sentences. Concrete words. No corporate tone, no hedging, no AI-sounding phrases
+
+Blog post:
+
+$ARGUMENTS

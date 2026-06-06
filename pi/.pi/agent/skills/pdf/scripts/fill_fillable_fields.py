@@ -36,7 +36,7 @@ def fill_pdf_fields(
                 f"ERROR: Incorrect page number for"
                 f" `{field['field_id']}`"
                 f" (got {field['page']},"
-                f" expected {existing_field['page']})"
+                f" expected {existing_field['page']})",
             )
         elif "value" in field:
             err = validation_error_for_field_value(existing_field, field["value"])
@@ -100,7 +100,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 4:
         print(
             "Usage: fill_fillable_fields.py"
-            " [input pdf] [field_values.json] [output pdf]"
+            " [input pdf] [field_values.json] [output pdf]",
         )
         sys.exit(1)
     input_pdf = sys.argv[1]
