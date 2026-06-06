@@ -6,7 +6,7 @@ You will be refactoring and summarizing a Python algorithm to make it cleaner, m
 
 Here is the name of the algorithm:
 <algorithm_name>
-$1
+$ARGUMENTS
 </algorithm_name>
 
 Here is the current code is in the current directory.

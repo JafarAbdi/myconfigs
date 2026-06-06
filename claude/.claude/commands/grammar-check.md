@@ -14,4 +14,4 @@ For each issue, quote the offending span with a one-line explanation. Finish wit
 
 Text:
 
-"""$@"""
+"""$ARGUMENTS"""

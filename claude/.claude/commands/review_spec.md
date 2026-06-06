@@ -2,7 +2,7 @@
 description: Review changes to a specification file in current branch compared to main
 argument-hint: "<spec-file>"
 ---
-**Review the changes to $1 in my current branch compared to main.**
+**Review the changes to $ARGUMENTS in my current branch compared to main.**
 
 First, grill me on these specification changes - ask tough questions about:
 
