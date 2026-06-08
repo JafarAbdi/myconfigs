@@ -10,13 +10,32 @@ import type { SshConnection } from "./connection.ts";
 import { REMOTE_FD_EXCLUDES } from "./constants.ts";
 import { fdExcludeArgs, shellQuote } from "./shell.ts";
 
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
 export function createRemoteReadOps(connection: SshConnection): ReadOperations {
 	return {
-		readFile: (p) => connection.exec(`cat ${shellQuote(connection.toRemotePath(p))}`),
-		access: (p) => connection.exec(`test -r ${shellQuote(connection.toRemotePath(p))}`).then(() => {}),
+		readFile: async (p) => {
+			const remotePath = connection.toRemotePath(p);
+			try {
+				return await connection.exec(`cat ${shellQuote(remotePath)}`);
+			} catch (error) {
+				throw new Error(`Remote file read failed: ${remotePath}\n${errorMessage(error)}`);
+			}
+		},
+		access: async (p) => {
+			const remotePath = connection.toRemotePath(p);
+			try {
+				await connection.exec(`test -r ${shellQuote(remotePath)}`);
+			} catch (error) {
+				throw new Error(`Remote file is not readable: ${remotePath}\n${errorMessage(error)}`);
+			}
+		},
 		detectImageMimeType: async (p) => {
 			try {
-				const r = await connection.exec(`file --mime-type -b ${shellQuote(connection.toRemotePath(p))}`);
+				const remotePath = connection.toRemotePath(p);
+				const r = await connection.exec(`file --mime-type -b ${shellQuote(remotePath)}`);
 				const m = r.toString().trim();
 				return ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(m) ? m : null;
 			} catch {
@@ -29,17 +48,40 @@ export function createRemoteReadOps(connection: SshConnection): ReadOperations {
 export function createRemoteWriteOps(connection: SshConnection): WriteOperations {
 	return {
 		writeFile: async (p, content) => {
+			const remotePath = connection.toRemotePath(p);
 			const b64 = Buffer.from(content).toString("base64");
-			await connection.exec(`printf %s ${shellQuote(b64)} | base64 -d > ${shellQuote(connection.toRemotePath(p))}`);
+			try {
+				await connection.exec(`printf %s ${shellQuote(b64)} | base64 -d > ${shellQuote(remotePath)}`);
+			} catch (error) {
+				throw new Error(`Remote file write failed: ${remotePath}\n${errorMessage(error)}`);
+			}
 		},
-		mkdir: (dir) => connection.exec(`mkdir -p ${shellQuote(connection.toRemotePath(dir))}`).then(() => {}),
+		mkdir: async (dir) => {
+			const remotePath = connection.toRemotePath(dir);
+			try {
+				await connection.exec(`mkdir -p ${shellQuote(remotePath)}`);
+			} catch (error) {
+				throw new Error(`Remote directory create failed: ${remotePath}\n${errorMessage(error)}`);
+			}
+		},
 	};
 }
 
 export function createRemoteEditOps(connection: SshConnection): EditOperations {
 	const r = createRemoteReadOps(connection);
 	const w = createRemoteWriteOps(connection);
-	return { readFile: r.readFile, access: r.access, writeFile: w.writeFile };
+	return {
+		readFile: r.readFile,
+		writeFile: w.writeFile,
+		access: async (p) => {
+			const remotePath = connection.toRemotePath(p);
+			try {
+				await connection.exec(`test -r ${shellQuote(remotePath)} && test -w ${shellQuote(remotePath)}`);
+			} catch (error) {
+				throw new Error(`Remote file is not editable: ${remotePath}\n${errorMessage(error)}`);
+			}
+		},
+	};
 }
 
 export function createRemoteLsOps(connection: SshConnection): LsOperations {
@@ -53,9 +95,13 @@ export function createRemoteLsOps(connection: SshConnection): LsOperations {
 			}
 		},
 		stat: async (p) => {
-			const output = await connection.exec(
-				`if [ -d ${shellQuote(connection.toRemotePath(p))} ]; then printf d; elif [ -e ${shellQuote(connection.toRemotePath(p))} ]; then printf f; else exit 1; fi`,
-			);
+			const remotePath = connection.toRemotePath(p);
+			const command = [
+				`if [ -d ${shellQuote(remotePath)} ]; then printf d`,
+				`elif [ -e ${shellQuote(remotePath)} ]; then printf f`,
+				"else exit 1; fi",
+			].join("; ");
+			const output = await connection.exec(command);
 			const kind = output.toString("utf8");
 			return { isDirectory: () => kind === "d" };
 		},
@@ -116,7 +162,9 @@ export function createRemoteBashOps(connection: SshConnection): BashOperations {
 				connection.remoteUvBinDir,
 				connection.remoteToolBinDir,
 			].filter((dir): dir is string => dir !== undefined);
-			const pathPrefix = pathDirs.length > 0 ? `export PATH=${pathDirs.map(shellQuote).join(":")}:"$PATH"; ` : "";
+			const pathPrefix = pathDirs.length > 0
+				? `export PATH=${pathDirs.map(shellQuote).join(":")}:"$PATH"; `
+				: "";
 			const cmd = `${pathPrefix}cd ${shellQuote(connection.toRemotePath(cwd))} && ${command}`;
 			return connection.execStreaming(cmd, { onData, signal, timeout });
 		},

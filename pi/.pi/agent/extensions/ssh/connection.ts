@@ -1,7 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { SSH_CONTROL_DIR, SSH_CONTROL_PATH } from "./constants.ts";
 import {
 	ensureLocalPythonUvCommands,
@@ -17,10 +17,23 @@ import {
 	type SshToolPlatform,
 } from "./tools-cache.ts";
 
+const SSH_ERROR_COMMAND_MAX_LENGTH = 500;
+
+function formatStderr(stderr: string): string {
+	const trimmed = stderr.trim();
+	return trimmed || "<empty>";
+}
+
+function formatCommand(command: string): string {
+	if (command.length <= SSH_ERROR_COMMAND_MAX_LENGTH) return command;
+	return `${command.slice(0, SSH_ERROR_COMMAND_MAX_LENGTH)}...`;
+}
+
 export class SshConnection {
 	readonly remote: string;
 	readonly localCwd: string;
 	remoteCwd = ".";
+	remoteHome = "~";
 	fdPath: string | undefined;
 	rgPath: string | undefined;
 	fzfPath: string | undefined;
@@ -48,6 +61,7 @@ export class SshConnection {
 				`ControlPath=${SSH_CONTROL_PATH}`,
 			];
 			await this.runControlCommand([...this.sshOptions, this.remote, "true"]);
+			this.remoteHome = (await this.exec('printf "%s" "$HOME"')).toString("utf8").trim() || "~";
 		} catch (error) {
 			await this.close();
 			throw error;
@@ -59,18 +73,11 @@ export class SshConnection {
 	}
 
 	toRemotePath(filePath: string): string {
-		const localRoot = toDisplayPath(this.localCwd).replace(/\/+$/, "");
-		const remoteRoot = this.remoteCwd;
-		const absolutePath = toDisplayPath(resolve(this.localCwd, filePath));
-
-		if (absolutePath === localRoot) {
-			return remoteRoot;
-		}
-		if (absolutePath.startsWith(`${localRoot}/`)) {
-			const relativePath = absolutePath.slice(localRoot.length + 1);
-			return remoteRoot === "/" ? `/${relativePath}` : `${remoteRoot}/${relativePath}`;
-		}
-		return absolutePath;
+		const displayPath = toDisplayPath(filePath);
+		if (displayPath === "~") return this.remoteHome;
+		if (displayPath.startsWith("~/")) return `${this.remoteHome}/${displayPath.slice(2)}`;
+		if (isAbsolute(displayPath)) return displayPath;
+		return toDisplayPath(resolve(this.remoteCwd, displayPath));
 	}
 
 	async changeRemoteCwd(input: string): Promise<string> {
@@ -135,7 +142,8 @@ export class SshConnection {
 	}
 
 	exec(command: string, options?: { signal?: AbortSignal }): Promise<Buffer> {
-		return this.runBufferedSsh([...this.sshOptions, this.remote, this.buildBashCommand(command)], options);
+		const args = [...this.sshOptions, this.remote, this.buildBashCommand(command)];
+		return this.runBufferedSsh(args, command, options);
 	}
 
 	execStreaming(
@@ -344,13 +352,19 @@ export class SshConnection {
 				if (code === 0) {
 					resolvePromise();
 				} else {
-					reject(new Error(`SSH failed (${code}): ${Buffer.concat(errChunks).toString()}`));
+					const stderr = Buffer.concat(errChunks).toString("utf8");
+					const message = `SSH control connection failed for ${this.remote} (exit ${code})`;
+					reject(new Error(`${message}: ${formatStderr(stderr)}`));
 				}
 			});
 		});
 	}
 
-	private runBufferedSsh(args: string[], options?: { signal?: AbortSignal }): Promise<Buffer> {
+	private runBufferedSsh(
+		args: string[],
+		command: string,
+		options?: { signal?: AbortSignal },
+	): Promise<Buffer> {
 		return new Promise((resolvePromise, reject) => {
 			if (options?.signal?.aborted) {
 				reject(new Error("aborted"));
@@ -374,7 +388,14 @@ export class SshConnection {
 				if (options?.signal?.aborted) {
 					reject(new Error("aborted"));
 				} else if (code !== 0) {
-					reject(new Error(`SSH failed (${code}): ${Buffer.concat(errChunks).toString()}`));
+					const stderr = Buffer.concat(errChunks).toString("utf8");
+					const commandText = formatCommand(command);
+					if (code === 255) {
+						reject(new Error(`SSH transport failed for ${this.remote}: ${formatStderr(stderr)}`));
+					} else {
+						const message = `Remote command failed on ${this.remote} (exit ${code})`;
+						reject(new Error(`${message}: ${commandText}\nstderr: ${formatStderr(stderr)}`));
+					}
 				} else {
 					resolvePromise(Buffer.concat(chunks));
 				}

@@ -186,7 +186,7 @@ function registerSshToolOverrides(
 				return localRead.execute(id, withNormalizedPath(params), signal, onUpdate);
 			}
 			const ssh = requireConnection(getConnection());
-			const tool = createReadTool(toolCtx.cwd, {
+			const tool = createReadTool(ssh.remoteCwd, {
 				operations: createRemoteReadOps(ssh),
 			});
 			return tool.execute(id, params, signal, onUpdate);
@@ -205,7 +205,7 @@ function registerSshToolOverrides(
 				return localWrite.execute(id, withNormalizedPath(params), signal, onUpdate);
 			}
 			const ssh = requireConnection(getConnection());
-			const tool = createWriteTool(toolCtx.cwd, {
+			const tool = createWriteTool(ssh.remoteCwd, {
 				operations: createRemoteWriteOps(ssh),
 			});
 			return tool.execute(id, params, signal, onUpdate);
@@ -224,7 +224,7 @@ function registerSshToolOverrides(
 				return localEdit.execute(id, withNormalizedPath(params), signal, onUpdate);
 			}
 			const ssh = requireConnection(getConnection());
-			const tool = createEditTool(toolCtx.cwd, {
+			const tool = createEditTool(ssh.remoteCwd, {
 				operations: createRemoteEditOps(ssh),
 			});
 			return tool.execute(id, params, signal, onUpdate);
@@ -241,7 +241,7 @@ function registerSshToolOverrides(
 				return localBash.execute(id, params, signal, onUpdate);
 			}
 			const ssh = requireConnection(getConnection());
-			const tool = createBashTool(toolCtx.cwd, {
+			const tool = createBashTool(ssh.remoteCwd, {
 				operations: createRemoteBashOps(ssh),
 			});
 			return tool.execute(id, params, signal, onUpdate);
@@ -257,7 +257,7 @@ function registerSshToolOverrides(
 				return localLs.execute(id, withNormalizedPath(params), signal, onUpdate);
 			}
 			const ssh = requireConnection(getConnection());
-			const tool = createLsTool(toolCtx.cwd, {
+			const tool = createLsTool(ssh.remoteCwd, {
 				operations: createRemoteLsOps(ssh),
 			});
 			return tool.execute(id, params, signal, onUpdate);
@@ -273,7 +273,7 @@ function registerSshToolOverrides(
 				return localFind.execute(id, withNormalizedPath(params), signal, onUpdate);
 			}
 			const ssh = requireConnection(getConnection());
-			const tool = createFindTool(toolCtx.cwd, {
+			const tool = createFindTool(ssh.remoteCwd, {
 				operations: createRemoteFindOps(ssh),
 			});
 			return tool.execute(id, params, signal, onUpdate);
@@ -410,7 +410,12 @@ export default function (pi: ExtensionAPI) {
 	pi.on("user_bash", (_event) => {
 		const ssh = getConnection();
 		if (!ssh) return;
-		return { operations: createRemoteBashOps(ssh) };
+		const operations = createRemoteBashOps(ssh);
+		return {
+			operations: {
+				exec: (command, _cwd, options) => operations.exec(command, ssh.remoteCwd, options),
+			},
+		};
 	});
 
 	pi.on("before_agent_start", async (event) => {

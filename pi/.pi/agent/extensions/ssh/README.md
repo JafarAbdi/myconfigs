@@ -32,6 +32,7 @@ host:/remote/path
   are read locally.
 - `write` and `edit` run on the remote, except `~/.pi/agent` and this extension root are
   written locally. Pi package install paths are read-only.
+- Relative paths resolve against the remote cwd. Absolute paths are remote absolute paths.
 - `bash` always runs on the remote.
 - `--ssh-debug-routing` prints local roots at startup and per-tool route decisions.
 - `@` autocomplete uses the remote cwd.
