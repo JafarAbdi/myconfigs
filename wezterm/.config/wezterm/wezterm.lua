@@ -10,7 +10,10 @@ end
 
 config.scrollback_lines = 20000
 config.max_fps = 120
-config.enable_kitty_keyboard = true
+
+-- Enable bidirectional text support (Arabic, Hebrew, Farsi, etc.)
+config.bidi_enabled = true
+config.bidi_direction = "AutoLeftToRight"
 
 -- Show which key table is active in the status area
 wezterm.on("update-right-status", function(window, pane)
@@ -155,6 +158,13 @@ config.keys = {
   },
   { key = "UpArrow", mods = "SHIFT", action = act.ScrollToPrompt(-1) },
   { key = "DownArrow", mods = "SHIFT", action = act.ScrollToPrompt(1) },
+  -- Send the Kitty CSI-u shift+enter sequence so apps (pi, Claude Code) decode a
+  -- real shift+enter without enabling enable_kitty_keyboard globally.
+  -- Not "\x1b\r": pi only reads that as shift+enter when its kitty protocol is
+  -- active, otherwise it parses as alt+enter and the bare CR submits.
+  -- Not enable_kitty_keyboard=true: that switches CSI-u on for *every* key
+  -- globally; this targets only shift+enter and leaves everything else legacy.
+  { key = "Enter", mods = "SHIFT", action = act.SendString("\x1b[13;2u") },
 }
 
 config.key_tables = {
