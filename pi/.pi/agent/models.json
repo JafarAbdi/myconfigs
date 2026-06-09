@@ -72,7 +72,7 @@
       },
       "models": [
         {
-          "id": "unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q5_K_XL",
+          "id": "qwen36",
           "input": [
             "text",
             "image"
@@ -84,19 +84,7 @@
           }
         },
         {
-          "id": "google/gemma-4-31B-it-qat-q4_0-gguf",
-          "input": [
-            "text",
-            "image"
-          ],
-          "reasoning": true,
-          "thinkingLevelMap": {
-            "minimal": null,
-            "xhigh": "xhigh"
-          }
-        },
-        {
-          "id": "unsloth/gemma-4-31B-it-GGUF:Q4_K_XL",
+          "id": "gemma4",
           "input": [
             "text",
             "image"

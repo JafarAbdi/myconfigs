@@ -9,9 +9,8 @@
     "makora/deepseek-v4-pro",
     "makora/deepseek-ai/DeepSeek-V4-Flash",
     "openai-codex/gpt-5.5",
-    "llama.cpp/unsloth/Qwen3.6-27B-MTP-GGUF:UD-Q5_K_XL",
-    "llama.cpp/unsloth/gemma-4-31B-it-GGUF:Q4_K_XL",
-    "llama.cpp/google/gemma-4-31B-it-qat-q4_0-gguf"
+    "llama.cpp/qwen36",
+    "llama.cpp/gemma4"
   ],
   "hideThinkingBlock": false,
   "lastChangelogVersion": "0.78.1",
