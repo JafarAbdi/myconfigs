@@ -2,7 +2,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 const PACKAGE_ROOT_SEARCH_MAX = 32;
@@ -87,6 +87,13 @@ function resolveModuleEntry(specifier: string): string | undefined {
 	}
 }
 
+// global skill/prompt dirs only; packages[]-contributed resources are not covered.
+function globalResourceRoots(): string[] {
+	const settings = SettingsManager.create(process.cwd(), getAgentDir()).getGlobalSettings();
+	const configured = [...(settings.skills ?? []), ...(settings.prompts ?? [])];
+	return configured.flatMap((path) => rootPaths(expandHomePath(path)));
+}
+
 export function createLocalRuntimeRoots(): LocalRuntimeRoots {
 	const extensionRoot = dirname(fileURLToPath(import.meta.url));
 	const piEntry = resolveModuleEntry(PI_PACKAGE_NAME) ?? process.argv[1];
@@ -94,7 +101,11 @@ export function createLocalRuntimeRoots(): LocalRuntimeRoots {
 
 	return {
 		readonly: rootPaths(piPackageRoot),
-		writable: uniquePaths([...rootPaths(getAgentDir()), ...rootPaths(extensionRoot)]),
+		writable: uniquePaths([
+			...rootPaths(getAgentDir()),
+			...rootPaths(extensionRoot),
+			...globalResourceRoots(),
+		]),
 	};
 }
 
