@@ -44,13 +44,16 @@ host:/remote/path
   env -u BASH_ENV bash --noprofile --norc -c ...
   ```
 
-- SSH ControlMaster uses:
+- Pi passes no multiplexing options; connection reuse is expected from `~/.ssh/config`. Without it, every remote command pays a full SSH handshake. Assumed config:
 
   ```text
-  ~/.ssh/sockets/%r@%h:%p
+  Host *
+      ControlPath ~/.ssh/sockets/%r@%h:%p
+      ControlMaster auto
+      ControlPersist 10m
   ```
 
-- Pi does not delete SSH sockets on exit.
+  Keep `ControlPersist` bounded: a long-lived master captures `SSH_AUTH_SOCK` at startup, so an immortal master outlives agent restarts (e.g. wezterm's pid-based agent proxy) and breaks agent forwarding with `Permission denied (publickey)`. Recover with `ssh -O exit <host>` or by removing the socket.
 
 ## Execution tool ownership
 

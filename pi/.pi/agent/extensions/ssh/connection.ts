@@ -1,8 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { SSH_CONTROL_DIR, SSH_CONTROL_PATH } from "./constants.ts";
 import {
 	ensureLocalPythonUvCommands,
 	type LocalPythonUvCommands,
@@ -41,7 +39,6 @@ export class SshConnection {
 	remotePythonUvCommandsBinDir: string | undefined;
 	remoteUvBinDir: string | undefined;
 
-	private sshOptions: string[] = [];
 	private closed = false;
 
 	constructor(remote: string, localCwd: string) {
@@ -51,16 +48,7 @@ export class SshConnection {
 
 	async connect(): Promise<void> {
 		try {
-			await mkdir(SSH_CONTROL_DIR, { recursive: true, mode: 0o700 });
-			this.sshOptions = [
-				"-o",
-				"ControlMaster=auto",
-				"-o",
-				"ControlPersist=yes",
-				"-o",
-				`ControlPath=${SSH_CONTROL_PATH}`,
-			];
-			await this.runControlCommand([...this.sshOptions, this.remote, "true"]);
+			await this.runConnectionProbe([this.remote, "true"]);
 			this.remoteHome = (await this.exec('printf "%s" "$HOME"')).toString("utf8").trim() || "~";
 		} catch (error) {
 			await this.close();
@@ -142,7 +130,7 @@ export class SshConnection {
 	}
 
 	exec(command: string, options?: { signal?: AbortSignal }): Promise<Buffer> {
-		const args = [...this.sshOptions, this.remote, this.buildBashCommand(command)];
+		const args = [this.remote, this.buildBashCommand(command)];
 		return this.runBufferedSsh(args, command, options);
 	}
 
@@ -186,7 +174,7 @@ export class SshConnection {
 	}
 
 	spawnRemoteCommand(command: string): ChildProcessWithoutNullStreams {
-		return spawn("ssh", [...this.sshOptions, this.remote, this.buildBashCommand(command)], {
+		return spawn("ssh", [this.remote, this.buildBashCommand(command)], {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 	}
@@ -342,7 +330,7 @@ export class SshConnection {
 		return `cd ${shellQuote(this.remoteCwd)} && ${changeDirectory} && pwd -P`;
 	}
 
-	private runControlCommand(args: string[]): Promise<void> {
+	private runConnectionProbe(args: string[]): Promise<void> {
 		return new Promise((resolvePromise, reject) => {
 			const child = spawn("ssh", args, { stdio: ["ignore", "ignore", "pipe"] });
 			const errChunks: Buffer[] = [];
@@ -353,7 +341,7 @@ export class SshConnection {
 					resolvePromise();
 				} else {
 					const stderr = Buffer.concat(errChunks).toString("utf8");
-					const message = `SSH control connection failed for ${this.remote} (exit ${code})`;
+					const message = `SSH connection failed for ${this.remote} (exit ${code})`;
 					reject(new Error(`${message}: ${formatStderr(stderr)}`));
 				}
 			});
