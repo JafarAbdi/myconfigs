@@ -119,36 +119,6 @@ config.keys = {
   { key = "k", mods = "ALT|SHIFT", action = act.SwitchWorkspaceRelative(1) },
   { key = "j", mods = "ALT|SHIFT", action = act.SwitchWorkspaceRelative(-1) },
   { key = "n", mods = "ALT|SHIFT", action = act.SwitchToWorkspace },
-  {
-    key = "S",
-    mods = "CTRL|SHIFT",
-    action = act.SwitchToWorkspace({
-      name = "code-snippets",
-      spawn = {
-        args = {
-          "bash",
-          "-c",
-          "nvim -c 'set nospell' -c \"lua require('fzy').execute('fd --type f --strip-cwd-prefix', require('fzy').sinks.edit_file)\"",
-        },
-        cwd = os.getenv("HOME") .. "/Nextcloud/Notes/shared/code_snippets/",
-      },
-    }),
-  },
-  {
-    key = "N",
-    mods = "CTRL|SHIFT",
-    action = act.SwitchToWorkspace({
-      name = "notes",
-      spawn = {
-        args = {
-          "bash",
-          "-c",
-          "nvim -c 'normal Gzz' " .. os.getenv("HOME") .. "/Nextcloud/Notes/TODO.md",
-        },
-        cwd = os.getenv("HOME") .. "/Nextcloud/Notes",
-      },
-    }),
-  },
   { key = "Copy", mods = "NONE", action = act.CopyTo("Clipboard") },
   { key = "Paste", mods = "NONE", action = act.PasteFrom("Clipboard") },
   {
