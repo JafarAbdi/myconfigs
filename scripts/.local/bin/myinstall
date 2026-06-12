@@ -97,6 +97,7 @@ sync_to_remote() {
         --exclude='.venv' \
         --exclude='node_modules' \
         --exclude='__pycache__' \
+        --exclude='pi/.pi/agent/sessions' \
         "$myconfigs_dir/" "$host:~/myconfigs/"
 }
 
@@ -435,13 +436,6 @@ case "${1:-}" in
         host="$2"
 
         sync_to_remote "$host"
-
-        info "Setting up opencode credentials on $host..."
-        ssh -- "$host" "mkdir -p ~/.local/share/opencode ~/.local/state/opencode"
-        scp -q ~/.local/share/opencode/auth.json "$host:~/.local/share/opencode/auth.json" || warning "Failed to copy auth.json"
-        scp -q ~/.local/state/opencode/model.json "$host:~/.local/state/opencode/model.json" || warning "Failed to copy model.json"
-        scp -q ~/.local/state/opencode/kv.json "$host:~/.local/state/opencode/kv.json" || warning "Failed to copy kv.json"
-        info "opencode credentials synced to $host"
 
         $0 remote "$host" wezterm
         $0 remote "$host" minimal
