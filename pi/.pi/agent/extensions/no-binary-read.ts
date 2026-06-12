@@ -6,24 +6,15 @@
  *
  * How it works:
  *   Hooks into the `tool_call` event before any tool executes.
- *   When the tool is `read`, reads the first 4096 bytes of the target file
- *   and checks for NUL bytes (`\x00`). If found, the file is classified as
- *   binary and the read is blocked with a clear error to the model.
+ *   When the tool is `read`, reads the first 4096 bytes of the target file:
  *
- * Detection strategy (ripgrep-style):
- *   A NUL byte is a near-definitive signal of binary content. Text files
- *   almost never contain them; binary files almost always do. The check is
- *   extremely fast (scans at most 4KB).
+ *   1. Checks magic bytes for common image formats (PNG, JPEG, GIF, WebP,
+ *      BMP, TIFF, ICO). If matched, blocks with a format-specific message.
+ *   2. Scans for NUL bytes (`\x00`). If found, blocks as generic binary.
  *
- * Alternative approach (zlib txtvsbin.txt):
- *   For more rigorous detection with non-Latin text encodings, the zlib
- *   algorithm classifies bytes into allow/block lists: bytes 0x00-0x06 and
- *   0x0E-0x1F are "blocked" control characters; everything else (TAB, LF,
- *   CR, 0x20-0xFF) is allowed text. Uses counting instead of presence check
- *   to tolerate "polluted" text files (e.g. a CSV with embedded NULs).
- *   Overkill for our use case since UTF-8 encoded non-Latin text (CJK,
- *   Greek, Cyrillic) has no NUL bytes, and the read tool already handles
- *   UTF-8 correctly.
+ *   Magic-byte detection catches images that might lack NULs in the first
+ *   4KB (e.g. a small, low-entropy PNG). The NUL scan catches everything
+ *   else (PDF, ZIP, ELF, compiled objects, etc.).
  *
  * Install:
  *   Save to ~/.pi/agent/extensions/no-binary-read.ts (user scope)
@@ -36,11 +27,56 @@ import { open } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /**
+ * Magic bytes for common image formats.
+ *
+ * Detected at offset 0 (or 0 + variants for TIFF byte-order).
+ * This catches images even when the first 4KB happens to lack NUL bytes.
+ */
+const IMAGE_SIGNATURES: Array<{ ext: string; offset: number; bytes: Buffer }> = [
+	// 89 50 4E 47 0D 0A 1A 0A
+	{ ext: "PNG",   offset: 0, bytes: Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) },
+	// FF D8 FF
+	{ ext: "JPEG",  offset: 0, bytes: Buffer.from([0xFF, 0xD8, 0xFF]) },
+	// GIF87a / GIF89a
+	{ ext: "GIF",   offset: 0, bytes: Buffer.from([0x47, 0x49, 0x46, 0x38]) },
+	// RIFF....WEBP (check both the RIFF header and the WEBP fourcc at offset 8)
+	{ ext: "WebP",  offset: 0, bytes: Buffer.from([0x52, 0x49, 0x46, 0x46]) },
+	// BM
+	{ ext: "BMP",   offset: 0, bytes: Buffer.from([0x42, 0x4D]) },
+	// II*\x00 / MM\x00*
+	{ ext: "TIFF",  offset: 0, bytes: Buffer.from([0x49, 0x49, 0x2A, 0x00]) },
+	{ ext: "TIFF",  offset: 0, bytes: Buffer.from([0x4D, 0x4D, 0x00, 0x2A]) },
+	// 00 00 01 00 (ICO)
+	{ ext: "ICO",   offset: 0, bytes: Buffer.from([0x00, 0x00, 0x01, 0x00]) },
+];
+
+/**
+ * Check for known image magic bytes. Returns the format name or null.
+ *
+ * WebP is special: it starts with a RIFF header (shared with AVI, WAV, etc.)
+ * and must also have the WEBP fourcc at offset 8.
+ */
+function detectImageFormat(buffer: Buffer): string | null {
+	for (const sig of IMAGE_SIGNATURES) {
+		if (buffer.length < sig.offset + sig.bytes.length) continue;
+		if (!sig.bytes.equals(buffer.subarray(sig.offset, sig.offset + sig.bytes.length))) continue;
+
+		if (sig.ext === "WebP") {
+			const webpFourcc = Buffer.from([0x57, 0x45, 0x42, 0x50]);
+			if (buffer.length < 12 || !webpFourcc.equals(buffer.subarray(8, 12))) continue;
+		}
+
+		return sig.ext;
+	}
+	return null;
+}
+
+/**
  * Check if a buffer appears to be binary by scanning for NUL bytes.
  *
  * ripgrep uses this same heuristic: NUL bytes are virtually absent from
  * real text files but present in almost all binary formats (PDF, ZIP, ELF,
- * images, compiled objects, etc.).
+ * compiled objects, etc.).
  *
  * 4KB is enough to catch binary headers: PDF's cross-reference table has
  * NULs, ZIP local file headers have NULs, ELF section headers have NULs.
@@ -75,6 +111,14 @@ export default function (pi: ExtensionAPI) {
 			const buffer = Buffer.alloc(4096);
 			const { bytesRead } = await fileHandle.read(buffer, 0, 4096, 0);
 			const bytes = buffer.subarray(0, bytesRead);
+
+			const imageFormat = detectImageFormat(bytes);
+			if (imageFormat) {
+				return {
+					block: true,
+					reason: `File "${rawPath}" is a ${imageFormat} image.`,
+				};
+			}
 
 			if (isBinaryBuffer(bytes)) {
 				return {
