@@ -980,6 +980,15 @@ complete -c sfs -n "__fish_seen_subcommand_from connect ssh home; and test (coun
 complete -c sfs -n "__fish_seen_subcommand_from disconnect" -a "(ls ~/.local/mnt/sfs/ 2>/dev/null)"
 complete -c sfs -n "__fish_seen_subcommand_from connect ssh; and test (count (commandline -opc)) -ge 3" -a "(__fish_sfs_remote_paths)"
 
+# ssh_forward_ports completions
+function __fish_ssh_forward_ports_common_ports
+  printf '%s\n' 3000 6006 7860 8000 8080 8888
+end
+
+complete -c ssh_forward_ports -f
+complete -c ssh_forward_ports -n "__fish_is_first_arg" -a "(__fish_complete_user_at_hosts)" -d "SSH host"
+complete -c ssh_forward_ports -n "not __fish_is_first_arg" -a "(__fish_ssh_forward_ports_common_ports)" -d "Port"
+
 # mdev wrapper and completions
 function mdev --wraps mdev --description 'Mutagen dev sync manager'
   if test (count $argv) -ge 2 -a "$argv[1]" = "connect"

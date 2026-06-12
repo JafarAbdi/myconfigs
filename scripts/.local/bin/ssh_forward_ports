@@ -1,0 +1,66 @@
+#!/bin/bash
+# ssh_forward_ports - open standalone SSH local forwards for one or more ports
+
+set -euo pipefail
+
+readonly RED='\033[0;31m' GREEN='\033[0;32m' NC='\033[0m'
+
+error() { echo -e "[${RED}error${NC}]: $1" >&2; exit 1; }
+info()  { echo -e "[${GREEN}info${NC}]:  $1" >&2; }
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: ssh_forward_ports <host> <port|local:remote> [port|local:remote ...]
+
+Examples:
+  ssh_forward_ports cortex-lon1 7860 8888
+  ssh_forward_ports cortex-lon1 7860:7861
+EOF
+}
+
+is_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] || return 1
+    (( $1 >= 1 && $1 <= 65535 ))
+}
+
+is_port_spec() {
+    local spec="$1"
+    if [[ "$spec" =~ ^[0-9]+$ ]]; then
+        is_port "$spec"
+        return
+    fi
+
+    [[ "$spec" =~ ^[0-9]+:[0-9]+$ ]] || return 1
+    is_port "${spec%%:*}"
+    is_port "${spec##*:}"
+}
+
+main() {
+    [[ $# -ge 2 ]] || { usage; exit 1; }
+
+    local host="$1"
+    shift
+
+    is_port_spec "$host" && error "Missing host before port list"
+
+    local forward_args=()
+    local spec local_port remote_port
+    for spec in "$@"; do
+        is_port_spec "$spec" || error "Invalid port spec: $spec"
+        local_port="${spec%%:*}"
+        remote_port="${spec##*:}"
+        forward_args+=(-L "${local_port}:127.0.0.1:${remote_port}")
+    done
+
+    info "Forwarding via $host: $*"
+    exec ssh -C -N \
+        -o ServerAliveInterval=60 \
+        -o ServerAliveCountMax=3 \
+        -o ExitOnForwardFailure=yes \
+        -o ControlMaster=no \
+        -o ControlPath=none \
+        "${forward_args[@]}" \
+        "$host"
+}
+
+main "$@"
