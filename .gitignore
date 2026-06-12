@@ -7,3 +7,6 @@ scripts/.local/bin/rgr
 scripts/.local/bin/pixi
 scripts/.local/bin/stylua
 neovim/.config/nvim/spell/
+
+# pi agent logs
+pi/.pi/agent/run-history.jsonl
