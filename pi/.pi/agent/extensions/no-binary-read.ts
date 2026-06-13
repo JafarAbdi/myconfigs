@@ -9,12 +9,12 @@
  *   When the tool is `read`, reads the first 4096 bytes of the target file:
  *
  *   1. Checks magic bytes for common image formats (PNG, JPEG, GIF, WebP,
- *      BMP, TIFF, ICO). If matched, blocks with a format-specific message.
+ *      BMP, TIFF, ICO). If matched, allows the read tool to handle the image.
  *   2. Scans for NUL bytes (`\x00`). If found, blocks as generic binary.
  *
- *   Magic-byte detection catches images that might lack NULs in the first
- *   4KB (e.g. a small, low-entropy PNG). The NUL scan catches everything
- *   else (PDF, ZIP, ELF, compiled objects, etc.).
+ *   Magic-byte detection lets supported images bypass the generic binary
+ *   NUL scan. The NUL scan catches everything else (PDF, ZIP, ELF,
+ *   compiled objects, etc.).
  *
  * Install:
  *   Save to ~/.pi/agent/extensions/no-binary-read.ts (user scope)
@@ -30,7 +30,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  * Magic bytes for common image formats.
  *
  * Detected at offset 0 (or 0 + variants for TIFF byte-order).
- * This catches images even when the first 4KB happens to lack NUL bytes.
+ * This lets images bypass the generic binary NUL-byte scan.
  */
 const IMAGE_SIGNATURES: Array<{ ext: string; offset: number; bytes: Buffer }> = [
 	// 89 50 4E 47 0D 0A 1A 0A
@@ -114,10 +114,7 @@ export default function (pi: ExtensionAPI) {
 
 			const imageFormat = detectImageFormat(bytes);
 			if (imageFormat) {
-				return {
-					block: true,
-					reason: `File "${rawPath}" is a ${imageFormat} image.`,
-				};
+				return undefined;
 			}
 
 			if (isBinaryBuffer(bytes)) {
