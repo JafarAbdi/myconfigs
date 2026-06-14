@@ -22,7 +22,19 @@ export default function (pi: ExtensionAPI) {
 				return { block: true, reason: "Dangerous command blocked (no UI for confirmation)" };
 			}
 
-			const choice = await ctx.ui.select(`⚠️ Dangerous command:\n\n  ${command}\n\nAllow?`, ["Yes", "No"]);
+			const choice = await ctx.ui.select(`⚠️ Dangerous command:\n\n  ${command}\n\nAllow?`, [
+				"Yes",
+				"No",
+				"No, type reason",
+			]);
+
+			if (choice === "No, type reason") {
+				const reason = await ctx.ui.input("Reject reason:", "Blocked by user");
+				return {
+					block: true,
+					reason: `User rejected this because: ${reason?.trim() || "no reason provided"}`,
+				};
+			}
 
 			if (choice !== "Yes") {
 				return { block: true, reason: "Blocked by user" };
