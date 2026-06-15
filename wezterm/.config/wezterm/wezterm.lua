@@ -1,6 +1,7 @@
 local wezterm = require("wezterm")
 local mux = wezterm.mux
 local act = wezterm.action
+local sessions = require("sessions")
 
 local config = {}
 
@@ -85,6 +86,8 @@ config.keys = {
   { key = "p", mods = "SHIFT|CTRL", action = act.ActivateCommandPalette },
   { key = "c", mods = "LEADER", action = act.SpawnTab("CurrentPaneDomain") },
   { key = "a", mods = "LEADER", action = act.ActivateLastTab },
+  { key = "R", mods = "LEADER", action = sessions.restore_action() },
+  { key = "D", mods = "LEADER", action = sessions.delete_action() },
   {
     key = "d",
     mods = "LEADER",
@@ -363,5 +366,11 @@ config.ssh_domains = wezterm.default_ssh_domains()
 for _, domain in ipairs(config.ssh_domains) do
   domain.remote_wezterm_path = "$HOME/.local/bin/wezterm"
 end
+
+-- each GUI process autosaves its layout to disk so a crash/power loss is
+-- recoverable. re-attach to a previous session with LEADER+R; delete with LEADER+D.
+wezterm.on("gui-startup", function()
+  sessions.on_gui_startup()
+end)
 
 return config
