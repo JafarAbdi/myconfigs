@@ -1,4 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import {
@@ -16,6 +17,17 @@ import {
 } from "./tools-cache.ts";
 
 const SSH_ERROR_COMMAND_MAX_LENGTH = 500;
+const REMOTE_RUN_KILL_GRACE_MS = 200;
+const REMOTE_RUN_SSH_COMMAND_TIMEOUT_MS = 1000;
+const LOCAL_SSH_KILL_GRACE_MS = 200;
+const LOCAL_TRANSPORT_FALLBACK_DELAY_MS = 1500;
+const REMOTE_RUN_PID_MARKER = "__PI_SSH_REMOTE_RUN_PID__:";
+
+interface RemoteRun {
+	id: string;
+	pidFile: string;
+	processGroupId?: number;
+}
 
 function formatStderr(stderr: string): string {
 	const trimmed = stderr.trim();
@@ -144,28 +156,59 @@ export class SshConnection {
 				return;
 			}
 
-			const child = this.spawnRemoteCommand(command);
+			const remoteRun = this.createRemoteRun();
+			const child = this.spawnRemoteRun(remoteRun, command);
 			child.stdin.end();
+			let closed = false;
 			let timedOut = false;
+			let terminating = false;
+			let stderrRemainder = "";
+			const terminateLocalTransport = () => {
+				if (closed) return;
+				child.kill("SIGTERM");
+				setTimeout(() => {
+					if (!closed) child.kill("SIGKILL");
+				}, LOCAL_SSH_KILL_GRACE_MS).unref();
+			};
+			const terminate = () => {
+				if (terminating) return;
+				terminating = true;
+				void this.terminateRemoteRun(remoteRun);
+				setTimeout(terminateLocalTransport, LOCAL_TRANSPORT_FALLBACK_DELAY_MS).unref();
+			};
 			const timer = options.timeout
 				? setTimeout(() => {
 						timedOut = true;
-						child.kill();
+						terminate();
 					}, options.timeout * 1000)
 				: undefined;
-			const onAbort = () => child.kill();
+			const onAbort = () => terminate();
 			options.signal?.addEventListener("abort", onAbort, { once: true });
 
 			child.stdout.on("data", options.onData);
-			child.stderr.on("data", options.onData);
+			child.stderr.on("data", (data) => {
+				if (remoteRun.processGroupId !== undefined) {
+					if (stderrRemainder.length > 0) {
+						options.onData(Buffer.concat([Buffer.from(stderrRemainder), data]));
+						stderrRemainder = "";
+						return;
+					}
+					options.onData(data);
+					return;
+				}
+				stderrRemainder = this.handleRemoteRunStderr(data, stderrRemainder, remoteRun, options.onData);
+			});
 			child.on("error", (error) => {
 				if (timer) clearTimeout(timer);
 				options.signal?.removeEventListener("abort", onAbort);
 				reject(error);
 			});
 			child.on("close", (code) => {
+				closed = true;
 				if (timer) clearTimeout(timer);
 				options.signal?.removeEventListener("abort", onAbort);
+				this.flushRemoteRunStderr(stderrRemainder, remoteRun, options.onData);
+				void this.cleanupRemoteRun(remoteRun);
 				if (options.signal?.aborted) reject(new Error("aborted"));
 				else if (timedOut) reject(new Error(`timeout:${options.timeout}`));
 				else resolve({ exitCode: code });
@@ -175,6 +218,12 @@ export class SshConnection {
 
 	spawnRemoteCommand(command: string): ChildProcessWithoutNullStreams {
 		return spawn("ssh", [this.remote, this.buildBashCommand(command)], {
+			stdio: ["pipe", "pipe", "pipe"],
+		});
+	}
+
+	spawnRemoteRun(run: RemoteRun, command: string): ChildProcessWithoutNullStreams {
+		return spawn("ssh", [this.remote, this.buildRemoteRunCommand(run, command)], {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 	}
@@ -313,6 +362,118 @@ export class SshConnection {
 
 	private buildBashCommand(command: string): string {
 		return `env -u BASH_ENV bash --noprofile --norc -c ${shellQuote(command)}`;
+	}
+
+	private createRemoteRun(): RemoteRun {
+		const id = randomUUID();
+		return {
+			id,
+			pidFile: `${this.remoteHome}/.cache/pi/ssh-tools/runs/${id}.pid`,
+		};
+	}
+
+	private buildRemoteRunCommand(run: RemoteRun, command: string): string {
+		const cleanup = `rm -f ${shellQuote(run.pidFile)}`;
+		const wrapper = [
+			`printf '%s\\n' "$$" > ${shellQuote(run.pidFile)}`,
+			`printf '%s%s\\n' ${shellQuote(REMOTE_RUN_PID_MARKER)} "$$" >&2`,
+			`trap ${shellQuote(cleanup)} EXIT`,
+			'env -u BASH_ENV bash --noprofile --norc -c "$1"',
+			"exit_code=$?",
+			cleanup,
+			'exit "$exit_code"',
+		].join("; ");
+		return [
+			`mkdir -p ${shellQuote(dirname(run.pidFile))}`,
+			`exec setsid env -u BASH_ENV bash --noprofile --norc -c ${shellQuote(wrapper)} _ ${shellQuote(command)}`,
+		].join(" && ");
+	}
+
+	private handleRemoteRunStderr(
+		data: Buffer,
+		remainder: string,
+		run: RemoteRun,
+		onData: (data: Buffer) => void,
+	): string {
+		const lines = `${remainder}${data.toString("utf8")}`.split("\n");
+		const nextRemainder = lines.pop() ?? "";
+		for (const line of lines) {
+			this.handleRemoteRunStderrLine(line, run, onData);
+		}
+		return nextRemainder;
+	}
+
+	private flushRemoteRunStderr(
+		remainder: string,
+		run: RemoteRun,
+		onData: (data: Buffer) => void,
+	): void {
+		if (remainder.length === 0) return;
+		this.handleRemoteRunStderrLine(remainder, run, onData);
+	}
+
+	private handleRemoteRunStderrLine(
+		line: string,
+		run: RemoteRun,
+		onData: (data: Buffer) => void,
+	): void {
+		if (run.processGroupId === undefined && line.startsWith(REMOTE_RUN_PID_MARKER)) {
+			const processGroupId = Number.parseInt(line.slice(REMOTE_RUN_PID_MARKER.length), 10);
+			if (Number.isSafeInteger(processGroupId) && processGroupId > 1) {
+				run.processGroupId = processGroupId;
+			}
+			return;
+		}
+		onData(Buffer.from(`${line}\n`));
+	}
+
+	private async terminateRemoteRun(run: RemoteRun): Promise<void> {
+		await this.signalRemoteRun(run, "TERM");
+		await new Promise((resolvePromise) => setTimeout(resolvePromise, REMOTE_RUN_KILL_GRACE_MS));
+		await this.signalRemoteRun(run, "KILL");
+		await this.cleanupRemoteRun(run);
+	}
+
+	private signalRemoteRun(run: RemoteRun, signal: "TERM" | "KILL"): Promise<void> {
+		return this.execRemoteRunControl(this.buildRemoteRunSignalCommand(run, signal));
+	}
+
+	private cleanupRemoteRun(run: RemoteRun): Promise<void> {
+		return this.execRemoteRunControl(`rm -f ${shellQuote(run.pidFile)}`);
+	}
+
+	private execRemoteRunControl(command: string): Promise<void> {
+		return new Promise((resolvePromise) => {
+			let settled = false;
+			const child = spawn("ssh", [this.remote, this.buildBashCommand(command)], { stdio: "ignore" });
+			child.unref();
+			const settle = () => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timer);
+				resolvePromise();
+			};
+			const timer = setTimeout(() => {
+				child.kill("SIGTERM");
+				setTimeout(() => child.kill("SIGKILL"), LOCAL_SSH_KILL_GRACE_MS).unref();
+				settle();
+			}, REMOTE_RUN_SSH_COMMAND_TIMEOUT_MS);
+			timer.unref();
+			child.on("error", settle);
+			child.on("close", settle);
+		});
+	}
+
+	private buildRemoteRunSignalCommand(run: RemoteRun, signal: "TERM" | "KILL"): string {
+		if (run.processGroupId !== undefined) {
+			return `kill -${signal} -- -${run.processGroupId} 2>/dev/null || true`;
+		}
+		return [
+			`test -r ${shellQuote(run.pidFile)} || exit 0`,
+			`pid=$(cat ${shellQuote(run.pidFile)})`,
+			`case "$pid" in ''|*[!0-9]*) exit 0;; esac`,
+			`kill -${signal} -- "-$pid" 2>/dev/null || true`,
+		].join("; ");
 	}
 
 	private buildChangeDirectoryCommand(target: string): string {
