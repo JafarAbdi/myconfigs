@@ -15,8 +15,3 @@ Files in `agent/` borrowed or adapted from upstream sources.
 <https://github.com/mitsuhiko/agent-stuff> — Armin Ronacher
 
 - `agent/extensions/uv.ts`
-- `agent/intercepted-commands/pip`
-- `agent/intercepted-commands/pip3`
-- `agent/intercepted-commands/poetry`
-- `agent/intercepted-commands/python`
-- `agent/intercepted-commands/python3`

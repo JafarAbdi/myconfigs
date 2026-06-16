@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
@@ -6,6 +6,7 @@ import {
 	ensureLocalPythonUvCommands,
 	type LocalPythonUvCommands,
 	PYTHON_UV_COMMAND_NAMES,
+	pythonUvCommandsCacheKey,
 } from "./python-uv-commands.ts";
 import { shellQuote, toDisplayPath } from "./shell.ts";
 import {
@@ -20,6 +21,18 @@ const SSH_ERROR_COMMAND_MAX_LENGTH = 500;
 const REMOTE_RUN_KILL_GRACE_MS = 200;
 const REMOTE_RUN_SSH_COMMAND_TIMEOUT_MS = 1000;
 const LOCAL_SSH_KILL_GRACE_MS = 200;
+const LOCAL_SSH_COMMAND_TIMEOUT_MS = 120_000;
+const LOCAL_SSH_CONNECT_TIMEOUT_MS = 10_000;
+const SSH_TRANSPORT_ARGS = [
+	"-o",
+	"BatchMode=yes",
+	"-o",
+	"ConnectTimeout=10",
+	"-o",
+	"ServerAliveInterval=15",
+	"-o",
+	"ServerAliveCountMax=2",
+];
 const LOCAL_TRANSPORT_FALLBACK_DELAY_MS = 1500;
 const REMOTE_RUN_PID_MARKER = "__PI_SSH_REMOTE_RUN_PID__:";
 
@@ -52,6 +65,7 @@ export class SshConnection {
 	remoteUvBinDir: string | undefined;
 
 	private closed = false;
+	private activeChildren = new Set<ChildProcess>();
 
 	constructor(remote: string, localCwd: string) {
 		this.remote = remote;
@@ -217,15 +231,11 @@ export class SshConnection {
 	}
 
 	spawnRemoteCommand(command: string): ChildProcessWithoutNullStreams {
-		return spawn("ssh", [this.remote, this.buildBashCommand(command)], {
-			stdio: ["pipe", "pipe", "pipe"],
-		});
+		return this.spawnSshStream([this.remote, this.buildBashCommand(command)]);
 	}
 
 	spawnRemoteRun(run: RemoteRun, command: string): ChildProcessWithoutNullStreams {
-		return spawn("ssh", [this.remote, this.buildRemoteRunCommand(run, command)], {
-			stdio: ["pipe", "pipe", "pipe"],
-		});
+		return this.spawnSshStream([this.remote, this.buildRemoteRunCommand(run, command)]);
 	}
 
 	spawnRemoteTool(commandPath: string, args: string[]): ChildProcessWithoutNullStreams {
@@ -237,6 +247,10 @@ export class SshConnection {
 	async close(): Promise<void> {
 		if (this.closed) return;
 		this.closed = true;
+		for (const child of this.activeChildren) {
+			this.terminateChild(child);
+		}
+		this.activeChildren.clear();
 	}
 
 	private async detectRemotePlatform(): Promise<SshToolPlatform> {
@@ -307,10 +321,18 @@ export class SshConnection {
 
 	private async installPythonUvCommands(commands: LocalPythonUvCommands): Promise<{ binDir: string }> {
 		const cacheHome = (await this.exec('printf "%s\\n" "$HOME/.cache"')).toString("utf8").trim();
-		const rootDir = `${cacheHome}/pi/ssh-tools/python-uv-commands`;
+		const parentDir = `${cacheHome}/pi/ssh-tools/python-uv-commands`;
+		const rootDir = `${parentDir}/${pythonUvCommandsCacheKey()}`;
 		const binDir = `${rootDir}/bin`;
 		const remoteArchivePath = `${rootDir}/python-uv-commands.tar.gz`;
-		await this.exec(`mkdir -p ${shellQuote(rootDir)}`);
+
+		const presentTest = PYTHON_UV_COMMAND_NAMES.map((name) => `test -x ${shellQuote(`${binDir}/${name}`)}`).join(
+			" && ",
+		);
+		const present = (await this.exec(`${presentTest} && printf ok || true`)).toString("utf8").trim();
+		if (present === "ok") return { binDir };
+
+		await this.exec(`rm -rf ${shellQuote(parentDir)} && mkdir -p ${shellQuote(rootDir)}`);
 		await this.uploadFile(commands.archivePath, remoteArchivePath);
 		const chmodPaths = PYTHON_UV_COMMAND_NAMES.map((name) => shellQuote(`${binDir}/${name}`)).join(" ");
 		await this.exec(
@@ -445,7 +467,7 @@ export class SshConnection {
 	private execRemoteRunControl(command: string): Promise<void> {
 		return new Promise((resolvePromise) => {
 			let settled = false;
-			const child = spawn("ssh", [this.remote, this.buildBashCommand(command)], { stdio: "ignore" });
+			const child = this.spawnSshIgnore([this.remote, this.buildBashCommand(command)]);
 			child.unref();
 			const settle = () => {
 				if (settled) return;
@@ -476,6 +498,51 @@ export class SshConnection {
 		].join("; ");
 	}
 
+	private trackChild<T extends ChildProcess>(child: T): T {
+		this.activeChildren.add(child);
+		const cleanup = () => this.activeChildren.delete(child);
+		child.once("close", cleanup);
+		child.once("error", cleanup);
+		return child;
+	}
+
+	private terminateChild(child: ChildProcess): void {
+		if (child.exitCode !== null || child.killed) return;
+		child.kill("SIGTERM");
+		setTimeout(() => {
+			if (child.exitCode === null) child.kill("SIGKILL");
+		}, LOCAL_SSH_KILL_GRACE_MS).unref();
+	}
+
+	private createChildTimeout(
+		child: ChildProcess,
+		timeoutMs: number,
+		onTimeout: () => void,
+	): ReturnType<typeof setTimeout> {
+		const timer = setTimeout(() => {
+			onTimeout();
+			this.terminateChild(child);
+		}, timeoutMs);
+		timer.unref();
+		return timer;
+	}
+
+	private spawnSshStream(args: string[]): ChildProcessWithoutNullStreams {
+		return this.trackChild(spawn("ssh", [...SSH_TRANSPORT_ARGS, ...args], {
+			stdio: ["pipe", "pipe", "pipe"],
+		}));
+	}
+
+	private spawnSshPipe(args: string[]): ChildProcessWithoutNullStreams {
+		return this.trackChild(spawn("ssh", [...SSH_TRANSPORT_ARGS, ...args], {
+			stdio: ["ignore", "pipe", "pipe"],
+		}));
+	}
+
+	private spawnSshIgnore(args: string[]): ChildProcess {
+		return this.trackChild(spawn("ssh", [...SSH_TRANSPORT_ARGS, ...args], { stdio: "ignore" }));
+	}
+
 	private buildChangeDirectoryCommand(target: string): string {
 		let cdTarget: string;
 		if (target === "~") {
@@ -493,11 +560,18 @@ export class SshConnection {
 
 	private runConnectionProbe(args: string[]): Promise<void> {
 		return new Promise((resolvePromise, reject) => {
-			const child = spawn("ssh", args, { stdio: ["ignore", "ignore", "pipe"] });
+			const child = this.spawnSshPipe(args);
 			const errChunks: Buffer[] = [];
+			const timer = this.createChildTimeout(child, LOCAL_SSH_CONNECT_TIMEOUT_MS, () => {
+				reject(new Error(`SSH connection timed out for ${this.remote}`));
+			});
 			child.stderr.on("data", (data) => errChunks.push(data));
-			child.on("error", reject);
+			child.on("error", (error) => {
+				clearTimeout(timer);
+				reject(error);
+			});
 			child.on("close", (code) => {
+				clearTimeout(timer);
 				if (code === 0) {
 					resolvePromise();
 				} else {
@@ -520,22 +594,33 @@ export class SshConnection {
 				return;
 			}
 
-			const child = spawn("ssh", args, { stdio: ["ignore", "pipe", "pipe"] });
+			let settled = false;
+			let timedOut = false;
+			const child = this.spawnSshPipe(args);
 			const chunks: Buffer[] = [];
 			const errChunks: Buffer[] = [];
-			const onAbort = () => child.kill();
+			const timer = this.createChildTimeout(child, LOCAL_SSH_COMMAND_TIMEOUT_MS, () => {
+				timedOut = true;
+			});
+			const settle = (callback: () => void) => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timer);
+				options?.signal?.removeEventListener("abort", onAbort);
+				callback();
+			};
+			const onAbort = () => this.terminateChild(child);
 			options?.signal?.addEventListener("abort", onAbort, { once: true });
 
 			child.stdout.on("data", (data) => chunks.push(data));
 			child.stderr.on("data", (data) => errChunks.push(data));
-			child.on("error", (error) => {
-				options?.signal?.removeEventListener("abort", onAbort);
-				reject(error);
-			});
-			child.on("close", (code) => {
-				options?.signal?.removeEventListener("abort", onAbort);
+			child.on("error", (error) => settle(() => reject(error)));
+			child.on("close", (code) => settle(() => {
 				if (options?.signal?.aborted) {
 					reject(new Error("aborted"));
+				} else if (timedOut) {
+					const seconds = Math.floor(LOCAL_SSH_COMMAND_TIMEOUT_MS / 1000);
+					reject(new Error(`SSH command timed out after ${seconds}s: ${formatCommand(command)}`));
 				} else if (code !== 0) {
 					const stderr = Buffer.concat(errChunks).toString("utf8");
 					const commandText = formatCommand(command);
@@ -548,7 +633,7 @@ export class SshConnection {
 				} else {
 					resolvePromise(Buffer.concat(chunks));
 				}
-			});
+			}));
 		});
 	}
 }

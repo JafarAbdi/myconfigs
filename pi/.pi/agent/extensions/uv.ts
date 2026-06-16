@@ -1,17 +1,21 @@
 /**
- * UV Extension - Redirects Python tooling to uv equivalents.
+ * UV Extension - Forces uv-based Python workflows.
  *
- * This extension enforces uv-based Python workflows without owning the bash tool.
- * Execution backends such as SSH must remain the sole owners of execution tools
- * so commands cannot accidentally run on the wrong machine.
+ * Prepends a bin dir of error stubs (python/python3/pip/pip3/poetry) to PATH so
+ * bare invocations fail with guidance to use `uv run python ...`. The stubs never
+ * call uv, so no nested `uv run` lock can form. SSH backends own their own copy of
+ * these stubs, so this PATH injection is skipped in SSH mode.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { dirname, join } from "path";
-import { fileURLToPath } from "url";
+import { ensureLocalPythonUvCommands } from "./ssh/python-uv-commands.ts";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const interceptedCommandsPath = join(__dirname, "..", "intercepted-commands");
+const pythonShimBinPromise = ensureLocalPythonUvCommands().then((commands) => commands.binDir);
+pythonShimBinPromise.catch(() => {});
+
+function isSshModeActive(): boolean {
+  return Boolean(process.env.PI_SSH_REMOTE);
+}
 
 function getBlockedCommandMessage(command: string): string | null {
   const pipCommandPattern = /(?:^|\n|[;|&]{1,2})\s*(?:\S+\/)?pip\s*(?:$|\s)/m;
@@ -89,7 +93,7 @@ function getBlockedCommandMessage(command: string): string | null {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.on("tool_call", (event) => {
+  pi.on("tool_call", async (event) => {
     if (event.toolName !== "bash") return;
 
     const blockedMessage = getBlockedCommandMessage(event.input.command);
@@ -97,7 +101,10 @@ export default function (pi: ExtensionAPI) {
       return { block: true, reason: blockedMessage };
     }
 
-    event.input.command = `export PATH="${interceptedCommandsPath}:$PATH"\n${event.input.command}`;
+    if (isSshModeActive()) return;
+
+    const shimBin = await pythonShimBinPromise;
+    event.input.command = [`export PATH="${shimBin}:$PATH"`, event.input.command].join("\n");
   });
 
   pi.on("user_bash", (event) => {

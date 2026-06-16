@@ -22,5 +22,6 @@
   ],
   "skills": [
     "~/.claude/skills"
-  ]
+  ],
+  "theme": "dark"
 }
