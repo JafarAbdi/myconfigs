@@ -1,4 +1,3 @@
-import { posix } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
 import {
 	createBashTool,
@@ -37,7 +36,7 @@ import {
 	type SshPathRoute,
 } from "./path-router.ts";
 import { getPersistedSshState, makeSshSessionState, type SshSessionState } from "./state.ts";
-import { isRecord } from "./util.ts";
+import { createSubagentSshBridge, readChildSshTarget } from "./subagent-env.ts";
 
 const SSH_EXECUTION_TOOL_NAMES = ["read", "write", "edit", "bash", "ls", "find", "grep"] as const;
 
@@ -49,9 +48,6 @@ interface SshTarget {
 	persist: boolean;
 }
 
-const SSH_CHILD_REMOTE_ENV = "PI_SSH_REMOTE";
-const SSH_CHILD_REMOTE_CWD_ENV = "PI_SSH_REMOTE_CWD";
-
 function parseSshFlag(value: string): SshTarget {
 	const colonIndex = value.indexOf(":");
 	const remote = colonIndex === -1 ? value : value.slice(0, colonIndex);
@@ -61,146 +57,6 @@ function parseSshFlag(value: string): SshTarget {
 
 function targetFromState(state: SshSessionState): SshTarget {
 	return { remote: state.remote, remoteCwd: state.remoteCwd, persist: false };
-}
-
-function targetFromChildEnv(): SshTarget | undefined {
-	if (process.env.PI_SUBAGENT_CHILD !== "1") return undefined;
-	const remote = process.env[SSH_CHILD_REMOTE_ENV];
-	const remoteCwd = process.env[SSH_CHILD_REMOTE_CWD_ENV];
-	if (!remote || !remoteCwd) return undefined;
-	return { remote, remoteCwd, persist: false };
-}
-
-function setChildSshEnv(connection: SshConnection): void {
-	process.env[SSH_CHILD_REMOTE_ENV] = connection.remote;
-	process.env[SSH_CHILD_REMOTE_CWD_ENV] = connection.remoteCwd;
-}
-
-function clearChildSshEnv(): void {
-	delete process.env[SSH_CHILD_REMOTE_ENV];
-	delete process.env[SSH_CHILD_REMOTE_CWD_ENV];
-}
-
-type MutableRecord = Record<string, unknown>;
-
-function resolveRemotePath(
-	ssh: SshConnection,
-	filePath: string,
-	baseRemoteCwd: string,
-	localRuntimeRoots: LocalRuntimeRoots,
-): string | undefined {
-	if (isLocalPathRoute(routePath(filePath, localRuntimeRoots))) return undefined;
-
-	const normalizedPath = filePath.startsWith("@") ? filePath.slice(1) : filePath;
-	if (normalizedPath === "~") return ssh.remoteHome;
-	if (normalizedPath.startsWith("~/")) {
-		return posix.normalize(`${ssh.remoteHome}/${normalizedPath.slice(2)}`);
-	}
-	if (normalizedPath.startsWith("/")) return posix.normalize(normalizedPath);
-	return posix.normalize(`${baseRemoteCwd}/${normalizedPath}`);
-}
-
-function resolveRemoteCwd(
-	ssh: SshConnection,
-	cwd: string,
-	localRuntimeRoots: LocalRuntimeRoots,
-): string | undefined {
-	return resolveRemotePath(ssh, cwd, ssh.remoteCwd, localRuntimeRoots);
-}
-
-function mergeRemoteCwd(current: string | undefined, next: string | undefined): string | undefined {
-	if (!next) return current;
-	if (!current) return next;
-	return current === next ? current : undefined;
-}
-
-function rewriteSubagentCwdField(
-	input: MutableRecord,
-	ssh: SshConnection,
-	localRuntimeRoots: LocalRuntimeRoots,
-	currentRemoteCwd: string | undefined,
-): { remoteCwd?: string; changed: boolean; conflict: boolean } {
-	const inputRemoteCwd = typeof input.cwd === "string"
-		? resolveRemoteCwd(ssh, input.cwd, localRuntimeRoots)
-		: undefined;
-	const baseRemoteCwd = inputRemoteCwd ?? currentRemoteCwd ?? ssh.remoteCwd;
-	let changed = rewriteSubagentReadsField(input, ssh, localRuntimeRoots, baseRemoteCwd);
-
-	if (!inputRemoteCwd) return { remoteCwd: currentRemoteCwd, changed, conflict: false };
-	const merged = mergeRemoteCwd(currentRemoteCwd, inputRemoteCwd);
-	if (!merged) return { changed, conflict: true };
-	delete input.cwd;
-	changed = true;
-	return { remoteCwd: merged, changed, conflict: false };
-}
-
-function rewriteSubagentReadsField(
-	input: MutableRecord,
-	ssh: SshConnection,
-	localRuntimeRoots: LocalRuntimeRoots,
-	baseRemoteCwd: string,
-): boolean {
-	if (!Array.isArray(input.reads)) return false;
-	let changed = false;
-	input.reads = input.reads.map((filePath) => {
-		if (typeof filePath !== "string") return filePath;
-		const remotePath = resolveRemotePath(ssh, filePath, baseRemoteCwd, localRuntimeRoots);
-		if (!remotePath) return filePath;
-		changed = changed || remotePath !== filePath;
-		return remotePath;
-	});
-	return changed;
-}
-
-function rewriteSubagentRemoteCwds(
-	params: MutableRecord,
-	ssh: SshConnection,
-	localRuntimeRoots: LocalRuntimeRoots,
-): { remoteCwd?: string; changed: boolean; error?: string } {
-	let remoteCwd: string | undefined;
-	let changed = false;
-
-	const apply = (input: unknown): boolean => {
-		if (!isRecord(input)) return true;
-		const result = rewriteSubagentCwdField(input, ssh, localRuntimeRoots, remoteCwd);
-		if (result.conflict) return false;
-		remoteCwd = result.remoteCwd;
-		changed = changed || result.changed;
-		return true;
-	};
-
-	const mixedCwdError = "SSH subagents do not support mixed remote cwd values in one run.";
-	if (!apply(params)) return { changed, error: mixedCwdError };
-	for (const task of Array.isArray(params.tasks) ? params.tasks : []) {
-		if (!apply(task)) return { changed, error: mixedCwdError };
-	}
-	for (const step of Array.isArray(params.chain) ? params.chain : []) {
-		if (!apply(step)) return { changed, error: mixedCwdError };
-		if (!isRecord(step)) continue;
-		const parallel = step.parallel;
-		if (Array.isArray(parallel)) {
-			for (const task of parallel) {
-				if (!apply(task)) return { changed, error: mixedCwdError };
-			}
-		} else if (!apply(parallel)) {
-			return { changed, error: mixedCwdError };
-		}
-	}
-
-	return { remoteCwd, changed };
-}
-
-function prepareSubagentSshEnvironment(
-	params: unknown,
-	ssh: SshConnection,
-	localRuntimeRoots: LocalRuntimeRoots,
-): string | undefined {
-	if (!isRecord(params)) return undefined;
-	const rewrite = rewriteSubagentRemoteCwds(params, ssh, localRuntimeRoots);
-	if (rewrite.error) return rewrite.error;
-	process.env[SSH_CHILD_REMOTE_ENV] = ssh.remote;
-	process.env[SSH_CHILD_REMOTE_CWD_ENV] = rewrite.remoteCwd ?? ssh.remoteCwd;
-	return undefined;
 }
 
 function sshStatusText(connection: SshConnection): string {
@@ -311,6 +167,9 @@ function remoteCwdPromptLine(ssh: SshConnection): string {
 	return `Current working directory: ${ssh.remoteCwd} (via SSH: ${ssh.remote})`;
 }
 
+// The "Current working directory: <cwd>" line is emitted by the pi runtime, not us, so
+// this match is coupled to pi's prompt format. If pi rewords it the guards below return a
+// warning instead of silently leaving the child pointed at the local cwd in SSH mode.
 function rewriteSystemPromptRemoteCwd(
 	systemPrompt: string,
 	expectedLocalCwd: string,
@@ -470,10 +329,10 @@ export default function (pi: ExtensionAPI) {
 	let connection: SshConnection | null = null;
 	let autocompleteProviderRegistered = false;
 	let toolOverridesRegistered = false;
-	let subagentLaunchInFlight = false;
 
 	const getConnection = () => connection;
 	const isRoutingDebugEnabled = () => pi.getFlag("ssh-debug-routing") === true;
+	const subagentBridge = createSubagentSshBridge({ getConnection, localRuntimeRoots });
 	const persistConnection = (ssh: SshConnection) => {
 		pi.appendEntry(SSH_STATE_CUSTOM_TYPE, makeSshSessionState(ssh.remote, ssh.remoteCwd));
 	};
@@ -501,7 +360,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const nextRemoteCwd = await ssh.changeRemoteCwd(parseHiddenFlag(args).rest);
 				persistConnection(ssh);
-				setChildSshEnv(ssh);
+				subagentBridge.syncToConnection();
 				updateSshStatus(ctx, ssh);
 				ctx.ui.notify(`SSH cwd: ${ssh.remote}:${nextRemoteCwd}`, "info");
 			} catch (error) {
@@ -521,13 +380,17 @@ export default function (pi: ExtensionAPI) {
 		};
 
 		const arg = pi.getFlag("ssh") as string | undefined;
-		const childTarget = targetFromChildEnv();
+		const childTarget = readChildSshTarget();
 		const persistedState = getPersistedSshState(ctx);
 		const target = arg
 			? parseSshFlag(arg)
-			: childTarget ?? (persistedState ? targetFromState(persistedState) : undefined);
+			: childTarget
+				? { ...childTarget, persist: false }
+				: persistedState
+					? targetFromState(persistedState)
+					: undefined;
 		if (!target) {
-			clearChildSshEnv();
+			subagentBridge.syncToConnection();
 			updateSshStatus(ctx, null);
 			return;
 		}
@@ -553,7 +416,7 @@ export default function (pi: ExtensionAPI) {
 			throw error;
 		}
 
-		setChildSshEnv(connection);
+		subagentBridge.syncToConnection();
 		if (!autocompleteProviderRegistered) {
 			autocompleteProviderRegistered = true;
 			ctx.ui.addAutocompleteProvider((current) =>
@@ -567,29 +430,22 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		const ssh = connection;
 		connection = null;
-		subagentLaunchInFlight = false;
-		clearChildSshEnv();
+		subagentBridge.shutdown();
 		await ssh?.close();
 	});
 
+	// beginLaunch/endLaunch must bracket the subagent tool's execute(), where pi-subagents
+	// snapshots process.env for the child spawn. Order is tool_call -> execute (spawn) ->
+	// tool_result, so the published env override stays live across the whole spawn window.
 	pi.on("tool_call", (event) => {
 		if (event.toolName !== "subagent") return;
-		const ssh = getConnection();
-		if (!ssh) return;
-		if (subagentLaunchInFlight) {
-			return { block: true, reason: "SSH mode supports one subagent launch per tool batch." };
-		}
-		const error = prepareSubagentSshEnvironment(event.input, ssh, localRuntimeRoots);
+		const { error } = subagentBridge.beginLaunch(event.input);
 		if (error) return { block: true, reason: error };
-		subagentLaunchInFlight = true;
 	});
 
 	pi.on("tool_result", (event) => {
 		if (event.toolName !== "subagent") return;
-		subagentLaunchInFlight = false;
-		const ssh = getConnection();
-		if (ssh) setChildSshEnv(ssh);
-		else clearChildSshEnv();
+		subagentBridge.endLaunch();
 	});
 
 	pi.on("user_bash", (_event) => {

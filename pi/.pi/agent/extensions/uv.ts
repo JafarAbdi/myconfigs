@@ -13,6 +13,9 @@ import { ensureLocalPythonUvCommands } from "./lib/python-uv-commands.ts";
 const pythonShimBinPromise = ensureLocalPythonUvCommands().then((commands) => commands.binDir);
 pythonShimBinPromise.catch(() => {});
 
+// PI_SSH_REMOTE is published by the ssh extension (ssh/subagent-env.ts) whenever an SSH
+// connection is active, including inside subagent children. Its presence means execution
+// is remote, so the local python-shim PATH injection below must be skipped.
 function isSshModeActive(): boolean {
   return Boolean(process.env.PI_SSH_REMOTE);
 }

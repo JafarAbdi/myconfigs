@@ -1,3 +1,6 @@
+// Shared helper, kept under lib/ on purpose: pi auto-loads every top-level
+// extensions/*.ts as an extension and errors if it has no default export. Non-extension
+// modules must live in a subdir (pi only descends into subdirs for index.ts/package.json).
 import { spawn } from "node:child_process";
 
 function formatCommandFailure(command: string, code: number | null, stderr: Buffer[]): string {

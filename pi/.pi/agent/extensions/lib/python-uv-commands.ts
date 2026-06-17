@@ -1,3 +1,7 @@
+// Shared generator for the uv.ts and ssh/ python shims, kept under lib/ on purpose: pi
+// auto-loads every top-level extensions/*.ts as an extension and errors if it has no
+// default export. Non-extension modules must live in a subdir (pi only descends into
+// subdirs for index.ts/package.json).
 import { createHash } from "node:crypto";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
