@@ -8,7 +8,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ensureLocalPythonUvCommands } from "./ssh/python-uv-commands.ts";
+import { ensureLocalPythonUvCommands } from "./lib/python-uv-commands.ts";
 
 const pythonShimBinPromise = ensureLocalPythonUvCommands().then((commands) => commands.binDir);
 pythonShimBinPromise.catch(() => {});

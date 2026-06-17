@@ -37,6 +37,7 @@ import {
 	type SshPathRoute,
 } from "./path-router.ts";
 import { getPersistedSshState, makeSshSessionState, type SshSessionState } from "./state.ts";
+import { isRecord } from "./util.ts";
 
 const SSH_EXECUTION_TOOL_NAMES = ["read", "write", "edit", "bash", "ls", "find", "grep"] as const;
 
@@ -81,10 +82,6 @@ function clearChildSshEnv(): void {
 }
 
 type MutableRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is MutableRecord {
-	return typeof value === "object" && value !== null;
-}
 
 function resolveRemotePath(
 	ssh: SshConnection,
@@ -310,6 +307,31 @@ function formatLocalRuntimeRoots(roots: LocalRuntimeRoots): string {
 	].join("\n");
 }
 
+function remoteCwdPromptLine(ssh: SshConnection): string {
+	return `Current working directory: ${ssh.remoteCwd} (via SSH: ${ssh.remote})`;
+}
+
+function rewriteSystemPromptRemoteCwd(
+	systemPrompt: string,
+	expectedLocalCwd: string,
+	ssh: SshConnection,
+): { systemPrompt?: string; warning?: string } {
+	const cwdLinePattern = /^Current working directory: .*$/gm;
+	const cwdLines = systemPrompt.match(cwdLinePattern) ?? [];
+	if (cwdLines.length === 0) {
+		return { warning: "SSH: cwd prompt line not found; remote cwd not injected." };
+	}
+	if (cwdLines.length > 1) {
+		return { warning: "SSH: multiple cwd prompt lines found; remote cwd not injected." };
+	}
+
+	const expectedLine = `Current working directory: ${expectedLocalCwd}`;
+	if (cwdLines[0] !== expectedLine) {
+		return { warning: "SSH: expected cwd prompt line not found; remote cwd not injected." };
+	}
+	return { systemPrompt: systemPrompt.replace(cwdLinePattern, remoteCwdPromptLine(ssh)) };
+}
+
 function registerSshToolOverrides(
 	pi: ExtensionAPI,
 	localCwd: string,
@@ -325,18 +347,33 @@ function registerSshToolOverrides(
 	const localFind = createFindTool(localCwd);
 	const localGrep = createGrepTool(localCwd);
 
+	type RouteDecision = { kind: "local" } | { kind: "remote"; ssh: SshConnection };
+
+	// Shared routing decision for path-addressed tools: emit debug, refuse writes
+	// to readonly host paths, then pick local vs remote execution.
+	const decidePathRoute = (
+		name: string,
+		path: string | undefined,
+		writable: boolean,
+		toolCtx: ExtensionContext,
+	): RouteDecision => {
+		const route = routePath(path, localRuntimeRoots);
+		debugPathRoute(toolCtx, isRoutingDebugEnabled(), name, path, route);
+		if (writable && route === "local-readonly") {
+			throw new Error(`Refusing to modify host runtime path: ${path}`);
+		}
+		if (isLocalPathRoute(route)) return { kind: "local" };
+		return { kind: "remote", ssh: requireConnection(getConnection()) };
+	};
+
 	pi.registerTool({
 		...localRead,
 		async execute(id, params, signal, onUpdate, toolCtx) {
-			const route = routePath(params.path, localRuntimeRoots);
-			debugPathRoute(toolCtx, isRoutingDebugEnabled(), "read", params.path, route);
-			if (isLocalPathRoute(route)) {
+			const decision = decidePathRoute("read", params.path, false, toolCtx);
+			if (decision.kind === "local") {
 				return localRead.execute(id, withNormalizedPath(params), signal, onUpdate);
 			}
-			const ssh = requireConnection(getConnection());
-			const tool = createReadTool(ssh.remoteCwd, {
-				operations: createRemoteReadOps(ssh),
-			});
+			const tool = createReadTool(decision.ssh.remoteCwd, { operations: createRemoteReadOps(decision.ssh) });
 			return tool.execute(id, params, signal, onUpdate);
 		},
 	});
@@ -344,18 +381,11 @@ function registerSshToolOverrides(
 	pi.registerTool({
 		...localWrite,
 		async execute(id, params, signal, onUpdate, toolCtx) {
-			const route = routePath(params.path, localRuntimeRoots);
-			debugPathRoute(toolCtx, isRoutingDebugEnabled(), "write", params.path, route);
-			if (route === "local-readonly") {
-				throw new Error(`Refusing to modify host runtime path: ${params.path}`);
-			}
-			if (route === "local-writable") {
+			const decision = decidePathRoute("write", params.path, true, toolCtx);
+			if (decision.kind === "local") {
 				return localWrite.execute(id, withNormalizedPath(params), signal, onUpdate);
 			}
-			const ssh = requireConnection(getConnection());
-			const tool = createWriteTool(ssh.remoteCwd, {
-				operations: createRemoteWriteOps(ssh),
-			});
+			const tool = createWriteTool(decision.ssh.remoteCwd, { operations: createRemoteWriteOps(decision.ssh) });
 			return tool.execute(id, params, signal, onUpdate);
 		},
 	});
@@ -363,22 +393,51 @@ function registerSshToolOverrides(
 	pi.registerTool({
 		...localEdit,
 		async execute(id, params, signal, onUpdate, toolCtx) {
-			const route = routePath(params.path, localRuntimeRoots);
-			debugPathRoute(toolCtx, isRoutingDebugEnabled(), "edit", params.path, route);
-			if (route === "local-readonly") {
-				throw new Error(`Refusing to modify host runtime path: ${params.path}`);
-			}
-			if (route === "local-writable") {
+			const decision = decidePathRoute("edit", params.path, true, toolCtx);
+			if (decision.kind === "local") {
 				return localEdit.execute(id, withNormalizedPath(params), signal, onUpdate);
 			}
-			const ssh = requireConnection(getConnection());
-			const tool = createEditTool(ssh.remoteCwd, {
-				operations: createRemoteEditOps(ssh),
-			});
+			const tool = createEditTool(decision.ssh.remoteCwd, { operations: createRemoteEditOps(decision.ssh) });
 			return tool.execute(id, params, signal, onUpdate);
 		},
 	});
 
+	pi.registerTool({
+		...localLs,
+		async execute(id, params, signal, onUpdate, toolCtx) {
+			const decision = decidePathRoute("ls", params.path, false, toolCtx);
+			if (decision.kind === "local") {
+				return localLs.execute(id, withNormalizedPath(params), signal, onUpdate);
+			}
+			const tool = createLsTool(decision.ssh.remoteCwd, { operations: createRemoteLsOps(decision.ssh) });
+			return tool.execute(id, params, signal, onUpdate);
+		},
+	});
+
+	pi.registerTool({
+		...localFind,
+		async execute(id, params, signal, onUpdate, toolCtx) {
+			const decision = decidePathRoute("find", params.path, false, toolCtx);
+			if (decision.kind === "local") {
+				return localFind.execute(id, withNormalizedPath(params), signal, onUpdate);
+			}
+			const tool = createFindTool(decision.ssh.remoteCwd, { operations: createRemoteFindOps(decision.ssh) });
+			return tool.execute(id, params, signal, onUpdate);
+		},
+	});
+
+	pi.registerTool({
+		...localGrep,
+		async execute(id, params, signal, onUpdate, toolCtx) {
+			const decision = decidePathRoute("grep", params.path, false, toolCtx);
+			if (decision.kind === "local") {
+				return localGrep.execute(id, withNormalizedPath(params), signal, onUpdate);
+			}
+			return executeRemoteGrep(decision.ssh, params, signal);
+		},
+	});
+
+	// bash routes on path-like tokens inside the command, not a `path` field.
 	pi.registerTool({
 		...localBash,
 		async execute(id, params, signal, onUpdate, toolCtx) {
@@ -389,55 +448,8 @@ function registerSshToolOverrides(
 				return localBash.execute(id, params, signal, onUpdate);
 			}
 			const ssh = requireConnection(getConnection());
-			const tool = createBashTool(ssh.remoteCwd, {
-				operations: createRemoteBashOps(ssh),
-			});
+			const tool = createBashTool(ssh.remoteCwd, { operations: createRemoteBashOps(ssh) });
 			return tool.execute(id, params, signal, onUpdate);
-		},
-	});
-
-	pi.registerTool({
-		...localLs,
-		async execute(id, params, signal, onUpdate, toolCtx) {
-			const route = routePath(params.path, localRuntimeRoots);
-			debugPathRoute(toolCtx, isRoutingDebugEnabled(), "ls", params.path, route);
-			if (isLocalPathRoute(route)) {
-				return localLs.execute(id, withNormalizedPath(params), signal, onUpdate);
-			}
-			const ssh = requireConnection(getConnection());
-			const tool = createLsTool(ssh.remoteCwd, {
-				operations: createRemoteLsOps(ssh),
-			});
-			return tool.execute(id, params, signal, onUpdate);
-		},
-	});
-
-	pi.registerTool({
-		...localFind,
-		async execute(id, params, signal, onUpdate, toolCtx) {
-			const route = routePath(params.path, localRuntimeRoots);
-			debugPathRoute(toolCtx, isRoutingDebugEnabled(), "find", params.path, route);
-			if (isLocalPathRoute(route)) {
-				return localFind.execute(id, withNormalizedPath(params), signal, onUpdate);
-			}
-			const ssh = requireConnection(getConnection());
-			const tool = createFindTool(ssh.remoteCwd, {
-				operations: createRemoteFindOps(ssh),
-			});
-			return tool.execute(id, params, signal, onUpdate);
-		},
-	});
-
-	pi.registerTool({
-		...localGrep,
-		async execute(id, params, signal, onUpdate, toolCtx) {
-			const route = routePath(params.path, localRuntimeRoots);
-			debugPathRoute(toolCtx, isRoutingDebugEnabled(), "grep", params.path, route);
-			if (isLocalPathRoute(route)) {
-				return localGrep.execute(id, withNormalizedPath(params), signal, onUpdate);
-			}
-			const ssh = requireConnection(getConnection());
-			return executeRemoteGrep(ssh, params, signal);
 		},
 	});
 }
@@ -591,14 +603,19 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
-	pi.on("before_agent_start", async (event) => {
+	pi.on("before_agent_start", async (event, ctx) => {
 		const ssh = getConnection();
-		if (ssh) {
-			const modified = event.systemPrompt.replace(
-				`Current working directory: ${localCwd}`,
-				`Current working directory: ${ssh.remoteCwd} (via SSH: ${ssh.remote})`,
-			);
-			return { systemPrompt: modified };
+		if (!ssh) return;
+
+		const promptCwd = typeof event.systemPromptOptions?.cwd === "string"
+			? event.systemPromptOptions.cwd
+			: ctx.cwd;
+		const rewrite = rewriteSystemPromptRemoteCwd(event.systemPrompt, promptCwd || localCwd, ssh);
+		if (rewrite.warning) {
+			ctx.ui.notify(rewrite.warning, "warning");
+			return;
 		}
+		if (!rewrite.systemPrompt) return;
+		return { systemPrompt: rewrite.systemPrompt };
 	});
 }

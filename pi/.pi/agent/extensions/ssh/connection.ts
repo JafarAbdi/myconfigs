@@ -7,7 +7,7 @@ import {
 	type LocalPythonUvCommands,
 	PYTHON_UV_COMMAND_NAMES,
 	pythonUvCommandsCacheKey,
-} from "./python-uv-commands.ts";
+} from "../lib/python-uv-commands.ts";
 import { shellQuote, toDisplayPath } from "./shell.ts";
 import {
 	ensureLocalSshTools,
@@ -56,7 +56,7 @@ export class SshConnection {
 	readonly remote: string;
 	readonly localCwd: string;
 	remoteCwd = ".";
-	remoteHome = "~";
+	remoteHome = "";
 	fdPath: string | undefined;
 	rgPath: string | undefined;
 	fzfPath: string | undefined;
@@ -75,7 +75,11 @@ export class SshConnection {
 	async connect(): Promise<void> {
 		try {
 			await this.runConnectionProbe([this.remote, "true"]);
-			this.remoteHome = (await this.exec('printf "%s" "$HOME"')).toString("utf8").trim() || "~";
+			const remoteHome = (await this.exec('printf "%s" "$HOME"')).toString("utf8").trim();
+			if (!remoteHome) {
+				throw new Error("SSH remote HOME is empty; cannot install pi SSH tools");
+			}
+			this.remoteHome = remoteHome.replace(/\/+$/, "") || "/";
 		} catch (error) {
 			await this.close();
 			throw error;
@@ -89,9 +93,18 @@ export class SshConnection {
 	toRemotePath(filePath: string): string {
 		const displayPath = toDisplayPath(filePath);
 		if (displayPath === "~") return this.remoteHome;
-		if (displayPath.startsWith("~/")) return `${this.remoteHome}/${displayPath.slice(2)}`;
+		if (displayPath.startsWith("~/")) return this.remoteHomePath(displayPath.slice(2));
 		if (isAbsolute(displayPath)) return displayPath;
 		return toDisplayPath(resolve(this.remoteCwd, displayPath));
+	}
+
+	private remoteHomePath(suffix: string): string {
+		if (this.remoteHome === "/") return `/${suffix}`;
+		return `${this.remoteHome}/${suffix}`;
+	}
+
+	private remoteCacheHome(): string {
+		return this.remoteHomePath(".cache");
 	}
 
 	async changeRemoteCwd(input: string): Promise<string> {
@@ -275,8 +288,7 @@ export class SshConnection {
 		platform: SshToolPlatform,
 		tools: SshToolName[],
 	): Promise<{ binDir: string; paths: Record<SshToolName, string> }> {
-		const cacheHome = (await this.exec('printf "%s\\n" "$HOME/.cache"')).toString("utf8").trim();
-		const rootDir = `${cacheHome}/pi/ssh-tools/search-tools/${cache.cacheKey}/${platform}`;
+		const rootDir = `${this.remoteCacheHome()}/pi/ssh-tools/search-tools/${cache.cacheKey}/${platform}`;
 		const binDir = `${rootDir}/bin`;
 		const remoteArchivePath = `${rootDir}/${platform}.tar.gz`;
 		await this.exec(`mkdir -p ${shellQuote(binDir)}`);
@@ -320,8 +332,7 @@ export class SshConnection {
 	}
 
 	private async installPythonUvCommands(commands: LocalPythonUvCommands): Promise<{ binDir: string }> {
-		const cacheHome = (await this.exec('printf "%s\\n" "$HOME/.cache"')).toString("utf8").trim();
-		const parentDir = `${cacheHome}/pi/ssh-tools/python-uv-commands`;
+		const parentDir = `${this.remoteCacheHome()}/pi/ssh-tools/python-uv-commands`;
 		const rootDir = `${parentDir}/${pythonUvCommandsCacheKey()}`;
 		const binDir = `${rootDir}/bin`;
 		const remoteArchivePath = `${rootDir}/python-uv-commands.tar.gz`;
@@ -390,7 +401,7 @@ export class SshConnection {
 		const id = randomUUID();
 		return {
 			id,
-			pidFile: `${this.remoteHome}/.cache/pi/ssh-tools/runs/${id}.pid`,
+			pidFile: `${this.remoteCacheHome()}/pi/ssh-tools/runs/${id}.pid`,
 		};
 	}
 

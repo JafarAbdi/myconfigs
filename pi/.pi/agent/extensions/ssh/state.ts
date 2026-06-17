@@ -1,14 +1,11 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SSH_STATE_CUSTOM_TYPE } from "./constants.ts";
+import { isRecord } from "./util.ts";
 
 export interface SshSessionState {
 	version: 1;
 	remote: string;
 	remoteCwd: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
 
 function parseSshSessionState(data: unknown): SshSessionState | undefined {

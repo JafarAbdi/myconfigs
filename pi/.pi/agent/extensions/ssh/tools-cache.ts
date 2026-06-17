@@ -1,8 +1,9 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { runCommand } from "../lib/proc.ts";
+import { isRecord } from "./util.ts";
 
 export const SSH_TOOL_PLATFORMS = ["linux_amd64", "linux_arm64"] as const;
 export type SshToolPlatform = (typeof SSH_TOOL_PLATFORMS)[number];
@@ -125,10 +126,6 @@ function isOfflineModeEnabled(): boolean {
 	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
 function parseVersions(value: unknown): SshToolVersions | undefined {
 	if (!isRecord(value)) return undefined;
 	const versions = {} as SshToolVersions;
@@ -155,27 +152,6 @@ async function assertPathExists(path: string): Promise<void> {
 	throw new Error(`Missing SSH tools cache entry: ${path}`);
 }
 
-function formatCommandFailure(command: string, code: number | null, stderr: Buffer[]): string {
-	const text = Buffer.concat(stderr).toString("utf8").trim();
-	return text || `${command} exited with ${code ?? "unknown status"}`;
-}
-
-function runCommand(command: string, args: string[]): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
-		const stderr: Buffer[] = [];
-		child.stderr.on("data", (data) => stderr.push(data));
-		child.on("error", reject);
-		child.on("close", (code) => {
-			if (code === 0) {
-				resolve();
-				return;
-			}
-			reject(new Error(formatCommandFailure(command, code, stderr)));
-		});
-	});
-}
-
 async function fetchJson<T>(url: string, timeoutMs: number): Promise<T> {
 	const response = await fetch(url, {
 		headers: { "User-Agent": "pi-ssh-tools" },
@@ -200,15 +176,6 @@ async function getReleaseAssets(tool: SshToolName, version: string): Promise<Git
 	).then((release) => release.assets);
 	releaseAssets.set(key, promise);
 	return promise;
-}
-
-async function getLatestVersion(tool: SshToolName): Promise<string> {
-	const config = TOOL_CONFIGS[tool];
-	const release = await fetchJson<GitHubRelease>(
-		`https://api.github.com/repos/${config.repo}/releases/latest`,
-		NETWORK_TIMEOUT_MS,
-	);
-	return release.tag_name.replace(/^v/, "");
 }
 
 async function selectReleaseAsset(
@@ -392,15 +359,6 @@ async function buildLocalSshToolsCache(versions: SshToolVersions): Promise<Local
 	const active: ActiveSshToolsCache = { cacheKey: cache.cacheKey, versions, updatedAt: new Date().toISOString() };
 	await writeFile(join(parentDir, "active.json"), `${JSON.stringify(active, null, "\t")}\n`);
 	return cache;
-}
-
-export async function getLatestSshToolVersions(): Promise<SshToolVersions> {
-	const entries = await Promise.all(SSH_TOOL_NAMES.map(async (tool) => [tool, await getLatestVersion(tool)] as const));
-	return Object.fromEntries(entries) as SshToolVersions;
-}
-
-export async function installLatestSshTools(): Promise<LocalSshToolsCache> {
-	return ensureLocalSshTools(await getLatestSshToolVersions());
 }
 
 export async function ensureLocalSshTools(versions?: SshToolVersions): Promise<LocalSshToolsCache> {

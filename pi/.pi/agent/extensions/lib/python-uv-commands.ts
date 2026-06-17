@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { runCommand } from "./proc.ts";
 
 export const PYTHON_UV_COMMAND_NAMES = ["pip", "pip3", "poetry", "python", "python3"] as const;
 export type PythonUvCommandName = (typeof PYTHON_UV_COMMAND_NAMES)[number];
@@ -11,7 +11,6 @@ export interface LocalPythonUvCommands {
 	rootDir: string;
 	archivePath: string;
 	binDir: string;
-	commands: Record<PythonUvCommandName, string>;
 }
 
 const PYTHON_UV_COMMANDS_ARCHIVE = "python-uv-commands.tar.gz";
@@ -70,10 +69,6 @@ function commandContents(name: PythonUvCommandName): string {
 	return pythonCommand(name);
 }
 
-function sha256Text(text: string): string {
-	return createHash("sha256").update(text).digest("hex");
-}
-
 export function pythonUvCommandsCacheKey(): string {
 	const hash = createHash("sha256");
 	for (const name of PYTHON_UV_COMMAND_NAMES) {
@@ -91,40 +86,12 @@ async function writePythonUvCommandScripts(binDir: string): Promise<void> {
 	}
 }
 
-function formatCommandFailure(command: string, code: number | null, stderr: Buffer[]): string {
-	const text = Buffer.concat(stderr).toString("utf8").trim();
-	return text || `${command} exited with ${code ?? "unknown status"}`;
-}
-
-function runCommand(command: string, args: string[]): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
-		const stderr: Buffer[] = [];
-		child.stderr.on("data", (data) => stderr.push(data));
-		child.on("error", reject);
-		child.on("close", (code) => {
-			if (code === 0) {
-				resolve();
-				return;
-			}
-			reject(new Error(formatCommandFailure(command, code, stderr)));
-		});
-	});
-}
-
 function descriptor(rootDir: string): LocalPythonUvCommands {
 	const binDir = join(rootDir, "bin");
 	return {
 		rootDir,
 		archivePath: join(rootDir, PYTHON_UV_COMMANDS_ARCHIVE),
 		binDir,
-		commands: {
-			pip: join(binDir, "pip"),
-			pip3: join(binDir, "pip3"),
-			poetry: join(binDir, "poetry"),
-			python: join(binDir, "python"),
-			python3: join(binDir, "python3"),
-		},
 	};
 }
 
@@ -138,15 +105,7 @@ export async function ensureLocalPythonUvCommands(): Promise<LocalPythonUvComman
 	await rm(tmpDir, { recursive: true, force: true });
 	try {
 		await writePythonUvCommandScripts(tmp.binDir);
-
-		const commands = {} as Record<PythonUvCommandName, { sha256: string }>;
-		for (const commandName of PYTHON_UV_COMMAND_NAMES) {
-			commands[commandName] = { sha256: sha256Text(commandContents(commandName)) };
-		}
-
-		const manifest = { commands, updatedAt: new Date().toISOString() };
-		await writeFile(join(tmp.rootDir, "manifest.json"), `${JSON.stringify(manifest, null, "\t")}\n`);
-		await runCommand("tar", ["czf", tmp.archivePath, "-C", tmp.rootDir, "bin", "manifest.json"]);
+		await runCommand("tar", ["czf", tmp.archivePath, "-C", tmp.rootDir, "bin"]);
 		await rm(rootDir, { recursive: true, force: true });
 		await rename(tmpDir, rootDir);
 	} catch (error) {
