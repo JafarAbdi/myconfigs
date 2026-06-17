@@ -362,10 +362,78 @@ wezterm.on("bell", function(window, pane)
   window:toast_notification("wezterm", "Bell in pane '" .. pane:get_title() .. "'", nil, 2500)
 end)
 
+local function known_hosts_paths()
+  -- Similar to bash-completion's _known_hosts_real default known-hosts set.
+  -- TODO: Parse UserKnownHostsFile and GlobalKnownHostsFile from ssh_config.
+  return {
+    "/etc/ssh/ssh_known_hosts",
+    "/etc/ssh/ssh_known_hosts2",
+    "/etc/known_hosts",
+    "/etc/known_hosts2",
+    wezterm.home_dir .. "/.ssh/known_hosts",
+    wezterm.home_dir .. "/.ssh/known_hosts2",
+  }
+end
+
+local function split_known_hosts_names(field)
+  local names = {}
+  for name in field:gmatch("([^,]+)") do
+    if name:sub(1, 1) ~= "|" and not name:find("[*?]") then
+      local bracket_host, bracket_port = name:match("^%[([^%]]+)%]:(%d+)$")
+      if bracket_host then
+        table.insert(names, bracket_host .. ":" .. bracket_port)
+      else
+        table.insert(names, name)
+      end
+    end
+  end
+  return names
+end
+
+local function add_known_hosts_domains(domains)
+  local seen = {}
+  for _, domain in ipairs(domains) do
+    seen[domain.name] = true
+  end
+
+  for _, path in ipairs(known_hosts_paths()) do
+    wezterm.add_to_config_reload_watch_list(path)
+    local file = io.open(path, "r")
+    if file then
+      for line in file:lines() do
+        local first = line:match("^%s*(%S+)")
+        if first and first:sub(1, 1) ~= "#" then
+          local hosts = first
+          if first:sub(1, 1) == "@" then
+            hosts = line:match("^%s*%S+%s+(%S+)")
+          end
+
+          if hosts then
+            for _, host in ipairs(split_known_hosts_names(hosts)) do
+              local name = "SSHMUX:" .. host
+              if not seen[name] then
+                seen[name] = true
+                table.insert(domains, {
+                  name = name,
+                  remote_address = host,
+                  multiplexing = "WezTerm",
+                  remote_wezterm_path = "$HOME/.local/bin/wezterm",
+                })
+              end
+            end
+          end
+        end
+      end
+      file:close()
+    end
+  end
+end
+
 config.ssh_domains = wezterm.default_ssh_domains()
 for _, domain in ipairs(config.ssh_domains) do
   domain.remote_wezterm_path = "$HOME/.local/bin/wezterm"
 end
+add_known_hosts_domains(config.ssh_domains)
 
 -- each GUI process autosaves its layout to disk so a crash/power loss is
 -- recoverable. re-attach to a previous session with LEADER+R; delete with LEADER+D.
