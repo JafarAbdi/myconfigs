@@ -1,5 +1,6 @@
 #!/bin/bash
-# ssh_forward_ports - open standalone SSH local forwards for one or more ports
+# ssh_forward_ports - open standalone SSH local forwards for one or more ports,
+# auto-discovering host ports published by docker/podman containers on the remote.
 
 set -euo pipefail
 
@@ -10,11 +11,20 @@ info()  { echo -e "[${GREEN}info${NC}]:  $1" >&2; }
 
 usage() {
     cat >&2 <<'EOF'
-Usage: ssh_forward_ports <host> <port|local:remote> [port|local:remote ...]
+Usage: ssh_forward_ports [--discover] <host> [port|local:remote ...]
+
+Open standalone SSH local forwards. Published container ports on the remote
+(docker/podman) are auto-discovered and forwarded in addition to any explicit
+ports given.
+
+  --discover <host>   Print the remote's published container ports and exit
+                      (used by shell completions; no forwarding is done).
 
 Examples:
+  ssh_forward_ports cortex-lon1
   ssh_forward_ports cortex-lon1 7860 8888
   ssh_forward_ports cortex-lon1 7860:7861
+  ssh_forward_ports --discover cortex-lon1
 EOF
 }
 
@@ -35,24 +45,90 @@ is_port_spec() {
     is_port "${spec##*:}"
 }
 
+# Probe the remote for host ports published by running docker/podman containers.
+# BatchMode + short ConnectTimeout keep this non-interactive and bounded. Exit
+# 0 with empty output means the host is reachable but publishes nothing; a
+# nonzero exit means the probe failed (host unreachable, ssh error).
+discover_container_ports() {
+    local host="$1"
+    # Runs on the remote via sh so it is independent of the user's login shell.
+    # Extracts the host-side published port (the number before "->") from
+    # docker/podman "{{.Ports}}\" output such as "0.0.0.0:7860->7860/tcp".
+    ssh -T \
+        -o BatchMode=yes \
+        -o ConnectTimeout=5 \
+        -o ControlMaster=no \
+        -o ControlPath=none \
+        "$host" sh <<'REMOTE'
+for rt in docker podman; do
+    command -v "$rt" >/dev/null 2>&1 || continue
+    "$rt" ps --format '{{.Ports}}' 2>/dev/null
+done | tr ',' '\n' | grep '/tcp' | grep -oE '[0-9]+->' | tr -d '>-' | sort -un
+REMOTE
+}
+
 main() {
-    [[ $# -ge 2 ]] || { usage; exit 1; }
+    local discover_only=0
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --discover) discover_only=1; shift ;;
+            --) shift; break ;;
+            -*) error "Unknown option: $1" ;;
+            *) break ;;
+        esac
+    done
+
+    [[ $# -ge 1 ]] || { usage; exit 1; }
 
     local host="$1"
     shift
 
     is_port_spec "$host" && error "Missing host before port list"
 
+    if (( discover_only )); then
+        # Propagate the probe's exit status so callers (e.g. completions) can
+        # distinguish "reachable, no ports" (exit 0, empty output) from a
+        # failed probe (exit != 0). set -e exits here on probe failure.
+        discover_container_ports "$host"
+        exit 0
+    fi
+
     local forward_args=()
+    local -A seen_local=()
+    local -a forwarded=()
     local spec local_port remote_port
     for spec in "$@"; do
         is_port_spec "$spec" || error "Invalid port spec: $spec"
         local_port="${spec%%:*}"
         remote_port="${spec##*:}"
+        [[ -z "${seen_local["$local_port"]:-}" ]] \
+            || error "Duplicate local port: $local_port"
         forward_args+=(-L "${local_port}:127.0.0.1:${remote_port}")
+        seen_local["$local_port"]=1
+        forwarded+=("${local_port}:${remote_port}")
     done
 
-    info "Forwarding via $host: $*"
+    # When explicit ports are given, forward exactly those. Auto-discovery only
+    # applies when no ports were requested, where it is the entire point of the
+    # invocation. A failed/empty probe is non-fatal.
+    if [[ ${#forward_args[@]} -eq 0 ]]; then
+        local discovered
+        discovered="$(discover_container_ports "$host" 2>/dev/null || true)"
+        if [[ -n "$discovered" ]]; then
+            while IFS= read -r remote_port; do
+                [[ -n "$remote_port" ]] || continue
+                is_port "$remote_port" || continue
+                forward_args+=(-L "${remote_port}:127.0.0.1:${remote_port}")
+                forwarded+=("${remote_port}:${remote_port}")
+            done <<<"$discovered"
+        fi
+    fi
+
+    [[ ${#forward_args[@]} -gt 0 ]] \
+        || error "No ports to forward (no explicit ports and no container ports found on $host)"
+
+    info "Forwarding via $host: ${forwarded[*]}"
     exec ssh -C -N \
         -o ServerAliveInterval=60 \
         -o ServerAliveCountMax=3 \

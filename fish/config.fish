@@ -985,9 +985,83 @@ function __fish_ssh_forward_ports_common_ports
   printf '%s\n' 3000 6006 7860 8000 8080 8888
 end
 
+# First non-option token on the command line is the SSH host.
+function __fish_ssh_forward_ports_host
+  set -l cmd (commandline -opc)
+  for tok in $cmd[2..-1]
+    switch $tok
+      case '-*'
+        continue
+      case '*'
+        printf '%s\n' $tok
+        return
+    end
+  end
+end
+
+# Refresh the per-host container-port cache. Runs backgrounded so completion
+# never blocks on an SSH round-trip. A failed probe preserves the existing
+# cache; a successful probe (even with no ports) is cached so we don't
+# re-probe a host that simply has nothing published.
+function __fish_ssh_forward_ports_refresh_cache -a host cache_file
+  set -l out (ssh_forward_ports --discover "$host" 2>/dev/null)
+  # --discover returns nonzero on probe failure; leave the cache untouched so a
+  # transient failure keeps the last good list.
+  if test $status -ne 0
+    return
+  end
+  set -l cache_dir (dirname "$cache_file")
+  # Unique temp on the same filesystem as the target so concurrent refreshes
+  # don't race on a shared temp name; the rename is atomic.
+  set -l tmp (mktemp -p "$cache_dir")
+  printf '%s\n' $out >"$tmp"
+  mv "$tmp" "$cache_file"
+end
+
+# Serve cached container ports instantly (stale is fine) and trigger a
+# background refresh when older than 60s, so the next tab is fresh.
+function __fish_ssh_forward_ports_container_ports
+  set -l host (__fish_ssh_forward_ports_host)
+  test -n "$host"; or return
+
+  set -l cache_dir "$XDG_CACHE_HOME"
+  test -n "$cache_dir"; or set cache_dir "$HOME/.cache"
+  set cache_dir "$cache_dir/ssh_forward_ports"
+  mkdir -p $cache_dir 2>/dev/null
+  set -l cache_file "$cache_dir/$host"
+
+  test -f "$cache_file"; and cat "$cache_file" 2>/dev/null
+
+  set -l now (date +%s)
+  set -l mtime 0
+  if test -f "$cache_file"
+    # GNU stat first, BSD/macOS stat fallback.
+    set mtime (stat -c %Y "$cache_file" 2>/dev/null; or stat -f %m "$cache_file" 2>/dev/null; or echo 0)
+  end
+  if test "$now" -ge (math "$mtime + 60")
+    __fish_ssh_forward_ports_refresh_cache "$host" "$cache_file" &
+    disown $last_pid 2>/dev/null
+  end
+end
+
+# True until a non-option token (the host) has been typed. Unlike
+# __fish_is_first_arg this still offers the host after options like --discover.
+function __fish_ssh_forward_ports_needs_host
+  test -z (__fish_ssh_forward_ports_host)
+end
+
+# Ports are offered only after the host is given, and never under --discover.
+function __fish_ssh_forward_ports_offer_ports
+  contains -- --discover (commandline -opc); and return 1
+  __fish_ssh_forward_ports_needs_host; and return 1
+  return 0
+end
+
 complete -c ssh_forward_ports -f
-complete -c ssh_forward_ports -n "__fish_is_first_arg" -a "(__fish_complete_user_at_hosts)" -d "SSH host"
-complete -c ssh_forward_ports -n "not __fish_is_first_arg" -a "(__fish_ssh_forward_ports_common_ports)" -d "Port"
+complete -c ssh_forward_ports -l discover -d "Print remote container ports and exit"
+complete -c ssh_forward_ports -n "__fish_ssh_forward_ports_needs_host" -a "(__fish_complete_user_at_hosts)" -d "SSH host"
+complete -c ssh_forward_ports -n "__fish_ssh_forward_ports_offer_ports" -a "(__fish_ssh_forward_ports_container_ports)" -d "Container port"
+complete -c ssh_forward_ports -n "__fish_ssh_forward_ports_offer_ports" -a "(__fish_ssh_forward_ports_common_ports)" -d "Common port"
 
 # mdev wrapper and completions
 function mdev --wraps mdev --description 'Mutagen dev sync manager'
