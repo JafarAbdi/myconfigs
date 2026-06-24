@@ -1,5 +1,6 @@
 {
   "defaultModel": "gpt-5.5",
+  "defaultProjectTrust": "always",
   "defaultProvider": "openai-codex",
   "defaultThinkingLevel": "high",
   "enabledModels": [
@@ -10,11 +11,16 @@
     "makora/deepseek-ai/DeepSeek-V4-Flash",
     "openai-codex/gpt-5.5",
     "llama.cpp/qwen36",
-    "llama.cpp/gemma4"
+    "llama.cpp/gemma4",
+    "openrouter/moonshotai/kimi-k2.7-code",
+    "openrouter/openrouter/free",
+    "openrouter/z-ai/glm-5.2"
   ],
-  "hideThinkingBlock": false,
-  "lastChangelogVersion": "0.78.1",
-  "packages": [],
+  "hideThinkingBlock": true,
+  "lastChangelogVersion": "0.79.9",
+  "packages": [
+    "npm:pi-subagents"
+  ],
   "prompts": [
     "~/.claude/commands",
     "~/.claude/commands/opencode",
