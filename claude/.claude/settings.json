@@ -24,13 +24,14 @@
     }
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "medium",
+  "effortLevel": "high",
   "advisorModel": "opus",
-  "preferredNotifChannel": "kitty",
-  "skipAutoPermissionPrompt": true,
-  "voiceEnabled": true,
   "voice": {
     "enabled": true,
     "mode": "hold"
-  }
+  },
+  "preferredNotifChannel": "kitty",
+  "skipAutoPermissionPrompt": true,
+  "voiceEnabled": true,
+  "skipWorkflowUsageWarning": true
 }

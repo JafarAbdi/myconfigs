@@ -44,6 +44,8 @@ repos:
         language: system
         pass_filenames: false
         entry: pixi run refurb scripts/.local/bin
+  # https://github.com/facebook/pyrefly-pre-commit#readme
+  # https://github.com/astral-sh/ty-pre-commit
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.20
     hooks:

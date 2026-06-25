@@ -1,7 +1,7 @@
 {
-  "defaultModel": "gpt-5.5",
+  "defaultModel": "deepseek/deepseek-v4-flash",
   "defaultProjectTrust": "always",
-  "defaultProvider": "openai-codex",
+  "defaultProvider": "openrouter",
   "defaultThinkingLevel": "high",
   "enabledModels": [
     "deepseek/deepseek-v4-flash",
@@ -14,10 +14,11 @@
     "llama.cpp/gemma4",
     "openrouter/moonshotai/kimi-k2.7-code",
     "openrouter/openrouter/free",
-    "openrouter/z-ai/glm-5.2"
+    "openrouter/z-ai/glm-5.2",
+    "openrouter/deepseek/deepseek-v4-flash"
   ],
   "hideThinkingBlock": true,
-  "lastChangelogVersion": "0.79.9",
+  "lastChangelogVersion": "0.80.2",
   "packages": [
     "npm:pi-subagents"
   ],
