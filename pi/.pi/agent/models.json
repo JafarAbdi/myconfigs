@@ -24,10 +24,10 @@
           "name": "DeepSeek V4 Pro",
           "reasoning": true,
           "thinkingLevelMap": {
-            "minimal": "high",
+            "high": "high",
             "low": "high",
             "medium": "high",
-            "high": "high",
+            "minimal": "high",
             "xhigh": "max"
           }
         },
@@ -51,10 +51,10 @@
           "name": "DeepSeek V4 Flash",
           "reasoning": true,
           "thinkingLevelMap": {
-            "minimal": "high",
+            "high": "high",
             "low": "high",
             "medium": "high",
-            "high": "high",
+            "minimal": "high",
             "xhigh": "max"
           }
         }
@@ -147,10 +147,10 @@
           "name": "DeepSeek V4 Pro",
           "reasoning": true,
           "thinkingLevelMap": {
-            "minimal": "high",
+            "high": "high",
             "low": "high",
             "medium": "high",
-            "high": "high",
+            "minimal": "high",
             "xhigh": "max"
           }
         },
@@ -174,10 +174,10 @@
           "name": "DeepSeek V4 Flash",
           "reasoning": true,
           "thinkingLevelMap": {
-            "minimal": "high",
+            "high": "high",
             "low": "high",
             "medium": "high",
-            "high": "high",
+            "minimal": "high",
             "xhigh": "max"
           }
         }
