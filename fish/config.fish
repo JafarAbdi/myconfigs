@@ -1128,3 +1128,5 @@ complete -c myinstall -n "__fish_is_first_arg" -a "(__fish_myinstall_commands)"
 complete -c myinstall -n "__fish_seen_subcommand_from remote; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
 complete -c myinstall -n "__fish_seen_subcommand_from remote; and test (count (commandline -opc)) -ge 3" -a "(__fish_myinstall_commands)"
 complete -c myinstall -n "__fish_seen_subcommand_from sync-remote; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
+
+source ~/myconfigs/yo/yo.fish

@@ -1,0 +1,6 @@
+{
+  "defaultModel": "gemma4",
+  "defaultProvider": "llama.cpp",
+  "defaultThinkingLevel": "low",
+  "quietStartup": true
+}
