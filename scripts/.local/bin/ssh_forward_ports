@@ -1,6 +1,10 @@
 #!/bin/bash
 # ssh_forward_ports - open standalone SSH local forwards for one or more ports,
 # auto-discovering host ports published by docker/podman containers on the remote.
+#
+# -L vs -R (the flag names the side where the new port opens):
+#   -L = Local  -> new port opens on your machine (the one you type ssh on).
+#   -R = Remote -> new port opens on the remote machine.
 
 set -euo pipefail
 
@@ -11,12 +15,17 @@ info()  { echo -e "[${GREEN}info${NC}]:  $1" >&2; }
 
 usage() {
     cat >&2 <<'EOF'
-Usage: ssh_forward_ports [--discover] <host> [port|local:remote ...]
+Usage: ssh_forward_ports [--discover] [-R|--reverse] <host> [port|mine:theirs ...]
 
-Open standalone SSH local forwards. Published container ports on the remote
-(docker/podman) are auto-discovered and forwarded in addition to any explicit
-ports given.
+Open standalone SSH forwards. A port spec is "mine:theirs": the left port is on
+the machine running this command, the right port is on <host>; a bare port means
+the same on both sides.
 
+Default (local, -L): reach a service near <host> from here. Published container
+ports on the remote (docker/podman) are auto-discovered when no ports are given.
+
+  -R, --reverse       Reverse forward (-R): expose a local service ON <host>, so
+                      a process there can reach back to here. No auto-discovery.
   --discover <host>   Print the remote's published container ports and exit
                       (used by shell completions; no forwarding is done).
 
@@ -24,6 +33,8 @@ Examples:
   ssh_forward_ports cortex-lon1
   ssh_forward_ports cortex-lon1 7860 8888
   ssh_forward_ports cortex-lon1 7860:7861
+  ssh_forward_ports -R joambot-lon7 9877       # robot 9877 -> local 9877
+  ssh_forward_ports -R joambot-lon7 9880:9877  # local 9880 -> robot 9877
   ssh_forward_ports --discover cortex-lon1
 EOF
 }
@@ -68,16 +79,20 @@ REMOTE
 }
 
 main() {
-    local discover_only=0
+    local discover_only=0 reverse=0
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --discover) discover_only=1; shift ;;
+            -R|--reverse) reverse=1; shift ;;
             --) shift; break ;;
             -*) error "Unknown option: $1" ;;
             *) break ;;
         esac
     done
+
+    (( discover_only && reverse )) \
+        && error "--discover and --reverse are mutually exclusive"
 
     [[ $# -ge 1 ]] || { usage; exit 1; }
 
@@ -95,24 +110,32 @@ main() {
     fi
 
     local forward_args=()
-    local -A seen_local=()
+    local -A seen_bind=()
     local -a forwarded=()
-    local spec local_port remote_port
+    local spec local_port remote_port bind_port
     for spec in "$@"; do
         is_port_spec "$spec" || error "Invalid port spec: $spec"
         local_port="${spec%%:*}"
         remote_port="${spec##*:}"
-        [[ -z "${seen_local["$local_port"]:-}" ]] \
-            || error "Duplicate local port: $local_port"
-        forward_args+=(-L "${local_port}:127.0.0.1:${remote_port}")
-        seen_local["$local_port"]=1
+        # The bound side is local for -L, remote for -R; binding the same port
+        # twice on one side fails, so dedup on whichever side ssh listens.
+        bind_port=$(( reverse ? remote_port : local_port ))
+        [[ -z "${seen_bind["$bind_port"]:-}" ]] \
+            || error "Duplicate listen port: $bind_port"
+        if (( reverse )); then
+            forward_args+=(-R "${remote_port}:127.0.0.1:${local_port}")
+        else
+            forward_args+=(-L "${local_port}:127.0.0.1:${remote_port}")
+        fi
+        seen_bind["$bind_port"]=1
         forwarded+=("${local_port}:${remote_port}")
     done
 
     # When explicit ports are given, forward exactly those. Auto-discovery only
-    # applies when no ports were requested, where it is the entire point of the
-    # invocation. A failed/empty probe is non-fatal.
-    if [[ ${#forward_args[@]} -eq 0 ]]; then
+    # applies to local forwards with no ports requested, where it is the entire
+    # point of the invocation. It probes remote container ports to reach, so it
+    # is meaningless for -R. A failed/empty probe is non-fatal.
+    if (( ! reverse )) && [[ ${#forward_args[@]} -eq 0 ]]; then
         local discovered
         discovered="$(discover_container_ports "$host" 2>/dev/null || true)"
         if [[ -n "$discovered" ]]; then
@@ -128,7 +151,11 @@ main() {
     [[ ${#forward_args[@]} -gt 0 ]] \
         || error "No ports to forward (no explicit ports and no container ports found on $host)"
 
-    info "Forwarding via $host: ${forwarded[*]}"
+    if (( reverse )); then
+        info "Reverse-forwarding via $host: ${forwarded[*]}"
+    else
+        info "Forwarding via $host: ${forwarded[*]}"
+    fi
     exec ssh -C -N \
         -o ServerAliveInterval=60 \
         -o ServerAliveCountMax=3 \

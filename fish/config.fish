@@ -1057,10 +1057,21 @@ function __fish_ssh_forward_ports_offer_ports
   return 0
 end
 
+# Container ports are reachable targets for local (-L) forwards only; under -R
+# you expose a local service, so discovered remote ports are irrelevant.
+function __fish_ssh_forward_ports_offer_container_ports
+  __fish_ssh_forward_ports_offer_ports; or return 1
+  set -l cmd (commandline -opc)
+  contains -- -R $cmd; and return 1
+  contains -- --reverse $cmd; and return 1
+  return 0
+end
+
 complete -c ssh_forward_ports -f
 complete -c ssh_forward_ports -l discover -d "Print remote container ports and exit"
+complete -c ssh_forward_ports -s R -l reverse -d "Reverse forward (remote -> local)"
 complete -c ssh_forward_ports -n "__fish_ssh_forward_ports_needs_host" -a "(__fish_complete_user_at_hosts)" -d "SSH host"
-complete -c ssh_forward_ports -n "__fish_ssh_forward_ports_offer_ports" -a "(__fish_ssh_forward_ports_container_ports)" -d "Container port"
+complete -c ssh_forward_ports -n "__fish_ssh_forward_ports_offer_container_ports" -a "(__fish_ssh_forward_ports_container_ports)" -d "Container port"
 complete -c ssh_forward_ports -n "__fish_ssh_forward_ports_offer_ports" -a "(__fish_ssh_forward_ports_common_ports)" -d "Common port"
 
 # mdev wrapper and completions
