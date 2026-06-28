@@ -64,8 +64,10 @@ find_root() {
 
 run_python() {
   local root
-  root=$(find_root .pixi pixi.toml .venv pyproject.toml setup.py setup.cfg .git)
-  if [[ -d "$root/.pixi" ]]; then
+  root=$(find_root uv.lock .pixi pixi.toml .venv pyproject.toml setup.py setup.cfg .git)
+  if [[ -f "$root/uv.lock" ]] && command -v uv &>/dev/null; then
+    run uv run --directory "$root" python "$filepath" "${args[@]}"
+  elif [[ -d "$root/.pixi" ]]; then
     run pixi run --manifest-path "$root/pixi.toml" python "$filepath" "${args[@]}"
   elif [[ -d "$root/.venv" ]]; then
     run "$root/.venv/bin/python" "$filepath" "${args[@]}"
