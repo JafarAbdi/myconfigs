@@ -12,13 +12,19 @@ NEVER fabricate statistics, data points, or claims not explicitly present in sou
 
 ## Code Style
 
-All code follows the principles and guidelines defined in @STYLE.md, this comprehensive style guide covers simplicity, safety (NASA's Power of Ten rules), performance, and developer experience. The following sections describe repository-specific conventions that complement the general style guide.
-
 Code should be self-documenting: docstrings and comments should be minimal and always follow the idiomatic style of the module you are working in.
 
 - **No editorializing:** Docstrings must describe the API contract (what/how), not the implementation justification (why/why not).
 - **Avoid negative explanations:** Do not describe what the code "avoids" or "prevents" unless it is a critical safety warning.
 - Use only sparse, lowercase high-impact comments and minimise repetition and redundancy.
+
+### Coding Discipline
+
+- State assumptions explicitly. If the request has multiple plausible interpretations, ask instead of guessing.
+- Make surgical changes. Every changed line should trace to the user's request.
+- Define success criteria for non-trivial changes and verify them before finishing.
+- Fix root causes rather than symptoms. Do not loosen assertions, add blanket guards, silence type errors, or add retries without understanding the failure.
+- If a symptom-level fix is necessary because the root cause is outside scope, name that cause in the explanation.
 
 ### No Backward Compatibility Shims
 
