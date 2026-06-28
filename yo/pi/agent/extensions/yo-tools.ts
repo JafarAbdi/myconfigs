@@ -2,59 +2,11 @@ import { spawn } from "node:child_process";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-type YoMessage = {
-    role?: string;
-    content?: unknown;
-    [key: string]: unknown;
-};
-
-const HISTORY_EXCHANGES_MAX = 10;
-const HISTORY_TOKEN_BUDGET = 4096;
-const CHARS_PER_TOKEN = 4;
-
 function clampScrollbackLines(lines: number): number {
     if (!Number.isFinite(lines)) return 50;
     if (lines < 1) return 50;
     if (lines > 1000) return 1000;
     return Math.floor(lines);
-}
-
-function estimateTokens(value: unknown): number {
-    return Math.ceil(JSON.stringify(value).length / CHARS_PER_TOKEN);
-}
-
-function splitTurns(messages: YoMessage[]): YoMessage[][] {
-    const turns: YoMessage[][] = [];
-    for (const message of messages) {
-        if (message.role === "user" || turns.length === 0) {
-            turns.push([message]);
-        } else {
-            turns[turns.length - 1].push(message);
-        }
-    }
-    return turns;
-}
-
-function pruneYoMessages(messages: YoMessage[]): YoMessage[] {
-    const turns = splitTurns(messages);
-    if (turns.length === 0) return messages;
-
-    const current = turns[turns.length - 1];
-    let tokens = estimateTokens(current);
-    const selected: YoMessage[][] = [current];
-
-    for (let index = turns.length - 2; index >= 0; index--) {
-        if (selected.length > HISTORY_EXCHANGES_MAX) break;
-
-        const turn = turns[index];
-        const turnTokens = estimateTokens(turn);
-        if (tokens + turnTokens > HISTORY_TOKEN_BUDGET) break;
-
-        selected.unshift(turn);
-        tokens += turnTokens;
-    }
-
-    return selected.flat();
 }
 
 async function run(command: string, args: string[]): Promise<string> {
@@ -171,8 +123,14 @@ const docsTool = defineTool({
 });
 
 export default function (pi: ExtensionAPI) {
-    pi.on("context", async (event) => {
-        return { messages: pruneYoMessages(event.messages as YoMessage[]) as typeof event.messages };
+    // Force a tool call every turn so the model never replies with free prose.
+    // Requires the llama.cpp server to run with --jinja.
+    pi.on("before_provider_request", (event) => {
+        const payload = event.payload;
+        if (payload && typeof payload === "object") {
+            (payload as Record<string, unknown>).tool_choice = "required";
+        }
+        return payload;
     });
 
     pi.registerTool(commandTool);
