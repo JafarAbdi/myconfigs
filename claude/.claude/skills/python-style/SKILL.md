@@ -8,8 +8,7 @@ description: ALWAYS load before writing, editing, reviewing, renaming, or design
 Use this skill for Python style and API shape. Do not duplicate `python-modern`: that skill governs
 newer language features and syntax availability.
 
-When a project provides `STYLE.md`, `NAMING.md`, `SUM_TYPES.md`, or similar local guidance, follow
-that project guidance when it is stricter or more specific.
+Project-specific domain conventions may add constraints; follow them when they are stricter or more specific.
 
 ## Always Check Before Writing Python
 
