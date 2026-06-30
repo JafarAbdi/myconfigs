@@ -1,372 +1,227 @@
 ---
 name: obsidian-interactive-viz
-description: Write the JavaScript that goes inside ```interactive code blocks in Obsidian notes. The `interactive` block is a custom Obsidian plugin fence that executes JS at render time with JSXGraph and Three.js preloaded, plus a small helper API. Use when the user asks to add an interactive viz to an Obsidian note, write an `interactive` block, visualize a concept (math, signal processing, embeddings, physics) inside Obsidian, or port an HTML visualization into an `interactive` block.
+description: Write interactive WebGL/canvas visualizations for Jupyter notebooks (.ipynb) opened inside Obsidian by the jupyter-uv plugin. A diagram is a small ES module that imports a shared three.js and is rendered with the `lab.viz` helper as a srcdoc iframe. Use when adding or porting an interactive viz into a notebook, writing notebook-local `notebooks/<notebook-name>/<diagram-name>.js` modules, or calling `lab.viz.show` / `lab.viz.scene`.
 ---
 
-# `interactive` Obsidian code blocks
+# Interactive viz in Jupyter notebooks (`lab.viz`)
 
-The `interactive` fence type runs arbitrary JavaScript at render time inside an Obsidian note. It's a custom plugin fence — not built into Obsidian. The runtime preloads **JSXGraph** (2D plots, sliders, geometric constructions) and **Three.js r147 + OrbitControls** (3D WebGL) and shims MathJax so LaTeX works inside JSXGraph labels.
+`.ipynb` notebooks are opened inside Obsidian by the **jupyter-uv** plugin, which renders them in an Electron `<webview>` running JupyterLab. A visualization is a small **ES module** that imports a shared three.js and is hosted by the **`lab.viz`** helper (in the `~/lab` package). The viz runs as static HTML output, so it persists across restarts with no kernel.
 
-This skill covers the code that goes **inside** the fence. It does not cover installing or modifying the plugin itself — assume it's already installed.
+Assume the plugin, the `~/lab` package, and the vault's `widgets/lib/` are installed.
 
-## Shape of a block
+## File locations: do not guess
 
-```markdown
-\`\`\`interactive
-// arbitrary JS, runs inside an async IIFE (top-level await works)
-const board = initBoard(container.createEl("div"));
-board.create("functiongraph", [x => Math.sin(x)],
-  { strokeColor: "#3b82f6", strokeWidth: 2 });
-\`\`\`
+`lab.viz.scene()` loads modules through Jupyter's `/files/...` route. That route serves the
+**Obsidian vault**, not the `~/lab` Python package checkout.
+
+| Browser path | Filesystem path |
+|---|---|
+| `/files/...` | `/home/juruc/Nextcloud/Notes/...` |
+| `/files/notebooks/foo/bar.js` | `/home/juruc/Nextcloud/Notes/notebooks/foo/bar.js` |
+| `/files/widgets/lib/three.module.js` | `/home/juruc/Nextcloud/Notes/widgets/lib/three.module.js` |
+
+Write notebook-specific diagram modules next to their notebook, inside a folder named after the
+notebook stem:
+
+```text
+/home/juruc/Nextcloud/Notes/notebooks/<notebook-name>.ipynb
+/home/juruc/Nextcloud/Notes/notebooks/<notebook-name>/<diagram-name>.js
 ```
 
-## Injected parameters (available in every block)
+Call them with the matching vault-relative path:
 
-| Name | Type | Purpose |
-|------|------|---------|
-| `container` | `HTMLDivElement` | Empty div to render into. Already inserted in the note. |
-| `ctx` | `MarkdownPostProcessorContext` | Obsidian context — has `sourcePath` etc. |
-| `initBoard(target, opts?)` | function | Theme-aware JSXGraph board factory. Defaults `100% × 400px`, themes axes from the active theme, adds `ResizeObserver` for re-fit on pane resize. |
-| `theme()` | function | Returns `{normal, muted, faint, accent}` colors pulled from Obsidian's active CSS variables. |
-| `latex(src, display?)` | function | Renders a LaTeX string via Obsidian's MathJax. Returns an `HTMLElement` that typesets in place (can be appended synchronously). `display=true` for block math. |
-| `JXG` | global | JSXGraph library (≥1.12.2). |
-| `THREE` | global | Three.js r147 with `THREE.OrbitControls` attached. |
+```python
+from lab import viz
 
-### `initBoard` options
-
-Forwards anything to `JXG.JSXGraph.initBoard` plus:
-
-| Option | Default | Notes |
-|--------|---------|-------|
-| `height` | `"400px"` | CSS height applied to target if empty. |
-| `width` | `"100%"` | CSS width applied to target if empty. |
-| `axes` | `true` | `false` for none; object to tweak label/tick attrs (e.g., `{ label: { fontSize: 14 } }`). |
-| `boundingbox` | `[-5, 5, 5, -5]` | JXG convention: `[xmin, ymax, xmax, ymin]`. |
-
-Raw `JXG.JSXGraph.initBoard` is available if you need full control.
-
-## Required conventions
-
-### 1. JSXGraph text uses LaTeX without `$…$` delimiters
-
-`useMathJax` is on globally for JSXGraph text elements. So:
-
-```js
-board.create("slider", [[x1,y1],[x2,y2],[min,val,max]], {
-  name: "\\mu_p",        // renders as μ_p (italic μ, real subscript)
-  snapWidth: 0.01, precision: 2,
-});
+viz.scene("notebooks/<notebook-name>/<diagram-name>.js")
 ```
 
-Use `"\\mu"`, `"\\sigma^2"`, `"\\mathcal{N}"`, `"\\mathrm{dim}"`. Plain strings still work; use LaTeX whenever the label is mathematical.
+Do **not** write diagram modules to `~/lab/widgets/` or `/home/juruc/lab/widgets/`. Those are
+package/development locations and are not served by `/files/...`. Use `widgets/lib/` only for shared
+vendored libraries such as three.js.
 
-**LaTeX belongs inside the board.** Do **not** pass LaTeX strings to DOM elements you create yourself — plain `textContent` / `innerHTML` doesn't go through MathJax, so `"\\mu"` renders as the literal five characters `\`, `m`, `u`, `:`, space. Two ways to fix:
+## Required agent workflow
 
-- For short math labels on DOM controls (slider rows, stat readouts, HTML captions), use **Unicode** directly: `μ`, `σ`, `π`, `P₂`, `Q₁`, `·`, `±`, `∑`, subscripts `₀₁₂₃₄₅₆₇₈₉`, superscripts `⁰¹²³⁴⁵⁶⁷⁸⁹`. No MathJax cost, works in both themes.
-- For anything more structured (fractions, integrals, matrices), use the `latex(src, display?)` helper and append the returned element.
+When adding a viz to a notebook:
 
-Mixing: board text → LaTeX; DOM text → Unicode (or `latex()`). Never LaTeX in `textContent`.
+1. Locate the target `.ipynb`. If the user did not give one, ask; do not invent a path.
+2. Confirm the notebook is under `/home/juruc/Nextcloud/Notes/`. If not, ask where the vault copy is.
+3. Derive the module directory from the notebook stem:
+   - notebook: `/home/juruc/Nextcloud/Notes/notebooks/foo.ipynb`
+   - module dir: `/home/juruc/Nextcloud/Notes/notebooks/foo/`
+4. Write diagram modules into that module dir, e.g. `diagram.js` or `phase_space.js`.
+5. In the notebook, call `viz.scene()` with the vault-relative path, with no `/files/` prefix:
+   `viz.scene("notebooks/foo/diagram.js")`.
+6. Verify the filesystem path and notebook path match before claiming the diagram works.
+7. Run the ESM syntax check from the verifying section.
 
-### 2. Colors in `latex()` readouts — CSS spans, NOT `\color{#hex}`
+## Webview rendering constraints (learned the hard way — obey these)
 
-Obsidian's MathJax does **not** ship the `color` TeX package. `\color{#3b82f6}{…}` silently breaks the formula — everything after the broken macro is dropped. Use per-segment colored spans:
+The viz runs in the webview, an isolated browsing context. What renders is narrow:
 
-```js
-const piece = (tex, color) => {
-  const span = document.createElement("span");
-  if (color) span.style.color = color;
-  span.appendChild(latex(tex, false));
-  return span;
-};
-const sep = () => {
-  const s = document.createElement("span");
-  s.textContent = "  ·  ";
-  s.style.color = theme().muted;
-  return s;
-};
+| Mechanism | Works? | Notes |
+|---|---|---|
+| `<iframe srcdoc="…">` | ✅ | The host. `lab.viz` uses it. |
+| `<iframe src="data:text/html;…">` | ❌ blank | Never use a `data:` URI src. |
+| `import` from a CDN (esm.sh, unpkg) | ❌ fails silently → blank | The webview blocks cross-origin module fetches. |
+| `import` from same-origin `/files/…` | ✅ | How shared libs load (Jupyter serves the vault at `/files/`). |
+| anywidget / ipywidgets | ⚠️ | Kernel-backed → "model not found" after restart. `saveState` does **not** capture the state. Avoid for persistent viz. |
 
-label.empty();
-label.appendChild(piece(`D_{KL}(p \\,\\|\\, q) = ${kl.toFixed(4)}`));
-label.appendChild(sep());
-label.appendChild(piece(`p = \\mathcal{N}(${mp}, ${sp}^2)`, "#3b82f6"));
-label.appendChild(sep());
-label.appendChild(piece(`q = \\mathcal{N}(${mq}, ${sq}^2)`, "#f97316"));
+So: **srcdoc host + same-origin imports of locally-vendored ESM**. No CDNs, no `data:`, no widgets.
+
+## Quick start
+
+```python
+from lab import viz
+
+viz.scene("notebooks/foo/diagram.js")     # a three.js diagram module (preferred)
+viz.show_file("notebooks/foo/page.html")  # a self-contained HTML file
+viz.show("<svg>…</svg>", height="50vh")   # an HTML/JS string
 ```
 
-MathJax CHTML inherits `color` from the parent span. This is the cleanest way to get per-segment colored formulas in a live readout.
+Run the cell once and **save** the notebook; the srcdoc output is then static and reopens without a kernel (see Persistence).
 
-### 3. Theme-aware colors, not hardcoded grays
+## Authoring a new diagram
 
-```js
-const t = theme();          // t.normal, t.muted, t.faint, t.accent
-// Use t.muted for axis strokes, t.faint for grid, t.normal for labels.
-```
-
-`initBoard` already themes the axes it creates. Only read `theme()` for slider baselines, extra curves, annotations.
-
-For data curves, a consistent palette works well across light/dark themes:
-- Blue `#3b82f6` — primary data
-- Orange `#f97316` — secondary data
-- Green `#10b981` — derived / meta
-- Red `#ef4444` — errors/alerts
-
-### 4. Guard against `board.on("update")` recursion
-
-`board.update()` re-fires the `update` event. Use a flag:
+A diagram is `notebooks/<notebook-name>/<diagram-name>.js` — an ES module that imports the shared three and exports `render(el)`:
 
 ```js
-let updating = false;
-board.on("update", () => {
-  if (updating) return;
-  updating = true;
-  // ... do work, possibly call board.setBoundingBox / board.update() ...
-  updating = false;
-});
-```
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-### 5. Don't recreate board objects per slider tick
+export function render({ el, props }) {
+  // `el` is a full-height flex column; `props` carries optional JSON data from Python.
+  const pane = el.appendChild(document.createElement("div"));
+  pane.style.cssText = "flex:1;min-height:0;position:relative;";
 
-Slider `input` events fire continuously during drag. If the handler calls `board.removeObject(...)` + `board.create(...)` for hundreds of points, the viz locks up — deleting SVG nodes, allocating new ones, and re-laying out is expensive. For any viz with more than ~30 data elements that depend on slider state:
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  pane.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0f0f1a);
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+  camera.position.set(20, 15, 35);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
 
-1. **Create once.** Pre-create every point / segment / label outside the handler.
-2. **Parameterize coords via functions.** Pass function coords referencing a shared `state` object: `board.create("point", [() => state.values[i], jitter[i]], {...})`. Then `board.update()` re-evaluates them.
-3. **Mutate attributes in place.** Color/visibility changes per element: `pt.setAttribute({ strokeColor: c, fillColor: c })`, wrapped in `board.suspendUpdate()` / `board.unsuspendUpdate()` to batch the redraw.
-4. **Keep random samples fixed.** If a viz shows a sample from a distribution, don't re-draw the samples on every slider tick — precompute z-scores/jitter once, rescale with `mean + std * z` in the handler.
+  // … build geometry into `scene` …
 
-Only the genuine "new data" action (a Regenerate button) should actually resample or recreate.
+  new ResizeObserver(() => {
+    const w = pane.clientWidth, h = pane.clientHeight;
+    if (w && h) { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false); }
+  }).observe(pane);
 
-### 5. Error handling: you don't need any
-
-The plugin wraps each block in an async IIFE and catches both sync construction errors and async rejections, rendering them as a `<pre class="interactive-error">` inside the block. Let errors throw naturally.
-
-## Common patterns
-
-### Function graph driven by sliders
-
-```js
-const board = initBoard(container.createEl("div"), {
-  boundingbox: [-5, 5, 5, -5],
-  height: "400px",
-});
-
-const a = board.create("slider", [[-4.5, 4], [-1, 4], [0, 1, 3]], {
-  name: "a", snapWidth: 0.01,
-});
-
-board.create("functiongraph", [x => a.Value() * Math.sin(x)], {
-  strokeColor: "#3b82f6", strokeWidth: 2.5,
-});
-```
-
-Sliders re-fire `board.on("update")` on drag — any `functiongraph` that reads `a.Value()` inside its function body will re-evaluate automatically.
-
-### Live LaTeX readout
-
-```js
-const label = container.createDiv({ cls: "interactive-label" });
-
-const render = () => {
-  label.empty();
-  label.appendChild(latex(`f(x) = ${a.Value().toFixed(2)} \\sin(x)`, true));
-};
-render();
-board.on("update", render);
-```
-
-For colored segments, use the `piece` / `sep` pattern from convention #2.
-
-### Choosing a rendering backend
-
-**JSXGraph is the default for anything with axes-and-data structure** — function plots, scatter plots, box plots, vector diagrams, sliders-and-curves. It's SVG-rendered (crisp at any zoom), `initBoard` auto-themes from Obsidian's active theme, and gliders / draggable points come free. Reach for raw canvas only when the grid is dense (>144 cells) or pixel-perfect raster output is actually required. Three.js is for 3D.
-
-Don't pick canvas for "consistency" across a multi-viz note — match the backend to each viz, even if that mixes them within one note.
-
-### Small polygon grid (heatmap-style)
-
-Up to ~144 cells is comfortable with JSXGraph polygons. Beyond that, switch to a raw `<canvas>`.
-
-```js
-const GRID = 12;
-const board = initBoard(container.createEl("div"), {
-  boundingbox: [-1, GRID + 1, GRID + 1, -1],
-  height: "420px",
-  axes: false,
-  keepAspectRatio: true,
-});
-
-const cells = [];
-for (let yi = 0; yi < GRID; yi++) {
-  for (let xi = 0; xi < GRID; xi++) {
-    cells.push(board.create("polygon",
-      [[xi, GRID - 1 - yi], [xi + 1, GRID - 1 - yi],
-       [xi + 1, GRID - yi], [xi, GRID - yi]],
-      {
-        fillColor: "#ffffff", fillOpacity: 1,
-        borders: { strokeColor: theme().faint, strokeWidth: 0.5 },
-        vertices: { visible: false },
-        hasInnerPoints: false, fixed: true,
-      }
-    ));
-  }
-}
-
-// In update(), for each cell: cell.setAttribute({ fillColor: valueToRGB(value) });
-```
-
-### Raw canvas heatmap (large grid, fast redraw)
-
-For grids beyond ~144 cells or pixel-perfect rendering. Style DOM controls with Obsidian CSS variables so they adapt to themes:
-
-```js
-const canvas = container.createEl("canvas");
-canvas.width = 400; canvas.height = 400;
-const c = canvas.getContext("2d");
-
-const sel = container.createEl("select");
-sel.style.cssText =
-  "padding:3px 8px;border-radius:4px;" +
-  "border:1px solid var(--background-modifier-border);" +
-  "background:var(--background-primary);color:var(--text-normal);";
-for (const [v, label] of [["a","Mode A"], ["b","Mode B"]]) {
-  sel.createEl("option", { value: v, text: label });
-}
-
-function draw() {
-  // fillRect loop using sel.value
-}
-sel.addEventListener("change", draw);
-draw();
-```
-
-### 3D surface (Three.js)
-
-Use for anything where color-as-value-mapping or real shading matters. JSXGraph's `view3d` exists but surfaces render flat-colored.
-
-Canonical setup — per-vertex color, Phong lighting, orbit, damping, resize, animation loop:
-
-```js
-const canvasWrap = container.createDiv();
-canvasWrap.style.height = "500px";
-canvasWrap.style.background = "#1a1a2e";  // dark bg looks good in both themes
-canvasWrap.style.borderRadius = "6px";
-canvasWrap.style.overflow = "hidden";
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-canvasWrap.appendChild(renderer.domElement);
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1a2e);
-
-const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
-camera.position.set(20, 15, 20);
-
-const orbit = new THREE.OrbitControls(camera, renderer.domElement);
-orbit.enableDamping = true;
-orbit.dampingFactor = 0.05;
-
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-dir.position.set(10, 20, 10);
-scene.add(dir);
-
-// Build geometry: positions + per-vertex colors, indexed triangles, Phong material
-// with vertexColors:true. See "value-to-color" below for the color map.
-
-function resize() {
-  const w = canvasWrap.clientWidth, h = canvasWrap.clientHeight;
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-  renderer.setSize(w, h, false);
-}
-new ResizeObserver(resize).observe(canvasWrap);
-resize();
-
-(function animate() {
-  requestAnimationFrame(animate);
-  orbit.update();
-  renderer.render(scene, camera);
-})();
-```
-
-Blue/white/red value mapping (`v ∈ [-1, 1]`):
-
-```js
-function valueColor(v) {
-  const c = new THREE.Color();
-  if (v >= 0) c.setRGB(1 - v, 1 - v, 1);
-  else        c.setRGB(1, 1 + v, 1 + v);
-  return c;
+  (function loop() {
+    requestAnimationFrame(loop);
+    controls.update();
+    renderer.render(scene, camera);
+  })();
 }
 ```
 
-Build the surface as `BufferGeometry` with `Float32BufferAttribute("position", ...)` and `Float32BufferAttribute("color", ...)`, indexed triangles, and `MeshPhongMaterial({ vertexColors: true, side: THREE.DoubleSide, shininess: 30 })`.
+Then in `notebooks/<notebook-name>.ipynb`: `viz.scene("notebooks/<notebook-name>/<diagram-name>.js")`. `scene` also accepts `export default { render }`.
 
-## Layout: viz notes + transclusion (default)
+## Python example: visualize data
 
-**Every `interactive` block goes in its own dedicated viz note, transcluded into the main note with `![[...]]`.** Do not inline `interactive` fences in the main note.
+Pass JSON-serializable data from Python via `props` (convert numpy with `.tolist()`); the diagram reads `props` in `render({ el, props })`.
 
-Why: in Live Preview, Obsidian's CodeMirror-based editor has two failure modes for fenced code blocks:
-1. **Cursor auto-expand** — when the caret enters the block's lines, the rendered widget is swapped for source. Unavoidable from a plugin.
-2. **Long-block non-rendering** — blocks past a few hundred lines (easy to hit with Three.js) stay as source even when the cursor is elsewhere, until the user forces a re-render.
+```python
+import numpy as np
+from lab import viz
 
-Transcluded content renders via the reading-view pipeline, which hits neither issue. Transclusion makes the viz reliably live in Live Preview without the user toggling to Reading view.
-
-### The pattern
-
-Main note (`Foo.md`):
-
-```markdown
-Short intro. Prose with inline $x$ and display math:
-$$y = f(x)$$
-
-![[Foo 1D Viz]]
-
-More prose for the next section.
-
-![[Foo 2D Viz]]
+points = np.random.randn(800, 3)
+viz.scene("notebooks/points_demo/points.js", props={"points": points.tolist()})
 ```
 
-Viz note (`Foo 1D Viz.md`) — just the fence, nothing else:
+```js
+// notebooks/points_demo/points.js
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-````markdown
-```interactive
-// ... self-contained viz code ...
+export function render({ el, props }) {
+  const pane = el.appendChild(document.createElement("div"));
+  pane.style.cssText = "flex:1;min-height:0;position:relative;";
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  pane.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1000);
+  camera.position.set(4, 3, 6);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(props.points.flat()), 3));
+  scene.add(new THREE.Points(geom, new THREE.PointsMaterial({ size: 0.06, color: 0x22c55e })));
+
+  new ResizeObserver(() => {
+    const w = pane.clientWidth, h = pane.clientHeight;
+    if (w && h) { camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false); }
+  }).observe(pane);
+  (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+}
 ```
-````
 
-Naming convention: `<Main Note Name> <qualifier> Viz.md` (e.g. `Positional Embedding 1D Viz.md`, `Gradient Descent Step Viz.md`). The qualifier is optional for single-viz notes.
+- **3D** → three.js as above. **2D** → plain `<canvas>` (2D context) inside `render(el)`; or use Plotly from Python for quick exploratory plots. (Other ESM libs can be vendored into `widgets/lib/` and added to the import-map the same way as three.)
+- Blue/white/red value map (`v ∈ [-1, 1]`): `v >= 0 ? new THREE.Color(1-v*.75, 1-v*.75, 1) : new THREE.Color(1, 1+v*.75, 1+v*.75)`.
+- Build UI with plain DOM (`document.createElement`). Use concrete colors (no Obsidian CSS vars — the webview document doesn't have them).
+- Keep complete examples notebook-local, e.g. `notebooks/pe2d/pe2d.js` for `notebooks/pe2d.ipynb`.
 
-### Rules
+## `lab.viz` API
 
-- One `interactive` block per viz note. Blocks don't share scope, and one-block-per-file keeps transclusion boundaries clean.
-- The viz note contains **only** the fenced block — no heading, no prose. Headings and context live in the main note.
-- The main note holds all prose, formulas, section structure, and the `![[...]]` links.
-- Source mode remains the place to edit the JS (open the viz note directly).
+| Function | Use |
+|---|---|
+| `scene(module, *, props=None, height="90vh", width="100%", import_map=IMPORT_MAP)` | Host a viz ES module with the shared import-map; preferred for three.js diagrams. `props` (JSON) is passed to `render({el, props})`. `module` is a vault-relative path served at `/files/`, e.g. `notebooks/foo/diagram.js` maps to `/home/juruc/Nextcloud/Notes/notebooks/foo/diagram.js`. |
+| `show(html, *, height="90vh", width="100%")` | Wrap a full HTML document string in a srcdoc iframe. |
+| `show_file(path, *, height, width)` | `show` the contents of a file. |
 
-## Obsidian view-mode reality (context, not an instruction)
+All return an `IPython.display.HTML` (the cell's last expression displays it).
 
-- **Reading view** (`Ctrl+E`) — always renders the block.
-- **Live Preview** — renders transcluded blocks reliably. Inline blocks have the two failure modes above.
-- **Source mode** — raw markdown, no rendering. Use to edit the JS.
+## Shared libraries
 
-## Porting an HTML visualization
+Shared libraries are the exception to notebook-local placement. They are served from the vault at `/files/widgets/lib/`, loaded once, and cached across all diagrams:
 
-1. Identify independent viz sections → one dedicated viz note per `interactive` block (see the transclusion layout above).
-2. Prose / formula boxes / legends → Markdown in the **main** note, with `$…$` or `$$…$$`.
-3. Custom HTML controls → JSXGraph sliders for numeric params; native DOM (`<select>`, buttons) for categorical choices or when driving a `<canvas>`. Style DOM controls with Obsidian CSS vars.
-4. Hardcoded `#333` axis colors → `theme().muted` (or let `initBoard` handle it).
-5. Three.js sections → port mostly verbatim; adjust canvas sizing to use `container` + `ResizeObserver`.
-6. Drop: page `<body>` chrome, external `<script src>` for JSXGraph/MathJax/Three.js (preloaded), per-page CSS.
-7. Preserve: formula derivations and prose that belongs to the surrounding explanation. Don't add pedagogical bullets or usage hints the user didn't ask for.
+```
+widgets/lib/three.module.js              # three.js r160 (ESM)
+widgets/lib/addons/controls/OrbitControls.js
+```
 
-If the original uses an unbundled library (D3, Plotly, etc.), port to JSXGraph if feasible or ask before introducing a new dependency.
+`scene()` injects this import-map so modules use bare specifiers:
 
-## Verifying a block
+```json
+{ "three": "/files/widgets/lib/three.module.js", "three/addons/": "/files/widgets/lib/addons/" }
+```
 
-1. Quick syntax check (catches typos):
+Vendor ESM builds locally (npm `three/build/three.module.js`); do **not** depend on another plugin's global/UMD `THREE`.
+
+## Persistence & trust
+
+The viz is a static srcdoc output, not a live widget. To make it reopen without re-running:
+
+1. **Trust** the notebook so the webview renders its HTML output: `jupyter trust "Note.ipynb"` (or run a cell — fresh output is trusted in-session). Untrusted notebooks have HTML output sanitized → blank.
+2. **Save with output present** — run the cell, then save; or pre-execute headless and trust:
    ```bash
-   node -e "new Function(/* the block's JS */)"
+   jupyter nbconvert --to notebook --execute --inplace "Note.ipynb"
+   jupyter trust "Note.ipynb"
    ```
-2. Open the note in Obsidian → Reading view → confirm it renders.
-3. Any block error surfaces as a `<pre class="interactive-error">` inside the block with a stack trace. Also check DevTools console (`Ctrl+Shift+I`).
+
+`scene()` loads from `/files`, so the Jupyter server must be running on open (it auto-starts). For a fully offline note, use `show_file` with a self-contained HTML (three inlined) instead.
+
+## Layout (fullscreen, no inner scrollbar)
+
+The host page is a full-height flex column with `overflow:hidden`; the iframe defaults to `height:90vh`. In `render(el)`, give the WebGL pane `flex:1;min-height:0` so it fills the space and the `ResizeObserver` keeps the canvas matched — never a fixed pixel height that overflows.
+
+## Anti-patterns
+
+- ❌ `import` from a CDN — blocked in the webview. Vendor into `widgets/lib/`.
+- ❌ `<iframe src="data:…">` — renders blank. Use `srcdoc` (i.e. `lab.viz`).
+- ❌ anywidget/ipywidgets for a diagram you want to persist — dies on restart; `saveState` doesn't capture it.
+- ❌ Reusing another plugin's global `THREE` — global, version-coupled, breaks if that plugin changes.
+- ❌ Writing diagram modules to `~/lab/widgets/` or `/home/juruc/lab/widgets/` — `/files/...` cannot serve them.
+
+## Verifying a diagram
+
+1. Confirm the file exists in the vault, e.g. `/home/juruc/Nextcloud/Notes/notebooks/foo/diagram.js`.
+2. Confirm the notebook calls the matching vault-relative path: `viz.scene("notebooks/foo/diagram.js")`.
+3. Syntax (ESM-aware): `node --input-type=module --check < /home/juruc/Nextcloud/Notes/notebooks/foo/diagram.js`.
+4. `viz.scene(...)` / `viz.show(...)` output HTML contains `srcdoc=` (not `src="data:`).
+5. Open the notebook in Obsidian → the viz renders on open (no kernel). If blank: check the webview console (`Ctrl+Shift+I`) and confirm the notebook is trusted.
