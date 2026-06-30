@@ -519,7 +519,7 @@ case "${1:-}" in
                                                                          neovim \
                                                                          tmux \
                                                                          claude \
-                                                                         opencode
+                                                                         pi
         popd || exit 1
         ;;
 
