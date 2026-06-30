@@ -512,7 +512,8 @@ case "${1:-}" in
                                                                                       fd \
                                                                                       ripgrep \
                                                                                       yamllint \
-                                                                                      zathura
+                                                                                      zathura \
+                                                                                      nextcloud
         $pixi_path/bin/stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                          wezterm \
                                                                          neovim \
