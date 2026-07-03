@@ -1119,6 +1119,33 @@ complete -c mdev -n "__fish_seen_subcommand_from connect ssh; and test (count (c
 complete -c mdev -n "__fish_seen_subcommand_from connect; and test (count (commandline -opc)) -ge 3" -a "--with-git"
 complete -c mdev -n "__fish_seen_subcommand_from terminate; and test (count (commandline -opc)) -ge 3" -a "--purge"
 
+# pi --ssh completions
+function __fish_pi_ssh_targets
+  set -l current (commandline -ct | string unescape 2>/dev/null)
+  if not string match -q '*:*' -- $current
+    __fish_complete_user_at_hosts | while read -l host_line
+      set -l fields (string split -m 1 \t -- $host_line)
+      if test (count $fields) -gt 1
+        printf '%s:\t%s\n' $fields[1] $fields[2]
+      else
+        printf '%s:\n' $fields[1]
+      end
+    end
+    return
+  end
+
+  set -l parts (string split -m 1 ':' -- $current)
+  set -l host $parts[1]
+  set -l remote $parts[2]
+  test -n "$remote"; or set remote '~/'
+  command ssh -o 'BatchMode yes' $host "command ls -dp $remote* 2>/dev/null" 2>/dev/null \
+    | while read -l remote_path
+      string escape -n -- "$host:$remote_path"
+    end
+end
+
+complete -c pi -l ssh -r -f -a "(__fish_pi_ssh_targets)" -d "Run pi remotely at HOST:PATH"
+
 # myinstall completions
 function __fish_myinstall_commands
     myinstall --help 2>/dev/null
