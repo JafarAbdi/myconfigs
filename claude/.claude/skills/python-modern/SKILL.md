@@ -1,6 +1,6 @@
 ---
 name: python-modern
-description: ALWAYS load before writing, editing, or creating any Python (.py) code — do not write Python without loading it first. Modern syntax preferences for 3.8-3.14 (walrus, pattern matching, exception groups, TaskGroup, generic syntax, type aliases, t-strings). Also use when reviewing Python.
+description: ALWAYS load before writing, editing, or creating any Python (.py) code — do not write Python without loading it first. Also use when explicitly reviewing Python language-version choices or modernization opportunities. Do not load for read-only file inspection, opening, navigation, or neutral summarization. Modern syntax preferences for 3.8-3.14 (walrus, pattern matching, exception groups, TaskGroup, generic syntax, type aliases, t-strings).
 ---
 
 # Python Modern Features — Use These When Available

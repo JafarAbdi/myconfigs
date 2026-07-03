@@ -1,6 +1,6 @@
 ---
 name: python-style
-description: ALWAYS load before writing, editing, reviewing, renaming, or designing Python (.py) code. Covers general Python style, API shape, naming/import conventions, sum types, casting, assertions, formatting, and code review checks. Use python-modern separately for language feature/changelog guidance.
+description: ALWAYS load before writing, editing, renaming, designing, or explicitly reviewing Python (.py) code. Do not load for read-only file inspection, opening, navigation, or neutral summarization unless the user asks for style, API, design, or code-review feedback. Covers general Python style, API shape, naming/import conventions, sum types, casting, assertions, formatting, and code review checks. Use python-modern separately for language feature/changelog guidance.
 ---
 
 # Python Style
