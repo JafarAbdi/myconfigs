@@ -7,6 +7,14 @@ description: ALWAYS load before writing, editing, explicitly reviewing, or refac
 
 Source: https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md
 
+> **Read language-agnostically.** TigerStyle is written for Zig, but the principles are not
+> language-specific. Where a rule names Zig syntax or tooling — `snake_case`, the Zig style guide,
+> `zig fmt`, `options: struct`, `@divExact`, `?T`/`!T` return types — apply your language's
+> idiomatic equivalent; the principle is what matters, not the Zig spelling. Rules that assume
+> manual memory management (static allocation with no allocation after init, `*const` for large
+> arguments, in-place/out-pointer initialization) apply only to systems languages (C, C++, Zig,
+> Rust); skip them under a garbage collector.
+
 # TigerStyle
 
 ## The Essence Of Style
