@@ -107,6 +107,12 @@ set -xg LD_LIBRARY_PATH (get_ld_library_path)
 set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
 set -xg BROWSER "firefox"
 
+# get_path rebuilds PATH from scratch and drops fnm's node bin, so re-add it
+# here (this file is re-sourced by `myconfigsr`, where conf.d/fnm.fish is not).
+if command -sq fnm
+  fnm env --shell fish | source
+end
+
 abbr -a ash "autossh -M 0 -q"
 alias myconfigs "cd ~/myconfigs"
 alias myconfigsr "source ~/.config/fish/config.fish"
@@ -859,10 +865,6 @@ function enable-ros2-completions
   source-argcomplete rosidl
   source-argcomplete ament_cmake
   source-argcomplete colcon
-end
-
-for file in $HOME/.config/fish/completions/*
-  source $file
 end
 
 function __fish_workon_workspaces
