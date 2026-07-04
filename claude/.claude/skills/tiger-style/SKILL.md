@@ -301,7 +301,20 @@ Beyond these rules:
   descending significance, so that the variable starts with the most significant word, and ends with
   the least significant word. For example, `latency_ms_max` rather than `max_latency_ms`. This will
   then line up nicely when `latency_ms_min` is added, as well as group all variables that relate to
-  latency.
+  latency. **Omit the unit suffix for SI base units** (meters, seconds, kilograms, radians, etc.)
+  since the codebase assumes SI by default (see `robotics-conventions` §3). Only add a suffix when
+  the unit deviates from SI: `latency_ms`, `angle_deg`, `distance_ft`.
+
+  | Variable | Unit | Suffix? | Why |
+  | :--- | :--- | :--- | :--- |
+  | `timeout` | seconds (SI) | No | SI default |
+  | `timeout_ms` | milliseconds | Yes | Not SI base unit |
+  | `distance` | meters (SI) | No | SI default |
+  | `distance_ft` | feet | Yes | Not SI |
+  | `angle` | radians (SI) | No | SI default |
+  | `angle_deg` | degrees | Yes | Not SI |
+  | `mass` | kilograms (SI) | No | SI default |
+  | `mass_lb` | pounds | Yes | Not SI |
 
 - Infuse names with meaning. For example, `allocator: Allocator` is a good, if boring name,
   but `gpa: Allocator` and `arena: Allocator` are excellent. They inform the reader whether

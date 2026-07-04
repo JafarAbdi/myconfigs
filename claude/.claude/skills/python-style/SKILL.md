@@ -138,7 +138,8 @@ encoder = build(Config())
 - Put units or qualifiers last, sorted from most significant to least significant:
   - Good: `latency_ms_max`, `latency_ms_min`.
   - Bad: `max_latency_ms`, `min_latency_ms`.
-- Omit suffixes for SI base units when the project assumes SI: meters, seconds, kilograms, radians.
+- Omit the unit suffix for SI base units (meters, seconds, kilograms, radians) since the codebase
+  assumes SI by default (see `robotics-conventions` §3).
 - Add suffixes for non-SI units or representation-specific values:
   - `timeout_ms`, `angle_deg`, `distance_ft`, `mass_lb`.
   - `timeout`, `angle`, `distance`, `mass` when using SI units.
