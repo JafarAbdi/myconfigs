@@ -391,6 +391,8 @@ function git-untracked
   git-fzf '\?\?'
 end
 
+alias git-commit='PI_OFFLINE=1 pi --no-session -p "/commit-message"'
+
 function wt
   if test (count $argv) -lt 1 -o (count $argv) -gt 2
     echo "Usage: wt <worktree name> [branch name]"
