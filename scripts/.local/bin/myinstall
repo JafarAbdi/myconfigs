@@ -478,7 +478,11 @@ case "${1:-}" in
         ;;
 
     setup-fish)
-        rm -rf ~/.config/fish || true
+        if [ -d ~/.config/fish ]; then
+            backup=~/.config/fish.bak.$(date +%Y%m%d%H%M%S)
+            info "Backing up existing fish config to $backup"
+            mv ~/.config/fish "$backup"
+        fi
         mkdir -p ~/.config/fish/completions
 
         echo "source ~/myconfigs/fish/config.fish" > ~/.config/fish/config.fish
