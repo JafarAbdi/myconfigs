@@ -1,7 +1,6 @@
 local wezterm = require("wezterm")
 local mux = wezterm.mux
 local act = wezterm.action
-local sessions = require("sessions")
 
 local config = {}
 
@@ -86,8 +85,6 @@ config.keys = {
   { key = "p", mods = "SHIFT|CTRL", action = act.ActivateCommandPalette },
   { key = "c", mods = "LEADER", action = act.SpawnTab("CurrentPaneDomain") },
   { key = "a", mods = "LEADER", action = act.ActivateLastTab },
-  { key = "R", mods = "LEADER", action = sessions.restore_action() },
-  { key = "D", mods = "LEADER", action = sessions.delete_action() },
   {
     key = "d",
     mods = "LEADER",
@@ -435,10 +432,330 @@ for _, domain in ipairs(config.ssh_domains) do
 end
 add_known_hosts_domains(config.ssh_domains)
 
--- each GUI process autosaves its layout to disk so a crash/power loss is
--- recoverable. re-attach to a previous session with LEADER+R; delete with LEADER+D.
-wezterm.on("gui-startup", function()
-  sessions.on_gui_startup()
-end)
+-- the GUI is a viewer onto a persistent unix mux server, so panes outlive a GUI
+-- crash/restart (reconnect and they're still live). switch workspaces / attach
+-- ssh mux domains via the LEADER+l launcher.
+config.unix_domains = { { name = "unix" } }
+config.default_gui_startup_args = { "connect", "unix" }
+
+-- Reboot survival for local layout. The mux server autosaves one snapshot of the
+-- local windows/tabs/panes (cwd, split geometry, running command) and rebuilds it
+-- when it next starts. Live sessions across GUI restarts are handled by the unix
+-- mux domain itself; remote (ssh) sessions by their own remote mux -- so only
+-- local panes are serialized, only to survive a full reboot.
+local AUTOSAVE_INTERVAL = 60
+local state_dir = (os.getenv("XDG_STATE_HOME") or (wezterm.home_dir .. "/.local/state"))
+  .. "/wezterm"
+local snapshot_path = state_dir .. "/session.json"
+
+-- shells running idle in a pane have no "command" worth restoring
+local shells = { sh = true, bash = true, zsh = true, fish = true, nu = true }
+
+-- atomic: write a temp file then rename over the target, so a crash mid-write
+-- can't leave a torn file
+local function write_json(p, tbl)
+  local ok, encoded = pcall(wezterm.json_encode, tbl)
+  if not ok then
+    wezterm.log_error("[sessions] json_encode failed: " .. tostring(encoded))
+    return false
+  end
+  local tmp = p .. ".tmp"
+  local f = io.open(tmp, "w+")
+  if not f then
+    wezterm.log_error("[sessions] cannot open for write: " .. tmp)
+    return false
+  end
+  f:write(encoded)
+  f:close()
+  local renamed, err = os.rename(tmp, p)
+  if not renamed then
+    wezterm.log_error("[sessions] rename failed: " .. tostring(err))
+    os.remove(tmp)
+    return false
+  end
+  return true
+end
+
+local function read_json(p)
+  local f = io.open(p, "r")
+  if not f then
+    return nil
+  end
+  local data = f:read("*a")
+  f:close()
+  local ok, parsed = pcall(wezterm.json_parse, data)
+  if not ok then
+    wezterm.log_error("[sessions] corrupt snapshot " .. p .. ": " .. tostring(parsed))
+    return nil
+  end
+  return parsed
+end
+
+local function compare_pane(a, b)
+  if a.left == b.left then
+    return a.top < b.top
+  end
+  return a.left < b.left
+end
+
+local function is_right(root, p)
+  return root.left + root.width < p.left
+end
+
+local function is_bottom(root, p)
+  return root.top + root.height < p.top
+end
+
+local function pop_right(root, panes)
+  for i, p in ipairs(panes) do
+    if root.top == p.top and root.left + root.width + 1 == p.left then
+      table.remove(panes, i)
+      return p
+    end
+  end
+end
+
+local function pop_bottom(root, panes)
+  for i, p in ipairs(panes) do
+    if root.left == p.left and root.top + root.height + 1 == p.top then
+      table.remove(panes, i)
+      return p
+    end
+  end
+end
+
+local function is_shell(info)
+  local exe = info.executable or info.name or ""
+  local base = (exe:match("([^/\\]+)$") or exe):gsub("^%-", "")
+  return shells[base] == true
+end
+
+-- record cwd/domain/command on a pane node, then drop the live handle
+local function capture_node(node)
+  local pane = node.pane
+  node.domain = pane:get_domain_name()
+  local cwd = pane:get_current_working_dir()
+  node.cwd = cwd and cwd.file_path or ""
+  if node.domain == "local" then
+    local info = pane:get_foreground_process_info()
+    if info and info.argv and #info.argv > 0 and not is_shell(info) then
+      node.argv = info.argv
+    end
+  end
+  node.pane = nil
+end
+
+-- rebuild the binary split tree from a flat list of panes-with-info by coords
+local function build_tree(root, panes)
+  if root == nil then
+    return nil
+  end
+  capture_node(root)
+  if #panes == 0 then
+    return root
+  end
+  local right, bottom = {}, {}
+  for _, p in ipairs(panes) do
+    if is_right(root, p) then
+      table.insert(right, p)
+    end
+    if is_bottom(root, p) then
+      table.insert(bottom, p)
+    end
+  end
+  if #right > 0 then
+    root.right = build_tree(pop_right(root, right), right)
+  end
+  if #bottom > 0 then
+    root.bottom = build_tree(pop_bottom(root, bottom), bottom)
+  end
+  return root
+end
+
+local function pane_tree(panes)
+  table.sort(panes, compare_pane)
+  return build_tree(table.remove(panes, 1), panes)
+end
+
+local function tab_state(tab)
+  return { title = tab:get_title(), tree = pane_tree(tab:panes_with_info()) }
+end
+
+local function window_state(win)
+  local ws = { workspace = win:get_workspace(), title = win:get_title(), tabs = {} }
+  local tabs = win:tabs_with_info()
+  for i, t in ipairs(tabs) do
+    local ts = tab_state(t.tab)
+    ts.is_active = t.is_active
+    ws.tabs[i] = ts
+  end
+  ws.size = tabs[1].tab:get_size()
+  return ws
+end
+
+-- a window we can rebuild after reboot: its root pane is a local shell. remote
+-- (ssh mux) windows live on their own server and are reattached natively
+local function is_local_window(ws)
+  local d = ws.tabs[1] and ws.tabs[1].tree and ws.tabs[1].tree.domain
+  return d == nil or d == "" or d == "local"
+end
+
+local function save_session()
+  local windows = {}
+  for _, w in ipairs(mux.all_windows()) do
+    local ws = window_state(w)
+    if is_local_window(ws) then
+      windows[#windows + 1] = ws
+    end
+  end
+  if #windows == 0 then
+    return false
+  end
+  return write_json(
+    snapshot_path,
+    { windows = windows, active_workspace = mux.get_active_workspace() }
+  )
+end
+
+local function cwd_or_nil(cwd)
+  if cwd and cwd ~= "" then
+    return cwd
+  end
+end
+
+-- commands are typed after a short delay; typing them inline races shell startup
+-- and the keystrokes can be eaten. they are typed, never run (no newline).
+local restore_pending = {}
+
+local function queue_command(node)
+  if node.argv and #node.argv > 0 then
+    restore_pending[#restore_pending + 1] =
+      { pane = node.pane, text = wezterm.shell_join_args(node.argv) }
+  end
+end
+
+local function spawn_child(parent, node, direction, size)
+  node.pane = parent:split({ direction = direction, cwd = cwd_or_nil(node.cwd), size = size })
+end
+
+local function restore_node(node, acc)
+  queue_command(node)
+  if node.bottom then
+    spawn_child(
+      node.pane,
+      node.bottom,
+      "Bottom",
+      node.bottom.height / (node.height + node.bottom.height)
+    )
+  end
+  if node.right then
+    spawn_child(node.pane, node.right, "Right", node.right.width / (node.width + node.right.width))
+  end
+  if node.is_active then
+    acc.active = node.pane
+  end
+  if node.right then
+    restore_node(node.right, acc)
+  end
+  if node.bottom then
+    restore_node(node.bottom, acc)
+  end
+  return acc
+end
+
+local function restore_tab(tab, ts, root_pane)
+  ts.tree.pane = root_pane
+  if ts.title and ts.title ~= "" then
+    tab:set_title(ts.title)
+  end
+  local acc = restore_node(ts.tree, {})
+  if acc.active then
+    acc.active:activate()
+  end
+end
+
+local function restore_window(win, ws)
+  if ws.title and ws.title ~= "" then
+    win:set_title(ws.title)
+  end
+  local active_tab
+  for i, ts in ipairs(ws.tabs) do
+    local tab, root_pane
+    -- the first tab reuses the window's initial pane, already spawned in the
+    -- right cwd (see restore_session); later tabs spawn fresh with their own cwd
+    if i == 1 then
+      tab, root_pane = win:active_tab(), win:active_pane()
+    else
+      tab, root_pane = win:spawn_tab({ cwd = cwd_or_nil(ts.tree.cwd) })
+    end
+    restore_tab(tab, ts, root_pane)
+    if ts.is_active then
+      active_tab = tab
+    end
+  end
+  if active_tab then
+    active_tab:activate()
+  end
+end
+
+local function restore_session()
+  if #mux.all_windows() > 0 then
+    return false
+  end
+  local data = read_json(snapshot_path)
+  if not data or not data.windows or #data.windows == 0 then
+    return false
+  end
+  restore_pending = {}
+  for _, ws in ipairs(data.windows) do
+    local first = ws.tabs[1]
+    local _, _, win = mux.spawn_window({
+      workspace = ws.workspace,
+      width = ws.size and ws.size.cols or nil,
+      height = ws.size and ws.size.rows or nil,
+      cwd = cwd_or_nil(first.tree.cwd),
+    })
+    restore_window(win, ws)
+  end
+  if data.active_workspace then
+    mux.set_active_workspace(data.active_workspace)
+  end
+  -- type the captured commands once shells have had time to initialize
+  if #restore_pending > 0 then
+    local cmds = restore_pending
+    restore_pending = {}
+    wezterm.time.call_after(1.0, function()
+      for _, c in ipairs(cmds) do
+        pcall(function()
+          c.pane:send_text(c.text)
+        end)
+      end
+    end)
+  end
+  wezterm.log_info("[sessions] restored " .. #data.windows .. " window(s)")
+  return true
+end
+
+local function autosave_tick()
+  local ok, err = pcall(save_session)
+  if not ok then
+    wezterm.log_error("[sessions] autosave failed: " .. tostring(err))
+  end
+  wezterm.time.call_after(AUTOSAVE_INTERVAL, autosave_tick)
+end
+
+-- the mux server owns the panes; restore + autosave run there, once. the GUI
+-- process evaluates this too but never fires mux-startup, so it stays a viewer.
+if not wezterm.GLOBAL.sessions_registered then
+  wezterm.GLOBAL.sessions_registered = true
+  os.execute('mkdir -p "' .. state_dir .. '"')
+  wezterm.on("mux-startup", function()
+    local ok, err = pcall(restore_session)
+    if not ok then
+      wezterm.log_error("[sessions] restore crashed: " .. tostring(err))
+    end
+    wezterm.time.call_after(AUTOSAVE_INTERVAL, autosave_tick)
+  end)
+end
 
 return config
