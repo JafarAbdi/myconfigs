@@ -351,8 +351,13 @@ case "${1:-}" in
 
     uv)
         curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo 'uv generate-shell-completion fish | source' >> ~/.config/fish/config.fish
-        echo 'uvx --generate-shell-completion fish | source' >> ~/.config/fish/config.fish
+        # Autoloaded on first `uv`/`uvx` tab-complete; `>` keeps it idempotent
+        # across re-runs (vs appending to config.fish on every install).
+        if command -v fish >/dev/null 2>&1; then
+            mkdir -p ~/.config/fish/completions
+            echo 'uv generate-shell-completion fish | source' > ~/.config/fish/completions/uv.fish
+            echo 'uvx --generate-shell-completion fish | source' > ~/.config/fish/completions/uvx.fish
+        fi
         ~/.local/bin/uv tool install ty@latest
         ~/.local/bin/uv tool install rerun-sdk@latest
         ~/.local/bin/uv tool install hf@latest
@@ -738,9 +743,21 @@ case "${1:-}" in
         if [ -z "${2:-}" ]; then
             error "nodejs requires a version argument. Usage: $0 nodejs <version>"
         fi
-        curl -o- https://fnm.vercel.app/install | bash
+        # --skip-shell: fnm's installer `tee -a`'s its init block into
+        # conf.d/fnm.fish with no idempotency check, so we write it ourselves.
+        curl -o- https://fnm.vercel.app/install | bash -s -- --skip-shell
         ~/.local/share/fnm/fnm install "$2"
-        echo 'fnm env | source' >> ~/.config/fish/config.fish
+        if command -v fish >/dev/null 2>&1; then
+            mkdir -p ~/.config/fish/conf.d
+            cat > ~/.config/fish/conf.d/fnm.fish <<'EOF'
+# fnm
+set FNM_PATH "$HOME/.local/share/fnm"
+if test -d "$FNM_PATH"
+    set -gx PATH "$FNM_PATH" $PATH
+    fnm env --shell fish | source
+end
+EOF
+        fi
         curl -fsSL https://get.pnpm.io/install.sh | sh -
         ;;
 
