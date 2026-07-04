@@ -1,24 +1,19 @@
 {
-  "defaultModel": "deepseek/deepseek-v4-flash",
+  "defaultModel": "gemma4",
   "defaultProjectTrust": "always",
-  "defaultProvider": "openrouter",
+  "defaultProvider": "llama.cpp",
   "defaultThinkingLevel": "high",
   "enabledModels": [
-    "deepseek/deepseek-v4-flash",
-    "deepseek/deepseek-v4-pro",
-    "local/local",
-    "makora/deepseek-v4-pro",
-    "makora/deepseek-ai/DeepSeek-V4-Flash",
     "openai-codex/gpt-5.5",
     "llama.cpp/qwen36",
     "llama.cpp/gemma4",
     "openrouter/moonshotai/kimi-k2.7-code",
-    "openrouter/openrouter/free",
     "openrouter/z-ai/glm-5.2",
-    "openrouter/deepseek/deepseek-v4-flash"
+    "openrouter/deepseek/deepseek-v4-flash",
+    "openrouter/deepseek/deepseek-v4-pro"
   ],
-  "hideThinkingBlock": true,
-  "lastChangelogVersion": "0.80.2",
+  "hideThinkingBlock": false,
+  "lastChangelogVersion": "0.80.3",
   "packages": [
     "npm:pi-subagents"
   ],
