@@ -947,6 +947,27 @@ function postexec --on-event fish_postexec
     echo -e '\a'
 end
 
+# Publish the running command to the terminal as the WEZTERM_PROG user var (OSC
+# 1337). Ported from wezterm's own shell integration (assets/shell-integration/
+# wezterm.sh: __wezterm_set_user_var + the WEZTERM_PROG preexec/precmd hooks),
+# which only ships for POSIX shells -- this is the fish equivalent.
+#
+# wezterm syncs user vars to mux clients and exposes them to Lua, so the GUI-side
+# session autosave can capture (and restore) the command. fish also sends the
+# command via OSC 133, but wezterm discards that -- see the TODO(upstream) in
+# wezterm.lua.
+function __wezterm_set_user_var
+    printf "\033]1337;SetUserVar=%s=%s\007" $argv[1] (printf '%s' "$argv[2]" | base64 | tr -d '\n')
+end
+
+function __wezterm_prog_start --on-event fish_preexec
+    __wezterm_set_user_var WEZTERM_PROG "$argv[1]"
+end
+
+function __wezterm_prog_end --on-event fish_postexec
+    __wezterm_set_user_var WEZTERM_PROG ""
+end
+
 function gh-comments --description 'Show PR review comments for current branch or given PR number'
   set -l pr $argv[1]
   if test -z "$pr"
