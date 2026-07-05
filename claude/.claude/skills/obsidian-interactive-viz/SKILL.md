@@ -81,6 +81,18 @@ viz.show("<svg>…</svg>", height="50vh")   # an HTML/JS string
 
 Run the cell once and **save** the notebook; the srcdoc output is then static and reopens without a kernel (see Persistence).
 
+## Images and links in notebook cells
+
+Markdown cells render with **JupyterLab's** markdown, not Obsidian's — so Obsidian
+wikilinks (`[[Note]]`, `![[img.png]]`) do **not** work in a notebook. Use standard
+markdown, with paths relative to the notebook's folder (verified working):
+
+- **Image** — relative path (preferred):
+  `![caption](../images/foo.png)` — e.g. from a notebook in `notebooks/`, `../images/...` or `../attachments/...`.
+  The `/files/`-rooted form (`![caption](/files/images/foo.png)`) also works.
+- **Link another notebook** — relative:
+  `[text](Notebook%20Name.ipynb)` (percent-encode spaces). Opens it in the Jupyter view.
+
 ## Authoring a new diagram
 
 A diagram is `notebooks/<notebook-name>/<diagram-name>.js` — an ES module that imports the shared three and exports `render(el)`:
@@ -178,20 +190,23 @@ All return an `IPython.display.HTML` (the cell's last expression displays it).
 
 ## Shared libraries
 
-Shared libraries are the exception to notebook-local placement. They are served from the vault at `/files/widgets/lib/`, loaded once, and cached across all diagrams:
+Shared libraries are the exception to notebook-local placement. They are served from the vault at `/files/widgets/lib/`, loaded once, and cached across all diagrams. **See `widgets/lib/README.md` for the full bundle + helper docs.**
 
 ```
 widgets/lib/three.module.js              # three.js r160 (ESM)
 widgets/lib/addons/controls/OrbitControls.js
+widgets/lib/jsxgraphcore.js  jsxgraph.css # JSXGraph 1.12.2 (UMD)
+widgets/lib/katex/                        # KaTeX 0.16.47 (UMD) + fonts
+widgets/lib/jsx.js                        # shared helper (loadJSX/loadKaTeX/initBoard/theme/latex/fitFrame/…)
 ```
 
-`scene()` injects this import-map so modules use bare specifiers:
+Two mechanisms: **ESM** (three) loads via the import-map `scene()` injects; **UMD** (JSXGraph, KaTeX) is injected as a `<script>` from `/files/…` by `jsx.js`'s `loadJSX()` / `loadKaTeX()` (sets `window.JXG` / `window.katex`). The import-map:
 
 ```json
 { "three": "/files/widgets/lib/three.module.js", "three/addons/": "/files/widgets/lib/addons/" }
 ```
 
-Vendor ESM builds locally (npm `three/build/three.module.js`); do **not** depend on another plugin's global/UMD `THREE`.
+Vendor builds locally (never a CDN — the webview blocks cross-origin fetches; never another plugin's global `THREE`). For math in the webview (no MathJax there): `latex(src)` renders via KaTeX, or set `useKaTeX: true` per JSXGraph text label.
 
 ## Persistence & trust
 
