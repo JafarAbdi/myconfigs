@@ -1,0 +1,5 @@
+export LLAMA_URL=http://dell-laptop.tail79ed4.ts.net:8088
+
+# fnm-managed node/pi on PATH for the graphical session (GDM sources this;
+# i3-launched apps like Obsidian inherit it, unlike the fish-only conf.d/fnm.fish)
+export PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"
