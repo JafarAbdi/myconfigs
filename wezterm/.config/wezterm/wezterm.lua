@@ -33,10 +33,17 @@ wezterm.on("update-status", function(window, pane)
 
   -- pills drawn right-to-left with a divider between; Catppuccin Mocha palette
   local ink = "#1e1e2e"
+  -- get_domain_name throws for a pane not in the mux (transient startup pane, or
+  -- the GUI-only debug overlay pane); skip the domain pill rather than error out.
+  local ok, domain = pcall(function()
+    return pane:get_domain_name()
+  end)
   local pills = {
     { text = window:active_workspace() .. " " .. #mux.get_workspace_names(), bg = "#89b4fa" },
-    { text = pane:get_domain_name(), bg = "#94e2d5" },
   }
+  if ok and domain then
+    pills[#pills + 1] = { text = domain, bg = "#94e2d5" }
+  end
   if key_table then
     pills[#pills + 1] = { text = key_table, bg = "#f9e2af" }
   end
@@ -857,26 +864,31 @@ local function restore_focus(data)
   end
   local nth = {}
   for _, w in ipairs(mux.all_windows()) do
-    local ws = w:get_workspace()
-    local list = by_ws[ws]
-    if list then
-      nth[ws] = (nth[ws] or 0) + 1
-      local sw = list[nth[ws]]
-      if sw then
-        for i, t in ipairs(w:tabs_with_info()) do
-          local st = sw.tabs[i]
-          if st then
-            local p = active_live_pane(st.tree, live_tree(t.tab:panes_with_info()))
-            if p then
-              p:activate()
-            end
-            if st.is_active then
-              t.tab:activate()
+    -- guard per window: a stale window/pane (id 0) left over from startup would
+    -- throw on get_workspace/activate; swallow it so remaining windows still get
+    -- focused and restore_focus returns, letting gui-attached finish (arm autosave).
+    pcall(function()
+      local ws = w:get_workspace()
+      local list = by_ws[ws]
+      if list then
+        nth[ws] = (nth[ws] or 0) + 1
+        local sw = list[nth[ws]]
+        if sw then
+          for i, t in ipairs(w:tabs_with_info()) do
+            local st = sw.tabs[i]
+            if st then
+              local p = active_live_pane(st.tree, live_tree(t.tab:panes_with_info()))
+              if p then
+                p:activate()
+              end
+              if st.is_active then
+                t.tab:activate()
+              end
             end
           end
         end
       end
-    end
+    end)
   end
 end
 
