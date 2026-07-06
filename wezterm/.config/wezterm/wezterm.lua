@@ -105,9 +105,81 @@ local function ssh_connect_picker(window, pane)
   )
 end
 
+-- snippet palette: a styled InputSelector that approximates the CharSelect look.
+-- rows render as "<glyph>  <name>" (colored via wezterm.format), fuzzy-searchable;
+-- Enter sends the snippet text to the active pane -- the local shell or the remote
+-- shell over an SSHMUX domain. Enter RUNS the snippet (appends a newline); Tab
+-- PLACES it at the prompt without running, so you can edit before hitting Enter.
+--
+-- the list is host-aware: `snippet_common` shows everywhere, plus per-host extras
+-- keyed by the host part of the SSHMUX domain name (after "SSHMUX:"), so the
+-- palette looks different depending on which machine the pane is on.
+-- `text` carries no trailing newline; the picker appends one when Enter (run) is
+-- used, and omits it for Tab (place).
+local snippet_common = {
+  { glyph = "📜", name = "tail journal (this boot)", text = "journalctl -b -f" },
+  {
+    glyph = "💾",
+    name = "disk usage, top dirs",
+    text = "du -xh / 2>/dev/null | sort -rh | head -30",
+  },
+  { glyph = "🔌", name = "listening sockets", text = "ss -tulpn" },
+  { glyph = "📈", name = "uptime + who", text = "uptime; who" },
+  { glyph = "🧠", name = "top memory procs", text = "ps aux --sort=-%mem | head -15" },
+}
+
+local snippet_by_host = {
+  ["desktop.tail79ed4.ts.net"] = {},
+}
+
+local function snippet_row(s)
+  return wezterm.format({
+    { Foreground = { Color = "#cba6f7" } },
+    { Text = s.glyph .. "  " },
+    { Foreground = { Color = "#cdd6f4" } },
+    { Text = s.name },
+  })
+end
+
+local function snippet_picker(window, pane)
+  local ok, domain = pcall(function()
+    return pane:get_domain_name()
+  end)
+  local host = ok and domain and domain:match("^SSHMUX:(.+)$") or nil
+
+  local choices = {}
+  local function add(list)
+    for _, s in ipairs(list or {}) do
+      choices[#choices + 1] = { id = s.text, label = snippet_row(s) }
+    end
+  end
+  if host then
+    add(snippet_by_host[host])
+  end
+  add(snippet_common)
+
+  window:perform_action(
+    act.InputSelector({
+      title = host and ("snippets @ " .. host) or "snippets",
+      fuzzy = true,
+      fuzzy_description = "snippets: ",
+      choices = choices,
+      -- `place` (5th arg) is true when accepted with Tab: send as-is so it sits at
+      -- the prompt. Enter leaves it false: append newline to run immediately.
+      action = wezterm.action_callback(function(_, p, id, _, place)
+        if id then
+          p:send_text(place and id or (id .. "\n"))
+        end
+      end),
+    }),
+    pane
+  )
+end
+
 config.leader = { key = "q", mods = "CTRL", timeout_milliseconds = 1000 }
 config.keys = {
   { key = "l", mods = "LEADER", action = wezterm.action_callback(ssh_connect_picker) },
+  { key = "e", mods = "SHIFT|CTRL", action = wezterm.action_callback(snippet_picker) },
   -- full launcher (docker New Tab, all domains, tabs, workspaces); distinct from
   -- the command palette on CTRL+SHIFT+p
   {
