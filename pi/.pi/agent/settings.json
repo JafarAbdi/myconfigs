@@ -1,12 +1,12 @@
 {
-  "defaultModel": "gemma4",
+  "defaultModel": "gpt-5.5",
   "defaultProjectTrust": "always",
-  "defaultProvider": "llama.cpp",
+  "defaultProvider": "openai-codex",
   "defaultThinkingLevel": "high",
   "enabledModels": [
-    "openai-codex/gpt-5.5",
     "llama.cpp/qwen36",
     "llama.cpp/gemma4",
+    "openai-codex/gpt-5.5",
     "openrouter/moonshotai/kimi-k2.7-code",
     "openrouter/z-ai/glm-5.2",
     "openrouter/deepseek/deepseek-v4-flash",
