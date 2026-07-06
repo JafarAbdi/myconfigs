@@ -369,6 +369,13 @@ case "${1:-}" in
         ;;
 
     pi-code)
+        # pi.dev/install.sh does `npm install -g`; force fnm's default node so
+        # pi lands in aliases/default/bin (where .xprofile points), not ~/.local
+        # or a system node. Run `$0 nodejs <ver>` first.
+        if [[ ! -d "$HOME/.local/share/fnm/aliases/default/bin" ]]; then
+            error "fnm default node missing. Run '$0 nodejs <version>' first."
+        fi
+        export PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"
         curl -fsSL https://pi.dev/install.sh | sh
         PI_AGENT_DIR="$HOME/myconfigs/pi/.pi/agent"
         curl -fsSL https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/examples/extensions/permission-gate.ts -o "$PI_AGENT_DIR/extensions/permission-gate.ts"
@@ -751,6 +758,9 @@ case "${1:-}" in
         # conf.d/fnm.fish with no idempotency check, so we write it ourselves.
         curl -o- https://fnm.vercel.app/install | bash -s -- --skip-shell
         ~/.local/share/fnm/fnm install "$2"
+        # `default` alias backs ~/.local/share/fnm/aliases/default/bin, which
+        # .xprofile puts on PATH so GDM/i3-launched apps find node & npm globals.
+        ~/.local/share/fnm/fnm alias "$2" default
         if command -v fish >/dev/null 2>&1; then
             mkdir -p ~/.config/fish/conf.d
             cat > ~/.config/fish/conf.d/fnm.fish <<'EOF'
