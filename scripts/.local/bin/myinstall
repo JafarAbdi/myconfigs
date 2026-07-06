@@ -105,6 +105,61 @@ list_options() {
     grep -E '^[[:space:]]+[a-zA-Z0-9_-]+\)' "$0" | sed 's/)//' | tr -d ' \t' | sort
 }
 
+# wezterm distribution store: source of truth for the wezterm binary + its
+# completion/terminfo, keyed by arch. persistent (not ~/.cache, which cleaners
+# prune). filled lazily from upstream on a miss; overwrite an entry with your own
+# fork build to distribute that instead. see the wezterm/wezterm-build targets.
+readonly WEZTERM_STORE="${XDG_DATA_HOME:-$HOME/.local/share}/wezterm/dist"
+
+# arch -> upstream nightly release asset
+wezterm_asset() {
+    case "$1" in
+        x86_64|amd64)  echo "WezTerm-nightly-Ubuntu20.04.AppImage" ;;
+        aarch64|arm64) echo "wezterm-nightly.Ubuntu24.04.arm64.deb" ;;
+        *) return 1 ;;
+    esac
+}
+
+# echo path to a runnable wezterm binary for <arch> in the store. present -> keep
+# (never re-pull); miss -> download upstream, normalize (.deb -> extract binary),
+# save as wezterm-<arch>. `cp your.AppImage "$WEZTERM_STORE/wezterm-<arch>"` to
+# distribute a fork build instead of upstream.
+wezterm_store_path() {
+    local a="$1" dst="$WEZTERM_STORE/wezterm-$1"
+    if [ ! -s "$dst" ]; then
+        local asset tmp
+        asset=$(wezterm_asset "$a") || error "no upstream wezterm for arch: $a"
+        mkdir -p "$WEZTERM_STORE"
+        tmp=$(mktemp -d -p /tmp wezterm-XXXXXX)
+        info "wezterm store miss: fetching $asset"
+        wget -q "https://github.com/wez/wezterm/releases/download/nightly/$asset" -O "$tmp/$asset"
+        case "$asset" in
+            *.AppImage) install -m755 "$tmp/$asset" "$dst" ;;
+            *.deb)      dpkg-deb -x "$tmp/$asset" "$tmp/x"; install -m755 "$tmp/x/usr/bin/wezterm" "$dst" ;;
+        esac
+        rm -rf "$tmp"
+    fi
+    echo "$dst"
+}
+
+# cache terminfo in the store (arch-independent data file) so installs don't hit
+# GitHub each time. completion is NOT cached: it's generated on the fly from the
+# placed binary (native, runs fine) -- see wezterm_finish and the remote push.
+wezterm_terminfo() {
+    mkdir -p "$WEZTERM_STORE"
+    [ -s "$WEZTERM_STORE/wezterm.terminfo" ] \
+        || curl -fsSL https://raw.githubusercontent.com/wez/wezterm/master/termwiz/data/wezterm.terminfo -o "$WEZTERM_STORE/wezterm.terminfo"
+}
+
+# completion + terminfo for a freshly-placed ~/.local/bin/wezterm; completion
+# generated on the fly from that binary.
+wezterm_finish() {
+    mkdir -p ~/.config/fish/completions
+    ~/.local/bin/wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
+    wezterm_terminfo
+    tic -x -o ~/.terminfo "$WEZTERM_STORE/wezterm.terminfo"
+}
+
 case "${1:-}" in
     core)
         install_package --no-install-recommends \
@@ -307,17 +362,44 @@ case "${1:-}" in
     wezterm)
         if [ "$(uname -s)" = "Darwin" ]; then
             brew install --cask wezterm@nightly
+            exit 0
+        fi
+        # on x86 you manage ~/.local/bin/wezterm yourself (typically a fork build
+        # via wezterm-build), so never overwrite whatever is already there.
+        if [ "$arch" = "x86_64" ] && [ -x ~/.local/bin/wezterm ]; then
+            info "x86 wezterm already present; leaving it (rm it to reinstall from store)"
+            exit 0
+        fi
+        mkdir -p ~/.local/bin
+        install -m755 "$(wezterm_store_path "$arch")" ~/.local/bin/wezterm
+        wezterm_finish
+        ;;
+
+    wezterm-build)
+        [ -x ./build-appimage.sh ] || error "run from wezterm fork root (no ./build-appimage.sh here)"
+        branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || error "not a git repo"
+        [ "$branch" = "juruc" ] || error "wrong branch: '$branch' (expected 'juruc')"
+
+        # default x86 only; `all` cross-builds every arch (needs docker + qemu-user-static)
+        platforms="linux/amd64"
+        [ "${2:-}" = "all" ] && platforms="linux/amd64 linux/arm64"
+        for p in $platforms; do
+            PLATFORM="$p" ./build-appimage.sh
+        done
+
+        # stage newest AppImage per arch into the store (overrides upstream)
+        mkdir -p "$WEZTERM_STORE"
+        for a in x86_64 aarch64; do
+            f=$(ls -t out/WezTerm-*-"$a".AppImage 2>/dev/null | head -1)
+            [ -n "$f" ] && install -m755 "$f" "$WEZTERM_STORE/wezterm-$a"
+        done
+
+        # local install = host-arch build (skip if this arch wasn't built)
+        if [ -f "$WEZTERM_STORE/wezterm-$arch" ]; then
+            install -m755 "$WEZTERM_STORE/wezterm-$arch" ~/.local/bin/wezterm
+            wezterm_finish
         else
-            mkdir -p ~/.local/bin
-            wget https://github.com/wez/wezterm/releases/download/nightly/WezTerm-nightly-Ubuntu20.04.AppImage -O ~/.local/bin/wezterm.new
-            chmod +x ~/.local/bin/wezterm.new
-            mv -f ~/.local/bin/wezterm.new ~/.local/bin/wezterm
-            mkdir -p ~/.config/fish/completions && ~/.local/bin/wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish
-            # Install terminfo
-            tempfile=$(mktemp)
-            curl -o "$tempfile" https://raw.githubusercontent.com/wez/wezterm/master/termwiz/data/wezterm.terminfo
-            tic -x -o ~/.terminfo "$tempfile"
-            rm "$tempfile"
+            warning "no $arch build for local install"
         fi
         ;;
 
@@ -788,6 +870,25 @@ EOF
         fi
         host="$2"
         shift 2
+        # wezterm is pushed from the local store (not downloaded on the remote):
+        # lazy -- only if missing -- and completion is generated on the remote from
+        # the copied binary; only terminfo is shipped from the cache.
+        if [ "$*" = "wezterm" ]; then
+            if ssh -- "$host" 'test -x ~/.local/bin/wezterm || command -v wezterm >/dev/null 2>&1'; then
+                info "wezterm present on $host, skipping"
+                exit 0
+            fi
+            src=$(wezterm_store_path "$(ssh -- "$host" uname -m)")
+            wezterm_terminfo
+            info "pushing wezterm -> $host"
+            ssh -- "$host" 'mkdir -p ~/.local/bin ~/.config/fish/completions ~/.terminfo'
+            scp "$src" "$host:.local/bin/wezterm.new"
+            scp "$WEZTERM_STORE/wezterm.terminfo" "$host:/tmp/wezterm.terminfo"
+            ssh -- "$host" 'chmod +x ~/.local/bin/wezterm.new && mv -f ~/.local/bin/wezterm.new ~/.local/bin/wezterm \
+                && ~/.local/bin/wezterm shell-completion --shell fish > ~/.config/fish/completions/wezterm.fish \
+                && tic -x -o ~/.terminfo /tmp/wezterm.terminfo && rm -f /tmp/wezterm.terminfo'
+            exit 0
+        fi
         scp "$0" "$host:/tmp/myinstall"
         ssh -t "$host" "bash /tmp/myinstall $*; rm -f /tmp/myinstall"
         ;;
