@@ -1,5 +1,5 @@
 {
-  "defaultModel": "gemma4",
+  "defaultModel": "qwen36",
   "defaultProvider": "llama.cpp",
   "defaultThinkingLevel": "low",
   "quietStartup": true

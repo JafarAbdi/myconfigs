@@ -191,7 +191,6 @@ function __yo_write_state --argument-names response_json query
             timestamp: $timestamp,
             shell_pid: $fish_pid,
             inserted: false,
-            continuation_requested: false,
             exit_status: null,
         }' > "$state_path"
 end
@@ -230,7 +229,7 @@ function __yo_state_mark_inserted
     mv "$tmp" "$state_path"
 end
 
-function __yo_state_request_continuation --argument-names actual exit_status
+function __yo_state_record_execution --argument-names actual exit_status
     set -l state_path (__yo_state_path); or return 1
     if not test -s "$state_path"
         return 0
@@ -241,25 +240,8 @@ function __yo_state_request_continuation --argument-names actual exit_status
         '.actual_command = $actual
         | .edited = ($actual != (.suggested_command // ""))
         | .exit_status = $exit_status
-        | .continuation_requested = true
         | .inserted = true' \
         "$state_path" > "$tmp"
-    set -l jq_status $status
-    if test $jq_status -ne 0
-        rm -f "$tmp"
-        return $jq_status
-    end
-    mv "$tmp" "$state_path"
-end
-
-function __yo_state_clear_continuation_request
-    set -l state_path (__yo_state_path); or return 1
-    if not test -s "$state_path"
-        return 0
-    end
-
-    set -l tmp "$state_path.tmp"
-    jq -c '.continuation_requested = false' "$state_path" > "$tmp"
     set -l jq_status $status
     if test $jq_status -ne 0
         rm -f "$tmp"
@@ -327,6 +309,15 @@ function __yo_parse_pi_events_file --argument-names path
     jq -sec 'map(select(.result.details.type == .toolName) | .result.details) | last // empty' "$path"
 end
 
+function __yo_insert_commandline --argument-names command_text
+    status is-interactive; or return 1
+    test -n "$command_text"; or return 1
+
+    commandline --replace "$command_text" 2>/dev/null; or return 1
+    commandline --cursor (string length -- "$command_text") 2>/dev/null
+    commandline -f repaint 2>/dev/null
+end
+
 function __yo_handle_response_file --argument-names output_file query
     set -l json (__yo_parse_pi_events_file "$output_file" | string collect)
     if test $status -ne 0; or test -z "$json"
@@ -346,7 +337,14 @@ function __yo_handle_response_file --argument-names output_file query
 
             __yo_write_state "$json" "$query"; or return 1
 
-            if not status is-interactive
+            if status is-interactive
+                if __yo_insert_commandline "$command_text"
+                    __yo_state_mark_inserted
+                else
+                    __yo_warn 'could not prefill commandline; printing suggestion instead'
+                    printf '%s\n' "$command_text"
+                end
+            else
                 printf '%s\n' "$command_text"
             end
         case chat
@@ -450,36 +448,6 @@ function __yo_run_request --argument-names query continuation executed_command e
     return $handle_status
 end
 
-function __yo_prompt_prefill --on-event fish_prompt --description 'Prefill completed yo commands'
-    __yo_pane_environment; or return
-
-    set -l state_path (__yo_state_path); or return
-    __yo_state_is_current_shell "$state_path"; or return
-
-    set -l state_json (string collect < "$state_path")
-    set -l continuation_requested (__yo_json_get "$state_json" continuation_requested | string collect)
-    if test "$continuation_requested" = true
-        commandline --replace '__yo_continue'
-        commandline -f execute
-        return
-    end
-
-    set -l inserted (__yo_json_get "$state_json" inserted | string collect)
-    if test "$inserted" = true
-        return
-    end
-
-    set -l command_text (__yo_json_get "$state_json" suggested_command | string collect)
-    if test -z "$command_text"
-        return
-    end
-
-    if commandline --replace "$command_text" 2>/dev/null
-        commandline --cursor (string length -- "$command_text")
-        __yo_state_mark_inserted
-    end
-end
-
 function __yo_preexec --on-event fish_preexec --description 'Capture edited yo commands'
     __yo_pane_environment; or return
 
@@ -523,7 +491,8 @@ function __yo_postexec --on-event fish_postexec --description 'Automatically con
         return
     end
 
-    __yo_state_request_continuation "$actual" "$last_status"
+    __yo_state_record_execution "$actual" "$last_status"; or return $status
+    __yo_run_request "" 1 "$actual" "$last_status"
 end
 
 function __yo_continue --description 'Continue a pending yo task as a normal foreground command'
@@ -542,29 +511,13 @@ function __yo_continue --description 'Continue a pending yo task as a normal for
         set exit_status 0
     end
 
-    __yo_state_clear_continuation_request
     __yo_run_request "" 1 "$actual" "$exit_status"
 end
 
-function __yo_accept_line --description 'Intercept Enter for yo-prefixed commandlines'
+function __yo_accept_line --description 'Clear yo state on empty Enter, then execute'
     set -l buffer (commandline | string trim)
-
     if test -z "$buffer"
         __yo_clear_state 2>/dev/null
-        commandline -f execute
-        return
-    end
-
-    if string match -qr '^yo(\s|$)' -- "$buffer"
-        __yo_clear_state 2>/dev/null
-        set -l query (string replace -r '^yo\s*' '' -- "$buffer")
-        if test -z "$query"
-            commandline --replace 'yo --help'
-        else if test "$query" = reset
-            commandline --replace 'yo reset'
-        else
-            commandline --replace " yo "(string escape -- "$query")
-        end
     end
 
     commandline -f execute
@@ -605,19 +558,23 @@ function yo --description 'Ask Pi for shell help and prefill suggested commands'
     end
 
     if test (count $query_parts) -eq 0
-        __yo_error 'missing request'
-        return 2
+        printf '%s\n' \
+            'Usage: yo <request>' \
+            '       yo reset'
+        return 0
     end
 
     __yo_request $query_parts
 end
 
 if status is-interactive
+    functions -e __yo_prompt_prefill __yo_state_request_continuation __yo_state_clear_continuation_request 2>/dev/null
+
     complete -e yo 2>/dev/null
     complete -c yo -a reset -d 'Clear yo context'
 
-    bind \r __yo_accept_line
-    bind \cc __yo_cancel_commandline
-    bind --mode insert \r __yo_accept_line 2>/dev/null
-    bind --mode insert \cc __yo_cancel_commandline 2>/dev/null
+    bind enter __yo_accept_line
+    bind ctrl-c __yo_cancel_commandline
+    bind --mode insert enter __yo_accept_line 2>/dev/null
+    bind --mode insert ctrl-c __yo_cancel_commandline 2>/dev/null
 end
