@@ -15,9 +15,28 @@ config.max_fps = 120
 config.bidi_enabled = true
 config.bidi_direction = "AutoLeftToRight"
 
--- right status as powerline pills: workspace/count, domain, key table, zoom.
+-- right status as powerline pills: workspace, domain, key table, zoom.
 -- wezterm bundles Nerd Font symbols, so the divider glyph needs no nerd font.
 local PILL_SEP = utf8.char(0xe0b2)
+local WORKSPACE_NAME_MAX = 18
+
+local function shorten_workspace_name(name)
+  if #name <= WORKSPACE_NAME_MAX then
+    return name
+  end
+  return name:sub(1, WORKSPACE_NAME_MAX - 1) .. "…"
+end
+
+local function workspace_label(active)
+  local names = mux.get_workspace_names()
+  table.sort(names)
+  for i, name in ipairs(names) do
+    if name == active then
+      return string.format("%d/%d %s", i, #names, shorten_workspace_name(active))
+    end
+  end
+  return string.format("?/%d %s", #names, shorten_workspace_name(active))
+end
 
 wezterm.on("update-status", function(window, pane)
   local tab = window:active_tab()
@@ -33,13 +52,14 @@ wezterm.on("update-status", function(window, pane)
 
   -- pills drawn right-to-left with a divider between; Catppuccin Mocha palette
   local ink = "#1e1e2e"
+  local workspace = workspace_label(window:active_workspace())
   -- get_domain_name throws for a pane not in the mux (transient startup pane, or
   -- the GUI-only debug overlay pane); skip the domain pill rather than error out.
   local ok, domain = pcall(function()
     return pane:get_domain_name()
   end)
   local pills = {
-    { text = window:active_workspace() .. " " .. #mux.get_workspace_names(), bg = "#89b4fa" },
+    { text = workspace, bg = "#89b4fa" },
   }
   if ok and domain then
     pills[#pills + 1] = { text = domain, bg = "#94e2d5" }
