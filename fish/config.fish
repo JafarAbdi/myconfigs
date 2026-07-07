@@ -1181,4 +1181,14 @@ complete -c myinstall -n "__fish_seen_subcommand_from remote; and test (count (c
 complete -c myinstall -n "__fish_seen_subcommand_from remote; and test (count (commandline -opc)) -ge 3" -a "(__fish_myinstall_commands)"
 complete -c myinstall -n "__fish_seen_subcommand_from sync-remote; and test (count (commandline -opc)) -eq 2" -a "(__fish_complete_user_at_hosts)"
 
+function fish_should_add_to_history --description 'Decide whether to persist command history'
+  set -l command_text "$argv[1]"
+
+  string match -qr '^[[:space:]]' -- "$command_text"; and return 1
+  string match -qr '^yo([[:space:]]|$)' -- "$command_text"; and return 1
+  string match -qr '^__yo_[A-Za-z0-9_]*([[:space:]]|$)' -- "$command_text"; and return 1
+
+  return 0
+end
+
 source ~/myconfigs/yo/yo.fish
