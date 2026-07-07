@@ -1,6 +1,6 @@
 ---
 name: einops
-description: ALWAYS load before writing, editing, or creating any tensor-reshaping or modeling code — any reshape/transpose/permute/view/squeeze/expand_dims/stack/concat/pooling/channel-or-head-shuffle on JAX, PyTorch, NumPy, or TF arrays. Use einops rearrange/reduce/repeat (+ Rearrange/Reduce layers) for readable, shape-safe array ops instead of opaque .view/.permute/.transpose/einsum chains.
+description: ALWAYS load before writing, editing, or creating any tensor-reshaping or modeling code — any reshape/transpose/permute/view/squeeze/expand_dims/stack/concat/pooling/channel-or-head-shuffle on JAX, PyTorch, NumPy, TF, or tinygrad arrays. Use einops rearrange/reduce/repeat (+ Rearrange/Reduce layers) for readable, shape-safe array ops instead of opaque .view/.permute/.transpose/einsum chains.
 ---
 
 # einops: readable, shape-safe tensor ops
@@ -211,3 +211,26 @@ class MultiHeadAttention(nn.Module):
 padded = F.pad(fake_batch[:64], [1, 1, 1, 1])
 plt.imshow(rearrange(padded, "(b1 b2) c h w -> (b1 h) (b2 w) c", b1=8).cpu())
 ```
+
+## tinygrad — the DSL is built in; no `einops` import
+
+tinygrad ships the pattern language natively as `Tensor` methods, so use those instead of
+adding the dependency. The pattern strings are identical to einops (`Tensor.rearrange`'s
+docstring links einops.rocks).
+
+```python
+x.rearrange("b c h w -> b (c h w)")               # every rearrange idiom above works verbatim
+x.rearrange("b (head k) -> head b k", head=8)     # decompose/compose, split/merge heads, …
+Tensor.einsum("bchw,bdhw->bcd", x, x)             # every einsum idiom works
+```
+
+Three gaps — the built-ins cover `rearrange`/`einsum` only:
+
+| Skill construct | tinygrad has no string form — use |
+| :-- | :-- |
+| `reduce(x, "b c h w -> b c", "mean")` | `x.mean(axis=(2, 3))` / `.sum` / `.max` (no `Tensor.reduce`) |
+| `repeat(x, "h w -> h (r w)", r=3)` | `.expand` / `.reshape` (`Tensor.repeat` is numpy-tile-style, not a pattern) |
+| `Rearrange`/`Reduce` layer modules | drop `lambda x: x.rearrange("…")` into the callable list / `Tensor.sequential` |
+
+The `einops` package itself also works on a tinygrad `Tensor` (backend-agnostic), but prefer
+the native methods.
