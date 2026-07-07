@@ -6,6 +6,19 @@ readonly YELLOW='\033[1;33m'
 readonly NC='\033[0m' # No Color
 
 STUBS_DIR="${HOME}/.cache/python-stubs/stubs"
+# resolve through the stow symlink so the sibling resolver is found on PATH too
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# _stubgen_resolve.py drives pybind11-stubgen but recovers raw C++ type names
+# leaked into docstrings (e.g. mujoco::python::MjModelJointViews -> the real
+# _MjModelJointViews class), which stubgen otherwise renders as `...`.
+RESOLVER="${SCRIPT_DIR}/_stubgen_resolve.py"
+
+# Tools run via uv (no global install), overlaid onto the project env `uv run`
+# resolves from the cwd, so compiled packages (e.g. mujoco _structs.so) import.
+# pybind11-stubgen reads pybind11 signatures (real param/return types); mypy's
+# stubgen only emits (*args, **kwargs) for C extensions. mypy is used to detect
+# which modules are missing stubs.
+UV_RUN="uv run --with mypy --with pybind11-stubgen"
 
 error() {
     echo -e "${RED}Error: ${1}${NC}" >&2
@@ -24,7 +37,7 @@ generate_stub() {
     local package=$1
 
     echo "Generating stubs for ${package}..."
-    if ! stubgen -p "${package}" -o "${STUBS_DIR}"; then
+    if ! $UV_RUN python "${RESOLVER}" "${package}" -o "${STUBS_DIR}"; then
         warning "Failed to generate stubs for ${package}"
         return 1
     fi
@@ -35,25 +48,43 @@ generate_stub() {
 }
 
 get_system_packages() {
-    python -c """import os
-import pkg_resources
-for pkg in pkg_resources.working_set:
-    if pkg.location.startswith(os.environ['HOME'] + '/workspaces') or pkg.location.startswith('/opt'):
-        print(pkg.project_name.replace('-', '_'))"""
+    $UV_RUN python -c """import os
+import importlib.metadata as im
+home = os.environ['HOME']
+seen = set()
+for dist in im.distributions():
+    loc = str(dist.locate_file(''))
+    if not (loc.startswith(home + '/workspaces') or loc.startswith('/opt')):
+        continue
+    name = (dist.metadata['Name'] or '').replace('-', '_')
+    if name and name not in seen:
+        seen.add(name)
+        print(name)"""
 }
 
 get_missing_stubs() {
     local file=$1
-    mypy "$file" | grep -oP '(?<=Cannot find implementation or library stub for module named ").*(?=")|(?<=Skipping analyzing ").*(?=": module is installed)|(?<=Library stubs not installed for ").*(?="\.)' | grep -v "numpy" | cut -d. -f1 | sort -u
+    $UV_RUN mypy "$file" | grep -oP '(?<=Cannot find implementation or library stub for module named ").*(?=")|(?<=Skipping analyzing ").*(?=": module is installed)|(?<=Library stubs not installed for ").*(?="\.)' | grep -v "numpy" | cut -d. -f1 | sort -u
 }
 
 export -f generate_stub warning
-export STUBS_DIR RED YELLOW NC
+export STUBS_DIR RED YELLOW NC UV_RUN RESOLVER
 
-command -v stubgen &> /dev/null || error "stubgen executable doesn't exist"
+command -v uv &> /dev/null || error "uv executable doesn't exist"
 mkdir -p "${STUBS_DIR}" || error "Failed to create stubs directory '${STUBS_DIR}'"
 
-packages=$([ -n "$1" ] && get_missing_stubs "$1" || get_system_packages)
+# A .py file -> detect its missing-stub imports; package names -> stub those
+# directly (bypasses detection, so it regenerates even if a stub already
+# exists); no args -> sweep every package under ~/workspaces and /opt.
+if [ "$#" -gt 0 ]; then
+    if [ -f "$1" ]; then
+        packages=$(get_missing_stubs "$1")
+    else
+        packages="$*"
+    fi
+else
+    packages=$(get_system_packages)
+fi
 [ -z "$packages" ] && { info "No packages found"; exit 0; }
 
 
