@@ -5,8 +5,6 @@ set -x WORKSPACE_DIR ~/workspaces
 set -x ROS2_WS_DIR $WORKSPACE_DIR/ros2
 set -x ROS_WS_DIR $WORKSPACE_DIR/ros
 set MAMBA_LEFT_PROMPT
-set -x CPP_SCREATCHES_DIR $HOME/workspaces/pixi_workspaces/cpp_ws
-set -x RUST_SCREATCHES_DIR $HOME/workspaces/rust/scratches/src/bin
 export XMODIFIERS="@im=none"
 export RUFF_CACHE_DIR=$HOME/.cache/ruff
 export MYPY_CACHE_DIR=$HOME/.cache/mypy
@@ -291,14 +289,6 @@ end
 
 function set-timezone
   sudo timedatectl set-timezone $argv[1]
-end
-
-function rs-scratch
-  nvim $RUST_SCREATCHES_DIR/$argv[1]
-end
-
-function cpp-scratch
-  nvim $CPP_SCREATCHES_DIR/$argv[1]
 end
 
 function mem-monitor
@@ -871,17 +861,6 @@ function __fish_workon_workspaces
   echo reset (_workon_workspace.py --workspaces) | tr '  ' '\n'
 end
 complete -c workon -x -a "(__fish_workon_workspaces)"
-
-function __fish_rust_scratch_files
-  test -d $RUST_SCREATCHES_DIR || mkdir -p $RUST_SCREATCHES_DIR
-  ls $RUST_SCREATCHES_DIR
-end
-complete -c rs-scratch -x -a "(__fish_rust_scratch_files)"
-
-function __fish_cpp_scratch_files
-  ls $CPP_SCREATCHES_DIR/*.cpp | xargs -n 1 basename
-end
-complete -c cpp-scratch -x -a "(__fish_cpp_scratch_files)"
 
 function __fish_start_container
   set -l completions
