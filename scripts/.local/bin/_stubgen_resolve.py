@@ -11,6 +11,8 @@ missing names are left untouched, so it never resolves wrongly).
 Uses pybind11-stubgen's `parse_annotation_str` extension point. CLI is identical
 to `pybind11-stubgen`.
 """
+
+import contextlib
 import importlib
 import inspect
 import logging
@@ -28,7 +30,12 @@ from pybind11_stubgen import (
     to_output_and_subdir,
 )
 from pybind11_stubgen.parser.interface import IParser
-from pybind11_stubgen.structs import InvalidExpression, QualifiedName, ResolvedType
+from pybind11_stubgen.structs import (
+    InvalidExpression,
+    QualifiedName,
+    ResolvedType,
+    Value,
+)
 
 _CXX_NAME = re.compile(r"^[\w:]+::(\w+)$")
 
@@ -42,19 +49,19 @@ def build_class_index(root_name: str) -> dict[str, set[str]]:
     root = importlib.import_module(root_name)
     prefix = root_name + "."
     for info in pkgutil.walk_packages(
-        getattr(root, "__path__", []), prefix, onerror=lambda _name: None
+        getattr(root, "__path__", []),
+        prefix,
+        onerror=lambda _name: None,
     ):
-        try:
+        with contextlib.suppress(Exception):
             importlib.import_module(info.name)
-        except Exception:
-            pass
     index: dict[str, set[str]] = {}
     for name, module in list(sys.modules.items()):
         if module is None or (name != root_name and not name.startswith(prefix)):
             continue
         try:
             members = inspect.getmembers(module, inspect.isclass)
-        except Exception:
+        except Exception:  # noqa: BLE001, S112
             continue
         for _, obj in members:
             mod = getattr(obj, "__module__", "") or ""
@@ -63,9 +70,12 @@ def build_class_index(root_name: str) -> dict[str, set[str]]:
     return index
 
 
-def make_resolver(index: dict[str, set[str]]):
+def make_resolver(index: dict[str, set[str]]) -> type[IParser]:
     class ResolveCxxNames(IParser):
-        def parse_annotation_str(self, annotation_str: str):
+        def parse_annotation_str(
+            self,
+            annotation_str: str,
+        ) -> ResolvedType | InvalidExpression | Value:
             result = super().parse_annotation_str(annotation_str)
             if isinstance(result, InvalidExpression):
                 m = _CXX_NAME.match(annotation_str.strip())
@@ -81,7 +91,8 @@ def make_resolver(index: dict[str, set[str]]):
 
 def main() -> None:
     logging.basicConfig(
-        level=logging.WARNING, format="%(name)s - [%(levelname)7s] %(message)s"
+        level=logging.WARNING,
+        format="%(name)s - [%(levelname)7s] %(message)s",
     )
     # pybind11-stubgen logs every raw C++ expression as an ERROR while parsing,
     # before the resolver below replaces it in the output. The logs are stale
