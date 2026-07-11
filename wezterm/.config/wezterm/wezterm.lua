@@ -146,6 +146,57 @@ local snippet_common = {
   { glyph = "🔌", name = "listening sockets", text = "ss -tulpn" },
   { glyph = "📈", name = "uptime + who", text = "uptime; who" },
   { glyph = "🧠", name = "top memory procs", text = "ps aux --sort=-%mem | head -15" },
+  { glyph = "⚡", name = "top CPU procs", text = "ps aux --sort=-%cpu | head -15" },
+  { glyph = "🧮", name = "memory summary", text = "free -h" },
+  { glyph = "🔥", name = "CPU/mem snapshot", text = "top -bn1 | head -20" },
+  { glyph = "🗄️", name = "disk free per mount", text = "df -h -x tmpfs -x devtmpfs" },
+  { glyph = "🔢", name = "inode usage", text = "df -ih" },
+  {
+    glyph = "📁",
+    name = "biggest files here",
+    text = "du -ah . 2>/dev/null | sort -rh | head -30",
+  },
+  { glyph = "🧱", name = "block devices", text = "lsblk" },
+  { glyph = "🧹", name = "journal size", text = "journalctl --disk-usage" },
+  { glyph = "💥", name = "failed units", text = "systemctl --failed" },
+  { glyph = "⏱️", name = "slow boot culprits", text = "systemd-analyze blame | head -20" },
+  { glyph = "🧭", name = "IPs at a glance", text = "ip -brief addr" },
+  { glyph = "🔗", name = "established conns", text = "ss -tp state established" },
+  { glyph = "❌", name = "errors this boot", text = "journalctl -b -p err --no-pager" },
+  {
+    glyph = "💀",
+    name = "OOM kills",
+    text = "journalctl -k | grep -iE 'oom|out of memory' | tail",
+  },
+  { glyph = "🌡️", name = "dmesg tail", text = "dmesg | tail -30" },
+  { glyph = "🕐", name = "recent logins", text = "last -n 15" },
+  -- process inspection: pid_picker (fish fn in config.fish) opens an fzf ps -ef
+  -- picker and prints the PID; `| head -1` keeps a single target for tools that
+  -- want one. embedded via fish command substitution so Enter fires the picker.
+  { glyph = "🌲", name = "subtree of pid (descendants)", text = "pstree -p (pid_picker | head -1)" },
+  { glyph = "🧬", name = "ancestry of pid (parents)", text = "pstree -sp (pid_picker | head -1)" },
+  {
+    glyph = "🔬",
+    name = "strace — syscalls (kernel boundary)",
+    text = "strace -f -p (pid_picker | head -1)",
+  },
+  {
+    glyph = "📚",
+    name = "ltrace — library calls (libc boundary)",
+    text = "ltrace -f -p (pid_picker | head -1)",
+  },
+  { glyph = "🗃️", name = "open files (lsof pid)", text = "lsof -p (pid_picker | head -1)" },
+  { glyph = "🧵", name = "threads of pid", text = "ps -T -p (pid_picker | head -1)" },
+  {
+    glyph = "🥞",
+    name = "quick backtrace (pid)",
+    text = "gdb -p (pid_picker | head -1) -batch -ex bt",
+  },
+  {
+    glyph = "📇",
+    name = "env of pid",
+    text = "cat /proc/(pid_picker | head -1)/environ | tr '\\0' '\\n'",
+  },
 }
 
 local snippet_by_host = {
