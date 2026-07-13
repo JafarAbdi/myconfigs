@@ -137,6 +137,11 @@ end
 -- `text` carries no trailing newline; the picker appends one when Enter (run) is
 -- used, and omits it for Tab (place).
 local snippet_common = {
+  {
+    glyph = "📋",
+    name = "OSC 52 clipboard filter",
+    text = [[| base64 | tr -d '\n' | awk '{printf "\033]52;c;%s\007", $0}']],
+  },
   { glyph = "📜", name = "tail journal (this boot)", text = "journalctl -b -f" },
   {
     glyph = "💾",
