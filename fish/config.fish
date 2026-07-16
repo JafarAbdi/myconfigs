@@ -103,7 +103,6 @@ end
 set -xg PATH (get_path)
 set -xg LD_LIBRARY_PATH (get_ld_library_path)
 set -xg CMAKE_PREFIX_PATH (get_cmake_prefix_path)
-set -xg BROWSER "firefox"
 
 # get_path rebuilds PATH from scratch and drops fnm's node bin, so re-add it
 # here (this file is re-sourced by `myconfigsr`, where conf.d/fnm.fish is not).
