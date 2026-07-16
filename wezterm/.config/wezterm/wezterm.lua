@@ -178,8 +178,16 @@ local snippet_common = {
   -- process inspection: pid_picker (fish fn in config.fish) opens an fzf ps -ef
   -- picker and prints the PID; `| head -1` keeps a single target for tools that
   -- want one. embedded via fish command substitution so Enter fires the picker.
-  { glyph = "🌲", name = "subtree of pid (descendants)", text = "pstree -p (pid_picker | head -1)" },
-  { glyph = "🧬", name = "ancestry of pid (parents)", text = "pstree -sp (pid_picker | head -1)" },
+  {
+    glyph = "🌲",
+    name = "subtree of pid (descendants)",
+    text = "pstree -p (pid_picker | head -1)",
+  },
+  {
+    glyph = "🧬",
+    name = "ancestry of pid (parents)",
+    text = "pstree -sp (pid_picker | head -1)",
+  },
   {
     glyph = "🔬",
     name = "strace — syscalls (kernel boundary)",
