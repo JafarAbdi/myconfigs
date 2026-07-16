@@ -1617,32 +1617,24 @@ local servers = {
   --     "lsp",
   --   },
   -- },
-  -- {
-  --   Doesn't work with bindings (import mujoco;mujoco.XXX) doesn't complete MjModel etc
-  --   name = "zubanls",
-  --   filetypes = { "python" },
-  --   cmd = { "zuban", "server" },
-  -- },
   {
-    name = "jedi_language_server",
+    name = "zubanls",
     filetypes = { "python" },
-    cmd = {
-      vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "python-lsp", "bin", "jedi-language-server"),
-      -- "-vv",
-      -- "--log-file",
-      -- "/tmp/logging.txt",
-    },
+    cmd = { "zuban", "server" },
+    -- zuban is static (mypy-compatible): it only sees packages shipping
+    -- .py/.pyi source. Compiled bindings without stubs (e.g. mujoco MjModel,
+    -- which lives in _structs.so) need generated stubs. MYPYPATH points zuban
+    -- at the `generate_python_stubs` output (plain <pkg>/ layout). jedi differs
+    -- — it imports at runtime, so it needs no stubs.
+    cmd_env = { MYPYPATH = vim.env.HOME .. "/.cache/python-stubs/stubs" },
+    -- pythonExecutable points zuban at the env interpreter so it can find
+    -- installed packages. Same option as `zuban check --python-executable`.
     init_options = function(file)
       local options = {
-        workspace = {
-          extraPaths = {
-            vim.env.HOME .. "/.cache/python-stubs",
-          },
-          environmentPath = "/usr/bin/python3",
-        },
+        pythonExecutable = "/usr/bin/python3",
       }
       if vim.env.CONDA_PREFIX then
-        options.workspace.environmentPath = vim.env.CONDA_PREFIX .. "/bin/python"
+        options.pythonExecutable = vim.env.CONDA_PREFIX .. "/bin/python"
       end
 
       local venv = vim.fs.find(".venv", {
@@ -1651,11 +1643,10 @@ local servers = {
         path = vim.uv.fs_realpath(file),
         type = "directory",
       })
-
       if #venv > 0 then
         local venv_python_executable = vim.fs.joinpath(venv[1], "bin", "python")
         if vim.uv.fs_stat(venv_python_executable) then
-          options.workspace.environmentPath = venv[1]
+          options.pythonExecutable = venv_python_executable
           return options
         end
       end
@@ -1669,12 +1660,64 @@ local servers = {
       if #pixi > 0 then
         local pixi_python_executable = vim.fs.joinpath(pixi[1], "envs", "default", "bin", "python")
         if vim.uv.fs_stat(pixi_python_executable) then
-          options.workspace.environmentPath = pixi[1] .. "/envs/default"
+          options.pythonExecutable = pixi_python_executable
         end
       end
       return options
     end,
   },
+  -- {
+  --   name = "jedi_language_server",
+  --   filetypes = { "python" },
+  --   cmd = {
+  --     vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "python-lsp", "bin", "jedi-language-server"),
+  --     -- "-vv",
+  --     -- "--log-file",
+  --     -- "/tmp/logging.txt",
+  --   },
+  --   init_options = function(file)
+  --     local options = {
+  --       workspace = {
+  --         extraPaths = {
+  --           vim.env.HOME .. "/.cache/python-stubs",
+  --         },
+  --         environmentPath = "/usr/bin/python3",
+  --       },
+  --     }
+  --     if vim.env.CONDA_PREFIX then
+  --       options.workspace.environmentPath = vim.env.CONDA_PREFIX .. "/bin/python"
+  --     end
+  --
+  --     local venv = vim.fs.find(".venv", {
+  --       upward = true,
+  --       stop = vim.uv.os_homedir(),
+  --       path = vim.uv.fs_realpath(file),
+  --       type = "directory",
+  --     })
+  --
+  --     if #venv > 0 then
+  --       local venv_python_executable = vim.fs.joinpath(venv[1], "bin", "python")
+  --       if vim.uv.fs_stat(venv_python_executable) then
+  --         options.workspace.environmentPath = venv[1]
+  --         return options
+  --       end
+  --     end
+  --
+  --     local pixi = vim.fs.find(".pixi", {
+  --       upward = true,
+  --       stop = vim.uv.os_homedir(),
+  --       path = vim.uv.fs_realpath(file),
+  --       type = "directory",
+  --     })
+  --     if #pixi > 0 then
+  --       local pixi_python_executable = vim.fs.joinpath(pixi[1], "envs", "default", "bin", "python")
+  --       if vim.uv.fs_stat(pixi_python_executable) then
+  --         options.workspace.environmentPath = pixi[1] .. "/envs/default"
+  --       end
+  --     end
+  --     return options
+  --   end,
+  -- },
   {
     name = "marksman",
     filetypes = { "markdown" },
