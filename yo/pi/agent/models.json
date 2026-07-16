@@ -8,7 +8,11 @@
         "maxTokensField": "max_tokens",
         "supportsDeveloperRole": false,
         "supportsReasoningEffort": false,
-        "thinkingFormat": "qwen-chat-template"
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": false,
+          "preserve_thinking": false
+        }
       },
       "models": [
         {
