@@ -49,9 +49,8 @@ export function createRemoteWriteOps(connection: SshConnection): WriteOperations
 	return {
 		writeFile: async (p, content) => {
 			const remotePath = connection.toRemotePath(p);
-			const b64 = Buffer.from(content).toString("base64");
 			try {
-				await connection.exec(`printf %s ${shellQuote(b64)} | base64 -d > ${shellQuote(remotePath)}`);
+				await connection.exec(`cat > ${shellQuote(remotePath)}`, { input: content });
 			} catch (error) {
 				throw new Error(`Remote file write failed: ${remotePath}\n${errorMessage(error)}`);
 			}

@@ -168,7 +168,7 @@ export class SshConnection {
 		return this.fzfPath;
 	}
 
-	exec(command: string, options?: { signal?: AbortSignal }): Promise<Buffer> {
+	exec(command: string, options?: { input?: string; signal?: AbortSignal }): Promise<Buffer> {
 		const args = [this.remote, this.buildBashCommand(command)];
 		return this.runBufferedSsh(args, command, options);
 	}
@@ -597,7 +597,7 @@ export class SshConnection {
 	private runBufferedSsh(
 		args: string[],
 		command: string,
-		options?: { signal?: AbortSignal },
+		options?: { input?: string; signal?: AbortSignal },
 	): Promise<Buffer> {
 		return new Promise((resolvePromise, reject) => {
 			if (options?.signal?.aborted) {
@@ -607,7 +607,8 @@ export class SshConnection {
 
 			let settled = false;
 			let timedOut = false;
-			const child = this.spawnSshPipe(args);
+			let stdinError: Error | undefined;
+			const child = options?.input === undefined ? this.spawnSshPipe(args) : this.spawnSshStream(args);
 			const chunks: Buffer[] = [];
 			const errChunks: Buffer[] = [];
 			const timer = this.createChildTimeout(child, LOCAL_SSH_COMMAND_TIMEOUT_MS, () => {
@@ -641,10 +642,18 @@ export class SshConnection {
 						const message = `Remote command failed on ${this.remote} (exit ${code})`;
 						reject(new Error(`${message}: ${commandText}\nstderr: ${formatStderr(stderr)}`));
 					}
+				} else if (stdinError) {
+					reject(stdinError);
 				} else {
 					resolvePromise(Buffer.concat(chunks));
 				}
 			}));
+			if (options?.input !== undefined) {
+				child.stdin.on("error", (error) => {
+					stdinError = error;
+				});
+				child.stdin.end(options.input, "utf8");
+			}
 		});
 	}
 }
