@@ -1341,7 +1341,8 @@ vim.keymap.set("n", "<C-M-s>", function()
   local cword = vim.fn.expand("<cword>")
   if cword ~= "" then
     fzy.execute(
-      "rg --no-messages --no-heading --trim --line-number --smart-case " .. cword,
+      "rg --no-messages --no-heading --trim --line-number --smart-case --fixed-strings -- "
+        .. vim.fn.shellescape(cword),
       fzy.sinks.edit_live_grep
     )
   end
