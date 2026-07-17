@@ -1,6 +1,8 @@
 vim.opt.shell = "bash"
 vim.g.loaded_matchparen = 1
 vim.g.markdown_fenced_languages = { "ts=typescript" }
+vim.g.mapleader = " "
+vim.g.maplocalleader = " "
 
 local myconfigs_path = vim.fs.joinpath(vim.env.HOME, "myconfigs")
 -----------------
@@ -205,38 +207,13 @@ vim.api.nvim_create_autocmd("TermOpen", {
 
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
-    vim.keymap.set({ "n", "i" }, "<C-k>", function()
-      local cmp = require("cmp")
-      if cmp.visible() then
-        cmp.close()
-      end
-      vim.lsp.buf.signature_help()
-    end, { buffer = args.buf, silent = true })
-    vim.keymap.set(
-      { "n", "v" },
-      "<F3>",
-      vim.lsp.buf.code_action,
-      { buffer = args.buf, silent = true }
-    )
-    vim.keymap.set(
-      "n",
-      "gi",
-      set_clangd_opening_path(vim.lsp.buf.implementation),
-      { buffer = args.buf, silent = true }
-    )
-    vim.keymap.set(
-      "n",
-      "gr",
-      set_clangd_opening_path(vim.lsp.buf.references),
-      { buffer = args.buf, silent = true }
-    )
+    vim.keymap.set("n", "<C-k>", vim.lsp.buf.signature_help, { buffer = args.buf, silent = true })
     vim.keymap.set(
       "n",
       "gd",
       set_clangd_opening_path(vim.lsp.buf.definition),
       { buffer = args.buf, silent = true }
     )
-    vim.keymap.set("n", "<F2>", vim.lsp.buf.rename, { buffer = args.buf, silent = true })
     vim.keymap.set("n", "<leader>f", function()
       vim.lsp.buf.format({ async = true })
     end, { buffer = args.buf, silent = true })
@@ -1295,8 +1272,6 @@ if vim.fn.executable("rg") == 1 then
   vim.opt.grepformat = "%f:%l:%c:%m,%f:%l:%m"
 end
 
-vim.g.mapleader = " "
-vim.g.maplocalleader = " "
 if os.getenv("SSH_CLIENT") then
   vim.g.clipboard = "osc52"
 end
@@ -1340,19 +1315,6 @@ end
 
 local q = require("qwahl")
 
-local function try_jump(direction, key)
-  if vim.snippet.active({ direction = direction }) then
-    return string.format("<cmd>lua vim.snippet.jump(%d)<cr>", direction)
-  end
-  return key
-end
-
-vim.keymap.set({ "i", "s" }, "<Tab>", function()
-  return try_jump(1, "<Tab>")
-end, { expr = true })
-vim.keymap.set({ "i", "s" }, "<S-Tab>", function()
-  return try_jump(-1, "<S-Tab>")
-end, { expr = true })
 -- Incremental treesitter node selection (built-in an/in) with old keymaps
 vim.keymap.set("n", "<A-w>", "van", { remap = true, silent = true })
 vim.keymap.set("x", "<A-w>", "an", { remap = true, silent = true })
@@ -1368,15 +1330,6 @@ end, { expr = true })
 
 --Remap space as leader key
 vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
-
-vim.keymap.set("n", "gs", function()
-  vim.lsp.buf.document_symbol({
-    on_list = function(options)
-      vim.fn.setqflist({}, " ", options)
-      q.quickfix()
-    end,
-  })
-end, { silent = true })
 
 vim.keymap.set("n", "<leader>x", function()
   run_file()
@@ -1426,30 +1379,6 @@ vim.keymap.set("n", "<leader>c", function()
   win_pre_copen = api.nvim_get_current_win()
   vim.cmd.copen({ mods = { split = "botright" } })
 end, { silent = true })
-
-local center_screen = function(command)
-  return function()
-    local ok, _ = pcall(command)
-    if ok then
-      vim.cmd.normal("zz")
-    end
-  end
-end
-
-vim.keymap.set("n", "]q", center_screen(vim.cmd.cnext), { silent = true })
-vim.keymap.set("n", "[q", center_screen(vim.cmd.cprevious), { silent = true })
-vim.keymap.set("n", "]Q", center_screen(vim.cmd.clast), { silent = true })
-vim.keymap.set("n", "[Q", center_screen(vim.cmd.cfirst), { silent = true })
-vim.keymap.set("n", "]a", center_screen(vim.cmd.next), { silent = true })
-vim.keymap.set("n", "[a", center_screen(vim.cmd.previous), { silent = true })
-vim.keymap.set("n", "]A", center_screen(vim.cmd.last), { silent = true })
-vim.keymap.set("n", "[A", center_screen(vim.cmd.first), { silent = true })
-vim.keymap.set("n", "]l", center_screen(vim.cmd.lnext), { silent = true })
-vim.keymap.set("n", "[l", center_screen(vim.cmd.lprevious), { silent = true })
-vim.keymap.set("n", "]L", center_screen(vim.cmd.lfirst), { silent = true })
-vim.keymap.set("n", "[L", center_screen(vim.cmd.llast), { silent = true })
-vim.keymap.set("n", "]t", center_screen(vim.cmd.tn), { silent = true })
-vim.keymap.set("n", "[t", center_screen(vim.cmd.tp), { silent = true })
 
 vim.keymap.set({ "n" }, "<leader>m", function()
   local buffer_mark_names = "abcdefghijklmnopqrstuvwxyz"
