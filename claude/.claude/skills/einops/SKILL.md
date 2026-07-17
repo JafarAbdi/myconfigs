@@ -65,6 +65,10 @@ You may use full words for axes (`height width color`); short names are conventi
 | `rearrange(imgs, "(b1 b2) c h w -> (b1 h) (b2 w) c", b1=8)` | tile a batch into an image grid |
 
 einsum-style contractions stay as `einsum`; einops covers the reshape/transpose/reduce around them.
+Reading an einsum string: an index shared between inputs multiplies those elements together;
+any index absent from the output is then summed away; kept indices may be listed in any order
+(transpose for free). So `"bchw,bdhw->bcd"` gives `out[b,c,d] = Σ_h Σ_w x[b,c,h,w]*x[b,d,h,w]`:
+`h,w` are shared-then-summed, `b` is shared-and-kept (per-batch), `c,d` are kept.
 
 ## Layers for `nn.Sequential`
 
