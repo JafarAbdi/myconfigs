@@ -116,9 +116,6 @@ local root_dirs = {
       { "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock" }
     )
   end,
-  deno = function(startpath)
-    return vim.fs.root(startpath, { "deno.json", "deno.jsonc" })
-  end,
 }
 root_dirs.c = root_dirs.cpp
 root_dirs.cuda = root_dirs.cpp
@@ -206,46 +203,6 @@ vim.api.nvim_create_autocmd("TermOpen", {
   group = general_group,
 })
 
--- Populate deno:/ virtual text documents (Deno std lib, npm:/jsr: deps) when
--- nvim opens them — denols serves their content via `deno/virtualTextDocument`
--- rather than the filesystem. Without this, `gd` into lib.deno.*.d.ts lands on
--- an empty buffer and `nvim_win_set_cursor` fails with "out of range".
---
--- BufReadCmd is the idiomatic mechanism for custom URI schemes. We register it
--- per-client in LspAttach so the specific denols client is captured in closure
--- (mirrors upstream lspconfig's `ctx.client_id` scoping). The non-empty-buffer
--- guard makes concurrent registrations idempotent.
-local function register_denols_virtual_doc(client)
-  local group = vim.api.nvim_create_augroup("denols_vdoc_" .. client.id, { clear = true })
-  vim.api.nvim_create_autocmd("BufReadCmd", {
-    group = group,
-    pattern = "deno:/*",
-    callback = function(args)
-      local bufnr = args.buf
-      local res, err = client:request_sync(
-        "deno/virtualTextDocument",
-        { textDocument = { uri = vim.api.nvim_buf_get_name(bufnr) } },
-        5000,
-        bufnr
-      )
-      if err or not res or res.err or not res.result then
-        vim.notify(
-          "denols virtualTextDocument failed: " .. tostring(err or (res and res.err) or "no result"),
-          vim.log.levels.WARN
-        )
-        return
-      end
-      vim.bo[bufnr].modifiable = true
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, vim.split(res.result, "\n"))
-      vim.bo[bufnr].filetype = "typescript"
-      vim.bo[bufnr].readonly = true
-      vim.bo[bufnr].modified = false
-      vim.bo[bufnr].modifiable = false
-      vim.lsp.buf_attach_client(bufnr, client.id)
-    end,
-  })
-end
-
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
     vim.keymap.set({ "n", "i" }, "<C-k>", function()
@@ -288,9 +245,6 @@ vim.api.nvim_create_autocmd("LspAttach", {
     end, { buffer = args.buf, silent = true })
     local client = vim.lsp.get_client_by_id(args.data.client_id)
     client.server_capabilities.semanticTokensProvider = nil
-    if client.name == "denols" then
-      register_denols_virtual_doc(client)
-    end
     -- if client.supports_method("textDocument/documentHighlight") then
     --   local group =
     --     vim.api.nvim_create_augroup(string.format("lsp-%s-%s", args.buf, args.data.client_id), {})
@@ -394,23 +348,6 @@ local get_rust_lsp_client = function()
   assert(#clients == 1, "Multiple rust-analyzer clients attached to this buffer")
   return clients[1]
 end
-vim.api.nvim_create_user_command("DenolsCache", function()
-  local clients = vim.lsp.get_clients({ bufnr = 0, name = "denols" })
-  if #clients == 0 then
-    vim.notify("denols not attached", vim.log.levels.WARN)
-    return
-  end
-  local client = clients[#clients]
-  client:request("workspace/executeCommand", {
-    command = "deno.cache",
-    arguments = { {}, vim.uri_from_bufnr(0) },
-  }, function(err)
-    if err then
-      vim.notify("deno.cache failed: " .. vim.inspect(err), vim.log.levels.ERROR)
-    end
-  end, 0)
-end, {})
-
 vim.api.nvim_create_user_command("RustReloadWorkspace", function()
   local client = get_rust_lsp_client()
   vim.notify("Reloading Cargo Workspace")
@@ -471,39 +408,8 @@ local servers = {
       "typescriptreact",
       "typescript.tsx",
     },
-    -- Skip ts_ls inside Deno projects (denols owns them).
-    condition = function(file)
-      return vim.fs.root(file, { "deno.json", "deno.jsonc" }) == nil
-    end,
     settings = {
       typescript = { tsserver = { useSyntaxServer = false } },
-    },
-  },
-  denols = {
-    name = "denols",
-    cmd = { "deno", "lsp" },
-    cmd_env = { NO_COLOR = "1" },
-    filetypes = {
-      "javascript",
-      "javascriptreact",
-      "javascript.jsx",
-      "typescript",
-      "typescriptreact",
-      "typescript.tsx",
-    },
-    root_dir = root_dirs.deno,
-    condition = function(file)
-      return vim.fs.root(file, { "deno.json", "deno.jsonc" }) ~= nil
-    end,
-    settings = {
-      deno = {
-        enable = true,
-        suggest = {
-          imports = {
-            hosts = { ["https://deno.land"] = true },
-          },
-        },
-      },
     },
   },
   yamlls = {
@@ -1014,7 +920,7 @@ for _, server in pairs(servers) do
         if vim.api.nvim_win_get_config(0).relative ~= "" then
           return
         end
-        -- Skip URI-scheme buffers (deno:/, fugitive://, oil://, jdt://, ...):
+        -- Skip URI-scheme buffers (fugitive://, oil://, jdt://, ...):
         -- vim.fs.root in per-server conditions would mangle the URI via cwd
         -- and return wrong results. Producers attach LSP explicitly instead.
         if args.file:match("^%w+:") then
