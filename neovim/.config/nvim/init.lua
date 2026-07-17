@@ -2237,8 +2237,7 @@ vim.filetype.add({
 vim.cmd.packadd("cfilter")
 vim.cmd.packadd("nvim.undotree")
 
-vim.cmd.colorscheme("vim")
-vim.cmd.colorscheme("onedark")
+vim.cmd.colorscheme("habamax")
 ---------------
 --- Keymaps ---
 ---------------
