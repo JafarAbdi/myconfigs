@@ -934,31 +934,8 @@ for _, server in pairs(servers) do
   end
 end
 
--- TODO: Add https://github.com/JafarAbdi/myconfigs/commit/97ba4ecb55b5972c5bc43ce020241fb353de433f
 local snippets = {
-  all = {
-    {
-      trigger = "Current date",
-      description = "Insert the current date",
-      body = function()
-        return os.date("%Y-%m-%d %H:%M:%S%z")
-      end,
-    },
-    {
-      trigger = "Current month name",
-      description = "Insert the name of the current month",
-      body = function()
-        return os.date("%B")
-      end,
-    },
-    {
-      trigger = "Current filename",
-      description = "Insert the current file name",
-      body = function()
-        return vim.fn.expand("%:t")
-      end,
-    },
-  },
+  all = {},
   cpp = {
     {
       trigger = "main",
