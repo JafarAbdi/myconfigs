@@ -159,15 +159,6 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 
 vim.api.nvim_create_autocmd("FileType", {
-  pattern = { "cpp", "c" },
-  group = general_group,
-  callback = function()
-    -- This fixes an issue with nvim-cmp -- see https://github.com/hrsh7th/nvim-cmp/issues/1035#issuecomment-1195456419
-    vim.opt_local.cindent = false
-  end,
-})
-
-vim.api.nvim_create_autocmd("FileType", {
   pattern = { "markdown" },
   group = general_group,
   callback = function()
@@ -207,6 +198,22 @@ vim.api.nvim_create_autocmd("TermOpen", {
 
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
+    local client = assert(vim.lsp.get_client_by_id(args.data.client_id))
+    if client:supports_method("textDocument/completion") then
+      -- omnifunc starts identifier completion; lsp autotrigger refreshes incomplete results
+      -- and handles server trigger characters. buffer words can shadow richer lsp items.
+      vim.bo[args.buf].complete = "o,F"
+      vim.lsp.completion.enable(true, client.id, args.buf, { autotrigger = true })
+      -- ctrl-x suspends autocomplete before requesting omnifunc again at the current cursor.
+      vim.keymap.set("i", "<C-Space>", "<C-x><C-o>", {
+        buffer = args.buf,
+        silent = true,
+      })
+      vim.keymap.set("i", "<C-S>", function()
+        local close_menu = vim.fn.pumvisible() == 1 and "<C-e>" or ""
+        return close_menu .. "<Cmd>lua vim.lsp.buf.signature_help()<CR>"
+      end, { buffer = args.buf, expr = true, silent = true })
+    end
     vim.keymap.set("n", "<C-k>", vim.lsp.buf.signature_help, { buffer = args.buf, silent = true })
     vim.keymap.set(
       "n",
@@ -220,7 +227,6 @@ vim.api.nvim_create_autocmd("LspAttach", {
     vim.keymap.set({ "i", "n" }, "<M-i>", function()
       return vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled())
     end, { buffer = args.buf, silent = true })
-    local client = vim.lsp.get_client_by_id(args.data.client_id)
     client.server_capabilities.semanticTokensProvider = nil
     -- if client.supports_method("textDocument/documentHighlight") then
     --   local group =
@@ -874,20 +880,22 @@ for _, server in pairs(servers) do
   end
 end
 
-local snippets = {
-  all = {},
-  cpp = {
-    {
-      trigger = "main",
-      description = "Standard main function",
-      body = [[
+local c_snippets = {
+  {
+    trigger = "main",
+    description = "Standard main function",
+    body = [[
 int main (int argc, char *argv[])
 {
   $0
   return 0;
 }]],
-    },
   },
+}
+local snippets = {
+  c = c_snippets,
+  cpp = c_snippets,
+  cuda = c_snippets,
   cmake = {
     {
       trigger = "print_all_variables",
@@ -901,17 +909,45 @@ endforeach()${0}]],
     },
   },
 }
-snippets.c = snippets.cpp
-snippets.cuda = snippets.cpp
 
-local get_buffer_snippets = function(filetype)
-  local ft_snippets = {}
-  vim.list_extend(ft_snippets, snippets.all)
-  if filetype and snippets[filetype] then
-    vim.list_extend(ft_snippets, snippets[filetype])
+_G.complete_snippets = function(findstart, base)
+  if findstart == 1 then
+    local cursor_col = vim.api.nvim_win_get_cursor(0)[2]
+    local line_to_cursor = vim.api.nvim_get_current_line():sub(1, cursor_col)
+    return vim.fn.match(line_to_cursor, [[\k*$]])
   end
-  return ft_snippets
+  if base == "" then
+    return {}
+  end
+  return vim.tbl_map(function(snippet)
+    return {
+      word = snippet.trigger,
+      kind = "S",
+      menu = "[Snippet]",
+      info = snippet.description,
+      user_data = { myconfigs = { snippet = snippet } },
+    }
+  end, vim.fn.matchfuzzy(snippets[vim.bo.filetype] or {}, base, { key = "trigger" }))
 end
+
+vim.api.nvim_create_autocmd("CompleteDone", {
+  group = general_group,
+  callback = function()
+    if vim.v.event.reason ~= "accept" then
+      return
+    end
+    local snippet = vim.tbl_get(vim.v.completed_item, "user_data", "myconfigs", "snippet")
+    if not snippet then
+      return
+    end
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local start_col = cursor[2] - #snippet.trigger
+    assert(start_col >= 0)
+    assert(vim.api.nvim_get_current_line():sub(start_col + 1, cursor[2]) == snippet.trigger)
+    vim.api.nvim_buf_set_text(0, cursor[1] - 1, start_col, cursor[1] - 1, cursor[2], { "" })
+    vim.snippet.expand(snippet.body)
+  end,
+})
 
 ---------------
 --- Plugins ---
@@ -951,9 +987,6 @@ vim.pack.add({
   gh("mfussenegger/nvim-qwahl"),
   gh("mfussenegger/nvim-fzy"),
   gh("github/copilot.vim"),
-  gh("hrsh7th/nvim-cmp"),
-  gh("hrsh7th/cmp-nvim-lsp"),
-  gh("hrsh7th/cmp-buffer"),
   { src = gh("nvim-treesitter/nvim-treesitter"), version = "main" },
   { src = gh("nvim-treesitter/nvim-treesitter-textobjects"), version = "main" },
 })
@@ -982,127 +1015,6 @@ end, { expr = true, silent = true })
 vim.keymap.set("i", "<C-M-e>", function()
   return vim.fn["copilot#AcceptWord"]()
 end, { expr = true, silent = true })
-
--- nvim-cmp
-do
-  local cmp = require("cmp")
-  local compare = require("cmp.config.compare")
-  local cache = {}
-  local cmp_source = {
-    complete = function(_, params, callback)
-      local bufnr = vim.api.nvim_get_current_buf()
-      if not cache[bufnr] then
-        local completion_items = vim.tbl_map(function(snippet)
-          ---@type lsp.CompletionItem
-          local item = {
-            documentation = {
-              kind = cmp.lsp.MarkupKind.PlainText,
-              value = snippet.description or "",
-            },
-            word = snippet.trigger,
-            label = snippet.trigger,
-            kind = vim.lsp.protocol.CompletionItemKind.Snippet,
-            insertText = type(snippet.body) == "function" and snippet.body() or snippet.body,
-            insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet,
-          }
-          return item
-        end, get_buffer_snippets(params.context.filetype))
-        cache[bufnr] = completion_items
-      end
-
-      callback(cache[bufnr])
-    end,
-  }
-
-  cmp.register_source("snippets", cmp_source)
-  cmp.setup({
-    snippet = {
-      expand = function(args)
-        vim.snippet.expand(args.body)
-      end,
-    },
-    mapping = cmp.mapping.preset.insert({
-      ["Tab"] = cmp.config.disable,
-      ["S-Tab"] = cmp.config.disable,
-      ["<C-f>"] = cmp.config.disable,
-      ["<C-d>"] = cmp.mapping.scroll_docs(4),
-      ["<C-u>"] = cmp.mapping.scroll_docs(-4),
-      ["<CR>"] = cmp.mapping.confirm({
-        behavior = cmp.ConfirmBehavior.Insert,
-        select = false,
-      }),
-    }),
-    sources = {
-      { name = "nvim_lsp" },
-      { name = "snippets" },
-      {
-        name = "buffer",
-        option = {
-          get_bufnrs = function()
-            return vim.api.nvim_list_bufs()
-          end,
-        },
-      },
-    },
-    formatting = {
-      format = function(entry, vim_item)
-        vim_item.menu = ({
-          buffer = "[Buffer]",
-          nvim_lsp = "[LSP]",
-          snippets = "[Snippet]",
-        })[entry.source.name]
-        local label = vim_item.abbr
-        -- https://github.com/hrsh7th/nvim-cmp/discussions/609
-        local ELLIPSIS_CHAR = "…"
-        local MAX_LABEL_WIDTH = math.floor(vim.o.columns * 0.4)
-        local truncated_label = vim.fn.strcharpart(label, 0, MAX_LABEL_WIDTH)
-        if truncated_label ~= label then
-          vim_item.abbr = truncated_label .. ELLIPSIS_CHAR
-        end
-        return vim_item
-      end,
-    },
-    sorting = {
-      comparators = {
-        compare.offset,
-        compare.exact,
-        -- compare.score,
-        -- https://github.com/p00f/clangd_extensions.nvim/blob/main/lua/clangd_extensions/cmp_scores.lua
-        function(entry1, entry2)
-          local diff
-          if entry1.completion_item.score and entry2.completion_item.score then
-            diff = (entry2.completion_item.score * entry2.score)
-              - (entry1.completion_item.score * entry1.score)
-          else
-            diff = entry2.score - entry1.score
-          end
-          if diff < 0 then
-            return true
-          elseif diff > 0 then
-            return false
-          end
-        end,
-        -- https://github.com/lukas-reineke/cmp-under-comparator
-        function(entry1, entry2)
-          local _, entry1_under = entry1.completion_item.label:find("^_+")
-          local _, entry2_under = entry2.completion_item.label:find("^_+")
-          entry1_under = entry1_under or 0
-          entry2_under = entry2_under or 0
-          if entry1_under > entry2_under then
-            return false
-          elseif entry1_under < entry2_under then
-            return true
-          end
-        end,
-        compare.recently_used,
-        compare.kind,
-        compare.sort_text,
-        compare.length,
-        compare.order,
-      },
-    },
-  })
-end
 
 -- nvim-treesitter
 require("nvim-treesitter").install({
@@ -1258,9 +1170,12 @@ vim.api.nvim_create_autocmd("LspProgress", {
   end,
 })
 vim.opt.smartindent = false
+-- lsp buffers override 'complete'; other buffers use local snippets and bounded word sources.
+vim.opt.autocomplete = true
 vim.opt.pumheight = 20
-vim.opt.completeopt = "menuone,noselect,noinsert,fuzzy"
-vim.opt.complete:append({ "U", "i", "d" })
+vim.opt.completeopt = "menuone,noselect,noinsert,fuzzy,popup"
+vim.opt.complete = "F,.^5,w^5,b^5"
+vim.opt.completefunc = "v:lua.complete_snippets"
 vim.opt.wildmode = "longest:full,full"
 vim.opt.wildignore:append({ "*.pyc", ".git", ".idea", "*.o" })
 vim.opt.wildoptions = "pum,tagfile,fuzzy"
@@ -1314,6 +1229,10 @@ fzy.command = function(opts)
 end
 
 local q = require("qwahl")
+
+vim.keymap.set("i", "<CR>", function()
+  return vim.fn.complete_info({ "selected" }).selected >= 0 and "<C-y>" or "<CR>"
+end, { expr = true })
 
 -- Incremental treesitter node selection (built-in an/in) with old keymaps
 vim.keymap.set("n", "<A-w>", "van", { remap = true, silent = true })
