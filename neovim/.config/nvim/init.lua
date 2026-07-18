@@ -258,7 +258,7 @@ vim.api.nvim_create_autocmd("LspDetach", {
 })
 
 local get_rust_lsp_client = function()
-  local clients = vim.lsp.get_clients({ name = "rust-langserver" })
+  local clients = vim.lsp.get_clients({ bufnr = 0, name = "rust-langserver" })
   if #clients == 0 then
     return
   end
@@ -267,13 +267,22 @@ local get_rust_lsp_client = function()
 end
 vim.api.nvim_create_user_command("RustReloadWorkspace", function()
   local client = get_rust_lsp_client()
-  vim.notify("Reloading Cargo Workspace")
-  client.request("rust-analyzer/reloadWorkspace", nil, function(err)
+  if not client then
+    vim.notify("rust-analyzer is not attached to this buffer", vim.log.levels.WARN)
+    return
+  end
+  local ok = client:request("rust-analyzer/reloadWorkspace", nil, function(err)
     if err then
       vim.notify("Error reloading Cargo workspace: " .. vim.inspect(err), vim.log.levels.WARN)
+      return
     end
     vim.notify("Cargo workspace reloaded")
-  end)
+  end, 0)
+  if ok then
+    vim.notify("Reloading Cargo workspace")
+  else
+    vim.notify("Failed to request Cargo workspace reload", vim.log.levels.WARN)
+  end
 end, {})
 vim.api.nvim_create_user_command("RustExpandMacro", function()
   local client = get_rust_lsp_client()
