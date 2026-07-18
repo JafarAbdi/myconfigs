@@ -583,9 +583,7 @@ local servers = {
   {
     name = "rust-langserver",
     filetypes = { "rust" },
-    cmd = {
-      vim.env.HOME .. "/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer",
-    },
+    cmd = { "rust-analyzer" },
     settings = {
       -- to enable rust-analyzer settings visit:
       -- https://github.com/rust-analyzer/rust-analyzer/blob/master/docs/user/generated_config.adoc
