@@ -962,10 +962,7 @@ end
 
 -- Copilot globals must be set before the plugin loads
 vim.g.copilot_node_command = myconfigs_path .. "/.pixi/envs/nodejs/bin/node"
-vim.g.copilot_no_tab_map = true
 vim.g.copilot_no_maps = true
-vim.g.copilot_assume_mapped = true
-vim.g.copilot_tab_fallback = ""
 vim.g.copilot_filetypes = {
   ["*"] = true,
   gitcommit = false,
