@@ -100,11 +100,8 @@ local root_dirs = {
     clangd_opening_root_dir = nil
     return dir
   end,
-  rust = function(_)
-    local search_fn = function(path)
-      return vim.fs.root(path, { "Cargo.toml", "rust-project.json", ".vscode" })
-    end
-    return search_fn(vim.fn.getcwd())
+  rust = function(startpath)
+    return vim.fs.root(startpath, { "Cargo.toml", "rust-project.json" })
   end,
   zig = function(startpath)
     return vim.fs.root(startpath, { "build.zig" })
