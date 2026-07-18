@@ -290,32 +290,29 @@ vim.api.nvim_create_user_command("RustExpandMacro", function()
     vim.notify("rust-analyzer is not attached to this buffer", vim.log.levels.WARN)
     return
   end
-  vim.lsp.buf_request_all(
-    0,
+  local ok = client:request(
     "rust-analyzer/expandMacro",
     vim.lsp.util.make_position_params(0, client.offset_encoding),
-    function(result)
+    function(err, result)
+      if err then
+        vim.notify("Error expanding macro: " .. vim.inspect(err), vim.log.levels.WARN)
+        return
+      end
+      if not result or not result.expansion then
+        vim.notify("No macro expansion available", vim.log.levels.WARN)
+        return
+      end
       vim.cmd.vsplit()
       local buf = vim.api.nvim_create_buf(false, true)
       vim.api.nvim_win_set_buf(0, buf)
-      if result then
-        vim.api.nvim_set_option_value("filetype", "rust", { buf = 0 })
-        for _, res in pairs(result) do
-          if res and res.result and res.result.expansion then
-            vim.api.nvim_buf_set_lines(buf, -1, -1, false, vim.split(res.result.expansion, "\n"))
-          else
-            vim.api.nvim_buf_set_lines(buf, -1, -1, false, {
-              "No expansion available.",
-            })
-          end
-        end
-      else
-        vim.api.nvim_buf_set_lines(buf, -1, -1, false, {
-          "Error: No result returned.",
-        })
-      end
-    end
+      vim.api.nvim_set_option_value("filetype", "rust", { buf = buf })
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(result.expansion, "\n"))
+    end,
+    0
   )
+  if not ok then
+    vim.notify("Failed to request macro expansion", vim.log.levels.WARN)
+  end
 end, {})
 
 -----------------
