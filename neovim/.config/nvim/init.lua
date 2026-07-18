@@ -225,36 +225,8 @@ vim.api.nvim_create_autocmd("LspAttach", {
       return vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled())
     end, { buffer = args.buf, silent = true })
     client.server_capabilities.semanticTokensProvider = nil
-    -- if client.supports_method("textDocument/documentHighlight") then
-    --   local group =
-    --     vim.api.nvim_create_augroup(string.format("lsp-%s-%s", args.buf, args.data.client_id), {})
-    --   vim.api.nvim_create_autocmd("CursorHold", {
-    --     group = group,
-    --     buffer = args.buf,
-    --     callback = vim.lsp.buf.document_highlight,
-    --   })
-    --   vim.api.nvim_create_autocmd("CursorMoved", {
-    --     group = group,
-    --     buffer = args.buf,
-    --     callback = function()
-    --       pcall(vim.lsp.util.buf_clear_references, args.buf)
-    --     end,
-    --   })
-    -- end
   end,
   group = lsp_group,
-})
-
-vim.api.nvim_create_autocmd("LspDetach", {
-  callback = function(args)
-    local client = vim.lsp.get_client_by_id(args.data.client_id)
-
-    if client:supports_method("textDocument/documentHighlight") then
-      local group =
-        vim.api.nvim_create_augroup(string.format("lsp-%s-%s", args.buf, args.data.client_id), {})
-      pcall(vim.api.nvim_del_augroup_by_name, group)
-    end
-  end,
 })
 
 local get_rust_lsp_client = function()
