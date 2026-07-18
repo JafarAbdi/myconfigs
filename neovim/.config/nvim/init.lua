@@ -1115,14 +1115,12 @@ vim.opt.tabstop = 2
 vim.opt.softtabstop = 2
 vim.opt.shiftwidth = 2
 vim.opt.expandtab = true
-vim.opt.autoindent = true
 vim.opt.copyindent = true
 vim.opt.cursorline = true
 vim.opt.termguicolors = true
 vim.opt.hlsearch = false
 vim.opt.linebreak = true
 vim.opt.autowrite = true
-vim.opt.inccommand = "nosplit"
 vim.opt.wrap = false
 vim.opt.showmatch = true
 vim.opt.title = true
@@ -1141,7 +1139,6 @@ vim.api.nvim_create_autocmd("LspProgress", {
     vim.cmd.redrawstatus()
   end,
 })
-vim.opt.smartindent = false
 -- lsp buffers override 'complete'; other buffers use local snippets and bounded word sources.
 vim.opt.autocomplete = true
 vim.opt.pumheight = 20
