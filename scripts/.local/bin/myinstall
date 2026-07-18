@@ -610,6 +610,7 @@ case "${1:-}" in
                                                                                       yamllint \
                                                                                       zathura \
                                                                                       nextcloud
+        mkdir -p "$HOME/.claude"
         $pixi_path/bin/stow --target ~ --ignore=.mypy_cache --ignore=.ruff_cache --stow i3 \
                                                                          xsession \
                                                                          wezterm \
@@ -618,6 +619,16 @@ case "${1:-}" in
                                                                          claude \
                                                                          pi \
                                                                          flameshot
+
+        mkdir -p "$HOME/.claude-work"
+        for resource in CLAUDE.md agents commands skills; do
+            if [[ -e "$HOME/.claude-work/$resource" || -L "$HOME/.claude-work/$resource" ]]; then
+                [[ "$HOME/.claude/$resource" -ef "$HOME/.claude-work/$resource" ]] \
+                    || error "~/.claude-work/$resource already exists."
+            else
+                ln -s "$HOME/.claude/$resource" "$HOME/.claude-work/$resource"
+            fi
+        done
         popd || exit 1
         ;;
 

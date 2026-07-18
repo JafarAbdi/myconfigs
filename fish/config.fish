@@ -115,7 +115,11 @@ alias myconfigs "cd ~/myconfigs"
 alias myconfigsr "source ~/.config/fish/config.fish"
 alias cuda_architectures "nvidia-smi --query-gpu=compute_cap --format=csv,noheader"
 
-export MYPYPATH=$HOME/.cache/python-stubs/stubs
+function claude-work --wraps claude --description 'Run Claude Code with work account'
+  set --function --export CLAUDE_CONFIG_DIR $HOME/.claude-work
+  command claude --settings $HOME/.claude/settings.json $argv
+end
+
 export SHELL=$(which fish)
 
 if test -e ~/.terminfo/w/wezterm
