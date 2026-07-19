@@ -696,6 +696,17 @@ case "${1:-}" in
         mv FreeCAD_*.AppImage ~/.local/bin/freecad
         chmod +x ~/.local/bin/freecad
         popd || exit 1
+        $0 freecad-profile
+        ;;
+
+    freecad-profile)
+        # FreeCAD writes its versioned user.cfg only on first launch; trigger
+        # that headlessly if it's missing, so the profile has a config to patch.
+        if ! find "$HOME/.config/FreeCAD" -name user.cfg 2>/dev/null | grep -q .; then
+            ~/.local/bin/freecad -c /dev/null >/dev/null 2>&1 || true
+        fi
+        ~/.local/bin/freecad_onshape_profile \
+            || warning "profile not applied; close FreeCAD and rerun '$0 freecad-profile'"
         ;;
 
     meshlab)

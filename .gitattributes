@@ -1,2 +1,3 @@
 # GitHub syntax highlighting
 pixi.lock linguist-language=YAML
+scripts/.local/bin/freecad_onshape_profile linguist-language=Python

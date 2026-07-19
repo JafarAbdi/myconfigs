@@ -1,0 +1,260 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+"""Apply an Onshape-like profile to FreeCAD.
+
+Patches user.cfg in place and installs a matching preference pack. Refuses to
+run while any FreeCAD process is alive, because FreeCAD rewrites user.cfg on
+exit and would discard these edits.
+
+Idempotent: re-running overwrites the same keys and adds nothing else.
+"""
+
+import re
+import shutil
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+PACK_NAME = "Onshape"
+
+
+def versioned(base: Path) -> Path:
+    """Newest vX-Y subdirectory of base, or base itself when none exists.
+
+    Mirrors FreeCAD's own resolution: it uses the most recent versioned
+    directory present and falls back to the unversioned path.
+    """
+    found = [
+        (tuple(int(n) for n in m.groups()), path)
+        for path in base.glob("v*-*")
+        if path.is_dir() and (m := re.fullmatch(r"v(\d+)-(\d+)", path.name))
+    ]
+    return max(found)[1] if found else base
+
+
+CFG = versioned(Path.home() / ".config/FreeCAD") / "user.cfg"
+PACK_DIR = versioned(Path.home() / ".local/share/FreeCAD") / "SavedPreferencePacks"
+
+
+# --- Onshape key map -> FreeCAD command names (verified against 1.1.1 binaries)
+# Onshape keys are context-sensitive; FreeCAD resolves duplicates by which
+# command is enabled, so sketch/feature keys can safely share a binding.
+SHORTCUTS = {
+    # 3D view
+    "Std_ViewFront": "Shift+1",
+    "Std_ViewRear": "Shift+2",
+    "Std_ViewLeft": "Shift+3",
+    "Std_ViewRight": "Shift+4",
+    "Std_ViewTop": "Shift+5",
+    "Std_ViewBottom": "Shift+6",
+    "Std_ViewIsometric": "Shift+7",
+    "Std_ViewFitAll": "F",
+    "Std_ViewFitSelection": "W",
+    "Std_ViewZoomIn": "Shift+Z",
+    "Std_ViewZoomOut": "Z",
+    "Std_AlignToSelection": "N",
+    "Std_ToggleClipPlane": "Shift+X",
+    "Std_ToggleVisibility": "Y",
+    "Std_ShowSelection": "Shift+Y",
+    # Part Design features
+    "PartDesign_Pad": "Shift+E",
+    "PartDesign_Revolution": "Shift+W",
+    "PartDesign_Fillet": "Shift+F",
+    "PartDesign_NewSketch": "Shift+S",
+    # Sketch geometry
+    "Sketcher_CreateLine": "L",
+    "Sketcher_Create3PointArc": "A",
+    "Sketcher_CreateCircle": "C",
+    "Sketcher_CreateRectangle_Center": "R",
+    "Sketcher_CreateRectangle": "G",
+    "Sketcher_Dimension": "D",
+    "Sketcher_Trimming": "M",
+    "Sketcher_Extend": "X",
+    "Sketcher_CreateOffset": "O",
+    "Sketcher_ToggleConstruction": "Q",
+    "Sketcher_CreatePoint": "Shift+S",
+    "Sketcher_CreateFillet": "Shift+F",
+    "Sketcher_Projection": "U",
+    # Sketch constraints
+    "Sketcher_ConstrainCoincidentUnified": "I",
+    "Sketcher_ConstrainHorizontal": "H",
+    "Sketcher_ConstrainVertical": "V",
+    "Sketcher_ConstrainParallel": "B",
+    "Sketcher_ConstrainPerpendicular": "Shift+L",
+    "Sketcher_ConstrainTangent": "T",
+    "Sketcher_ConstrainEqual": "E",
+    "Sketcher_ConstrainSymmetric": "Shift+Q",
+    "Sketcher_ConstrainBlock": "Shift+J",
+    # General
+    "Std_Measure": "[",
+    "Std_DlgCustomize": "Shift+/",
+}
+
+# Onshape's RMB-rotate / MMB-pan / scroll-zoom, with LMB select.
+NAV_STYLE = "Gui::TinkerCADNavigationStyle"
+
+VIEW_SETTINGS = {
+    "NavigationStyle": ("FCText", NAV_STYLE),
+    "ShowNaviCube": ("FCBool", "1"),
+    "CornerNaviCube": ("FCInt", "1"),  # top-right, as in Onshape
+    "OrbitStyle": ("FCInt", "0"),  # Turntable: keeps Z up, no roll
+    "RotationMode": ("FCInt", "2"),  # focal point at cursor
+}
+
+SKETCHER_SETTINGS = {
+    "GridSize": ("FCFloat", "10.0"),
+    "ShowGrid": ("FCBool", "0"),  # Onshape sketches show no background grid
+}
+
+
+def find_group(parent: ET.Element, name: str) -> ET.Element:
+    for g in parent.findall("FCParamGroup"):
+        if g.get("Name") == name:
+            return g
+    g = ET.SubElement(parent, "FCParamGroup")
+    g.set("Name", name)
+    return g
+
+
+def group_at(root: ET.Element, path: str) -> ET.Element:
+    node = root
+    for part in path.split("/"):
+        node = find_group(node, part)
+    return node
+
+
+def set_value(group: ET.Element, tag: str, name: str, value: str) -> None:
+    for el in group:
+        if el.get("Name") == name:
+            group.remove(el)
+    el = ET.SubElement(group, tag)
+    el.set("Name", name)
+    if tag == "FCText":
+        el.text = value
+    else:
+        el.set("Value", value)
+
+
+def freecad_running() -> list[str]:
+    out = subprocess.run(
+        ["pgrep", "-a", "-i", "freecad"], capture_output=True, text=True
+    ).stdout.strip()
+    if not out:
+        return []
+    # our own --appimage-mount helper is harmless; it never writes user.cfg
+    return [ln for ln in out.splitlines() if "--appimage-mount" not in ln]
+
+
+def write_preference_pack() -> Path:
+    pack = PACK_DIR / PACK_NAME
+    pack.mkdir(parents=True, exist_ok=True)
+
+    root = ET.Element("FCParameters")
+    r = ET.SubElement(root, "FCParamGroup")
+    r.set("Name", "Root")
+    view = group_at(r, "BaseApp/Preferences/View")
+    for name, (tag, value) in VIEW_SETTINGS.items():
+        set_value(view, tag, name, value)
+    shortcut = group_at(r, "BaseApp/Preferences/Shortcut")
+    for cmd, key in SHORTCUTS.items():
+        set_value(shortcut, "FCText", cmd, key)
+    sk = group_at(r, "BaseApp/Preferences/Mod/Sketcher/General")
+    for name, (tag, value) in SKETCHER_SETTINGS.items():
+        set_value(sk, tag, name, value)
+    set_value(
+        group_at(r, "BaseApp/Preferences/General"),
+        "FCText",
+        "AutoloadModule",
+        "PartDesignWorkbench",
+    )
+
+    ET.indent(root, space="  ")
+    (pack / f"{PACK_NAME}.cfg").write_bytes(
+        b'<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n'
+        + ET.tostring(root, encoding="utf-8")
+    )
+
+    (PACK_DIR / "package.xml").write_text(
+        f"""<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<package format="1">
+  <name>Onshape Profile</name>
+  <description>Onshape-like navigation and keyboard shortcuts for FreeCAD</description>
+  <version>1.0.0</version>
+  <license>LGPL2</license>
+  <content>
+    <preferencepack>
+      <name>{PACK_NAME}</name>
+      <description>Onshape navigation (RMB rotate, MMB pan) and keyboard map. Theme untouched.</description>
+      <version>1.0.0</version>
+      <tag>onshape</tag>
+    </preferencepack>
+  </content>
+</package>
+"""
+    )
+    return pack
+
+
+def main() -> int:
+    alive = freecad_running()
+    if alive:
+        print("FreeCAD is running; it would overwrite user.cfg on exit.")
+        for ln in alive:
+            print("   ", ln)
+        print("\nClose these, then re-run.")
+        return 1
+
+    if not CFG.exists():
+        print(f"missing {CFG}")
+        return 1
+
+    backup = CFG.with_suffix(f".cfg.bak-{time.strftime('%Y%m%d-%H%M%S')}")
+    shutil.copy2(CFG, backup)
+    print(f"backed up -> {backup.name}")
+
+    tree = ET.parse(CFG)
+    root = tree.getroot().find("FCParamGroup")  # Root
+
+    shortcut = group_at(root, "BaseApp/Preferences/Shortcut")
+    # this group is script-owned; drop bindings from earlier runs so a renamed
+    # command cannot leave its old key double-bound
+    for el in [
+        e for e in shortcut if e.tag == "FCText" and e.get("Name") not in SHORTCUTS
+    ]:
+        print(f"pruned stale binding {el.get('Name')} ({el.text})")
+        shortcut.remove(el)
+    for cmd, key in SHORTCUTS.items():
+        set_value(shortcut, "FCText", cmd, key)
+    print(f"applied {len(SHORTCUTS)} shortcuts")
+
+    view = group_at(root, "BaseApp/Preferences/View")
+    for name, (tag, value) in VIEW_SETTINGS.items():
+        set_value(view, tag, name, value)
+    print(f"applied {len(VIEW_SETTINGS)} view settings (nav: {NAV_STYLE})")
+
+    sk = group_at(root, "BaseApp/Preferences/Mod/Sketcher/General")
+    for name, (tag, value) in SKETCHER_SETTINGS.items():
+        set_value(sk, tag, name, value)
+
+    gen = group_at(root, "BaseApp/Preferences/General")
+    set_value(gen, "FCText", "AutoloadModule", "PartDesignWorkbench")
+
+    ET.indent(tree.getroot(), space="  ")
+    tree.write(CFG, encoding="utf-8", xml_declaration=True)
+    print(f"wrote {CFG}")
+
+    pack = write_preference_pack()
+    print(f"installed preference pack -> {pack}")
+    print("\nStart FreeCAD; the profile is already active.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+# vim: set filetype=python:
