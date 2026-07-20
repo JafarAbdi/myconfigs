@@ -11,3 +11,4 @@ neovim/.config/nvim/spell/
 # pi agent logs
 pi/.pi/agent/run-history.jsonl
 pi/.pi/agent/models-store.json
+yo/pi/agent/models-store.json
