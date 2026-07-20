@@ -52,22 +52,27 @@ EXTENSION_SUFFIXES = frozenset(importlib.machinery.EXTENSION_SUFFIXES)
 CXX_NAME = re.compile(r"^[\w:]+::(\w+)$")
 
 MISSING_STUB_PATTERNS = (
-    re.compile(r'Cannot find implementation or library stub for module named "([^"]+)"'),
+    re.compile(
+        r'Cannot find implementation or library stub for module named "([^"]+)"',
+    ),
     re.compile(r'Skipping analyzing "([^"]+)": module is installed'),
     re.compile(r'Library stubs not installed for "([^"]+)"'),
 )
 
 
 def error(message: str) -> None:
-    print(f"\033[0;31mError: {message}\033[0m", file=sys.stderr)
+    """Print a red error line to stderr."""
+    print(f"\033[0;31mError: {message}\033[0m", file=sys.stderr)  # noqa: T201
 
 
 def warning(message: str) -> None:
-    print(f"\033[1;33mWarning: {message}\033[0m", file=sys.stderr)
+    """Print a yellow warning line to stderr."""
+    print(f"\033[1;33mWarning: {message}\033[0m", file=sys.stderr)  # noqa: T201
 
 
 def info(message: str) -> None:
-    print(f"\033[0;32m{message}\033[0m")
+    """Print a green info line to stdout."""
+    print(f"\033[0;32m{message}\033[0m")  # noqa: T201
 
 
 def bootstrap() -> None:
@@ -84,7 +89,14 @@ def bootstrap() -> None:
         raise SystemExit(1)
     os.environ[BOOTSTRAP_ENV] = "1"
     overlay = [flag for dep in TOOL_DEPENDENCIES for flag in ("--with", dep)]
-    argv = [uv, "run", *overlay, "python", str(pathlib.Path(__file__).resolve()), *sys.argv[1:]]
+    argv = [
+        uv,
+        "run",
+        *overlay,
+        "python",
+        str(pathlib.Path(__file__).resolve()),
+        *sys.argv[1:],
+    ]
     os.execv(uv, argv)  # noqa: S606 - a shell would only add a quoting hazard
 
 
@@ -137,7 +149,9 @@ def packages_missing_stubs(path: pathlib.Path) -> list[str]:
     }
     wanted = {package for package in reported if needs_stubs(package)}
     for package in sorted(reported - wanted):
-        warning(f"skipping {package}: not importable, or it ships its own type information")
+        warning(
+            f"skipping {package}: not importable, or it ships its own type information",
+        )
     return sorted(wanted)
 
 
@@ -175,7 +189,9 @@ def build_class_index(root_name: str) -> dict[str, set[str]]:
         for _, obj in members:
             module_name = getattr(obj, "__module__", "") or ""
             if module_name == root_name or module_name.startswith(prefix):
-                index.setdefault(obj.__name__, set()).add(f"{module_name}.{obj.__qualname__}")
+                index.setdefault(obj.__name__, set()).add(
+                    f"{module_name}.{obj.__qualname__}",
+                )
     return index
 
 
@@ -196,7 +212,9 @@ def write_stubs(package: str, output_dir: pathlib.Path) -> None:
     them most MjModel and MjData accessors (`d.joint()`, `m.actuator()`, ...).
     With the resolver, one.
     """
-    from pybind11_stubgen import (
+    # Imported lazily: pybind11-stubgen is only present after bootstrap() overlays
+    # it onto the project env, so a top-level import would fail before re-exec.
+    from pybind11_stubgen import (  # noqa: PLC0415
         CLIArgs,
         Printer,
         Writer,
@@ -205,15 +223,15 @@ def write_stubs(package: str, output_dir: pathlib.Path) -> None:
         stub_parser_from_args,
         to_output_and_subdir,
     )
-    from pybind11_stubgen.parser.interface import IParser
-    from pybind11_stubgen.structs import (
+    from pybind11_stubgen.parser.interface import IParser  # noqa: PLC0415
+    from pybind11_stubgen.structs import (  # noqa: PLC0415
         InvalidExpression,
         QualifiedName,
         ResolvedType,
         Value,
     )
 
-    index = build_class_index(package.split(".")[0])
+    index = build_class_index(package.split(".", maxsplit=1)[0])
 
     class ResolveCxxNames(IParser):
         def parse_annotation_str(
@@ -230,7 +248,10 @@ def write_stubs(package: str, output_dir: pathlib.Path) -> None:
                     return ResolvedType(QualifiedName.from_str(next(iter(hits))))
             return result
 
-    args = arg_parser().parse_args([package, "-o", str(output_dir)], namespace=CLIArgs())
+    args = arg_parser().parse_args(
+        [package, "-o", str(output_dir)],
+        namespace=CLIArgs(),
+    )
     base_parser = stub_parser_from_args(args)
 
     class Parser(ResolveCxxNames, type(base_parser)):  # type: ignore[misc]
@@ -269,6 +290,7 @@ def validate_stubs(output_dir: pathlib.Path) -> list[str]:
 
 
 def remove(path: pathlib.Path) -> None:
+    """Delete a path, recursing into a real directory but never following a symlink."""
     if path.is_dir() and not path.is_symlink():
         shutil.rmtree(path)
     else:
@@ -297,10 +319,12 @@ def generate(package: str, stubs_dir: pathlib.Path) -> bool:
         except Exception as exception:  # noqa: BLE001 - one bad package must not end the run
             warning(f"failed to generate stubs for {package}: {exception}")
             return False
-        # Unparseable stubs are dropped one at a time so the rest of the package
+        # Unparsable stubs are dropped one at a time so the rest of the package
         # still ships. Note this can leave a package without its __init__.pyi.
         for path in validate_stubs(staging_dir):
-            warning(f"{package}: dropping unparseable stub {path}, that module stays untyped")
+            warning(
+                f"{package}: dropping unparsable stub {path}, that module stays untyped",
+            )
             (staging_dir / path).unlink()
         if not any(staging_dir.rglob("*.pyi")):
             warning(f"no usable stubs for {package}")
@@ -329,6 +353,7 @@ def prune(stubs_dir: pathlib.Path) -> None:
 
 
 def main() -> int:
+    """Parse arguments and generate, prune, or validate stubs; return an exit code."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -361,7 +386,10 @@ def main() -> int:
     # pybind11-stubgen logs every raw C++ expression as an ERROR while parsing,
     # before the resolver replaces it in the output. The logs are stale noise;
     # silence them, since the produced stub is what matters.
-    logging.basicConfig(level=logging.WARNING, format="%(name)s - [%(levelname)7s] %(message)s")
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(name)s - [%(levelname)7s] %(message)s",
+    )
     logging.getLogger("pybind11_stubgen").setLevel(logging.CRITICAL)
 
     if args.worker:
@@ -388,7 +416,7 @@ def main() -> int:
     # segfault stays contained, and build_class_index scans sys.modules, which
     # in-process concurrency would cross-contaminate.
     def worker(package: str) -> bool:
-        print(f"Generating stubs for {package}...")
+        print(f"Generating stubs for {package}...")  # noqa: T201
         result = subprocess.run(  # noqa: S603
             [
                 sys.executable,
