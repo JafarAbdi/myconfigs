@@ -212,6 +212,6 @@ for_window [class="st"] border pixel 1
 for_window [class="wezterm"] border pixel 1
 
 exec --no-startup-id nextcloud --background
-exec --no-startup-id obsidian
-assign [class="obsidian"] $ws10
+exec --no-startup-id mynotes
+assign [class="mynotes"] $ws10
 bindsym $mod+n workspace number $ws10
