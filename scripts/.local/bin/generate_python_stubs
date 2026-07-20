@@ -1,93 +1,402 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
+"""Generate .pyi stubs for compiled Python packages that ship no type information.
 
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly NC='\033[0m' # No Color
+The only consumer is zubanls, which neovim starts with
+`MYPYPATH=~/.cache/python-stubs/stubs`. zuban is static: it sees only packages
+shipping .py/.pyi source, so a compiled binding (e.g. mujoco MjModel, which lives
+in _structs.so) is opaque to it without generated stubs.
 
-STUBS_DIR="${HOME}/.cache/python-stubs/stubs"
-# resolve through the stow symlink so the sibling resolver is found on PATH too
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-# _stubgen_resolve.py drives pybind11-stubgen but recovers raw C++ type names
-# leaked into docstrings (e.g. mujoco::python::MjModelJointViews -> the real
-# _MjModelJointViews class), which stubgen otherwise renders as `...`.
-RESOLVER="${SCRIPT_DIR}/_stubgen_resolve.py"
+Stubs come from pybind11-stubgen, which reads pybind11 signatures and recovers
+real parameter and return types; mypy's own stubgen only emits (*args, **kwargs)
+for C extensions.
 
-# Tools run via uv (no global install), overlaid onto the project env `uv run`
-# resolves from the cwd, so compiled packages (e.g. mujoco _structs.so) import.
-# pybind11-stubgen reads pybind11 signatures (real param/return types); mypy's
-# stubgen only emits (*args, **kwargs) for C extensions. mypy is used to detect
-# which modules are missing stubs.
-UV_RUN="uv run --with mypy --with pybind11-stubgen"
+Targets are always named explicitly, either as packages or as a file whose
+unresolved imports mypy reports. The cache is shared across projects while the
+env comes from the cwd, so anything implicit would mean a different package set
+per directory.
 
-error() {
-    echo -e "${RED}Error: ${1}${NC}" >&2
-    exit 1
-}
+Usage:
+    generate_python_stubs mujoco glfw     # stub these packages, no questions asked
+    generate_python_stubs path/to/file.py # stub whatever mypy reports missing
+    generate_python_stubs --prune         # drop cached stubs no longer needed
+"""
 
-warning() {
-    echo -e "${YELLOW}Warning: ${1}${NC}" >&2
-}
+import argparse
+import ast
+import concurrent.futures
+import contextlib
+import importlib
+import importlib.machinery
+import importlib.util
+import inspect
+import logging
+import os
+import pathlib
+import pkgutil
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 
-info() {
-    echo -e "${GREEN}${1}${NC}"
-}
+STUBS_DIR = pathlib.Path.home() / ".cache" / "python-stubs" / "stubs"
 
-generate_stub() {
-    local package=$1
+# Overlaid onto the project env `uv run` resolves from the cwd. Generation imports
+# the target package, so it needs the env holding the compiled extension; an
+# isolated env (PEP 723 script mode) would not have it.
+TOOL_DEPENDENCIES = ("mypy", "pybind11-stubgen")
+BOOTSTRAP_ENV = "_GENERATE_PYTHON_STUBS_BOOTSTRAPPED"
 
-    echo "Generating stubs for ${package}..."
-    if ! $UV_RUN python "${RESOLVER}" "${package}" -o "${STUBS_DIR}"; then
-        warning "Failed to generate stubs for ${package}"
+EXTENSION_SUFFIXES = frozenset(importlib.machinery.EXTENSION_SUFFIXES)
+
+CXX_NAME = re.compile(r"^[\w:]+::(\w+)$")
+
+MISSING_STUB_PATTERNS = (
+    re.compile(r'Cannot find implementation or library stub for module named "([^"]+)"'),
+    re.compile(r'Skipping analyzing "([^"]+)": module is installed'),
+    re.compile(r'Library stubs not installed for "([^"]+)"'),
+)
+
+
+def error(message: str) -> None:
+    print(f"\033[0;31mError: {message}\033[0m", file=sys.stderr)
+
+
+def warning(message: str) -> None:
+    print(f"\033[1;33mWarning: {message}\033[0m", file=sys.stderr)
+
+
+def info(message: str) -> None:
+    print(f"\033[0;32m{message}\033[0m")
+
+
+def bootstrap() -> None:
+    """Re-exec under `uv run` with the tool dependencies overlaid on the project env.
+
+    Guarded by an env var so a failure to provide the tools surfaces as a plain
+    ImportError instead of an exec loop.
+    """
+    if os.environ.get(BOOTSTRAP_ENV):
+        return
+    uv = shutil.which("uv")
+    if uv is None:
+        error("uv executable doesn't exist")
+        raise SystemExit(1)
+    os.environ[BOOTSTRAP_ENV] = "1"
+    overlay = [flag for dep in TOOL_DEPENDENCIES for flag in ("--with", dep)]
+    argv = [uv, "run", *overlay, "python", str(pathlib.Path(__file__).resolve()), *sys.argv[1:]]
+    os.execv(uv, argv)  # noqa: S606 - a shell would only add a quoting hazard
+
+
+def package_root(package: str) -> pathlib.Path | None:
+    """Directory holding a package, or the parent of a single-file module."""
+    try:
+        spec = importlib.util.find_spec(package)
+    except Exception:  # noqa: BLE001 - a package whose import fails cannot be stubbed either
+        return None
+    if spec is None or spec.origin is None:
+        return None
+    origin = pathlib.Path(spec.origin)
+    return origin.parent if spec.submodule_search_locations is not None else origin
+
+
+def needs_stubs(package: str) -> bool:
+    """True when the package has compiled extensions and ships no type information.
+
+    A package carrying py.typed or its own .pyi files is already better described
+    by its own source, and a generated stub would shadow it.
+    """
+    root = package_root(package)
+    if root is None:
+        return False
+    if root.is_file():
+        # Single-file module: compiled and without a sibling stub means it needs one.
+        base = root.name.split(".")[0]
+        if root.suffix not in EXTENSION_SUFFIXES:
+            return False
+        return not (root.parent / f"{base}.pyi").exists()
+    if (root / "py.typed").exists():
+        return False
+    if any(root.rglob("*.pyi")):
+        return False
+    return any(path.suffix in EXTENSION_SUFFIXES for path in root.rglob("*"))
+
+
+def packages_missing_stubs(path: pathlib.Path) -> list[str]:
+    """Top-level packages mypy reports as unanalyzable when checking a file."""
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "mypy", str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    reported = {
+        match.group(1).split(".")[0]
+        for pattern in MISSING_STUB_PATTERNS
+        for match in pattern.finditer(result.stdout)
+    }
+    wanted = {package for package in reported if needs_stubs(package)}
+    for package in sorted(reported - wanted):
+        warning(f"skipping {package}: not importable, or it ships its own type information")
+    return sorted(wanted)
+
+
+def build_class_index(root_name: str) -> dict[str, set[str]]:
+    """Map simple class name -> {canonical fully-qualified name} for the package.
+
+    Best-effort imports submodules (skipping ones whose import fails, e.g. optional
+    GL backends), then indexes classes from every loaded package module.
+    """
+    root = importlib.import_module(root_name)
+    prefix = root_name + "."
+    for module_info in pkgutil.walk_packages(
+        getattr(root, "__path__", []),
+        prefix,
+        onerror=lambda _name: None,
+    ):
+        with contextlib.suppress(Exception):
+            importlib.import_module(module_info.name)
+    index: dict[str, set[str]] = {}
+    for name, module in list(sys.modules.items()):
+        if module is None or (name != root_name and not name.startswith(prefix)):
+            continue
+        try:
+            members = inspect.getmembers(module, inspect.isclass)
+        except Exception:  # noqa: BLE001, S112 - a module resisting introspection contributes nothing
+            continue
+        for _, obj in members:
+            module_name = getattr(obj, "__module__", "") or ""
+            if module_name == root_name or module_name.startswith(prefix):
+                index.setdefault(obj.__name__, set()).add(f"{module_name}.{obj.__qualname__}")
+    return index
+
+
+def write_stubs(package: str, output_dir: pathlib.Path) -> None:
+    """Run pybind11-stubgen for a package, resolving raw C++ names in signatures.
+
+    pybind11 bindings often leak unqualified C++ type names into docstrings, e.g.
+    `mujoco::python::MjModelJointViews`, which stubgen can't parse and renders as
+    `...`. An unresolved `<ns>::...::<Leaf>` is mapped back to the class named
+    `<Leaf>` or `_<Leaf>` when exactly one such class exists; ambiguous or missing
+    names are left untouched, so it never resolves wrongly.
+    """
+    from pybind11_stubgen import (
+        CLIArgs,
+        Printer,
+        Writer,
+        arg_parser,
+        run,
+        stub_parser_from_args,
+        to_output_and_subdir,
+    )
+    from pybind11_stubgen.parser.interface import IParser
+    from pybind11_stubgen.structs import (
+        InvalidExpression,
+        QualifiedName,
+        ResolvedType,
+        Value,
+    )
+
+    index = build_class_index(package.split(".")[0])
+
+    class ResolveCxxNames(IParser):
+        def parse_annotation_str(
+            self,
+            annotation_str: str,
+        ) -> "ResolvedType | InvalidExpression | Value":
+            result = super().parse_annotation_str(annotation_str)
+            if isinstance(result, InvalidExpression) and (
+                match := CXX_NAME.match(annotation_str.strip())
+            ):
+                leaf = match.group(1)
+                hits = index.get(leaf, set()) | index.get("_" + leaf, set())
+                if len(hits) == 1:
+                    return ResolvedType(QualifiedName.from_str(next(iter(hits))))
+            return result
+
+    args = arg_parser().parse_args([package, "-o", str(output_dir)], namespace=CLIArgs())
+    base_parser = stub_parser_from_args(args)
+
+    class Parser(ResolveCxxNames, type(base_parser)):  # type: ignore[misc]
+        pass
+
+    out_dir, sub_dir = to_output_and_subdir(
+        output_dir=args.output_dir,
+        module_name=args.module_name,
+        root_suffix=args.root_suffix,
+    )
+    run(
+        Parser(),
+        Printer(invalid_expr_as_ellipses=not args.print_invalid_expressions_as_is),
+        args.module_name,
+        out_dir,
+        sub_dir=sub_dir,
+        dry_run=args.dry_run,
+        writer=Writer(stub_ext=args.stub_extension),
+    )
+
+
+def validate_stubs(output_dir: pathlib.Path) -> list[str]:
+    """Paths of generated stubs that are not parseable Python, relative to output_dir.
+
+    Some pybind11 signatures render as invalid Python, e.g. an overload whose
+    required parameter follows a defaulted one. A type checker cannot read such a
+    stub, so it is worth naming rather than shipping.
+    """
+    broken = []
+    for path in sorted(output_dir.rglob("*.pyi")):
+        try:
+            ast.parse(path.read_text(), filename=str(path))
+        except SyntaxError:
+            broken.append(str(path.relative_to(output_dir)))
+    return broken
+
+
+def remove(path: pathlib.Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
+def publish(staging_dir: pathlib.Path, stubs_dir: pathlib.Path) -> None:
+    """Replace each staged top-level entry in the cache.
+
+    Entries are replaced whole, so members that disappeared upstream do not survive
+    in the cache.
+    """
+    stubs_dir.mkdir(parents=True, exist_ok=True)
+    for entry in staging_dir.iterdir():
+        destination = stubs_dir / entry.name
+        remove(destination)
+        shutil.move(str(entry), str(destination))
+
+
+def generate(package: str, stubs_dir: pathlib.Path) -> bool:
+    """Generate, validate and publish stubs for one package."""
+    with tempfile.TemporaryDirectory(prefix="python-stubs-") as staging:
+        staging_dir = pathlib.Path(staging)
+        try:
+            write_stubs(package, staging_dir)
+        except Exception as exception:  # noqa: BLE001 - one bad package must not end the run
+            warning(f"failed to generate stubs for {package}: {exception}")
+            return False
+        # Unparseable stubs are dropped one at a time so the rest of the package
+        # still ships. Note this can leave a package without its __init__.pyi.
+        for path in validate_stubs(staging_dir):
+            warning(f"{package}: dropping unparseable stub {path}, that module stays untyped")
+            (staging_dir / path).unlink()
+        if not any(staging_dir.rglob("*.pyi")):
+            warning(f"no usable stubs for {package}")
+            return False
+        publish(staging_dir, stubs_dir)
+    return True
+
+
+def prune(stubs_dir: pathlib.Path) -> None:
+    """Drop cached stubs for packages that no longer need them.
+
+    Only packages importable from the current env are judged; anything unresolvable
+    here may well belong to another project's env, so it is left alone.
+    """
+    if not stubs_dir.is_dir():
+        return
+    for entry in sorted(stubs_dir.iterdir()):
+        package = entry.stem if entry.suffix == ".pyi" else entry.name
+        if package_root(package) is None:
+            info(f"keeping {package}: not importable here, cannot verify")
+            continue
+        if needs_stubs(package):
+            continue
+        remove(entry)
+        info(f"pruned {package}: it ships its own type information")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "targets",
+        nargs="*",
+        help="package names, or a single .py file whose missing imports to resolve",
+    )
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="remove cached stubs for packages that ship their own type information",
+    )
+    parser.add_argument(
+        "--stubs-dir",
+        type=pathlib.Path,
+        default=STUBS_DIR,
+        help=f"where to write stubs (default: {STUBS_DIR})",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=os.cpu_count() or 1,
+        help="packages to generate concurrently",
+    )
+    parser.add_argument("--worker", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
+    # pybind11-stubgen logs every raw C++ expression as an ERROR while parsing,
+    # before the resolver replaces it in the output. The logs are stale noise;
+    # silence them, since the produced stub is what matters.
+    logging.basicConfig(level=logging.WARNING, format="%(name)s - [%(levelname)7s] %(message)s")
+    logging.getLogger("pybind11_stubgen").setLevel(logging.CRITICAL)
+
+    if args.worker:
+        return 0 if generate(args.worker, args.stubs_dir) else 1
+
+    if args.prune:
+        prune(args.stubs_dir)
+        if not args.targets:
+            return 0
+
+    if not args.targets:
+        parser.error("give package names or a .py file (see --help)")
+    if len(args.targets) == 1 and (path := pathlib.Path(args.targets[0])).is_file():
+        packages = packages_missing_stubs(path)
+    else:
+        # Named packages skip the needs_stubs gate: naming one overrides the guess.
+        packages = args.targets
+
+    if not packages:
+        info("No packages need stubs")
+        return 0
+
+    # One subprocess per package: generation imports arbitrary compiled code, so a
+    # segfault stays contained, and build_class_index scans sys.modules, which
+    # in-process concurrency would cross-contaminate.
+    def worker(package: str) -> bool:
+        print(f"Generating stubs for {package}...")
+        result = subprocess.run(  # noqa: S603
+            [
+                sys.executable,
+                str(pathlib.Path(__file__).resolve()),
+                "--worker",
+                package,
+                "--stubs-dir",
+                str(args.stubs_dir),
+            ],
+            check=False,
+        )
+        return result.returncode == 0
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        results = list(pool.map(worker, packages))
+
+    failed = [package for package, ok in zip(packages, results, strict=True) if not ok]
+    if failed:
+        error(f"stub generation failed for: {', '.join(failed)}")
         return 1
-    fi
-
-    if [ -d "${STUBS_DIR}/${package}" ]; then
-        cp -r "${STUBS_DIR}/${package}" "$(dirname "${STUBS_DIR}")/${package}-stubs"
-    fi
-}
-
-get_system_packages() {
-    $UV_RUN python -c """import os
-import importlib.metadata as im
-home = os.environ['HOME']
-seen = set()
-for dist in im.distributions():
-    loc = str(dist.locate_file(''))
-    if not (loc.startswith(home + '/workspaces') or loc.startswith('/opt')):
-        continue
-    name = (dist.metadata['Name'] or '').replace('-', '_')
-    if name and name not in seen:
-        seen.add(name)
-        print(name)"""
-}
-
-get_missing_stubs() {
-    local file=$1
-    $UV_RUN mypy "$file" | grep -oP '(?<=Cannot find implementation or library stub for module named ").*(?=")|(?<=Skipping analyzing ").*(?=": module is installed)|(?<=Library stubs not installed for ").*(?="\.)' | grep -v "numpy" | cut -d. -f1 | sort -u
-}
-
-export -f generate_stub warning
-export STUBS_DIR RED YELLOW NC UV_RUN RESOLVER
-
-command -v uv &> /dev/null || error "uv executable doesn't exist"
-mkdir -p "${STUBS_DIR}" || error "Failed to create stubs directory '${STUBS_DIR}'"
-
-# A .py file -> detect its missing-stub imports; package names -> stub those
-# directly (bypasses detection, so it regenerates even if a stub already
-# exists); no args -> sweep every package under ~/workspaces and /opt.
-if [ "$#" -gt 0 ]; then
-    if [ -f "$1" ]; then
-        packages=$(get_missing_stubs "$1")
-    else
-        packages="$*"
-    fi
-else
-    packages=$(get_system_packages)
-fi
-[ -z "$packages" ] && { info "No packages found"; exit 0; }
+    info(f"Generated stubs for {len(packages)} package(s) in {args.stubs_dir}")
+    return 0
 
 
-echo "$packages" | parallel -j$(nproc) generate_stub {}
-
-info "Stubs generation completed successfully"
+if __name__ == "__main__":
+    bootstrap()
+    raise SystemExit(main())
