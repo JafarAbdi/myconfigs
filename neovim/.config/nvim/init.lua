@@ -197,10 +197,13 @@ vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
     local client = assert(vim.lsp.get_client_by_id(args.data.client_id))
     if client:supports_method("textDocument/completion") then
-      -- omnifunc starts identifier completion; lsp autotrigger refreshes incomplete results
-      -- and handles server trigger characters. buffer words can shadow richer lsp items.
-      vim.bo[args.buf].complete = "o,F"
-      vim.lsp.completion.enable(true, client.id, args.buf, { autotrigger = true })
+      -- convert tags lsp items [LSP]; word sources can't be labelled, so bare == buffer word.
+      vim.lsp.completion.enable(true, client.id, args.buf, {
+        autotrigger = true,
+        convert = function()
+          return { menu = "[LSP]" }
+        end,
+      })
       -- ctrl-x suspends autocomplete before requesting omnifunc again at the current cursor.
       vim.keymap.set("i", "<C-Space>", "<C-x><C-o>", {
         buffer = args.buf,
@@ -1154,11 +1157,11 @@ vim.api.nvim_create_autocmd("LspProgress", {
     vim.cmd.redrawstatus()
   end,
 })
--- lsp buffers override 'complete'; other buffers use local snippets and bounded word sources.
 vim.opt.autocomplete = true
 vim.opt.pumheight = 20
+vim.opt.pummaxwidth = 60
 vim.opt.completeopt = "menuone,noselect,noinsert,fuzzy,popup"
-vim.opt.complete = "F,.^5,w^5,b^5"
+vim.opt.complete = "o,F,.^5,w^5,b^5"
 vim.opt.completefunc = "v:lua.complete_snippets"
 vim.opt.wildmode = "longest:full,full"
 vim.opt.wildignore:append({ "*.pyc", ".git", ".idea", "*.o" })
