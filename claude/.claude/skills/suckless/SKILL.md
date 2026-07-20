@@ -55,6 +55,10 @@ Prefer deletion and directness:
 - Prefer config in source (compile-time) over runtime config machinery when it removes more
   complexity than it adds. [philosophy]
 - Reuse existing infrastructure instead of reimplementing it. [Armstrong]
+- Behave the way users of the platform or ecosystem already expect; don't invent custom
+  conventions where standard ones exist.
+- Keep it single-person maintainable: one developer should be able to understand, own, and
+  modify the whole thing.
 - Keep the public/exported surface small; make internals private by default.
 - Avoid cyclic dependencies between modules.
 - Use the smallest, most standard subset of the language; avoid clever features and
