@@ -5,14 +5,14 @@
       "apiKey": "no-key",
       "baseUrl": "http://desktop.tail79ed4.ts.net:8080/v1",
       "compat": {
-        "maxTokensField": "max_tokens",
-        "supportsDeveloperRole": false,
-        "supportsReasoningEffort": false,
-        "thinkingFormat": "chat-template",
         "chatTemplateKwargs": {
           "enable_thinking": false,
           "preserve_thinking": false
-        }
+        },
+        "maxTokensField": "max_tokens",
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "thinkingFormat": "chat-template"
       },
       "models": [
         {
