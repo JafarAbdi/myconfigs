@@ -142,7 +142,7 @@ vim.api.nvim_create_autocmd("VimResume", { command = "checktime", group = genera
 vim.api.nvim_create_autocmd({ "TextYankPost" }, {
   group = general_group,
   callback = function()
-    vim.highlight.on_yank()
+    vim.hl.on_yank()
   end,
 })
 
@@ -224,7 +224,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
     vim.keymap.set({ "i", "n" }, "<M-i>", function()
       return vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled())
     end, { buffer = args.buf, silent = true })
-    client.server_capabilities.semanticTokensProvider = nil
+    vim.lsp.semantic_tokens.enable(false, { bufnr = args.buf, client_id = client.id })
   end,
   group = lsp_group,
 })
@@ -350,13 +350,14 @@ local servers = {
     cmd = {
       vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "lsps", "bin", "clangd"),
       "--completion-style=detailed",
+      -- trust host drivers from compile_commands.json for target and system headers;
+      -- clangd can otherwise select a newer GCC without matching C++ headers.
+      "--query-driver=/usr/bin/cc,/usr/bin/c++,/usr/bin/gcc,/usr/bin/g++",
       -- "-log=verbose"
     },
-    init_options = function()
-      return {
-        clangdFileStatus = true,
-      }
-    end,
+    init_options = {
+      clangdFileStatus = true,
+    },
   },
   {
     name = "efm",
@@ -378,16 +379,14 @@ local servers = {
       vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "lsps", "bin", "efm-langserver"),
       -- "-loglevel=5", "-logfile=/tmp/efm.log"
     },
-    init_options = function()
-      return {
-        documentFormatting = true,
-        documentRangeFormatting = true,
-        hover = false,
-        documentSymbol = true,
-        codeAction = true,
-        completion = false,
-      }
-    end,
+    init_options = {
+      documentFormatting = true,
+      documentRangeFormatting = true,
+      hover = false,
+      documentSymbol = true,
+      codeAction = true,
+      completion = false,
+    },
     settings = {
       languages = {
         zig = {
@@ -623,15 +622,19 @@ local servers = {
       vim.fs.joinpath(myconfigs_path, ".pixi", "envs", "cmake-lsp", "bin", "cmake-language-server"),
     },
     init_options = function(file)
-      local root_dir = root_dirs.cmake(file)
+      local root_dir = file and root_dirs.cmake(file)
       if not root_dir then
         return {}
       end
-      local cmake_settings_filename = vim.fs.joinpath(root_dir, ".vscode", "settings.json")
-      local settings = vim.fn.json_decode(vim.fn.readfile(cmake_settings_filename))
-      return {
-        buildDirectory = settings["cmake.buildDirectory"],
-      }
+      local settings_file = vim.fs.joinpath(root_dir, ".vscode", "settings.json")
+      local ok, settings = pcall(function()
+        return vim.json.decode(table.concat(vim.fn.readfile(settings_file), "\n"))
+      end)
+      if not ok or type(settings) ~= "table" then
+        return {}
+      end
+      local build_directory = settings["cmake.buildDirectory"]
+      return type(build_directory) == "string" and { buildDirectory = build_directory } or {}
     end,
   },
   -- {
@@ -701,6 +704,9 @@ local servers = {
       }
       if vim.env.CONDA_PREFIX then
         options.pythonExecutable = vim.env.CONDA_PREFIX .. "/bin/python"
+      end
+      if not file then
+        return options
       end
 
       local venv = vim.fs.find(".venv", {
@@ -803,55 +809,66 @@ local servers = {
   },
 }
 
+local function lsp_root_dir(bufnr, on_dir)
+  local windows = vim.fn.win_findbuf(bufnr)
+  if #windows > 0 then
+    local has_normal_window = false
+    for _, window in ipairs(windows) do
+      if vim.api.nvim_win_get_config(window).relative == "" then
+        has_normal_window = true
+        break
+      end
+    end
+    if not has_normal_window then
+      return
+    end
+  end
+
+  local file = vim.api.nvim_buf_get_name(bufnr)
+  if file:match("^[%a][%w+.-]*:") then
+    return
+  end
+
+  local find_root = root_dirs[vim.bo[bufnr].filetype]
+  on_dir((find_root and find_root(file)) or vim.fs.root(file, { ".git" }))
+end
+
+local lsp_capabilities = vim.lsp.protocol.make_client_capabilities()
+lsp_capabilities.workspace.didChangeWatchedFiles.dynamicRegistration = true
+local rust_capabilities = vim.deepcopy(lsp_capabilities)
+rust_capabilities.experimental = {
+  localDocs = true,
+  hoverActions = true,
+}
+
+local enabled_servers = {}
 for _, server in pairs(servers) do
   if vim.fn.executable(server.cmd[1]) == 1 then
-    vim.api.nvim_create_autocmd("FileType", {
-      pattern = server.filetypes,
-      group = lsp_group,
-      callback = function(args)
-        -- Don't start LSP for floating windows
-        if vim.api.nvim_win_get_config(0).relative ~= "" then
-          return
-        end
-        -- Skip URI-scheme buffers (fugitive://, oil://, jdt://, ...):
-        -- vim.fs.root in per-server conditions would mangle the URI via cwd
-        -- and return wrong results. Producers attach LSP explicitly instead.
-        if args.file:match("^%w+:") then
-          return
-        end
-        if server.condition and not server.condition(args.file) then
-          return
-        end
-        local capabilities =
-          vim.tbl_deep_extend("force", vim.lsp.protocol.make_client_capabilities(), {
-            -- Rust specific capabilities
-            experimental = {
-              localDocs = true, -- TODO: Support experimental/externalDocs
-              hoverActions = true,
-            },
-            workspace = {
-              didChangeWatchedFiles = {
-                dynamicRegistration = true,
-              },
-            },
-          })
+    local init_options = server.init_options
+    local config = {
+      cmd = server.cmd,
+      cmd_env = server.cmd_env,
+      filetypes = server.filetypes,
+      capabilities = server.name == "rust-langserver" and rust_capabilities or lsp_capabilities,
+      settings = server.settings or vim.empty_dict(),
+      root_dir = lsp_root_dir,
+    }
 
-        local root_dir = server.root_dir or root_dirs[args.match] or function() end
-        vim.lsp.start({
-          name = server.name,
-          cmd = server.cmd,
-          cmd_env = server.cmd_env,
-          handlers = server.handlers,
-          on_attach = function(_, _) end,
-          capabilities = capabilities,
-          settings = server.settings or vim.empty_dict(),
-          init_options = server.init_options and server.init_options(args.file) or vim.empty_dict(),
-          root_dir = root_dir(args.file) or vim.fs.root(args.file, { ".git" }),
-        })
-      end,
-    })
+    if type(init_options) == "function" then
+      config.before_init = function(params, client_config)
+        local options = init_options(client_config.root_dir)
+        client_config.init_options = options
+        params.initializationOptions = options
+      end
+    else
+      config.init_options = init_options or vim.empty_dict()
+    end
+
+    vim.lsp.config[server.name] = config
+    enabled_servers[#enabled_servers + 1] = server.name
   end
 end
+vim.lsp.enable(enabled_servers)
 
 local c_snippets = {
   {
@@ -1244,25 +1261,14 @@ vim.keymap.set("n", "<leader>dq", function()
   q.diagnostic(0)
 end, { silent = true })
 
-local win_pre_copen = nil
 vim.keymap.set("n", "<leader>c", function()
-  local api = vim.api
-  for _, win in pairs(api.nvim_list_wins()) do
-    local buf = api.nvim_win_get_buf(win)
-    if api.nvim_get_option_value("buftype", { buf = buf }) == "quickfix" then
-      vim.cmd.cclose()
-      if win_pre_copen then
-        local ok, w = pcall(api.nvim_win_get_number, win_pre_copen)
-        if ok and api.nvim_win_is_valid(w) then
-          api.nvim_set_current_win(w)
-        end
-        win_pre_copen = nil
-      end
+  for _, window in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local window_type = vim.fn.win_gettype(window)
+    if window_type == "quickfix" or window_type == "loclist" then
+      vim.api.nvim_win_close(window, false)
       return
     end
   end
 
-  -- no quickfix buffer found so far, so show it
-  win_pre_copen = api.nvim_get_current_win()
   vim.cmd.copen({ mods = { split = "botright" } })
 end, { silent = true })
