@@ -146,6 +146,14 @@ def build_class_index(root_name: str) -> dict[str, set[str]]:
 
     Best-effort imports submodules (skipping ones whose import fails, e.g. optional
     GL backends), then indexes classes from every loaded package module.
+
+    Importing them also makes them visible to stubgen, so the stub set is wider
+    than the root module alone:
+
+        pybind11-stubgen mujoco -o DIR
+
+    emits 12 .pyi files, where the walk yields 39, adding _rollout, renderer,
+    gl_context and introspect/*.
     """
     root = importlib.import_module(root_name)
     prefix = root_name + "."
@@ -179,6 +187,14 @@ def write_stubs(package: str, output_dir: pathlib.Path) -> None:
     `...`. An unresolved `<ns>::...::<Leaf>` is mapped back to the class named
     `<Leaf>` or `_<Leaf>` when exactly one such class exists; ambiguous or missing
     names are left untouched, so it never resolves wrongly.
+
+    This is what the resolver buys over the stock command:
+
+        pybind11-stubgen mujoco -o DIR --ignore-all-errors
+
+    which leaves 106 unusable `-> ...` return types in _structs.pyi alone, among
+    them most MjModel and MjData accessors (`d.joint()`, `m.actuator()`, ...).
+    With the resolver, one.
     """
     from pybind11_stubgen import (
         CLIArgs,
