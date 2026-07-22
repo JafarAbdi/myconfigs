@@ -179,46 +179,46 @@ function registerSshToolOverrides(
 
 	pi.registerTool({
 		...readDef,
-		async execute(id, params, signal, onUpdate) {
+		async execute(id, params, signal, onUpdate, ctx) {
 			const ssh = requireConnection(getConnection());
-			const tool = createReadTool(ssh.remoteCwd, { operations: createRemoteReadOps(ssh) });
-			return tool.execute(id, params, signal, onUpdate);
+			const definition = createReadToolDefinition(ssh.remoteCwd, { operations: createRemoteReadOps(ssh) });
+			return definition.execute(id, params, signal, onUpdate, ctx);
 		},
 	});
 
 	pi.registerTool({
 		...writeDef,
-		async execute(id, params, signal, onUpdate) {
+		async execute(id, params, signal, onUpdate, ctx) {
 			const ssh = requireConnection(getConnection());
-			const tool = createWriteTool(ssh.remoteCwd, { operations: createRemoteWriteOps(ssh) });
-			return tool.execute(id, params, signal, onUpdate);
+			const definition = createWriteToolDefinition(ssh.remoteCwd, { operations: createRemoteWriteOps(ssh) });
+			return definition.execute(id, params, signal, onUpdate, ctx);
 		},
 	});
 
 	pi.registerTool({
 		...editDef,
-		async execute(id, params, signal, onUpdate) {
+		async execute(id, params, signal, onUpdate, ctx) {
 			const ssh = requireConnection(getConnection());
-			const tool = createEditTool(ssh.remoteCwd, { operations: createRemoteEditOps(ssh) });
-			return tool.execute(id, params, signal, onUpdate);
+			const definition = createEditToolDefinition(ssh.remoteCwd, { operations: createRemoteEditOps(ssh) });
+			return definition.execute(id, params, signal, onUpdate, ctx);
 		},
 	});
 
 	pi.registerTool({
 		...lsDef,
-		async execute(id, params, signal, onUpdate) {
+		async execute(id, params, signal, onUpdate, ctx) {
 			const ssh = requireConnection(getConnection());
-			const tool = createLsTool(ssh.remoteCwd, { operations: createRemoteLsOps(ssh) });
-			return tool.execute(id, params, signal, onUpdate);
+			const definition = createLsToolDefinition(ssh.remoteCwd, { operations: createRemoteLsOps(ssh) });
+			return definition.execute(id, params, signal, onUpdate, ctx);
 		},
 	});
 
 	pi.registerTool({
 		...findDef,
-		async execute(id, params, signal, onUpdate) {
+		async execute(id, params, signal, onUpdate, ctx) {
 			const ssh = requireConnection(getConnection());
-			const tool = createFindTool(ssh.remoteCwd, { operations: createRemoteFindOps(ssh) });
-			return tool.execute(id, params, signal, onUpdate);
+			const definition = createFindToolDefinition(ssh.remoteCwd, { operations: createRemoteFindOps(ssh) });
+			return definition.execute(id, params, signal, onUpdate, ctx);
 		},
 	});
 
@@ -244,12 +244,12 @@ function registerSshToolOverrides(
 
 	pi.registerTool({
 		...hostBashDef,
-		async execute(id, params, signal, onUpdate) {
+		async execute(id, params, signal, onUpdate, ctx) {
 			const ssh = requireConnection(getConnection());
-			const tool = createBashTool(ssh.remoteCwd, {
+			const definition = createBashToolDefinition(ssh.remoteCwd, {
 				operations: createRemoteBashOps(ssh),
 			});
-			return tool.execute(id, params, signal, onUpdate);
+			return definition.execute(id, params, signal, onUpdate, ctx);
 		},
 	});
 }
