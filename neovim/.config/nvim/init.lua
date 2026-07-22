@@ -5,6 +5,7 @@ vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 
 local myconfigs_path = vim.fs.joinpath(vim.env.HOME, "myconfigs")
+local rust_lsp_name = "rust_analyzer"
 -----------------
 --- Functions ---
 -----------------
@@ -101,6 +102,30 @@ local root_dirs = {
     return dir
   end,
   rust = function(startpath)
+    local home = vim.fs.normalize(vim.env.HOME)
+    local cargo_home = vim.env.CARGO_HOME or vim.fs.joinpath(home, ".cargo")
+    local rustup_home = vim.env.RUSTUP_HOME or vim.fs.joinpath(home, ".rustup")
+    local library_roots = {
+      vim.fs.joinpath(cargo_home, "registry", "src"),
+      vim.fs.joinpath(cargo_home, "git", "checkouts"),
+      vim.fs.joinpath(rustup_home, "toolchains"),
+    }
+
+    -- External Rust sources contain Cargo.toml files, so root detection would start another
+    -- rust-analyzer and cargo-check dependencies or std as standalone workspaces. Reuse an active
+    -- project client instead. Only rustup/Cargo paths are recognized; with multiple projects,
+    -- Neovim cannot identify the originating client, so another project's client may be selected.
+    -- See :help lsp-root_dir() and https://github.com/neovim/nvim-lspconfig/issues/2285
+    for _, library_root in ipairs(library_roots) do
+      if vim.fs.relpath(library_root, startpath) then
+        local clients = vim.lsp.get_clients({ name = rust_lsp_name })
+        local client = clients[#clients]
+        if client then
+          return client.config.root_dir
+        end
+      end
+    end
+
     return vim.fs.root(startpath, { "Cargo.toml", "rust-project.json" })
   end,
   zig = function(startpath)
@@ -233,7 +258,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
 })
 
 local get_rust_lsp_client = function()
-  local clients = vim.lsp.get_clients({ bufnr = 0, name = "rust-langserver" })
+  local clients = vim.lsp.get_clients({ bufnr = 0, name = rust_lsp_name })
   if #clients == 0 then
     return
   end
@@ -583,7 +608,7 @@ local servers = {
     },
   },
   {
-    name = "rust-langserver",
+    name = rust_lsp_name,
     filetypes = { "rust" },
     cmd = { "rust-analyzer" },
     settings = {
@@ -852,7 +877,7 @@ for _, server in pairs(servers) do
       cmd = server.cmd,
       cmd_env = server.cmd_env,
       filetypes = server.filetypes,
-      capabilities = server.name == "rust-langserver" and rust_capabilities or lsp_capabilities,
+      capabilities = server.name == rust_lsp_name and rust_capabilities or lsp_capabilities,
       settings = server.settings or vim.empty_dict(),
       root_dir = lsp_root_dir,
     }
