@@ -119,50 +119,70 @@ function validateUrls(urls: string[]): void {
 	}
 }
 
-const exaSearch = defineTool({
-	name: "exa_search",
-	label: "Exa search",
-	description: "Search the public web through Exa. Returns current sources with URLs and relevant text.",
-	promptSnippet: "Search the public web through Exa",
+const webSearch = defineTool({
+	name: "web_search",
+	label: "Web search",
+	description: "Search the public web through Exa. Prefer 2–4 varied queries for broad research.",
+	promptSnippet: "Search the public web; prefer {queries:[...]} with varied research angles",
 	parameters: Type.Object(
 		{
-			query: Type.String({ minLength: 1, description: "Natural-language description of the information to find" }),
-			numResults: Type.Optional(
-				Type.Integer({ minimum: 1, maximum: SEARCH_RESULTS_MAX, description: "Number of results (default: 10)" }),
+			query: Type.Optional(Type.String({ minLength: 1, description: "One search query" })),
+			queries: Type.Optional(
+				Type.Array(Type.String({ minLength: 1 }), {
+					minItems: 1,
+					maxItems: 4,
+					description: "Two to four varied search queries",
+				}),
 			),
+			numResults: Type.Optional(
+				Type.Integer({ minimum: 1, maximum: SEARCH_RESULTS_MAX, description: "Results per query (default: 10)" }),
+			),
+			workflow: Type.Optional(Type.String({ description: "Use 'none'; Exa returns raw results without curation" })),
 		},
 		{ additionalProperties: false },
 	),
 	async execute(_toolCallId, params, signal) {
-		const query = params.query.trim();
-		if (!query) throw new Error("Search query must not be empty");
-		const text = await callExa(
-			"web_search_exa",
-			{
-				query,
-				...(params.numResults === undefined ? {} : { numResults: params.numResults }),
-			},
-			signal,
-		);
+		if (params.workflow !== undefined && params.workflow !== "none") {
+			throw new Error("web_search supports only workflow: 'none'");
+		}
+		const rawQueries = params.queries ?? (params.query === undefined ? [] : [params.query]);
+		const queries = rawQueries.map((query) => query.trim()).filter(Boolean);
+		if (queries.length === 0) throw new Error("Provide query or queries");
+
+		const sections: string[] = [];
+		for (const query of queries) {
+			const text = await callExa(
+				"web_search_exa",
+				{
+					query,
+					...(params.numResults === undefined ? {} : { numResults: params.numResults }),
+				},
+				signal,
+			);
+			sections.push(queries.length === 1 ? text : `## Query: ${query}\n\n${text}`);
+		}
 		return {
-			content: [{ type: "text", text: formatOutput(text) }],
-			details: { query, numResults: params.numResults ?? 10 },
+			content: [{ type: "text", text: formatOutput(sections.join("\n\n---\n\n")) }],
+			details: { queries, numResults: params.numResults ?? 10 },
 		};
 	},
 });
 
-const exaFetch = defineTool({
-	name: "exa_fetch",
-	label: "Exa fetch",
+const fetchContent = defineTool({
+	name: "fetch_content",
+	label: "Fetch content",
 	description: "Fetch clean Markdown content from one or more public web URLs through Exa.",
-	promptSnippet: "Fetch readable content from public web URLs through Exa",
+	promptSnippet: "Fetch readable content from public web URLs",
 	parameters: Type.Object(
 		{
-			urls: Type.Array(Type.String({ minLength: 1 }), {
-				minItems: 1,
-				maxItems: FETCH_URLS_MAX,
-				description: "HTTP or HTTPS URLs to fetch",
-			}),
+			url: Type.Optional(Type.String({ minLength: 1, description: "One HTTP or HTTPS URL" })),
+			urls: Type.Optional(
+				Type.Array(Type.String({ minLength: 1 }), {
+					minItems: 1,
+					maxItems: FETCH_URLS_MAX,
+					description: "HTTP or HTTPS URLs to fetch",
+				}),
+			),
 			maxCharacters: Type.Optional(
 				Type.Integer({
 					minimum: 1,
@@ -174,23 +194,25 @@ const exaFetch = defineTool({
 		{ additionalProperties: false },
 	),
 	async execute(_toolCallId, params, signal) {
-		validateUrls(params.urls);
+		const urls = params.urls ?? (params.url === undefined ? [] : [params.url]);
+		if (urls.length === 0) throw new Error("Provide url or urls");
+		validateUrls(urls);
 		const text = await callExa(
 			"web_fetch_exa",
 			{
-				urls: params.urls,
+				urls,
 				...(params.maxCharacters === undefined ? {} : { maxCharacters: params.maxCharacters }),
 			},
 			signal,
 		);
 		return {
 			content: [{ type: "text", text: formatOutput(text) }],
-			details: { urls: params.urls, maxCharacters: params.maxCharacters ?? 3000 },
+			details: { urls, maxCharacters: params.maxCharacters ?? 3000 },
 		};
 	},
 });
 
 export default function (pi: ExtensionAPI): void {
-	pi.registerTool(exaSearch);
-	pi.registerTool(exaFetch);
+	pi.registerTool(webSearch);
+	pi.registerTool(fetchContent);
 }
