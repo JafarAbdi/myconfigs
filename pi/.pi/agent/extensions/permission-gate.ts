@@ -11,9 +11,10 @@ export default function (pi: ExtensionAPI) {
 	const dangerousPatterns = [/\brm\s+(-rf?|--recursive)/i, /\bsudo\b/i, /\b(chmod|chown)\b.*777/i];
 
 	pi.on("tool_call", async (event, ctx) => {
-		if (event.toolName !== "bash") return undefined;
+		if (event.toolName !== "bash" && event.toolName !== "host_bash") return undefined;
 
-		const command = event.input.command as string;
+		const command = event.input.command;
+		if (typeof command !== "string") return undefined;
 		const isDangerous = dangerousPatterns.some((p) => p.test(command));
 
 		if (isDangerous) {

@@ -28,14 +28,13 @@ host:/remote/path
 
 ## Behavior
 
-- `read`, `ls`, `find`, and `grep` run on the remote, except host-local pi runtime paths
-  are read locally.
-- `write` and `edit` run on the remote, except `~/.pi/agent`, this extension root, and the
-  global `skills`/`prompts` dirs from settings are written locally. Pi package install paths
-  are read-only.
+- `read`, `write`, `edit`, `ls`, `find`, `grep`, `bash`, and user `!` commands always run
+  on the SSH remote.
 - Relative paths resolve against the remote cwd. Absolute paths are remote absolute paths.
-- `bash` always runs on the remote.
-- `--ssh-debug-routing` prints local roots at startup and per-tool route decisions.
+- `host_bash` runs on the host machine running Pi, with Pi's local cwd. It is available
+  only while SSH mode is active. Use it for every host-local command or file, including Pi
+  docs, extensions, skills, prompts, and agent config.
+- Host and remote cwd are independent. Paths never select a machine implicitly.
 - `@` autocomplete uses the remote cwd.
 - Footer shows `ssh host:/remote/cwd`.
 - Remote commands run with clean bash:
@@ -57,7 +56,7 @@ host:/remote/path
 
 ## Execution tool ownership
 
-SSH mode requires ownership of execution tools so all execution runs on the remote host. If another extension registers `read`, `write`, `edit`, `bash`, `ls`, `find`, or `grep`, SSH startup fails with the conflicting owner path. Change those extensions to use policy hooks instead of registering execution tools.
+SSH mode requires ownership of its execution tools so every tool has one unambiguous machine target. If another extension registers `read`, `write`, `edit`, `bash`, `host_bash`, `ls`, `find`, or `grep`, SSH startup fails with the conflicting owner path. Change those extensions to use policy hooks instead of registering execution tools.
 
 ## Tool bootstrap
 

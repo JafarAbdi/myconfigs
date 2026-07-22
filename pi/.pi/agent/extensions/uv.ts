@@ -97,17 +97,20 @@ function getBlockedCommandMessage(command: string): string | null {
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event) => {
-    if (event.toolName !== "bash") return;
+    if (event.toolName !== "bash" && event.toolName !== "host_bash") return;
 
-    const blockedMessage = getBlockedCommandMessage(event.input.command);
+    const command = event.input.command;
+    if (typeof command !== "string") return;
+
+    const blockedMessage = getBlockedCommandMessage(command);
     if (blockedMessage) {
       return { block: true, reason: blockedMessage };
     }
 
-    if (isSshModeActive()) return;
+    if (event.toolName === "bash" && isSshModeActive()) return;
 
     const shimBin = await pythonShimBinPromise;
-    event.input.command = [`export PATH="${shimBin}:$PATH"`, event.input.command].join("\n");
+    event.input.command = [`export PATH="${shimBin}:$PATH"`, command].join("\n");
   });
 
   pi.on("user_bash", (event) => {
