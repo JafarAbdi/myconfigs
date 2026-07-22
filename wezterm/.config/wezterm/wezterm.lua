@@ -143,6 +143,27 @@ local snippet_common = {
     text = [[| base64 | tr -d '\n' | awk '{printf "\033]52;c;%s\007", $0}']],
   },
   { glyph = "📜", name = "tail journal (this boot)", text = "journalctl -b -f" },
+  { glyph = "🗓️", name = "boot journal history", text = "journalctl --list-boots" },
+  { glyph = "⏮️", name = "previous boot journal (end)", text = "journalctl -b -1 -e" },
+  {
+    glyph = "⚠️",
+    name = "previous boot warnings",
+    text = "journalctl -b -1 -p warning --no-pager",
+  },
+  {
+    glyph = "🧩",
+    name = "previous boot kernel warnings",
+    text = "journalctl -k -b -1 -p warning --no-pager",
+  },
+  {
+    glyph = "🕵️",
+    name = "previous boot crash clues",
+    text = "journalctl -b -1 --no-pager | grep -iE "
+      .. "'oom|out of memory|killed process|panic|segfault|watchdog|thermal|hardware error|"
+      .. "i/o error|nvme|reset|shutdown|reboot'",
+  },
+  { glyph = "⚰️", name = "recent core dumps", text = "coredumpctl list --reverse" },
+  { glyph = "🔁", name = "shutdown and reboot history", text = "last -x -n 30" },
   {
     glyph = "💾",
     name = "disk usage, top dirs",
