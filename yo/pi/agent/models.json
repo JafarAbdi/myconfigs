@@ -1,6 +1,6 @@
 {
   "providers": {
-    "llama.cpp": {
+    "llama-local": {
       "api": "openai-completions",
       "apiKey": "no-key",
       "baseUrl": "http://desktop.tail79ed4.ts.net:8080/v1",

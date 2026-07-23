@@ -1,6 +1,0 @@
-{
-  "defaultModel": "qwen36",
-  "defaultProvider": "llama.cpp",
-  "defaultThinkingLevel": "off",
-  "quietStartup": true
-}

@@ -7,6 +7,13 @@ end
 set -l __yo_root (dirname "$__yo_file")
 set -g __yo_agent_dir "$__yo_root/pi/agent"
 
+# Provider/model are passed to pi on every run instead of living in a
+# settings.json default. Pi restores the model recorded in the session file and
+# ignores settings.json on resume, so a session that ever recorded a different
+# provider stays pinned to it forever. An explicit flag has no such state.
+# The provider itself is defined in pi/agent/models.json.
+set -g __yo_model llama-local/qwen36
+
 function __yo_pane_environment
     if not set -q __yo_agent_dir; or test -z "$__yo_agent_dir"
         __yo_error '__yo_agent_dir is not set; source yo-fish/conf.d/yo.fish'
@@ -306,7 +313,11 @@ function __yo_build_user_prompt --argument-names query continuation executed_com
 end
 
 function __yo_parse_pi_events_file --argument-names path
-    jq -sec 'map(select(.result.details.type == .toolName) | .result.details) | last // empty' "$path"
+    jq -sec 'map(select(.type == "tool_execution_end" and .result.details.type == .toolName) | .result.details) | last // empty' "$path"
+end
+
+function __yo_parse_pi_turn_error --argument-names path
+    jq -rs 'map(select(.type == "turn_end") | .message.errorMessage // empty) | last // empty' "$path"
 end
 
 function __yo_insert_commandline --argument-names command_text
@@ -321,7 +332,12 @@ end
 function __yo_handle_response_file --argument-names output_file query
     set -l json (__yo_parse_pi_events_file "$output_file" | string collect)
     if test $status -ne 0; or test -z "$json"
-        __yo_error 'Pi did not return a yo command/chat tool result.'
+        set -l turn_error (__yo_parse_pi_turn_error "$output_file" | string collect)
+        if test -n "$turn_error"
+            __yo_error "$turn_error"
+        else
+            __yo_error 'Pi did not return a yo command/chat tool result.'
+        end
         return 1
     end
 
@@ -394,9 +410,11 @@ function __yo_run_request --argument-names query continuation executed_command e
 
     __yo_thinking
 
-    set -l jq_filter 'select(.type == "tool_execution_end" and (.toolName == "command" or .toolName == "chat"))'
+    set -l jq_filter 'select((.type == "tool_execution_end" and (.toolName == "command" or .toolName == "chat")) or (.type == "turn_end" and .message.stopReason == "error"))'
     env PI_CODING_AGENT_DIR="$__yo_agent_dir" PI_TELEMETRY=0 \
         pi -nc --no-approve \
+        --model "$__yo_model" \
+        --thinking off \
         --mode json \
         --session-dir "$session_dir" \
         --session-id "$session_id" \

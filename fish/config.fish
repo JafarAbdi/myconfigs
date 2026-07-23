@@ -21,6 +21,9 @@ export HF_HUB_DISABLE_TELEMETRY=True
 export HF_HUB_ENABLE_HF_TRANSFER=1
 export HF_XET_HIGH_PERFORMANCE=1
 export PI_TELEMETRY=0
+# Authenticates pi's built-in llama.cpp provider without /login or auth.json.
+# Router URL only -- pi appends /v1 itself.
+export LLAMA_BASE_URL=http://desktop.tail79ed4.ts.net:8080
 
 # To prevent JAX from allocating all GPU memory
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
