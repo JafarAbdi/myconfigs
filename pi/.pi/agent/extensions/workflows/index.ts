@@ -25,9 +25,6 @@
 // - Every queue, wait, file, scan, graph, and output is bounded (see limits.ts).
 // - Final answers live in result.md; per-node detail in nodes/<node-id>.md.
 //
-// Non-goals (deliberately excluded): saved-chain DSLs, steering, scheduling, nested delegation,
-// worktrees, profiles, RPC, watchdogs, agent administration, model fallback, compatibility layers.
-//
 // Job layout: ~/.pi/agent/jobs/<job-id>/ holds request.json, state.json, telemetry.json,
 // cancellation.json, interruption.json, liveness.sock, stderr.log, result.md, and nodes/<id>.md.
 // Flow diagrams live in diagrams/*.mmd.
@@ -43,21 +40,18 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { currentPiInvocation, runAgent, type AgentRunResult } from "./agent-run.ts";
 import {
-	agentWithDefaultModel,
-	discoverAgents,
-	type AgentDefinition,
-	type FrontmatterParser,
-} from "./agents.ts";
+	currentPiInvocation,
+	JOB_DIRECTORY_ENV,
+	PROCESS_MODE_COORDINATOR,
+	PROCESS_MODE_ENV,
+	PROCESS_MODE_NODE,
+	runAgent,
+	type AgentRunResult,
+} from "./agent-run.ts";
+import { agentWithDefaultModel, discoverAgents, type AgentDefinition, type FrontmatterParser } from "./agents.ts";
 import { runWorkflowNodes } from "./graph.ts";
-import {
-	cancelJob,
-	observeJob,
-	startAgentJob,
-	startWorkflowJob,
-	waitForJob,
-} from "./job-control.ts";
+import { cancelJob, observeJob, startAgentJob, startWorkflowJob, waitForJob } from "./job-control.ts";
 import {
 	listJobStates,
 	projectJob,
@@ -67,12 +61,7 @@ import {
 	type JobProjection,
 	type JobState,
 } from "./job-store.ts";
-import {
-	acquireWriterLease,
-	releaseWriterLease,
-	setWriterLeaseProcessGroup,
-	type WriterLease,
-} from "./leases.ts";
+import { acquireWriterLease, releaseWriterLease, setWriterLeaseProcessGroup, type WriterLease } from "./leases.ts";
 import {
 	AGENT_TASK_BYTES_MAX,
 	assertLimitInvariants,
@@ -80,9 +69,8 @@ import {
 	WORKFLOW_NODE_COUNT_MAX,
 	WORKFLOW_NODE_TASK_BYTES_MAX,
 } from "./limits.ts";
-import { formatActiveJobs, formatJobNotification } from "./presentation.ts";
+import { formatActiveJobs, formatJobNotification, formatJobProjection } from "./presentation.ts";
 import {
-	formatJobProjection,
 	renderAgentCall,
 	renderAgentResult,
 	renderJobCall,
@@ -91,10 +79,6 @@ import {
 	renderWorkflowResult,
 } from "./render.ts";
 
-const PROCESS_MODE_ENV = "PI_WORKFLOWS_MODE";
-const PROCESS_MODE_COORDINATOR = "coordinator";
-const PROCESS_MODE_NODE = "node";
-const JOB_DIRECTORY_ENV = "PI_WORKFLOWS_JOB_DIRECTORY";
 const JOBS_WIDGET_ID = "workflows-active-jobs";
 const jobWatchers = new Set<AbortController>();
 const watchedJobs = new Map<string, JobProjection>();
@@ -114,9 +98,7 @@ const AgentRunParameters = Type.Object({
 		}),
 	),
 	cwd: Type.Optional(Type.String({ description: "Agent working directory" })),
-	background: Type.Optional(
-		Type.Boolean({ description: "Detach and return a job ID", default: false }),
-	),
+	background: Type.Optional(Type.Boolean({ description: "Detach and return a job ID", default: false })),
 });
 
 const WorkflowNodesParameters = Type.Object({
@@ -151,11 +133,13 @@ const WorkflowStartParameters = Type.Object({
 });
 
 const JobStatusParameters = Type.Object({
-	id: Type.Optional(Type.String({
-		description: "Full job ID or unique prefix; omit to list recent jobs",
-		minLength: 8,
-		maxLength: 36,
-	})),
+	id: Type.Optional(
+		Type.String({
+			description: "Full job ID or unique prefix; omit to list recent jobs",
+			minLength: 8,
+			maxLength: 36,
+		}),
+	),
 });
 
 const JobWaitParameters = Type.Object({
@@ -167,11 +151,7 @@ const JobCancelParameters = Type.Object({
 });
 
 async function resolveWorkingDirectory(parentCwd: string, requested?: string): Promise<string> {
-	const candidate = requested
-		? isAbsolute(requested)
-			? requested
-			: resolve(parentCwd, requested)
-		: parentCwd;
+	const candidate = requested ? (isAbsolute(requested) ? requested : resolve(parentCwd, requested)) : parentCwd;
 	const canonical = await realpath(candidate);
 	const metadata = await stat(canonical);
 	if (!metadata.isDirectory()) throw new Error(`agent cwd is not a directory: ${requested}`);
@@ -251,13 +231,11 @@ async function runForegroundAgent(
 			writerOwnerId: lease?.ownerId,
 			onProcessGroup: lease
 				? async (processGroupId) => {
-					lease = await setWriterLeaseProcessGroup(lease!, processGroupId);
-				}
+						lease = await setWriterLeaseProcessGroup(lease!, processGroupId);
+					}
 				: undefined,
 			onUpdate: (update) => {
-				const activity = update.tool
-					? `${prepared.agent.name}: ${update.tool}`
-					: prepared.agent.name;
+				const activity = update.tool ? `${prepared.agent.name}: ${update.tool}` : prepared.agent.name;
 				onActivity(activity);
 			},
 		});
@@ -312,16 +290,9 @@ async function startBackgroundWorkflow(
 	}
 }
 
-function stopJobWatcher(controller: AbortController): void {
-	controller.abort();
-	jobWatchers.delete(controller);
-}
-
 function refreshJobsWidget(ctx: ExtensionContext): void {
 	if (!ctx.hasUI) return;
-	const visible = [...watchedJobs.values()].filter(
-		({ state }) => !focusedJobs.has(state.id),
-	);
+	const visible = [...watchedJobs.values()].filter(({ state }) => !focusedJobs.has(state.id));
 	ctx.ui.setWidget(JOBS_WIDGET_ID, formatActiveJobs(visible));
 }
 
@@ -342,23 +313,26 @@ function watchJob(id: string, ctx: ExtensionContext): void {
 	void waitForJob(jobsRoot, id, controller.signal, (state) => {
 		watchedJobs.set(id, projectJob(jobsRoot, state));
 		refreshJobsWidget(ctx);
-	}).then(async (state) => {
-		const level = state.state === "succeeded" ? "info" : "warning";
-		ctx.ui.notify(formatJobNotification(state), level);
-		try {
-			await pruneJobRecords(jobsRoot);
-		} catch (error) {
-			ctx.ui.notify(`Cannot prune old jobs: ${String(error)}`, "warning");
-		}
-	}).catch((error: unknown) => {
-		if (!controller.signal.aborted) {
-			ctx.ui.notify(`Cannot watch job ${id}: ${String(error)}`, "warning");
-		}
-	}).finally(() => {
-		jobWatchers.delete(controller);
-		watchedJobs.delete(id);
-		refreshJobsWidget(ctx);
-	});
+	})
+		.then(async (state) => {
+			const level = state.state === "succeeded" ? "info" : "warning";
+			ctx.ui.notify(formatJobNotification(state), level);
+			try {
+				await pruneJobRecords(jobsRoot);
+			} catch (error) {
+				ctx.ui.notify(`Cannot prune old jobs: ${String(error)}`, "warning");
+			}
+		})
+		.catch((error: unknown) => {
+			if (!controller.signal.aborted) {
+				ctx.ui.notify(`Cannot watch job ${id}: ${String(error)}`, "warning");
+			}
+		})
+		.finally(() => {
+			jobWatchers.delete(controller);
+			watchedJobs.delete(id);
+			refreshJobsWidget(ctx);
+		});
 }
 
 function registerAgentTool(pi: ExtensionAPI, agents: AgentDefinition[]): void {
@@ -467,9 +441,7 @@ function registerJobStatusTool(pi: ExtensionAPI): void {
 				};
 			}
 			const states = await listJobStates(jobsRoot);
-			const projections = await Promise.all(
-				states.map((state) => observeJob(jobsRoot, state, false)),
-			);
+			const projections = await Promise.all(states.map((state) => observeJob(jobsRoot, state, false)));
 			const summaries = projections.map(formatJobProjection);
 			const text = summaries.length ? summaries.join("\n\n") : "No background jobs.";
 			return { content: [{ type: "text", text }], details: { jobs: projections } };
@@ -543,17 +515,15 @@ export default function workflowsExtension(pi: ExtensionAPI): void {
 		return;
 	}
 	if (mode) throw new Error(`unknown workflows process mode: ${mode}`);
-	const agents = discoverAgents(
-		join(getAgentDir(), "agents"),
-		parseFrontmatter as FrontmatterParser,
-	);
+	const agents = discoverAgents(join(getAgentDir(), "agents"), parseFrontmatter as FrontmatterParser);
 	registerAgentTool(pi, agents);
 	registerWorkflowStartTool(pi, agents);
 	registerJobStatusTool(pi);
 	registerJobWaitTool(pi);
 	registerJobCancelTool(pi);
 	pi.on("session_shutdown", (_event, ctx) => {
-		for (const controller of jobWatchers) stopJobWatcher(controller);
+		for (const controller of jobWatchers) controller.abort();
+		jobWatchers.clear();
 		watchedJobs.clear();
 		focusedJobs.clear();
 		if (ctx.hasUI) ctx.ui.setWidget(JOBS_WIDGET_ID, undefined);

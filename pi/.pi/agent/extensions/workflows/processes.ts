@@ -19,12 +19,10 @@ const LIVENESS_PROTOCOL = "pi-workflows-liveness-v1";
 const LIVENESS_BUSY = "busy\n";
 export const WRITER_OWNER_ENV = "PI_WORKFLOWS_WRITER_OWNER";
 
-export type JobLivenessErrorKind =
-	| "channel-closed"
-	| "channel-unavailable"
-	| "observer-limit"
-	| "process-missing"
-	| "protocol";
+// Only "process-missing" changes a caller's behaviour: it means the runner is gone and the job
+// needs reconciling. Every other liveness failure is just a failure, so they share one kind
+// rather than a taxonomy nothing reads.
+export type JobLivenessErrorKind = "channel-failed" | "process-missing";
 
 export class JobLivenessError extends Error {
 	readonly kind: JobLivenessErrorKind;
@@ -75,11 +73,7 @@ async function assertSocketAbsent(path: string): Promise<void> {
 	}
 }
 
-function acceptObserver(
-	socket: Socket,
-	connections: Set<Socket>,
-	handshake: string,
-): void {
+function acceptObserver(socket: Socket, connections: Set<Socket>, handshake: string): void {
 	socket.on("error", () => socket.destroy());
 	if (connections.size >= JOB_LIVENESS_OBSERVER_COUNT_MAX) {
 		socket.end(LIVENESS_BUSY);
@@ -107,13 +101,9 @@ function listen(server: Server, path: string): Promise<void> {
 	});
 }
 
-async function closeServer(
-	server: Server,
-	connections: Set<Socket>,
-	path: string,
-): Promise<void> {
+async function closeServer(server: Server, connections: Set<Socket>, path: string): Promise<void> {
 	const closed = new Promise<void>((resolve, reject) => {
-		server.close((error?: Error) => error ? reject(error) : resolve());
+		server.close((error?: Error) => (error ? reject(error) : resolve()));
 	});
 	for (const socket of connections) socket.destroy();
 	await closed;
@@ -124,10 +114,7 @@ async function closeServer(
 	}
 }
 
-export async function listenForJobLiveness(
-	jobDir: string,
-	token: string,
-): Promise<JobLivenessServer> {
+export async function listenForJobLiveness(jobDir: string, token: string): Promise<JobLivenessServer> {
 	const path = livenessSocketPath(jobDir);
 	const handshake = livenessHandshake(token);
 	await assertSocketAbsent(path);
@@ -166,10 +153,7 @@ function monitorSocket(socket: Socket): JobLivenessMonitor {
 	socket.once("close", () => {
 		if (closedByCaller) return;
 		const detail = socketError ? `: ${socketError.message}` : "";
-		controller.abort(new JobLivenessError(
-			"channel-closed",
-			`job liveness channel closed${detail}`,
-		));
+		controller.abort(new JobLivenessError("channel-failed", `job liveness channel closed${detail}`));
 	});
 	socket.resume();
 	return {
@@ -181,11 +165,7 @@ function monitorSocket(socket: Socket): JobLivenessMonitor {
 	};
 }
 
-function connectSocket(
-	path: string,
-	expectedHandshake: string,
-	signal?: AbortSignal,
-): Promise<JobLivenessMonitor> {
+function connectSocket(path: string, expectedHandshake: string, signal?: AbortSignal): Promise<JobLivenessMonitor> {
 	return new Promise((resolve, reject) => {
 		const socket = createConnection({ path });
 		let bytes = Buffer.alloc(0);
@@ -208,18 +188,18 @@ function connectSocket(
 		const onClose = () => fail(new Error("job liveness channel closed before handshake"));
 		const onData = (chunk: Buffer) => {
 			if (chunk.length + bytes.length > JOB_LIVENESS_HANDSHAKE_BYTES_MAX) {
-				fail(new JobLivenessError("protocol", "job liveness handshake exceeds limit"));
+				fail(new JobLivenessError("channel-failed", "job liveness handshake exceeds limit"));
 				return;
 			}
 			bytes = Buffer.concat([bytes, chunk]);
 			if (!bytes.includes(0x0a)) return;
 			const handshake = bytes.toString("utf8");
 			if (handshake === LIVENESS_BUSY) {
-				fail(new JobLivenessError("observer-limit", "job liveness observer limit reached"));
+				fail(new JobLivenessError("channel-failed", "job liveness observer limit reached"));
 				return;
 			}
 			if (handshake !== expectedHandshake) {
-				fail(new JobLivenessError("protocol", "job liveness identity handshake failed"));
+				fail(new JobLivenessError("channel-failed", "job liveness identity handshake failed"));
 				return;
 			}
 			settled = true;
@@ -252,10 +232,7 @@ export async function connectToJobLiveness(
 		if (!(await processTokenMatches(processId, token))) {
 			throw new JobLivenessError("process-missing", "job process identity is not running");
 		}
-		throw new JobLivenessError(
-			"channel-unavailable",
-			`job liveness channel unavailable: ${(error as Error).message}`,
-		);
+		throw new JobLivenessError("channel-failed", `job liveness channel unavailable: ${(error as Error).message}`);
 	}
 	if (await processTokenMatches(processId, token)) return monitor;
 	monitor.close();
@@ -289,10 +266,7 @@ export async function processIsRunning(processId: number): Promise<boolean> {
 	}
 }
 
-export async function processTokenMatches(
-	processId: number,
-	expected: string,
-): Promise<boolean> {
+export async function processTokenMatches(processId: number, expected: string): Promise<boolean> {
 	if (!Number.isSafeInteger(processId) || processId <= 1) {
 		throw new Error("invalid process id");
 	}
@@ -374,9 +348,7 @@ async function processEnvironmentMarkerIds(
 		try {
 			const fields = await readLinuxProcessFields(processId);
 			const inOwnedGroup = processGroup === undefined || Number(fields[2]) === processGroup;
-			const status = (
-				await readProcessMetadata(`/proc/${entry.name}/status`, buffer)
-			).toString();
+			const status = (await readProcessMetadata(`/proc/${entry.name}/status`, buffer)).toString();
 			const owner = /^Uid:\s+(\d+)/m.exec(status);
 			if (!owner || Number(owner[1]) !== userId) continue;
 			let environment: Buffer;
@@ -430,12 +402,9 @@ export async function terminateEnvironmentMarkerProcesses(
 			}
 		}
 	}
-	if ((await processEnvironmentMarkerIds(
-		name,
-		value,
-		options.ownedProcessGroup,
-		options.excludedProcessIds,
-	)).length > 0) {
+	if (
+		(await processEnvironmentMarkerIds(name, value, options.ownedProcessGroup, options.excludedProcessIds)).length > 0
+	) {
 		throw new Error("writer owner retained marked descendants after SIGKILL");
 	}
 }

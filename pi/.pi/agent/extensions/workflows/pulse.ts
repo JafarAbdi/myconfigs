@@ -19,9 +19,7 @@ export class LatestPulseWriter<T> {
 
 	submit(value: T): void {
 		if (this.#failed) return;
-		this.#pending = this.#pending === undefined
-			? value
-			: this.#merge(this.#pending, value);
+		this.#pending = this.#pending === undefined ? value : this.#merge(this.#pending, value);
 		this.#active ??= Promise.resolve().then(() => this.#drain());
 	}
 

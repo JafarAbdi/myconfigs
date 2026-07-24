@@ -395,56 +395,66 @@ end
 
 alias git-commit='PI_OFFLINE=1 pi --no-session -p "/commit-message"'
 
+# Emit "<name>\t<path>" per worktree. <name> is the branch (detached worktrees
+# fall back to the path basename). git puts worktrees at arbitrary paths -- some
+# tools nest them (e.g. .../<branch>/<repo>) -- so never assume that the name,
+# the path basename, and the location all agree.
+function __fish_git_worktree_entries
+  set -l path
+  git worktree list --porcelain 2>/dev/null | while read -l line
+    set -l parts (string split -m 1 ' ' -- $line)
+    switch $parts[1]
+      case worktree
+        set path $parts[2]
+      case branch
+        printf '%s\t%s\n' (string replace 'refs/heads/' '' -- $parts[2]) $path
+      case detached
+        printf '%s\t%s\n' (basename $path) $path
+    end
+  end
+end
+
+function __fish_git_worktree_names
+  __fish_git_worktree_entries | string split -f1 \t
+end
+
 function wt
   if test (count $argv) -lt 1 -o (count $argv) -gt 2
     echo "Usage: wt <worktree name> [branch name]"
     return 1
   end
-  set -l root_dir (dirname (git rev-parse --show-toplevel))
-  if not contains -- $argv[1] (__fish_git_worktrees_names)
-    if test (count $argv) -eq 1
-      echo "Worktree $argv[1] does not exist and no branch name was provided."
-      return 1
-    else
-      git worktree add $root_dir/$argv[1] $argv[2]
+  set -l name $argv[1]
+  # Match by branch name first, then path basename, and cd to the real path --
+  # worktrees may live anywhere, not just as siblings of the main repo.
+  set -l target
+  for entry in (__fish_git_worktree_entries)
+    set -l fields (string split -m 1 \t -- $entry)
+    if test "$fields[1]" = "$name"; or test (basename "$fields[2]") = "$name"
+      set target $fields[2]
+      break
     end
   end
-  cd $root_dir/$argv[1]
-end
-
-function __fish_git_worktree_paths
-  git worktree list --porcelain 2> /dev/null | string replace --regex --filter '^worktree\s*' ''
-end
-
-function __fish_git_worktrees_names
-  __fish_git_worktree_paths | xargs -n 1 basename 2> /dev/null
+  if test -z "$target"
+    if test (count $argv) -eq 1
+      echo "Worktree $name does not exist and no branch name was provided."
+      return 1
+    end
+    # Create as a sibling of the MAIN worktree (the first porcelain entry) so the
+    # location doesn't depend on which worktree the shell is currently in.
+    set -l main_worktree (git worktree list --porcelain 2>/dev/null | string replace -rf '^worktree ' '' | head -1)
+    set target (dirname $main_worktree)/$name
+    git worktree add $target $argv[2]; or return 1
+  end
+  cd $target
 end
 
 function __fish_wt
-  set -l completions
-
-  # Get the current word being completed
-  set current_word (commandline -poc)
-
-  # If the cursor is on the first argument
+  set -l current_word (commandline -poc)
   if test (count $current_word) -eq 1
-    set completions (__fish_git_worktrees_names)
-  # If the cursor is on the second argument
+    __fish_git_worktree_names
   else if test (count $current_word) -eq 2
-    set completions (git for-each-ref --format='%(refname:short)' refs/heads)
+    git for-each-ref --format='%(refname:short)' refs/heads
   end
-
-  echo $completions | tr ' ' '\n'
-end
-
-function __fish_git_worktrees
-    set -l worktrees (git worktree list 2> /dev/null)
-    for worktree in $worktrees
-      set -l tokens (echo $worktree | string split " " --no-empty)
-      set -l path $tokens[1..-3] | string join " "
-      set -l branch_name (echo $tokens[-1] | string match -r '\[(.*)\]' --groups-only)
-      echo $branch_name\t$path
-    end
 end
 
 function diffdir

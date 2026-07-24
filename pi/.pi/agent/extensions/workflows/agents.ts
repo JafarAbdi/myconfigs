@@ -14,14 +14,7 @@ const AGENT_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 // Manual mirror of Pi's read-only tool names, and the read/write access boundary: a
 // "read"-access agent may list only these. Adding a genuinely non-mutating Pi tool (or a
 // Pi rename) requires editing this set; validation is fail-closed until then.
-const READ_TOOLS = new Set([
-	"fetch_content",
-	"find",
-	"grep",
-	"ls",
-	"read",
-	"web_search",
-]);
+const READ_TOOLS = new Set(["fetch_content", "find", "grep", "ls", "read", "web_search"]);
 
 export type AgentAccess = "read" | "write";
 export type AgentSkills = "all" | "none";
@@ -38,10 +31,7 @@ export interface AgentDefinition {
 	systemPromptMode: SystemPromptMode;
 }
 
-export function agentWithDefaultModel(
-	agent: AgentDefinition,
-	defaultModel?: string,
-): AgentDefinition {
+export function agentWithDefaultModel(agent: AgentDefinition, defaultModel?: string): AgentDefinition {
 	if (agent.model || !defaultModel) return agent;
 	return { ...agent, model: defaultModel };
 }
@@ -91,11 +81,11 @@ function validateTools(tools: unknown, access: AgentAccess): string[] {
 	if (!Array.isArray(tools) || tools.length === 0 || tools.length > AGENT_TOOL_COUNT_MAX) {
 		throw new Error("invalid agent tools");
 	}
-	if (!tools.every((tool) => {
-		return typeof tool === "string" &&
-			tool.length > 0 &&
-			Buffer.byteLength(tool) <= AGENT_TOOL_NAME_BYTES_MAX;
-	})) {
+	if (
+		!tools.every((tool) => {
+			return typeof tool === "string" && tool.length > 0 && Buffer.byteLength(tool) <= AGENT_TOOL_NAME_BYTES_MAX;
+		})
+	) {
 		throw new Error("invalid agent tool name");
 	}
 	if (new Set(tools).size !== tools.length) throw new Error("duplicate agent tool");
@@ -152,10 +142,7 @@ function parseAgent(content: string, parseFrontmatter: FrontmatterParser): Agent
 	});
 }
 
-export function discoverAgents(
-	directory: string,
-	parseFrontmatter: FrontmatterParser,
-): AgentDefinition[] {
+export function discoverAgents(directory: string, parseFrontmatter: FrontmatterParser): AgentDefinition[] {
 	let entries;
 	try {
 		entries = readdirSync(directory, { withFileTypes: true });

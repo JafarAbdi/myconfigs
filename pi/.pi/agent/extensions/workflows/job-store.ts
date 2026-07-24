@@ -2,22 +2,12 @@
 // telemetry.json is a disposable activity pulse overlaid on running jobs and never decides an
 // outcome. Terminal states are monotonic and one interruption claim arbitrates a dead runner.
 import { randomUUID } from "node:crypto";
-import {
-	mkdir,
-	readdir,
-	readFile,
-	rm,
-	stat,
-} from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { isDeepStrictEqual } from "node:util";
+import { publishJsonExclusive, replaceJsonAtomic, replaceTextAtomic, syncParentDirectory } from "./atomic-files.ts";
 import {
-	publishJsonExclusive,
-	replaceJsonAtomic,
-	replaceTextAtomic,
-	syncParentDirectory,
-} from "./atomic-files.ts";
-import {
+	CANCELLATION_ERROR,
+	isRecord,
 	truncateUtf8Bytes,
 	validateAgentUsage,
 	type AgentRunResult,
@@ -25,13 +15,7 @@ import {
 	type UsageValidationLimits,
 } from "./agent-run.ts";
 import { validateAgentDefinition, type AgentDefinition } from "./agents.ts";
-import {
-	acquireWriterLease,
-	releaseWriterLease,
-	waitForWriterLeaseRelease,
-	WriterLeaseBusyError,
-	type WriterLease,
-} from "./leases.ts";
+import { acquireWriterLeaseWithRetry, releaseWriterLease, type WriterLease } from "./leases.ts";
 import {
 	AGENT_COUNT_MAX,
 	AGENT_OUTPUT_BYTES_MAX,
@@ -49,10 +33,11 @@ import {
 	WORKFLOW_USAGE_COUNT_MAX,
 } from "./limits.ts";
 
-const CANCELLATION_ERROR = "agent run aborted";
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f-]{27}$/;
 export const JOB_SCHEMA_VERSION = 4;
-const NODE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+// graph.ts admits node ids; this module persists them. One pattern, or a node runs and
+// then fails its lifecycle write.
+export const NODE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const STATE_TRANSITION_ATTEMPT_COUNT_MAX = 16;
 const STATE_TRANSITION_WAIT_MS = 2 * 1000;
 
@@ -104,11 +89,11 @@ interface TelemetryFields {
 	usage?: AgentRunResult["usage"];
 }
 
-interface NodeTelemetry extends TelemetryFields {
+export interface NodeTelemetry extends TelemetryFields {
 	id: string;
 }
 
-interface JobTelemetry extends TelemetryFields {
+export interface JobTelemetry extends TelemetryFields {
 	version: typeof JOB_SCHEMA_VERSION;
 	id: string;
 	nodes?: NodeTelemetry[];
@@ -163,29 +148,18 @@ export interface JobCancellationClaim {
 	createdAt: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
 export function jobDirectoryPath(jobsRoot: string, id: string): string {
 	if (!JOB_ID_PATTERN.test(id)) throw new Error(`invalid job id: ${id}`);
 	return join(jobsRoot, id);
 }
 
-async function readJsonBounded(
-	path: string,
-	bytesMax = JOB_STATE_BYTES_MAX,
-): Promise<unknown> {
+async function readJsonBounded(path: string, bytesMax = JOB_STATE_BYTES_MAX): Promise<unknown> {
 	const metadata = await stat(path);
 	if (metadata.size > bytesMax) throw new Error(`job file exceeds limit: ${path}`);
 	return JSON.parse(await readFile(path, "utf8"));
 }
 
-async function writeJsonAtomic(
-	path: string,
-	value: unknown,
-	durable: boolean,
-): Promise<void> {
+async function writeJsonAtomic(path: string, value: unknown, durable: boolean): Promise<void> {
 	await replaceJsonAtomic(path, value, { bytesMax: JOB_STATE_BYTES_MAX, durable });
 }
 
@@ -195,8 +169,7 @@ function validateTelemetryFields(
 	usageLimits?: UsageValidationLimits,
 ): void {
 	if (value.activity !== undefined) {
-		if (typeof value.activity !== "string" ||
-			Buffer.byteLength(value.activity) > AGENT_TOOL_NAME_BYTES_MAX) {
+		if (typeof value.activity !== "string" || Buffer.byteLength(value.activity) > AGENT_TOOL_NAME_BYTES_MAX) {
 			throw new Error(`invalid ${label} activity`);
 		}
 	}
@@ -226,9 +199,7 @@ function validateNodes(value: unknown): void {
 		if (!Array.isArray(node.dependsOn) || typeof node.task !== "string") {
 			throw new Error("invalid workflow node payload");
 		}
-		const states: WorkflowNodeStateName[] = [
-			"cancelled", "failed", "pending", "running", "succeeded",
-		];
+		const states: WorkflowNodeStateName[] = ["cancelled", "failed", "pending", "running", "succeeded"];
 		if (!states.includes(node.state as WorkflowNodeStateName)) {
 			throw new Error("invalid workflow node status");
 		}
@@ -290,9 +261,8 @@ function validateState(value: unknown): JobState {
 	} else {
 		validateStartedProcess(value);
 	}
-	const startedAtMs = value.startedAt === undefined
-		? undefined
-		: parseTimestamp(value.startedAt, "invalid job start time");
+	const startedAtMs =
+		value.startedAt === undefined ? undefined : parseTimestamp(value.startedAt, "invalid job start time");
 	if (startedAtMs !== undefined && startedAtMs < createdAtMs) {
 		throw new Error("job start time precedes creation");
 	}
@@ -310,9 +280,10 @@ function validateState(value: unknown): JobState {
 			throw new Error("invalid job task");
 		}
 	}
-	const usageLimits = value.type === "workflow" && value.state === "succeeded"
-		? { costMax: WORKFLOW_USAGE_COST_MAX, countMax: WORKFLOW_USAGE_COUNT_MAX }
-		: undefined;
+	const usageLimits =
+		value.type === "workflow" && value.state === "succeeded"
+			? { costMax: WORKFLOW_USAGE_COST_MAX, countMax: WORKFLOW_USAGE_COUNT_MAX }
+			: undefined;
 	validateTelemetryFields(value, "job", usageLimits);
 	validateNodes(value.nodes);
 	return value as unknown as JobState;
@@ -420,7 +391,9 @@ function authoritativeState(state: JobState): JobState {
 	return authoritative;
 }
 
-function telemetryFromState(state: JobState): JobTelemetry {
+// Projects the pulse fields out of a state a caller already assembled. Exported for graph.ts,
+// which needs the per-node merge; the single-agent path builds its JobTelemetry directly.
+export function telemetryFromState(state: JobState): JobTelemetry {
 	const nodes = (state.nodes ?? []).map((node) => ({
 		id: node.id,
 		...(node.activity !== undefined ? { activity: node.activity } : {}),
@@ -462,10 +435,7 @@ export async function readJobStateAt(jobDir: string): Promise<JobState> {
 	const state = validateState(await readJsonBounded(join(jobDir, "state.json")));
 	if (state.state !== "running") return state;
 	try {
-		const value = await readJsonBounded(
-			join(jobDir, "telemetry.json"),
-			JOB_TELEMETRY_BYTES_MAX,
-		);
+		const value = await readJsonBounded(join(jobDir, "telemetry.json"), JOB_TELEMETRY_BYTES_MAX);
 		return applyTelemetry(state, validateTelemetry(value));
 	} catch {
 		return state;
@@ -483,10 +453,7 @@ export async function writeJobState(jobDir: string, state: JobState): Promise<vo
 	await writeJsonAtomic(join(jobDir, "state.json"), authoritativeState(state), true);
 }
 
-function validateCancellationClaim(
-	value: unknown,
-	state: JobState,
-): JobCancellationClaim {
+function validateCancellationClaim(value: unknown, state: JobState): JobCancellationClaim {
 	if (!isRecord(value) || value.version !== JOB_SCHEMA_VERSION) {
 		throw new Error("invalid job cancellation claim header");
 	}
@@ -497,10 +464,7 @@ function validateCancellationClaim(
 	return value as unknown as JobCancellationClaim;
 }
 
-async function claimJobCancellationLocked(
-	jobDir: string,
-	state: JobState,
-): Promise<JobCancellationClaim> {
+async function claimJobCancellationLocked(jobDir: string, state: JobState): Promise<JobCancellationClaim> {
 	const previous = await readJobStateAt(jobDir);
 	assertSameJob(previous, state);
 	if (previous.state !== "running" || !previous.processToken) {
@@ -513,17 +477,17 @@ async function claimJobCancellationLocked(
 		createdAt: new Date().toISOString(),
 	};
 	const path = join(jobDir, "cancellation.json");
-	if (await publishJsonExclusive(path, candidate, {
-		bytesMax: JOB_STATE_BYTES_MAX,
-		durable: true,
-	})) return candidate;
+	if (
+		await publishJsonExclusive(path, candidate, {
+			bytesMax: JOB_STATE_BYTES_MAX,
+			durable: true,
+		})
+	)
+		return candidate;
 	return validateCancellationClaim(await readJsonBounded(path), previous);
 }
 
-export async function claimJobCancellation(
-	jobDir: string,
-	state: JobState,
-): Promise<JobCancellationClaim> {
+export async function claimJobCancellation(jobDir: string, state: JobState): Promise<JobCancellationClaim> {
 	validateState(state);
 	const lease = await acquireTransitionLease(jobDir);
 	try {
@@ -533,25 +497,16 @@ export async function claimJobCancellation(
 	}
 }
 
-export async function readJobCancellation(
-	jobDir: string,
-	state: JobState,
-): Promise<JobCancellationClaim | undefined> {
+export async function readJobCancellation(jobDir: string, state: JobState): Promise<JobCancellationClaim | undefined> {
 	try {
-		return validateCancellationClaim(
-			await readJsonBounded(join(jobDir, "cancellation.json")),
-			state,
-		);
+		return validateCancellationClaim(await readJsonBounded(join(jobDir, "cancellation.json")), state);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
 		throw error;
 	}
 }
 
-function validateInterruptionClaim(
-	value: unknown,
-	state: JobState,
-): JobInterruptionClaim {
+function validateInterruptionClaim(value: unknown, state: JobState): JobInterruptionClaim {
 	if (!isRecord(value) || value.version !== JOB_SCHEMA_VERSION) {
 		throw new Error("invalid job interruption claim header");
 	}
@@ -584,10 +539,13 @@ export async function claimJobInterruption(
 		error,
 	};
 	const path = join(jobDir, "interruption.json");
-	if (await publishJsonExclusive(path, candidate, {
-		bytesMax: JOB_STATE_BYTES_MAX,
-		durable: true,
-	})) return candidate;
+	if (
+		await publishJsonExclusive(path, candidate, {
+			bytesMax: JOB_STATE_BYTES_MAX,
+			durable: true,
+		})
+	)
+		return candidate;
 	return validateInterruptionClaim(await readJsonBounded(path), state);
 }
 
@@ -622,12 +580,16 @@ function terminalStateFrom(previous: JobState, next: JobState): JobState {
 		}
 		return state;
 	}
-	state.nodes = previous.nodes?.map((node) => node.state === "running" ? {
-		...node,
-		state: next.state === "cancelled" ? "cancelled" : "failed",
-		endedAt: next.endedAt,
-		error: next.error,
-	} : node);
+	state.nodes = previous.nodes?.map((node) =>
+		node.state === "running"
+			? {
+					...node,
+					state: next.state === "cancelled" ? "cancelled" : "failed",
+					endedAt: next.endedAt,
+					error: next.error,
+				}
+			: node,
+	);
 	return state;
 }
 
@@ -635,8 +597,7 @@ async function transitionJobStateLocked(jobDir: string, next: JobState): Promise
 	validateState(next);
 	const previous = await readJobStateAt(jobDir);
 	assertSameJob(previous, next);
-	const fromQueued = previous.state === "queued" &&
-		(next.state === "running" || next.state === "failed");
+	const fromQueued = previous.state === "queued" && (next.state === "running" || next.state === "failed");
 	const fromRunning = previous.state === "running" && isTerminalJobState(next.state);
 	if (!fromQueued && !fromRunning) {
 		throw new Error(`illegal job state transition: ${previous.state} -> ${next.state}`);
@@ -654,22 +615,17 @@ async function transitionJobStateLocked(jobDir: string, next: JobState): Promise
 	await writeJsonAtomic(join(jobDir, "state.json"), authoritativeState(next), true);
 }
 
-async function acquireTransitionLease(jobDir: string): Promise<WriterLease> {
-	const root = join(jobDir, "transition-locks");
-	const deadlineMs = Date.now() + STATE_TRANSITION_WAIT_MS;
-	for (let attempt = 0; attempt < STATE_TRANSITION_ATTEMPT_COUNT_MAX; attempt += 1) {
-		try {
-			return await acquireWriterLease(
-				root,
-				jobDir,
-				`state-transition:${process.pid}:${randomUUID()}`,
-			);
-		} catch (error) {
-			if (!(error instanceof WriterLeaseBusyError)) throw error;
-			await waitForWriterLeaseRelease(root, jobDir, deadlineMs);
-		}
-	}
-	throw new Error("job state transition remained busy");
+function acquireTransitionLease(jobDir: string): Promise<WriterLease> {
+	return acquireWriterLeaseWithRetry(
+		join(jobDir, "transition-locks"),
+		jobDir,
+		`state-transition:${process.pid}:${randomUUID()}`,
+		{
+			attemptsMax: STATE_TRANSITION_ATTEMPT_COUNT_MAX,
+			waitMs: STATE_TRANSITION_WAIT_MS,
+			exhausted: "job state transition remained busy",
+		},
+	);
 }
 
 export async function transitionJobState(jobDir: string, next: JobState): Promise<void> {
@@ -681,10 +637,7 @@ export async function transitionJobState(jobDir: string, next: JobState): Promis
 	}
 }
 
-export async function reconcileInterruptedJobState(
-	jobDir: string,
-	fallbackError: string,
-): Promise<JobState> {
+export async function reconcileInterruptedJobState(jobDir: string, fallbackError: string): Promise<JobState> {
 	const lease = await acquireTransitionLease(jobDir);
 	try {
 		const state = await readJobStateAt(jobDir);
@@ -730,19 +683,14 @@ function assertNodeUpdates(previous: JobState, next: JobState): void {
 			throw new Error("workflow update changed node dependencies");
 		}
 		const starts = old.state === "pending" && node.state === "running";
-		const finishes = old.state === "running" &&
-			["cancelled", "failed", "succeeded"].includes(node.state);
+		const finishes = old.state === "running" && ["cancelled", "failed", "succeeded"].includes(node.state);
 		if (old.state !== node.state && !starts && !finishes) {
 			throw new Error(`illegal workflow node transition: ${old.state} -> ${node.state}`);
 		}
 	}
 }
 
-async function updateRunningJobStateLocked(
-	jobDir: string,
-	next: JobState,
-	options: RunningJobUpdateOptions,
-): Promise<void> {
+async function updateRunningJobLifecycleLocked(jobDir: string, next: JobState): Promise<void> {
 	validateState(next);
 	const previous = await readJobStateAt(jobDir);
 	assertSameJob(previous, next);
@@ -750,12 +698,6 @@ async function updateRunningJobStateLocked(
 		throw new Error("job graph updates require a running job");
 	}
 	assertNodeUpdates(previous, next);
-	if (options.mode === "telemetry" && !isDeepStrictEqual(
-		authoritativeState(previous),
-		authoritativeState(next),
-	)) {
-		throw new Error("telemetry update changed authoritative lifecycle");
-	}
 	const oldNodes = new Map((previous.nodes ?? []).map((node) => [node.id, node]));
 	for (const node of next.nodes ?? []) {
 		if (node.state !== "succeeded" || oldNodes.get(node.id)?.state === "succeeded") continue;
@@ -764,54 +706,39 @@ async function updateRunningJobStateLocked(
 			throw new Error(`invalid workflow node output: ${node.id}`);
 		}
 	}
-	if (options.mode === "telemetry") {
-		await replaceJsonAtomic(join(jobDir, "telemetry.json"), telemetryFromState(next), {
-			bytesMax: JOB_TELEMETRY_BYTES_MAX,
-			durable: false,
-		});
-	} else {
-		await writeJsonAtomic(join(jobDir, "state.json"), authoritativeState(next), true);
-	}
+	await writeJsonAtomic(join(jobDir, "state.json"), authoritativeState(next), true);
 }
 
-interface RunningJobUpdateOptions {
-	mode: "lifecycle" | "telemetry";
-}
-
-async function updateRunningJob(
-	jobDir: string,
-	next: JobState,
-	options: RunningJobUpdateOptions,
-): Promise<void> {
+export async function updateRunningJobLifecycle(jobDir: string, next: JobState): Promise<void> {
 	const lease = await acquireTransitionLease(jobDir);
 	try {
-		await updateRunningJobStateLocked(jobDir, next, options);
+		await updateRunningJobLifecycleLocked(jobDir, next);
 	} finally {
 		await releaseWriterLease(lease);
 	}
 }
 
-export async function updateRunningJobLifecycle(jobDir: string, next: JobState): Promise<void> {
-	await updateRunningJob(jobDir, next, { mode: "lifecycle" });
-}
-
-export async function updateRunningJobTelemetry(jobDir: string, next: JobState): Promise<void> {
-	await updateRunningJob(jobDir, next, { mode: "telemetry" });
+// Takes JobTelemetry, not JobState: a lifecycle field is unrepresentable here, so there is
+// nothing to guard against. No transition lease either — telemetry.json is disposable, the
+// write is atomic, and applyTelemetry discards it on read unless the job and node are still
+// running, so a stale or late pulse cannot reach an outcome.
+export async function writeJobTelemetry(jobDir: string, telemetry: JobTelemetry): Promise<void> {
+	validateTelemetry(telemetry);
+	await replaceJsonAtomic(join(jobDir, "telemetry.json"), telemetry, {
+		bytesMax: JOB_TELEMETRY_BYTES_MAX,
+		durable: false,
+	});
 }
 
 export async function readJobRequest(jobDir: string): Promise<JobRequest> {
-	return validateRequest(
-		await readJsonBounded(join(jobDir, "request.json"), JOB_REQUEST_BYTES_MAX),
-	);
+	return validateRequest(await readJsonBounded(join(jobDir, "request.json"), JOB_REQUEST_BYTES_MAX));
 }
 
 function workflowArtifactIndex(state: JobState): string {
 	if (state.type !== "workflow") return "";
 	const nodes = (state.nodes ?? []).filter((node) => node.state === "succeeded");
 	if (nodes.length === 0) return "";
-	const links = nodes.map((node) =>
-		`- [${node.id} — ${node.agent}](nodes/${node.id}.md)`
-	);
+	const links = nodes.map((node) => `- [${node.id} — ${node.agent}](nodes/${node.id}.md)`);
 	return `## Detailed reports\n\n${links.join("\n")}`;
 }
 
@@ -829,11 +756,7 @@ function boundedJobResult(output: string, artifactIndex: string): string {
 	return truncateUtf8Bytes(trimmed, outputBytesMax, marker) + suffix;
 }
 
-export async function writeJobResult(
-	jobDir: string,
-	output: string,
-	state: JobState,
-): Promise<void> {
+export async function writeJobResult(jobDir: string, output: string, state: JobState): Promise<void> {
 	validateState(state);
 	const result = boundedJobResult(output, workflowArtifactIndex(state));
 	if (Buffer.byteLength(result) > JOB_RESULT_BYTES_MAX) {
@@ -854,11 +777,7 @@ export async function readJobResult(jobsRoot: string, id: string): Promise<strin
 	return readFile(path, "utf8");
 }
 
-export async function createJobRecord(
-	jobsRoot: string,
-	request: JobRequest,
-	state: JobState,
-): Promise<string> {
+export async function createJobRecord(jobsRoot: string, request: JobRequest, state: JobState): Promise<string> {
 	validateRequest(request);
 	validateState(state);
 	if (request.id !== state.id || request.type !== state.type) {
@@ -924,9 +843,7 @@ async function readStoredJobStates(jobsRoot: string): Promise<JobState[]> {
 
 export async function pruneJobRecords(jobsRoot: string): Promise<number> {
 	const states = await readStoredJobStates(jobsRoot);
-	const expired = states
-		.filter((state) => isTerminalJobState(state.state))
-		.slice(JOB_RETENTION_COUNT_MAX);
+	const expired = states.filter((state) => isTerminalJobState(state.state)).slice(JOB_RETENTION_COUNT_MAX);
 	for (const state of expired) {
 		await rm(jobDirectoryPath(jobsRoot, state.id), { recursive: true, force: true });
 	}
@@ -937,12 +854,9 @@ export async function listJobStates(jobsRoot: string): Promise<JobState[]> {
 	return (await readStoredJobStates(jobsRoot)).slice(0, JOB_LIST_COUNT_MAX);
 }
 
-export function projectJob(
-	jobsRoot: string,
-	state: JobState,
-	result?: string,
-): JobProjection {
-	validateState(state);
+// Pure projection: no disk access, and every caller passes state that came from a validated
+// read or a validated write. jobDirectoryPath still guards the id it interpolates into a path.
+export function projectJob(jobsRoot: string, state: JobState, result?: string): JobProjection {
 	if (result !== undefined && state.state !== "succeeded") {
 		throw new Error("only a successful job can project a final result");
 	}
@@ -962,14 +876,8 @@ export function projectJob(
 	};
 }
 
-export async function readJobProjection(
-	jobsRoot: string,
-	id: string,
-	includeResult: boolean,
-): Promise<JobProjection> {
+export async function readJobProjection(jobsRoot: string, id: string, includeResult: boolean): Promise<JobProjection> {
 	const state = await readJobState(jobsRoot, id);
-	const result = includeResult && state.state === "succeeded"
-		? await readJobResult(jobsRoot, id)
-		: undefined;
+	const result = includeResult && state.state === "succeeded" ? await readJobResult(jobsRoot, id) : undefined;
 	return projectJob(jobsRoot, state, result);
 }

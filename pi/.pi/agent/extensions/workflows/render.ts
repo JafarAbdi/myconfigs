@@ -5,27 +5,9 @@ import {
 	type Theme,
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import {
-	Container,
-	Markdown,
-	Spacer,
-	Text,
-	type Component,
-} from "@earendil-works/pi-tui";
-import { truncateUtf8Bytes } from "./agent-run.ts";
-import {
-	JOB_SCHEMA_VERSION,
-	type JobProjection,
-	type JobState,
-	type WorkflowNodeState,
-} from "./job-store.ts";
-import { WORKFLOW_TOOL_OUTPUT_BYTES_MAX } from "./limits.ts";
-import {
-	duration,
-	shortId,
-	tokenCount,
-	workflowNodeSummary,
-} from "./presentation.ts";
+import { Container, Markdown, Spacer, Text, type Component } from "@earendil-works/pi-tui";
+import { JOB_SCHEMA_VERSION, type JobProjection, type JobState, type WorkflowNodeState } from "./job-store.ts";
+import { duration, shortId, tokenCount, workflowNodeSummary } from "./presentation.ts";
 
 interface RenderContext {
 	isError: boolean;
@@ -59,9 +41,7 @@ interface AgentResultDetails {
 	stopReason?: string;
 }
 
-type WorkflowLedgerEntry =
-	| { kind: "node"; node: WorkflowNodeState }
-	| { kind: "omission"; nodes: WorkflowNodeState[] };
+type WorkflowLedgerEntry = { kind: "node"; node: WorkflowNodeState } | { kind: "omission"; nodes: WorkflowNodeState[] };
 
 const COMPACT_WORKFLOW_NODE_COUNT_MAX = 10;
 const COMPACT_WORKFLOW_NODE_HEAD_COUNT = 3;
@@ -83,8 +63,7 @@ function isJobProjection(value: unknown): value is JobProjection {
 	if (typeof value !== "object" || value === null) return false;
 	const projection = value as Partial<JobProjection>;
 	if (typeof projection.state !== "object" || projection.state === null) return false;
-	return projection.state.version === JOB_SCHEMA_VERSION &&
-		typeof projection.state.id === "string";
+	return projection.state.version === JOB_SCHEMA_VERSION && typeof projection.state.id === "string";
 }
 
 function isAgentResult(value: unknown): value is AgentResultDetails {
@@ -93,10 +72,7 @@ function isAgentResult(value: unknown): value is AgentResultDetails {
 	return typeof candidate.agent === "string" && typeof candidate.durationMs === "number";
 }
 
-function stateMark(
-	state: JobState["state"] | WorkflowNodeState["state"],
-	theme: Theme,
-): string {
+function stateMark(state: JobState["state"] | WorkflowNodeState["state"], theme: Theme): string {
 	switch (state) {
 		case "succeeded":
 			return theme.fg("success", "✓");
@@ -162,10 +138,7 @@ function isAttentionNode(node: WorkflowNodeState): boolean {
 	return node.state === "running" || node.state === "failed" || node.state === "cancelled";
 }
 
-function workflowLedgerEntries(
-	nodes: WorkflowNodeState[],
-	expanded: boolean,
-): WorkflowLedgerEntry[] {
+function workflowLedgerEntries(nodes: WorkflowNodeState[], expanded: boolean): WorkflowLedgerEntry[] {
 	if (expanded || nodes.length <= COMPACT_WORKFLOW_NODE_COUNT_MAX) {
 		return nodes.map((node) => ({ kind: "node", node }));
 	}
@@ -192,11 +165,7 @@ function workflowLedgerEntries(
 	return entries;
 }
 
-function jobComponent(
-	projection: JobProjection,
-	theme: Theme,
-	expanded: boolean,
-): Component {
+function jobComponent(projection: JobProjection, theme: Theme, expanded: boolean): Component {
 	const state = projection.state;
 	const container = new Container();
 	container.addChild(new Text(jobTitle(state, theme), 0, 0));
@@ -255,11 +224,7 @@ function jobReceiptComponent(projection: JobProjection, theme: Theme): Component
 	return new Text(text, 0, 0);
 }
 
-function jobResultComponent(
-	projection: JobProjection,
-	expanded: boolean,
-	theme: Theme,
-): Component {
+function jobResultComponent(projection: JobProjection, expanded: boolean, theme: Theme): Component {
 	const container = new Container();
 	container.addChild(jobComponent(projection, theme, expanded));
 	if (projection.result) {
@@ -276,42 +241,6 @@ function outputComponent(output: string, expanded: boolean, theme: Theme): Compo
 	let text = theme.fg("toolOutput", shown);
 	if (lines.length > 5) text += `\n${theme.fg("dim", `… ${lines.length - 5} more lines`)}`;
 	return new Text(text, 0, 0);
-}
-
-function truncateJobOutput(text: string): string {
-	return truncateUtf8Bytes(
-		text,
-		WORKFLOW_TOOL_OUTPUT_BYTES_MAX,
-		"\n\n[job output truncated]",
-	);
-}
-
-export function formatJobProjection(projection: JobProjection): string {
-	const state = projection.state;
-	const lines = [
-		`${state.id} ${state.type}/${state.state}`,
-		`agent: ${state.agent}`,
-		`cwd: ${state.cwd}`,
-		`created: ${state.createdAt}`,
-		`deadline: ${state.deadlineAt}`,
-	];
-	if (state.startedAt) lines.push(`started: ${state.startedAt}`);
-	if (state.endedAt) lines.push(`ended: ${state.endedAt}`);
-	if (state.error) lines.push(`error: ${state.error}`);
-	if (state.usage) {
-		lines.push(`usage: ${state.usage.totalTokens} tokens, $${state.usage.cost.total.toFixed(6)}`);
-	}
-	if (projection.resultPath) lines.push(`result: ${projection.resultPath}`);
-	if (state.nodes) {
-		lines.push(`nodes: ${state.nodes.length}`);
-		for (const node of state.nodes) {
-			lines.push(`- ${node.id}: ${node.state} (${node.agent})`);
-			const artifact = projection.nodeArtifacts.find((item) => item.nodeId === node.id);
-			if (artifact) lines.push(`  output: ${artifact.path}`);
-		}
-	}
-	if (projection.result) lines.push("", projection.result);
-	return truncateJobOutput(lines.join("\n"));
 }
 
 function errorComponent(result: AgentToolResult<unknown>, theme: Theme): Component {
@@ -374,11 +303,7 @@ export function renderWorkflowResult(
 	return outputComponent(textContent(result), options.expanded, theme);
 }
 
-export function renderJobCall(
-	action: "cancel" | "status" | "wait",
-	args: JobIdArgs,
-	theme: Theme,
-): Component {
+export function renderJobCall(action: "cancel" | "status" | "wait", args: JobIdArgs, theme: Theme): Component {
 	let text = theme.fg("toolTitle", theme.bold(`job ${action}`));
 	text += args.id ? ` ${theme.fg("accent", shortId(args.id))}` : theme.fg("muted", " recent");
 	return new Text(text, 0, 0);
@@ -396,9 +321,7 @@ export function renderJobResult(
 	}
 	const details = result.details as { jobs?: JobProjection[] } | undefined;
 	if (!details?.jobs) return outputComponent(textContent(result), options.expanded, theme);
-	const args = typeof context.args === "object" && context.args !== null
-		? context.args as JobIdArgs
-		: undefined;
+	const args = typeof context.args === "object" && context.args !== null ? (context.args as JobIdArgs) : undefined;
 	const container = new Container();
 	for (const projection of details.jobs) {
 		const component = args?.id

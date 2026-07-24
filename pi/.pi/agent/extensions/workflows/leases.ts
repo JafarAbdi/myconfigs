@@ -5,12 +5,7 @@ import { mkdir, readFile, stat, unlink, watch } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { publishJsonExclusive, replaceJsonAtomic } from "./atomic-files.ts";
 import { JOB_LAUNCH_LEASE_RECHECK_MS } from "./limits.ts";
-import {
-	processEnvironmentMarkerExists,
-	processToken,
-	processTokenMatches,
-	WRITER_OWNER_ENV,
-} from "./processes.ts";
+import { processEnvironmentMarkerExists, processToken, processTokenMatches, WRITER_OWNER_ENV } from "./processes.ts";
 
 const LEASE_BYTES_MAX = 4096;
 const LEASE_GUARD_ATTEMPT_COUNT_MAX = 3;
@@ -64,8 +59,10 @@ function validateLease(value: unknown, path: string): WriterLease {
 	if (typeof lease.protectDescendants !== "boolean") {
 		throw new Error("invalid writer lease descendant policy");
 	}
-	if (lease.processGroupId !== undefined &&
-		(!Number.isSafeInteger(lease.processGroupId) || lease.processGroupId <= 1)) {
+	if (
+		lease.processGroupId !== undefined &&
+		(!Number.isSafeInteger(lease.processGroupId) || lease.processGroupId <= 1)
+	) {
 		throw new Error("invalid writer lease process group");
 	}
 	return { ...(lease as WriterLease), path };
@@ -101,9 +98,12 @@ async function readGuard(path: string): Promise<LeaseGuard> {
 
 async function acquireGuard(path: string, guard: LeaseGuard): Promise<void> {
 	for (let attempt = 0; attempt < LEASE_GUARD_ATTEMPT_COUNT_MAX; attempt += 1) {
-		if (await publishJsonExclusive(path, guard, {
-			bytesMax: LEASE_BYTES_MAX,
-		})) return;
+		if (
+			await publishJsonExclusive(path, guard, {
+				bytesMax: LEASE_BYTES_MAX,
+			})
+		)
+			return;
 		let owner: LeaseGuard;
 		try {
 			owner = await readGuard(path);
@@ -134,11 +134,10 @@ async function replaceStaleLease(path: string): Promise<void> {
 	if (await leaseOwnerIsAlive(owner)) {
 		throw new WriterLeaseBusyError(`workspace writer lease is held by ${owner.ownerId}`);
 	}
-	if (owner.protectDescendants && await processEnvironmentMarkerExists(
-		WRITER_OWNER_ENV,
-		owner.ownerId,
-		owner.processGroupId,
-	)) {
+	if (
+		owner.protectDescendants &&
+		(await processEnvironmentMarkerExists(WRITER_OWNER_ENV, owner.ownerId, owner.processGroupId))
+	) {
 		throw new WriterLeaseBusyError(`workspace writer lease is held by ${owner.ownerId}`);
 	}
 	await unlink(path);
@@ -154,11 +153,7 @@ async function pathExists(path: string): Promise<boolean> {
 	}
 }
 
-export async function waitForWriterLeaseRelease(
-	root: string,
-	cwd: string,
-	deadlineMs: number,
-): Promise<void> {
+export async function waitForWriterLeaseRelease(root: string, cwd: string, deadlineMs: number): Promise<void> {
 	const remainingMs = deadlineMs - Date.now();
 	if (remainingMs <= 0) throw new WriterLeaseBusyError("writer lease wait timed out");
 	const timeoutMs = Math.min(remainingMs, JOB_LAUNCH_LEASE_RECHECK_MS);
@@ -229,10 +224,33 @@ export async function acquireWriterLease(
 	}
 }
 
-export async function setWriterLeaseProcessGroup(
-	lease: WriterLease,
-	processGroupId: number,
+interface WriterLeaseRetry {
+	attemptsMax: number;
+	waitMs: number;
+	exhausted: string;
+}
+
+// Retry policy for a contended lease, shared by job admission and job state transitions.
+// Both wait on release rather than sleeping, so a fast release is picked up immediately.
+export async function acquireWriterLeaseWithRetry(
+	root: string,
+	cwd: string,
+	ownerId: string,
+	retry: WriterLeaseRetry,
 ): Promise<WriterLease> {
+	const deadlineMs = Date.now() + retry.waitMs;
+	for (let attempt = 0; attempt < retry.attemptsMax; attempt += 1) {
+		try {
+			return await acquireWriterLease(root, cwd, ownerId);
+		} catch (error) {
+			if (!(error instanceof WriterLeaseBusyError)) throw error;
+			await waitForWriterLeaseRelease(root, cwd, deadlineMs);
+		}
+	}
+	throw new WriterLeaseBusyError(retry.exhausted);
+}
+
+export async function setWriterLeaseProcessGroup(lease: WriterLease, processGroupId: number): Promise<WriterLease> {
 	if (!Number.isSafeInteger(processGroupId) || processGroupId <= 1) {
 		throw new Error("invalid writer lease process group");
 	}
@@ -258,11 +276,10 @@ export async function releaseWriterLease(lease: WriterLease): Promise<void> {
 	if (current.ownerId !== lease.ownerId || current.processToken !== lease.processToken) {
 		throw new Error("refusing to release a writer lease owned by another process");
 	}
-	if (lease.protectDescendants && await processEnvironmentMarkerExists(
-		WRITER_OWNER_ENV,
-		lease.ownerId,
-		lease.processGroupId,
-	)) {
+	if (
+		lease.protectDescendants &&
+		(await processEnvironmentMarkerExists(WRITER_OWNER_ENV, lease.ownerId, lease.processGroupId))
+	) {
 		throw new Error("refusing to release a writer lease with active descendants");
 	}
 	await unlink(lease.path);

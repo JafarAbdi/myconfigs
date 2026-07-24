@@ -22,11 +22,7 @@ export async function syncParentDirectory(path: string): Promise<void> {
 	}
 }
 
-async function writeTemporary(
-	path: string,
-	content: string,
-	durable: boolean,
-): Promise<string> {
+async function writeTemporary(path: string, content: string, durable: boolean): Promise<string> {
 	const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
 	const file = await open(temporary, "wx", 0o600);
 	try {
@@ -52,11 +48,7 @@ async function removeTemporary(path: string): Promise<void> {
 	}
 }
 
-export async function replaceTextAtomic(
-	path: string,
-	content: string,
-	options: AtomicFileOptions,
-): Promise<void> {
+export async function replaceTextAtomic(path: string, content: string, options: AtomicFileOptions): Promise<void> {
 	if (Buffer.byteLength(content) > options.bytesMax) {
 		throw new Error("file exceeds write limit");
 	}
@@ -70,25 +62,13 @@ export async function replaceTextAtomic(
 	}
 }
 
-export async function replaceJsonAtomic(
-	path: string,
-	value: unknown,
-	options: AtomicFileOptions,
-): Promise<void> {
+export async function replaceJsonAtomic(path: string, value: unknown, options: AtomicFileOptions): Promise<void> {
 	await replaceTextAtomic(path, jsonTextBounded(value, options.bytesMax), options);
 }
 
-export async function publishJsonExclusive(
-	path: string,
-	value: unknown,
-	options: AtomicFileOptions,
-): Promise<boolean> {
+export async function publishJsonExclusive(path: string, value: unknown, options: AtomicFileOptions): Promise<boolean> {
 	const durable = options.durable ?? false;
-	const temporary = await writeTemporary(
-		path,
-		jsonTextBounded(value, options.bytesMax),
-		durable,
-	);
+	const temporary = await writeTemporary(path, jsonTextBounded(value, options.bytesMax), durable);
 	try {
 		try {
 			await link(temporary, path);

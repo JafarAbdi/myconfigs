@@ -1,9 +1,13 @@
+// Plain-text job formatting. This module must not import @earendil-works/pi-coding-agent or
+// pi-tui: render.ts owns everything that needs a Theme or a Component, and keeping this side
+// dependency-free is what lets tests and any non-TUI caller import these formatters directly.
 import { truncateUtf8Bytes } from "./agent-run.ts";
 import type { JobProjection, JobState, WorkflowNodeState } from "./job-store.ts";
 import {
 	JOB_NOTIFICATION_BYTES_MAX,
 	JOB_WIDGET_LINE_COUNT_MAX,
 	JOB_WIDGET_NODE_COUNT_MAX,
+	WORKFLOW_TOOL_OUTPUT_BYTES_MAX,
 } from "./limits.ts";
 
 export function shortId(id: string): string {
@@ -22,10 +26,7 @@ export function tokenCount(tokens: number): string {
 	return String(tokens);
 }
 
-export function workflowNodeSummary(
-	nodes: readonly WorkflowNodeState[],
-	includeKnown: boolean,
-): string {
+export function workflowNodeSummary(nodes: readonly WorkflowNodeState[], includeKnown: boolean): string {
 	const counts = { succeeded: 0, running: 0, pending: 0, failed: 0, cancelled: 0 };
 	for (const node of nodes) counts[node.state] += 1;
 	const parts: string[] = [];
@@ -68,9 +69,7 @@ function activeJobLines(projection: JobProjection): string[] {
 	return [parts.join(" · ")];
 }
 
-export function formatActiveJobs(
-	projections: readonly JobProjection[],
-): string[] | undefined {
+export function formatActiveJobs(projections: readonly JobProjection[]): string[] | undefined {
 	const active = projections
 		.filter(({ state }) => state.state === "queued" || state.state === "running")
 		.sort((left, right) => left.state.createdAt.localeCompare(right.state.createdAt));
@@ -88,6 +87,34 @@ export function formatActiveJobs(
 		lines.push(`… ${active.length - renderedCount} more jobs`);
 	}
 	return lines;
+}
+
+export function formatJobProjection(projection: JobProjection): string {
+	const state = projection.state;
+	const lines = [
+		`${state.id} ${state.type}/${state.state}`,
+		`agent: ${state.agent}`,
+		`cwd: ${state.cwd}`,
+		`created: ${state.createdAt}`,
+		`deadline: ${state.deadlineAt}`,
+	];
+	if (state.startedAt) lines.push(`started: ${state.startedAt}`);
+	if (state.endedAt) lines.push(`ended: ${state.endedAt}`);
+	if (state.error) lines.push(`error: ${state.error}`);
+	if (state.usage) {
+		lines.push(`usage: ${state.usage.totalTokens} tokens, $${state.usage.cost.total.toFixed(6)}`);
+	}
+	if (projection.resultPath) lines.push(`result: ${projection.resultPath}`);
+	if (state.nodes) {
+		lines.push(`nodes: ${state.nodes.length}`);
+		for (const node of state.nodes) {
+			lines.push(`- ${node.id}: ${node.state} (${node.agent})`);
+			const artifact = projection.nodeArtifacts.find((item) => item.nodeId === node.id);
+			if (artifact) lines.push(`  output: ${artifact.path}`);
+		}
+	}
+	if (projection.result) lines.push("", projection.result);
+	return truncateUtf8Bytes(lines.join("\n"), WORKFLOW_TOOL_OUTPUT_BYTES_MAX, "\n\n[job output truncated]");
 }
 
 export function formatJobNotification(state: JobState): string {

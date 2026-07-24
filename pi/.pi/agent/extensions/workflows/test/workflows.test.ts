@@ -8,12 +8,7 @@ import { basename, join } from "node:path";
 import test from "node:test";
 import { JsonlDecoder, runAgent } from "../agent-run.ts";
 import { assertWorkflowReviews, runWorkflowNodes } from "../graph.ts";
-import {
-	cancelJob,
-	startAgentJob,
-	startWorkflowJob,
-	waitForJob,
-} from "../job-control.ts";
+import { cancelJob, startAgentJob, startWorkflowJob, waitForJob } from "../job-control.ts";
 import {
 	claimJobCancellation,
 	claimJobInterruption,
@@ -27,7 +22,7 @@ import {
 	resolveJobId,
 	transitionJobState,
 	updateRunningJobLifecycle,
-	updateRunningJobTelemetry,
+	writeJobTelemetry,
 	writeJobResult,
 	writeJobState,
 	type JobState,
@@ -60,12 +55,7 @@ import {
 	STDERR_BYTES_MAX,
 	TERMINATE_GRACE_MS,
 } from "../limits.ts";
-import {
-	agentWithDefaultModel,
-	discoverAgents,
-	type AgentDefinition,
-	type FrontmatterParser,
-} from "../agents.ts";
+import { agentWithDefaultModel, discoverAgents, type AgentDefinition, type FrontmatterParser } from "../agents.ts";
 
 const parseJsonFrontmatter: FrontmatterParser = (content) => JSON.parse(content);
 
@@ -135,32 +125,34 @@ function runningJobState(directory: string, overrides: Partial<JobState> = {}): 
 	};
 }
 
-async function createRunningWorkflow(
-	directory: string,
-	script: string,
-	agents: AgentDefinition[],
-): Promise<string> {
+async function createRunningWorkflow(directory: string, script: string, agents: AgentDefinition[]): Promise<string> {
 	const id = randomUUID();
 	const jobDir = join(directory, id);
 	const createdAt = new Date().toISOString();
 	await mkdir(jobDir);
-	await writeFile(join(jobDir, "request.json"), JSON.stringify({
-		version: 4,
-		id,
-		type: "workflow",
-		createdAt,
-		cwd: directory,
-		goal: "Test workflow",
-		agents,
-		invocation: { command: process.execPath, args: [script] },
-	}));
-	await writeJobState(jobDir, runningJobState(directory, {
-		id,
-		createdAt,
-		type: "workflow",
-		agent: "workflow-coordinator",
-		nodes: [],
-	}));
+	await writeFile(
+		join(jobDir, "request.json"),
+		JSON.stringify({
+			version: 4,
+			id,
+			type: "workflow",
+			createdAt,
+			cwd: directory,
+			goal: "Test workflow",
+			agents,
+			invocation: { command: process.execPath, args: [script] },
+		}),
+	);
+	await writeJobState(
+		jobDir,
+		runningJobState(directory, {
+			id,
+			createdAt,
+			type: "workflow",
+			agent: "workflow-coordinator",
+			nodes: [],
+		}),
+	);
 	return jobDir;
 }
 
@@ -217,26 +209,21 @@ interface ReviewLoopAgents {
 	contextStyle: AgentDefinition;
 }
 
-async function runRejectedInitialStage(
-	jobDir: string,
-	agents: ReviewLoopAgents,
-): Promise<void> {
-	const initial = await runWorkflowNodes(jobDir, [{
-		id: "implementation-1",
-		agent: agents.implementer.name,
-		task: "initial implementation",
-		dependsOn: ["plan"],
-	}]);
+async function runRejectedInitialStage(jobDir: string, agents: ReviewLoopAgents): Promise<void> {
+	const initial = await runWorkflowNodes(jobDir, [
+		{
+			id: "implementation-1",
+			agent: agents.implementer.name,
+			task: "initial implementation",
+			dependsOn: ["plan"],
+		},
+	]);
 	assert.equal(initial.nodes[0].state, "succeeded");
+	// An unreviewed write cannot be published.
 	await assert.rejects(
 		assertWorkflowReviews(jobDir, await readJobStateAt(jobDir), Object.values(agents)),
-		/missing PASS reviews/,
+		/needs 2 distinct succeeded reviews/,
 	);
-	await assert.rejects(runWorkflowNodes(jobDir, [{
-		id: "unrelated",
-		agent: agents.correctness.name,
-		task: "must wait",
-	}]), /writer review slots are reserved/);
 	const reviews = await runWorkflowNodes(jobDir, [
 		{
 			id: "correctness-1",
@@ -252,41 +239,23 @@ async function runRejectedInitialStage(
 		},
 	]);
 	assert.match(reviews.text, /Verdict: FAIL/);
-	await assert.rejects(runWorkflowNodes(jobDir, [
+	// Two reviews exist but one says FAIL, so publication is still refused.
+	await assert.rejects(
+		assertWorkflowReviews(jobDir, await readJobStateAt(jobDir), Object.values(agents)),
+		/missing PASS reviews/,
+	);
+	const fix = await runWorkflowNodes(jobDir, [
 		{
-			id: "duplicate-correctness",
-			agent: agents.correctness.name,
-			task: "review initial again",
-			dependsOn: ["implementation-1"],
-		},
-		{
-			id: "duplicate-context",
-			agent: agents.contextStyle.name,
-			task: "review initial again",
-			dependsOn: ["implementation-1"],
-		},
-	]), /writer already has correctness-reviewer/);
-	for (const dependsOn of [[], ["correctness-1"]]) {
-		await assert.rejects(runWorkflowNodes(jobDir, [{
-			id: `unlinked-fix-${dependsOn.length}`,
+			id: "implementation-2",
 			agent: agents.implementer.name,
-			task: "must not run",
-			dependsOn,
-		}]), /subsequent writer must depend on both reviews/);
-	}
-	const fix = await runWorkflowNodes(jobDir, [{
-		id: "implementation-2",
-		agent: agents.implementer.name,
-		task: "fix implementation",
-		dependsOn: ["plan", "correctness-1", "context-1"],
-	}]);
+			task: "fix implementation",
+			dependsOn: ["plan", "correctness-1", "context-1"],
+		},
+	]);
 	assert.equal(fix.nodes[0].state, "succeeded");
 }
 
-async function runAcceptedReviewStage(
-	jobDir: string,
-	agents: ReviewLoopAgents,
-): Promise<void> {
+async function runAcceptedReviewStage(jobDir: string, agents: ReviewLoopAgents): Promise<void> {
 	const accepted = await runWorkflowNodes(jobDir, [
 		{
 			id: "correctness-2",
@@ -305,33 +274,23 @@ async function runAcceptedReviewStage(
 	for (const id of ["correctness-2", "context-2"]) {
 		assert.match(await readFile(join(jobDir, "nodes", `${id}.md`), "utf8"), /^Verdict: PASS/);
 	}
-	await assert.rejects(runWorkflowNodes(jobDir, [{
-		id: "write-after-pass",
-		agent: agents.implementer.name,
-		task: "must not run",
-		dependsOn: ["plan", "correctness-2", "context-2"],
-	}]), /cannot write after accepted reviews/);
-	await assert.rejects(runWorkflowNodes(jobDir, [{
-		id: "late-duplicate-review",
-		agent: agents.correctness.name,
-		task: "must not run",
-		dependsOn: ["implementation-1"],
-	}]), /writer already has correctness-reviewer/);
+	// The superseded writer still carries its FAIL reviews; only the final write must be accepted.
 	const state = await readJobStateAt(jobDir);
 	await assertWorkflowReviews(jobDir, state, Object.values(agents));
 	await writeJobResult(jobDir, "accepted", state);
 	const result = await readFile(join(jobDir, "result.md"), "utf8");
 	const reportIds = [
-		"implementation-1", "correctness-1", "context-1",
-		"implementation-2", "correctness-2", "context-2",
+		"implementation-1",
+		"correctness-1",
+		"context-1",
+		"implementation-2",
+		"correctness-2",
+		"context-2",
 	];
 	for (const id of reportIds) assert.match(result, new RegExp(`nodes/${id}\\.md`));
 }
 
-async function runRejectedReviewLoop(
-	jobDir: string,
-	agents: ReviewLoopAgents,
-): Promise<void> {
+async function runRejectedReviewLoop(jobDir: string, agents: ReviewLoopAgents): Promise<void> {
 	await runRejectedInitialStage(jobDir, agents);
 	await runAcceptedReviewStage(jobDir, agents);
 }
@@ -361,14 +320,12 @@ test("personal agent discovery requires explicit policy", async () => {
 
 test("agent discovery rejects an unbounded directory", async () => {
 	await withTempDirectory(async (directory) => {
-		await Promise.all(Array.from(
-			{ length: AGENT_DIRECTORY_ENTRY_COUNT_MAX + 1 },
-			(_, index) => writeFile(join(directory, `entry-${index}`), ""),
-		));
-		assert.throws(
-			() => discoverAgents(directory, parseJsonFrontmatter),
-			/agent directory entry limit exceeded/,
+		await Promise.all(
+			Array.from({ length: AGENT_DIRECTORY_ENTRY_COUNT_MAX + 1 }, (_, index) =>
+				writeFile(join(directory, `entry-${index}`), ""),
+			),
 		);
+		assert.throws(() => discoverAgents(directory, parseJsonFrontmatter), /agent directory entry limit exceeded/);
 	});
 });
 
@@ -383,10 +340,7 @@ test("agent policy rejects implicit or contradictory capability", async () => {
 				skills: "none",
 			}),
 		);
-		assert.throws(
-			() => discoverAgents(directory, parseJsonFrontmatter),
-			/access is required/,
-		);
+		assert.throws(() => discoverAgents(directory, parseJsonFrontmatter), /access is required/);
 		await rm(join(directory, "implicit.md"));
 		await writeFile(
 			join(directory, "unsafe.md"),
@@ -527,17 +481,17 @@ test("writer lease permits only one owner per workspace", async () => {
 	await withTempDirectory(async (directory) => {
 		const root = join(directory, "leases");
 		const first = await acquireWriterLease(root, directory, "first");
-		await assert.rejects(
-			acquireWriterLease(root, directory, "second"),
-			/writer lease is held by first/,
-		);
+		await assert.rejects(acquireWriterLease(root, directory, "second"), /writer lease is held by first/);
 		await releaseWriterLease(first);
 		const stale = await acquireWriterLease(root, directory, "stale");
-		await writeFile(stale.path, JSON.stringify({
-			...stale,
-			processId: 2_000_000_000,
-			processToken: "linux:2000000000:missing",
-		}));
+		await writeFile(
+			stale.path,
+			JSON.stringify({
+				...stale,
+				processId: 2_000_000_000,
+				processToken: "linux:2000000000:missing",
+			}),
+		);
 		const second = await acquireWriterLease(root, directory, "second");
 		await releaseWriterLease(second);
 	});
@@ -552,15 +506,18 @@ test("lease wait rechecks ownership when an owner dies silently", async () => {
 		});
 		assert.ok(owner.pid);
 		const key = createHash("sha256").update(directory).digest("hex");
-		await writeFile(join(root, `${key}.json`), JSON.stringify({
-			version: 2,
-			ownerId: "silent-owner",
-			processId: owner.pid,
-			processToken: await processToken(owner.pid),
-			cwd: directory,
-			createdAt: new Date().toISOString(),
-			protectDescendants: false,
-		}));
+		await writeFile(
+			join(root, `${key}.json`),
+			JSON.stringify({
+				version: 2,
+				ownerId: "silent-owner",
+				processId: owner.pid,
+				processToken: await processToken(owner.pid),
+				cwd: directory,
+				createdAt: new Date().toISOString(),
+				protectDescendants: false,
+			}),
+		);
 		const waiting = waitForWriterLeaseRelease(root, directory, Date.now() + 1000);
 		setTimeout(() => owner.kill("SIGKILL"), 50).unref();
 		await waiting;
@@ -582,21 +539,21 @@ test("writer lease remains held while a marked writer escapes its process group"
 			stdio: "ignore",
 		});
 		assert.ok(writer.pid);
-		await writeFile(path, JSON.stringify({
-			version: 2,
-			ownerId,
-			processId: 2_000_000_000,
-			processToken: "linux:2000000000:missing",
-			cwd: directory,
-			createdAt: new Date().toISOString(),
-			protectDescendants: true,
-			processGroupId: await processGroupId(),
-		}));
+		await writeFile(
+			path,
+			JSON.stringify({
+				version: 2,
+				ownerId,
+				processId: 2_000_000_000,
+				processToken: "linux:2000000000:missing",
+				cwd: directory,
+				createdAt: new Date().toISOString(),
+				protectDescendants: true,
+				processGroupId: await processGroupId(),
+			}),
+		);
 		try {
-			await assert.rejects(
-				acquireWriterLease(root, directory, "next"),
-				/writer lease is held by/,
-			);
+			await assert.rejects(acquireWriterLease(root, directory, "next"), /writer lease is held by/);
 		} finally {
 			writer.kill("SIGKILL");
 			await new Promise((resolve) => writer.once("exit", resolve));
@@ -621,10 +578,7 @@ test("writer lease release refuses active marked descendants", async () => {
 		});
 		lease = await setWriterLeaseProcessGroup(lease, writer.pid);
 		try {
-			await assert.rejects(
-				releaseWriterLease(lease),
-				/refusing to release a writer lease with active descendants/,
-			);
+			await assert.rejects(releaseWriterLease(lease), /refusing to release a writer lease with active descendants/);
 		} finally {
 			writer.kill("SIGKILL");
 			await new Promise((resolve) => writer.once("exit", resolve));
@@ -639,11 +593,14 @@ test("writer lease reclaims a dead acquisition guard", async () => {
 		await mkdir(root);
 		const key = createHash("sha256").update(directory).digest("hex");
 		const guardPath = join(root, `${key}.json.guard`);
-		await writeFile(guardPath, JSON.stringify({
-			version: 1,
-			processId: 2_000_000_000,
-			processToken: "linux:2000000000:missing",
-		}));
+		await writeFile(
+			guardPath,
+			JSON.stringify({
+				version: 1,
+				processId: 2_000_000_000,
+				processToken: "linux:2000000000:missing",
+			}),
+		);
 
 		const lease = await acquireWriterLease(root, directory, "replacement");
 		await assert.rejects(stat(guardPath), { code: "ENOENT" });
@@ -673,21 +630,22 @@ test("job listing rejects an unsupported schema version", async () => {
 		const id = randomUUID();
 		const jobDirectory = join(directory, id);
 		await mkdir(jobDirectory);
-		await writeFile(join(jobDirectory, "state.json"), JSON.stringify({
-			version: 1,
-			id,
-			type: "agent",
-			state: "queued",
-			createdAt: new Date().toISOString(),
-			agent: "test",
-			cwd: directory,
-		}));
+		await writeFile(
+			join(jobDirectory, "state.json"),
+			JSON.stringify({
+				version: 1,
+				id,
+				type: "agent",
+				state: "queued",
+				createdAt: new Date().toISOString(),
+				agent: "test",
+				cwd: directory,
+			}),
+		);
 		await assert.rejects(
 			listJobStates(directory),
 			(error: unknown) =>
-				error instanceof Error &&
-				error.message.includes(id) &&
-				/invalid job state header/.test(error.message),
+				error instanceof Error && error.message.includes(id) && /invalid job state header/.test(error.message),
 			"listing must name the corrupt record, not reject it anonymously",
 		);
 	});
@@ -697,16 +655,18 @@ test("failed atomic job-state replacement removes its temporary file", async () 
 	await withTempDirectory(async (directory) => {
 		await mkdir(join(directory, "state.json"));
 		const createdAt = new Date().toISOString();
-		await assert.rejects(writeJobState(directory, {
-			version: 4,
-			id: randomUUID(),
-			type: "agent",
-			state: "queued",
-			createdAt,
-			deadlineAt: new Date(Date.now() + 60_000).toISOString(),
-			agent: "test",
-			cwd: directory,
-		}));
+		await assert.rejects(
+			writeJobState(directory, {
+				version: 4,
+				id: randomUUID(),
+				type: "agent",
+				state: "queued",
+				createdAt,
+				deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+				agent: "test",
+				cwd: directory,
+			}),
+		);
 		assert.deepEqual(await readdir(directory), ["state.json"]);
 	});
 });
@@ -732,20 +692,23 @@ test("job state rejects duplicate workflow node identities", async () => {
 			dependsOn: [],
 			state: "pending" as const,
 		};
-		await assert.rejects(writeJobState(directory, {
-			version: 4,
-			id: randomUUID(),
-			type: "workflow",
-			state: "running",
-			createdAt,
-			deadlineAt: new Date(Date.now() + 60_000).toISOString(),
-			startedAt: createdAt,
-			pid: process.pid,
-			processToken: "test-process",
-			agent: "workflow-coordinator",
-			cwd: directory,
-			nodes: [node, node],
-		}), /duplicate workflow node identity/);
+		await assert.rejects(
+			writeJobState(directory, {
+				version: 4,
+				id: randomUUID(),
+				type: "workflow",
+				state: "running",
+				createdAt,
+				deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+				startedAt: createdAt,
+				pid: process.pid,
+				processToken: "test-process",
+				agent: "workflow-coordinator",
+				cwd: directory,
+				nodes: [node, node],
+			}),
+			/duplicate workflow node identity/,
+		);
 	});
 });
 
@@ -765,14 +728,8 @@ test("job state rejects invalid lifecycle timestamps", async () => {
 			agent: "test",
 			cwd: directory,
 		};
-		await assert.rejects(
-			writeJobState(directory, { ...running, deadlineAt: "invalid" }),
-			/invalid job deadline/,
-		);
-		await assert.rejects(
-			writeJobState(directory, { ...running, startedAt: "invalid" }),
-			/invalid job start time/,
-		);
+		await assert.rejects(writeJobState(directory, { ...running, deadlineAt: "invalid" }), /invalid job deadline/);
+		await assert.rejects(writeJobState(directory, { ...running, startedAt: "invalid" }), /invalid job start time/);
 		await assert.rejects(
 			writeJobState(directory, { ...running, startedAt: "2026-01-01T00:00:00+02:00" }),
 			/job start time precedes creation/,
@@ -852,16 +809,19 @@ test("successful workflow state accepts bounded aggregate usage", async () => {
 test("job request rejects every unsupported schema version", async () => {
 	await withTempDirectory(async (directory) => {
 		for (const version of [0, 1, 2, 3, 5, "4", null]) {
-			await writeFile(join(directory, "request.json"), JSON.stringify({
-				version,
-				id: randomUUID(),
-				type: "agent",
-				createdAt: new Date().toISOString(),
-				cwd: directory,
-				invocation: { command: "pi", args: [] },
-				task: "test",
-				agent: testAgent(),
-			}));
+			await writeFile(
+				join(directory, "request.json"),
+				JSON.stringify({
+					version,
+					id: randomUUID(),
+					type: "agent",
+					createdAt: new Date().toISOString(),
+					cwd: directory,
+					invocation: { command: "pi", args: [] },
+					task: "test",
+					agent: testAgent(),
+				}),
+			);
 			await assert.rejects(readJobRequest(directory), /invalid job request/);
 		}
 	});
@@ -870,10 +830,7 @@ test("job request rejects every unsupported schema version", async () => {
 test("job IDs resolve from unique bounded prefixes", async () => {
 	await withTempDirectory(async (directory) => {
 		const createdAt = new Date().toISOString();
-		const ids = [
-			"aaaaaaaa-0000-0000-0000-100000000001",
-			"aaaaaaaa-0000-0000-0000-200000000002",
-		];
+		const ids = ["aaaaaaaa-0000-0000-0000-100000000001", "aaaaaaaa-0000-0000-0000-200000000002"];
 		for (const id of ids) {
 			const jobDir = join(directory, id);
 			await mkdir(jobDir);
@@ -952,20 +909,22 @@ test("job retention removes only the oldest terminal records", async () => {
 
 test("job listing fails before an unbounded directory scan", async () => {
 	await withTempDirectory(async (directory) => {
-		await Promise.all(Array.from(
-			{ length: JOB_DIRECTORY_SCAN_COUNT_MAX + 1 },
-			(_, index) => writeFile(join(directory, `entry-${index}`), ""),
-		));
+		await Promise.all(
+			Array.from({ length: JOB_DIRECTORY_SCAN_COUNT_MAX + 1 }, (_, index) =>
+				writeFile(join(directory, `entry-${index}`), ""),
+			),
+		);
 		await assert.rejects(listJobStates(directory), /job directory scan limit exceeded/);
 	});
 });
 
 test("job launch reserves directory capacity", async () => {
 	await withTempDirectory(async (directory) => {
-		await Promise.all(Array.from(
-			{ length: JOB_DIRECTORY_SCAN_COUNT_MAX },
-			(_, index) => writeFile(join(directory, `entry-${index}`), ""),
-		));
+		await Promise.all(
+			Array.from({ length: JOB_DIRECTORY_SCAN_COUNT_MAX }, (_, index) =>
+				writeFile(join(directory, `entry-${index}`), ""),
+			),
+		);
 		await assert.rejects(
 			startAgentJob({
 				jobsRoot: directory,
@@ -991,15 +950,17 @@ test("concurrent job launches serialize admission", async () => {
 				content: [{ type: "text", text: "done" }]
 			} }));`,
 		);
-		const launches = await Promise.all(Array.from({ length: 4 }, (_, index) => {
-			return startAgentJob({
-				jobsRoot,
-				cwd: directory,
-				task: `launch ${index}`,
-				agent: testAgent(),
-				invocation: { command: process.execPath, args: [script] },
-			});
-		}));
+		const launches = await Promise.all(
+			Array.from({ length: 4 }, (_, index) => {
+				return startAgentJob({
+					jobsRoot,
+					cwd: directory,
+					task: `launch ${index}`,
+					agent: testAgent(),
+					invocation: { command: process.execPath, args: [script] },
+				});
+			}),
+		);
 		assert.equal(new Set(launches.map(({ id }) => id)).size, 4);
 		await Promise.all(launches.map(({ id }) => waitForJob(jobsRoot, id)));
 	});
@@ -1038,61 +999,73 @@ test("job state rejects a non-monotonic transition", async () => {
 	});
 });
 
-test("telemetry updates cannot publish workflow lifecycle changes", async () => {
+test("telemetry writes cannot reach workflow lifecycle state", async () => {
 	await withTempDirectory(async (directory) => {
 		const createdAt = new Date().toISOString();
 		const running: JobState = runningJobState(directory, {
 			createdAt,
 			type: "workflow",
 			agent: "workflow-coordinator",
-			nodes: [{
-				id: "node",
-				agent: "test",
-				task: "test",
-				dependsOn: [],
-				state: "pending",
-			}],
+			nodes: [
+				{
+					id: "node",
+					agent: "test",
+					task: "test",
+					dependsOn: [],
+					state: "pending",
+				},
+			],
 		});
 		await writeJobState(directory, running);
-		await assert.rejects(updateRunningJobTelemetry(directory, {
-			...running,
-			nodes: [{
-				...running.nodes![0],
-				state: "running",
-				startedAt: createdAt,
-			}],
-		}), /telemetry update changed authoritative lifecycle/);
-		assert.equal((await readJobStateAt(directory)).nodes![0].state, "pending");
+		const authoritative = await readFile(join(directory, "state.json"), "utf8");
+		// JobTelemetry cannot express a node state, so there is no lifecycle field to smuggle.
+		// A pulse naming a node that is not running is discarded on read.
+		await writeJobTelemetry(directory, {
+			version: 4,
+			id: running.id,
+			nodes: [{ id: "node", activity: "read", toolCount: 3 }],
+		});
+		assert.equal(await readFile(join(directory, "state.json"), "utf8"), authoritative);
+		const observed = await readJobStateAt(directory);
+		assert.equal(observed.nodes![0].state, "pending");
+		assert.equal(observed.nodes![0].activity, undefined);
 	});
 });
 
-test("telemetry updates cannot mutate a succeeded node's usage", async () => {
+test("a pulse cannot overwrite a succeeded node's usage", async () => {
 	await withTempDirectory(async (directory) => {
 		const createdAt = new Date().toISOString();
 		const usage = {
-			input: 10, output: 5, cacheRead: 2, cacheWrite: 1, totalTokens: 18,
+			input: 10,
+			output: 5,
+			cacheRead: 2,
+			cacheWrite: 1,
+			totalTokens: 18,
 			cost: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 10 },
 		};
 		const running: JobState = runningJobState(directory, {
 			createdAt,
 			type: "workflow",
 			agent: "workflow-coordinator",
-			nodes: [{
-				id: "node",
-				agent: "test",
-				task: "test",
-				dependsOn: [],
-				state: "succeeded",
-				startedAt: createdAt,
-				endedAt: createdAt,
-				usage,
-			}],
+			nodes: [
+				{
+					id: "node",
+					agent: "test",
+					task: "test",
+					dependsOn: [],
+					state: "succeeded",
+					startedAt: createdAt,
+					endedAt: createdAt,
+					usage,
+				},
+			],
 		});
 		await writeJobState(directory, running);
-		await assert.rejects(updateRunningJobTelemetry(directory, {
-			...running,
-			nodes: [{ ...running.nodes![0], usage: { ...usage, totalTokens: 999 } }],
-		}), /telemetry update changed authoritative lifecycle/);
+		await writeJobTelemetry(directory, {
+			version: 4,
+			id: running.id,
+			nodes: [{ id: "node", usage: { ...usage, totalTokens: 999 } }],
+		});
 		assert.equal((await readJobStateAt(directory)).nodes![0].usage?.totalTokens, 18);
 	});
 });
@@ -1103,8 +1076,9 @@ test("telemetry updates preserve lifecycle while publishing activity", async () 
 		const running: JobState = runningJobState(directory, { createdAt });
 		await writeJobState(directory, running);
 		const authoritative = await readFile(join(directory, "state.json"), "utf8");
-		await updateRunningJobTelemetry(directory, {
-			...running,
+		await writeJobTelemetry(directory, {
+			version: 4,
+			id: running.id,
 			activity: "read",
 			toolCount: 1,
 		});
@@ -1133,8 +1107,9 @@ test("failed lifecycle state does not promote pulse usage", async () => {
 		const createdAt = new Date().toISOString();
 		const running: JobState = runningJobState(directory, { createdAt });
 		await writeJobState(directory, running);
-		await updateRunningJobTelemetry(directory, {
-			...running,
+		await writeJobTelemetry(directory, {
+			version: 4,
+			id: running.id,
 			usage: {
 				input: 1,
 				output: 0,
@@ -1166,10 +1141,13 @@ test("workflow lifecycle updates cannot replace an existing node identity", asyn
 			nodes: [{ id: "first", agent: "test", task: "first", dependsOn: [], state: "pending" }],
 		});
 		await writeJobState(directory, running);
-		await assert.rejects(updateRunningJobLifecycle(directory, {
-			...running,
-			nodes: [{ id: "second", agent: "test", task: "second", dependsOn: [], state: "pending" }],
-		}), /workflow update removed an existing node/);
+		await assert.rejects(
+			updateRunningJobLifecycle(directory, {
+				...running,
+				nodes: [{ id: "second", agent: "test", task: "second", dependsOn: [], state: "pending" }],
+			}),
+			/workflow update removed an existing node/,
+		);
 		assert.equal((await readJobStateAt(directory)).nodes![0].id, "first");
 	});
 });
@@ -1181,25 +1159,29 @@ test("running updates cannot resurrect a terminal job", async () => {
 			createdAt,
 			type: "workflow",
 			agent: "workflow-coordinator",
-			nodes: [{
-				id: "node",
-				agent: "test",
-				task: "test",
-				dependsOn: [],
-				state: "running",
-				startedAt: createdAt,
-			}],
+			nodes: [
+				{
+					id: "node",
+					agent: "test",
+					task: "test",
+					dependsOn: [],
+					state: "running",
+					startedAt: createdAt,
+				},
+			],
 		});
 		await mkdir(join(directory, "nodes"));
 		await writeFile(join(directory, "nodes", "node.md"), "done");
 		await writeJobState(directory, running);
 		const updated: JobState = {
 			...running,
-			nodes: [{
-				...running.nodes![0],
-				state: "succeeded",
-				endedAt: createdAt,
-			}],
+			nodes: [
+				{
+					...running.nodes![0],
+					state: "succeeded",
+					endedAt: createdAt,
+				},
+			],
 		};
 		await Promise.allSettled([
 			updateRunningJobLifecycle(directory, updated),
@@ -1309,10 +1291,7 @@ test("job wait uses the persisted job deadline", async () => {
 				cwd: directory,
 			});
 			const state = await readJobStateAt(jobDirectory);
-			await assert.rejects(
-				waitForJob(directory, state.id),
-				/exceeded its persisted deadline/,
-			);
+			await assert.rejects(waitForJob(directory, state.id), /exceeded its persisted deadline/);
 		} finally {
 			await liveness.close();
 		}
@@ -1329,10 +1308,17 @@ test("terminal job state wins either liveness event order", async () => {
 			await mkdir(jobDir);
 			const server = await listenForJobLiveness(jobDir, token);
 			await writeJobState(jobDir, {
-				version: 4, id, type: "agent", state: "running", createdAt,
+				version: 4,
+				id,
+				type: "agent",
+				state: "running",
+				createdAt,
 				deadlineAt: new Date(Date.now() + 10_000).toISOString(),
-				startedAt: createdAt, pid: process.pid, processToken: token,
-				agent: "test", cwd: directory,
+				startedAt: createdAt,
+				pid: process.pid,
+				processToken: token,
+				agent: "test",
+				cwd: directory,
 			});
 			let resolveConnected: () => void = () => {};
 			const connected = new Promise<void>((resolve) => {
@@ -1362,14 +1348,12 @@ test("job liveness bounds observers and removes its socket", async () => {
 		const socketPath = join(directory, "liveness.sock");
 		assert.equal((await stat(socketPath)).mode & 0o777, 0o600);
 		const monitors = await Promise.all(
-			Array.from({ length: 16 }, () => (
-				connectToJobLiveness(directory, process.pid, token)
-			)),
+			Array.from({ length: 16 }, () => connectToJobLiveness(directory, process.pid, token)),
 		);
 		try {
 			await assert.rejects(
 				connectToJobLiveness(directory, process.pid, token),
-				(error) => error instanceof JobLivenessError && error.kind === "observer-limit",
+				(error) => error instanceof JobLivenessError && error.kind === "channel-failed",
 			);
 		} finally {
 			for (const monitor of monitors) monitor.close();
@@ -1390,11 +1374,11 @@ test("job liveness rejects a mismatched handshake", async () => {
 			const token = await processToken(process.pid);
 			await assert.rejects(
 				connectToJobLiveness(directory, process.pid, token),
-				(error) => error instanceof JobLivenessError && error.kind === "protocol",
+				(error) => error instanceof JobLivenessError && error.kind === "channel-failed",
 			);
 		} finally {
 			await new Promise<void>((resolve, reject) => {
-				server.close((error) => error ? reject(error) : resolve());
+				server.close((error) => (error ? reject(error) : resolve()));
 			});
 		}
 	});
@@ -1402,20 +1386,11 @@ test("job liveness rejects a mismatched handshake", async () => {
 
 test("job liveness rejects oversized and pre-existing endpoints", async () => {
 	const token = await processToken(process.pid);
-	await assert.rejects(
-		listenForJobLiveness(`/tmp/${"x".repeat(101)}`, token),
-		/socket path exceeds limit/,
-	);
+	await assert.rejects(listenForJobLiveness(`/tmp/${"x".repeat(101)}`, token), /socket path exceeds limit/);
 	await withTempDirectory(async (directory) => {
-		await assert.rejects(
-			listenForJobLiveness(directory, "x".repeat(300)),
-			/handshake exceeds limit/,
-		);
+		await assert.rejects(listenForJobLiveness(directory, "x".repeat(300)), /handshake exceeds limit/);
 		await writeFile(join(directory, "liveness.sock"), "occupied");
-		await assert.rejects(
-			listenForJobLiveness(directory, token),
-			/socket already exists/,
-		);
+		await assert.rejects(listenForJobLiveness(directory, token), /socket already exists/);
 	});
 });
 
@@ -1437,19 +1412,13 @@ test("JSONL decoder rejects malformed records", () => {
 
 test("JSONL decoder rejects an oversized input chunk", () => {
 	const decoder = new JsonlDecoder(() => undefined);
-	assert.throws(
-		() => decoder.feed(Buffer.alloc(JSONL_RECORD_BYTES_MAX + 1)),
-		/JSONL chunk exceeds limit/,
-	);
+	assert.throws(() => decoder.feed(Buffer.alloc(JSONL_RECORD_BYTES_MAX + 1)), /JSONL chunk exceeds limit/);
 });
 
 test("JSONL decoder rejects a record accumulated beyond its bound", () => {
 	const decoder = new JsonlDecoder(() => undefined);
 	decoder.feed(Buffer.alloc(JSONL_RECORD_BYTES_MAX, 0x20));
-	assert.throws(
-		() => decoder.feed(Buffer.from("x")),
-		/JSONL record exceeds limit/,
-	);
+	assert.throws(() => decoder.feed(Buffer.from("x")), /JSONL record exceeds limit/);
 });
 
 test("JSONL decoder rejects an excessive record count", () => {
@@ -1463,10 +1432,7 @@ test("JSONL decoder rejects an excessive record count", () => {
 test("agent runner rejects an oversized JSONL record", async () => {
 	await withTempDirectory(async (directory) => {
 		const script = join(directory, "oversized-jsonl-pi.mjs");
-		await writeFile(
-			script,
-			`process.stdout.write("x".repeat(${JSONL_RECORD_BYTES_MAX + 1}));`,
-		);
+		await writeFile(script, `process.stdout.write("x".repeat(${JSONL_RECORD_BYTES_MAX + 1}));`);
 		await assert.rejects(
 			runAgent({
 				invocation: { command: process.execPath, args: [script] },
@@ -1747,12 +1713,15 @@ test("agent runner rejects a tool-use stop as incomplete", async () => {
 				content: [{ type: "text", text: "partial" }]
 			} }));`,
 		);
-		await assert.rejects(runAgent({
-			invocation: { command: process.execPath, args: [script] },
-			agent: testAgent(),
-			task: "Stop before tool execution",
-			cwd: directory,
-		}), /agent stopped with reason: toolUse/);
+		await assert.rejects(
+			runAgent({
+				invocation: { command: process.execPath, args: [script] },
+				agent: testAgent(),
+				task: "Stop before tool execution",
+				cwd: directory,
+			}),
+			/agent stopped with reason: toolUse/,
+		);
 	});
 });
 
@@ -1824,10 +1793,7 @@ test("background failure diagnostics remain inside their UTF-8 byte bound", asyn
 		const jobsRoot = join(directory, "jobs");
 		const script = join(directory, "background-error-pi.mjs");
 		await mkdir(jobsRoot);
-		await writeFile(
-			script,
-			`process.stderr.write("€".repeat(5000), () => process.exit(1));`,
-		);
+		await writeFile(script, `process.stderr.write("€".repeat(5000), () => process.exit(1));`);
 		const started = await startAgentJob({
 			jobsRoot,
 			cwd: directory,
@@ -1893,21 +1859,13 @@ test("background agent job persists its result", async () => {
 			invocation: { command: process.execPath, args: [script] },
 		});
 		const observed: JobState[] = [];
-		const finished = await waitForJob(
-			jobsRoot,
-			started.id,
-			undefined,
-			(state) => observed.push(state),
-		);
+		const finished = await waitForJob(jobsRoot, started.id, undefined, (state) => observed.push(state));
 		assert.equal(finished.state, "succeeded");
 		assert.ok(observed.some((state) => state.activity === "read"));
 		assert.ok(observed.some((state) => state.toolCount === 1));
 		assert.equal(finished.activity, undefined);
 		assert.equal(finished.toolCount, undefined);
-		const persisted = JSON.parse(await readFile(
-			join(jobsRoot, started.id, "state.json"),
-			"utf8",
-		));
+		const persisted = JSON.parse(await readFile(join(jobsRoot, started.id, "state.json"), "utf8"));
 		assert.equal(persisted.activity, undefined);
 		assert.equal(persisted.toolCount, undefined);
 		assert.equal(await readJobResult(jobsRoot, started.id), "background result");
@@ -1951,12 +1909,7 @@ test("background agent job survives its launching process", async () => {
 		});
 		const id = await readFile(idFile, "utf8");
 		const observed: string[] = [];
-		const finished = await waitForJob(
-			jobsRoot,
-			id,
-			undefined,
-			(state) => observed.push(state.state),
-		);
+		const finished = await waitForJob(jobsRoot, id, undefined, (state) => observed.push(state.state));
 		assert.equal(finished.state, "succeeded");
 		assert.equal(observed[0], "running");
 		assert.equal(observed.at(-1), "succeeded");
@@ -2029,23 +1982,26 @@ test("concurrent waiters reconcile one runner failure", async () => {
 		const connected: Array<Promise<void>> = [];
 		const waiters = Array.from({ length: 2 }, () => {
 			let resolveConnected: () => void = () => {};
-			connected.push(new Promise<void>((resolve) => {
-				resolveConnected = resolve;
-			}));
+			connected.push(
+				new Promise<void>((resolve) => {
+					resolveConnected = resolve;
+				}),
+			);
 			return waitForJob(jobsRoot, started.id, undefined, resolveConnected);
 		});
 		await Promise.all(connected);
 		assert.ok(started.pid);
 		process.kill(-started.pid, "SIGKILL");
 		const results = await withTestTimeout(Promise.all(waiters), 1000);
-		assert.deepEqual(results.map((state) => state.state), ["failed", "failed"]);
+		assert.deepEqual(
+			results.map((state) => state.state),
+			["failed", "failed"],
+		);
 		assert.equal(results[0].endedAt, results[1].endedAt);
 		const persisted = await readJobStateAt(join(jobsRoot, started.id));
 		assert.equal(persisted.state, "failed");
 		assert.equal(persisted.endedAt, results[0].endedAt);
-		const claim = JSON.parse(
-			await readFile(join(jobsRoot, started.id, "interruption.json"), "utf8"),
-		);
+		const claim = JSON.parse(await readFile(join(jobsRoot, started.id, "interruption.json"), "utf8"));
 		assert.equal(claim.endedAt, persisted.endedAt);
 	});
 });
@@ -2076,7 +2032,9 @@ test("workflow supports rejected implementation, fix, and re-review", async () =
 		const script = join(directory, "review-loop-pi.mjs");
 		const markerDir = join(directory, "review-markers");
 		await mkdir(markerDir);
-		await writeFile(script, `
+		await writeFile(
+			script,
+			`
 			import { readdirSync, writeFileSync } from "node:fs";
 			import { join } from "node:path";
 			const task = process.argv.at(-1);
@@ -2103,7 +2061,8 @@ test("workflow supports rejected implementation, fix, and re-review", async () =
 			process.stdout.write(JSON.stringify({ type: "message_end", message: {
 				role: "assistant", stopReason: "stop", content: [{ type: "text", text }]
 			} }));
-		`);
+		`,
+		);
 		const implementer = testAgent({
 			name: "implementer",
 			access: "write",
@@ -2112,23 +2071,22 @@ test("workflow supports rejected implementation, fix, and re-review", async () =
 		const correctness = testAgent({ name: "correctness-reviewer" });
 		const contextStyle = testAgent({ name: "context-style-reviewer" });
 		const planner = testAgent({ name: "planner" });
-		const jobDir = await createRunningWorkflow(
-			directory,
-			script,
-			[implementer, correctness, contextStyle, planner],
-		);
+		const jobDir = await createRunningWorkflow(directory, script, [implementer, correctness, contextStyle, planner]);
 		await seedPlan(jobDir);
 		await runRejectedReviewLoop(jobDir, { implementer, correctness, contextStyle });
 	});
 });
 
-test("workflow rejects a fix after malformed review verdicts", async () => {
+test("workflow cannot publish success on a malformed review verdict", async () => {
 	await withTempDirectory(async (directory) => {
 		const script = join(directory, "malformed-review-pi.mjs");
-		await writeFile(script, `process.stdout.write(JSON.stringify({
+		await writeFile(
+			script,
+			`process.stdout.write(JSON.stringify({
 			type: "message_end", message: { role: "assistant", stopReason: "stop",
 			content: [{ type: "text", text: "not a verdict" }] }
-		}));`);
+		}));`,
+		);
 		const implementer = testAgent({
 			name: "implementer",
 			access: "write",
@@ -2137,139 +2095,25 @@ test("workflow rejects a fix after malformed review verdicts", async () => {
 		const correctness = testAgent({ name: "correctness-reviewer" });
 		const contextStyle = testAgent({ name: "context-style-reviewer" });
 		const planner = testAgent({ name: "planner" });
-		const jobDir = await createRunningWorkflow(
-			directory,
-			script,
-			[implementer, correctness, contextStyle, planner],
-		);
+		const jobDir = await createRunningWorkflow(directory, script, [implementer, correctness, contextStyle, planner]);
 		await seedPlan(jobDir);
-		await runWorkflowNodes(jobDir, [{
-			id: "writer",
-			agent: implementer.name,
-			task: "implement",
-			dependsOn: ["plan"],
-		}]);
+		await runWorkflowNodes(jobDir, [
+			{
+				id: "writer",
+				agent: implementer.name,
+				task: "implement",
+				dependsOn: ["plan"],
+			},
+		]);
 		await runWorkflowNodes(jobDir, [
 			{ id: "correctness", agent: correctness.name, task: "review", dependsOn: ["writer"] },
 			{ id: "context", agent: contextStyle.name, task: "review", dependsOn: ["writer"] },
 		]);
-		await assert.rejects(runWorkflowNodes(jobDir, [{
-			id: "unrelated",
-			agent: correctness.name,
-			task: "must not run",
-		}]), /review verdict must be PASS or FAIL/);
-		await assert.rejects(runWorkflowNodes(jobDir, [{
-			id: "fix",
-			agent: implementer.name,
-			task: "must not run",
-			dependsOn: ["plan", "correctness", "context"],
-		}]), /review verdict must be PASS or FAIL/);
-	});
-});
-
-test("workflow rejects a fix after a non-actionable FAIL", async () => {
-	await withTempDirectory(async (directory) => {
-		const script = join(directory, "bare-fail-review-pi.mjs");
-		await writeFile(script, `
-			const task = process.argv.at(-1);
-			let text = "implemented";
-			if (task.startsWith("correctness")) text = [
-				"Verdict: FAIL", "- Severity: blocking", "  File: fixture.ts:1",
-				"  Evidence: concrete failure", "  Failure scenario: wrong result",
-				"  Smallest fix: correct it"
-			].join("\\n");
-			if (task.startsWith("context")) text = [
-				"Verdict: FAIL", "- Severity: blocking", "  File: fixture.ts:1",
-				"  Evidence: concrete failure", "  Violated rule: exact rule",
-				"  Smallest fix: correct it", "- Severity: blocking", "  File: T B D",
-				"  Evidence: N / A", "  Violated rule: placeholder.", "  Smallest fix: TODO!"
-			].join("\\n");
-			process.stdout.write(JSON.stringify({ type: "message_end", message: {
-				role: "assistant", stopReason: "stop", content: [{ type: "text", text }]
-			} }));
-		`);
-		const implementer = testAgent({
-			name: "implementer",
-			access: "write",
-			tools: ["read", "write"],
-		});
-		const correctness = testAgent({ name: "correctness-reviewer" });
-		const contextStyle = testAgent({ name: "context-style-reviewer" });
-		const planner = testAgent({ name: "planner" });
-		const jobDir = await createRunningWorkflow(
-			directory,
-			script,
-			[implementer, correctness, contextStyle, planner],
+		// A report that opens with neither verdict is not a PASS, so success stays unpublishable.
+		await assert.rejects(
+			assertWorkflowReviews(jobDir, await readJobStateAt(jobDir), [implementer, correctness, contextStyle, planner]),
+			/missing PASS reviews/,
 		);
-		await seedPlan(jobDir);
-		await runWorkflowNodes(jobDir, [
-			{ id: "writer", agent: implementer.name, task: "implement", dependsOn: ["plan"] },
-		]);
-		await runWorkflowNodes(jobDir, [
-			{
-				id: "correctness",
-				agent: correctness.name,
-				task: "correctness review",
-				dependsOn: ["writer"],
-			},
-			{
-				id: "context",
-				agent: contextStyle.name,
-				task: "context review",
-				dependsOn: ["writer"],
-			},
-		]);
-		await assert.rejects(runWorkflowNodes(jobDir, [{
-			id: "fix",
-			agent: implementer.name,
-			task: "must not run",
-			dependsOn: ["plan", "correctness", "context"],
-		}]), /FAIL review is not actionable/);
-	});
-});
-
-test("workflow refuses a writer without both reviewer roles", async () => {
-	await withTempDirectory(async (directory) => {
-		const script = join(directory, "missing-reviewers-pi.mjs");
-		await writeFile(script, "process.exit(0);");
-		const implementer = testAgent({
-			name: "implementer",
-			access: "write",
-			tools: ["read", "write"],
-		});
-		const jobDir = await createRunningWorkflow(directory, script, [implementer]);
-		await assert.rejects(runWorkflowNodes(jobDir, [{
-			id: "writer",
-			agent: implementer.name,
-			task: "must not start",
-		}]), /writer requires read-only correctness-reviewer/);
-	});
-});
-
-test("workflow gates a writer behind a succeeded plan", async () => {
-	await withTempDirectory(async (directory) => {
-		const script = join(directory, "plan-gate-pi.mjs");
-		await writeFile(script, "process.exit(0);");
-		const implementer = testAgent({ name: "implementer", access: "write", tools: ["read", "write"] });
-		const correctness = testAgent({ name: "correctness-reviewer" });
-		const contextStyle = testAgent({ name: "context-style-reviewer" });
-		const withoutPlanner = await createRunningWorkflow(directory, script, [
-			implementer, correctness, contextStyle,
-		]);
-		await assert.rejects(runWorkflowNodes(withoutPlanner, [{
-			id: "writer",
-			agent: implementer.name,
-			task: "must not start",
-		}]), /writer requires read-only planner/);
-		const planner = testAgent({ name: "planner" });
-		const jobDir = await createRunningWorkflow(directory, script, [
-			implementer, correctness, contextStyle, planner,
-		]);
-		await assert.rejects(runWorkflowNodes(jobDir, [{
-			id: "writer",
-			agent: implementer.name,
-			task: "must not start",
-		}]), /writer must depend on a succeeded plan/);
 	});
 });
 
@@ -2288,12 +2132,14 @@ test("workflow review gate rejects an unsuccessful writer", async () => {
 		const agents = [implementer, correctness, contextStyle, planner];
 		const jobDir = await createRunningWorkflow(directory, script, agents);
 		await seedPlan(jobDir);
-		const result = await runWorkflowNodes(jobDir, [{
-			id: "failed-writer",
-			agent: implementer.name,
-			task: "fail",
-			dependsOn: ["plan"],
-		}]);
+		const result = await runWorkflowNodes(jobDir, [
+			{
+				id: "failed-writer",
+				agent: implementer.name,
+				task: "fail",
+				dependsOn: ["plan"],
+			},
+		]);
 		assert.equal(result.nodes[0].state, "failed");
 		await assert.rejects(
 			assertWorkflowReviews(jobDir, await readJobStateAt(jobDir), agents),
@@ -2331,12 +2177,17 @@ test("workflow refuses a writer without capacity for two reviews", async () => {
 				})),
 			],
 		});
-		await assert.rejects(runWorkflowNodes(jobDir, [{
-			id: "unsafe-writer",
-			agent: implementer.name,
-			task: "must not start",
-			dependsOn: ["plan"],
-		}]), /writer requires capacity for two review nodes/);
+		await assert.rejects(
+			runWorkflowNodes(jobDir, [
+				{
+					id: "unsafe-writer",
+					agent: implementer.name,
+					task: "must not start",
+					dependsOn: ["plan"],
+				},
+			]),
+			/writer requires capacity for its reviews/,
+		);
 	});
 });
 
@@ -2349,7 +2200,9 @@ test("workflow runs five independent read-only nodes concurrently", async () => 
 		const createdAt = new Date().toISOString();
 		await mkdir(jobDir);
 		await mkdir(markerDir);
-		await writeFile(script, `
+		await writeFile(
+			script,
+			`
 			import { readdirSync, writeFileSync } from "node:fs";
 			import { join } from "node:path";
 			const markerDir = ${JSON.stringify(markerDir)};
@@ -2363,38 +2216,50 @@ test("workflow runs five independent read-only nodes concurrently", async () => 
 			process.stdout.write(JSON.stringify({ type: "message_end", message: {
 				role: "assistant", stopReason: "stop", content: [{ type: "text", text }]
 			} }));
-		`);
+		`,
+		);
 		const agent = testAgent({ skills: "none" });
-		await writeFile(join(jobDir, "request.json"), JSON.stringify({
-			version: 4,
-			id,
-			type: "workflow",
-			createdAt,
-			cwd: directory,
-			goal: "Test five-node concurrency",
-			agents: [agent],
-			invocation: { command: process.execPath, args: [script] },
-		}));
-		await writeJobState(jobDir, runningJobState(directory, {
-			id,
-			createdAt,
-			type: "workflow",
-			agent: "workflow-coordinator",
-			nodes: [],
-		}));
-		const result = await runWorkflowNodes(jobDir, Array.from({ length: 5 }, (_, index) => ({
-			id: `scout-${index}`,
-			agent: agent.name,
-			task: `perspective-${index}`,
-		})));
+		await writeFile(
+			join(jobDir, "request.json"),
+			JSON.stringify({
+				version: 4,
+				id,
+				type: "workflow",
+				createdAt,
+				cwd: directory,
+				goal: "Test five-node concurrency",
+				agents: [agent],
+				invocation: { command: process.execPath, args: [script] },
+			}),
+		);
+		await writeJobState(
+			jobDir,
+			runningJobState(directory, {
+				id,
+				createdAt,
+				type: "workflow",
+				agent: "workflow-coordinator",
+				nodes: [],
+			}),
+		);
+		const result = await runWorkflowNodes(
+			jobDir,
+			Array.from({ length: 5 }, (_, index) => ({
+				id: `scout-${index}`,
+				agent: agent.name,
+				task: `perspective-${index}`,
+			})),
+		);
 		assert.equal(result.nodes.length, 5);
 		assert(result.nodes.every((node) => node.state === "succeeded"));
-		const synthesis = await runWorkflowNodes(jobDir, [{
-			id: "synthesis",
-			agent: agent.name,
-			task: "combine all perspectives",
-			dependsOn: result.nodes.map((node) => node.id),
-		}]);
+		const synthesis = await runWorkflowNodes(jobDir, [
+			{
+				id: "synthesis",
+				agent: agent.name,
+				task: "combine all perspectives",
+				dependsOn: result.nodes.map((node) => node.id),
+			},
+		]);
 		assert.equal(synthesis.nodes[0].state, "succeeded");
 		assert.match(synthesis.text, /perspective-0/);
 		assert.match(synthesis.text, /perspective-4/);
@@ -2404,15 +2269,9 @@ test("workflow runs five independent read-only nodes concurrently", async () => 
 test("workflow nodes serialize graph mutation", async () => {
 	await withTempDirectory(async (directory) => {
 		const { agent, jobDir } = await createGraphWorkflow(directory);
-		const guarded = runWorkflowNodes(
-			jobDir,
-			[{ id: "serial-guard", agent: agent.name, task: "left result" }],
-		);
+		const guarded = runWorkflowNodes(jobDir, [{ id: "serial-guard", agent: agent.name, task: "left result" }]);
 		await assert.rejects(
-			runWorkflowNodes(
-				jobDir,
-				[{ id: "intruder", agent: agent.name, task: "must not run" }],
-			),
+			runWorkflowNodes(jobDir, [{ id: "intruder", agent: agent.name, task: "must not run" }]),
 			/workflow graph mutation is already active/,
 		);
 		await guarded;
@@ -2426,14 +2285,19 @@ test("workflow nodes support fan-out and dependency fan-in", async () => {
 			{ id: "left", agent: agent.name, task: "left result" },
 			{ id: "right", agent: agent.name, task: "right result" },
 		]);
-		assert.deepEqual(fanOut.nodes.map((node) => node.id), ["left", "right"]);
+		assert.deepEqual(
+			fanOut.nodes.map((node) => node.id),
+			["left", "right"],
+		);
 		assert(fanOut.nodes.every((node) => node.state === "succeeded"));
-		const fanIn = await runWorkflowNodes(jobDir, [{
-			id: "synthesis",
-			agent: agent.name,
-			task: "combine",
-			dependsOn: ["left", "right"],
-		}]);
+		const fanIn = await runWorkflowNodes(jobDir, [
+			{
+				id: "synthesis",
+				agent: agent.name,
+				task: "combine",
+				dependsOn: ["left", "right"],
+			},
+		]);
 		assert.match(fanIn.text, /left result/);
 		assert.match(fanIn.text, /right result/);
 		const state = await readJobStateAt(jobDir);
@@ -2457,28 +2321,26 @@ test("workflow nodes support fan-out and dependency fan-in", async () => {
 test("workflow nodes support failure, retry, and cancellation", async () => {
 	await withTempDirectory(async (directory) => {
 		const { agent, jobDir } = await createGraphWorkflow(directory);
-		const failed = await runWorkflowNodes(
-			jobDir,
-			[{ id: "attempt-1", agent: agent.name, task: "fail" }],
-		);
+		const failed = await runWorkflowNodes(jobDir, [{ id: "attempt-1", agent: agent.name, task: "fail" }]);
 		assert.equal(failed.nodes[0].state, "failed");
-		const largeFailure = await runWorkflowNodes(
-			jobDir,
-			[{ id: "large-failure", agent: agent.name, task: "large failure" }],
-		);
+		const largeFailure = await runWorkflowNodes(jobDir, [
+			{ id: "large-failure", agent: agent.name, task: "large failure" },
+		]);
 		assert.equal(largeFailure.nodes[0].state, "failed");
 		assert.ok(Buffer.byteLength(largeFailure.nodes[0].error ?? "") <= 4096);
 		assert.doesNotMatch(largeFailure.nodes[0].error ?? "", /�/);
-		await assert.rejects(runWorkflowNodes(jobDir, [{
-			id: "invalid-successor",
-			agent: agent.name,
-			task: "must not run",
-			dependsOn: ["attempt-1"],
-		}]), /dependency is not already succeeded/);
-		const retry = await runWorkflowNodes(
-			jobDir,
-			[{ id: "attempt-2", agent: agent.name, task: "retry result" }],
+		await assert.rejects(
+			runWorkflowNodes(jobDir, [
+				{
+					id: "invalid-successor",
+					agent: agent.name,
+					task: "must not run",
+					dependsOn: ["attempt-1"],
+				},
+			]),
+			/dependency is not already succeeded/,
 		);
+		const retry = await runWorkflowNodes(jobDir, [{ id: "attempt-2", agent: agent.name, task: "retry result" }]);
 		assert.equal(retry.nodes[0].state, "succeeded");
 		const controller = new AbortController();
 		controller.abort();
@@ -2530,13 +2392,14 @@ test("workflow writers run alone and drain descendants before release", async ()
 		const agents = [reader, writer, correctness, contextStyle, planner];
 		const jobDir = await createRunningWorkflow(directory, script, agents);
 		await seedPlan(jobDir);
-		await assert.rejects(runWorkflowNodes(jobDir, [
-			{ id: "mixed-writer", agent: writer.name, task: "writer" },
-			{ id: "mixed-reader", agent: reader.name, task: "reader" },
-		]), /writer must be submitted alone/);
-		await runWorkflowNodes(jobDir, [
-			{ id: "writer", agent: writer.name, task: "writer", dependsOn: ["plan"] },
-		]);
+		await assert.rejects(
+			runWorkflowNodes(jobDir, [
+				{ id: "mixed-writer", agent: writer.name, task: "writer" },
+				{ id: "mixed-reader", agent: reader.name, task: "reader" },
+			]),
+			/writer must be submitted alone/,
+		);
+		await runWorkflowNodes(jobDir, [{ id: "writer", agent: writer.name, task: "writer", dependsOn: ["plan"] }]);
 		const descendantPid = Number(await readFile(descendantPidPath, "utf8"));
 		assert.ok(descendantPid > 1);
 		assert.equal(await processIsRunning(descendantPid), false);
@@ -2818,16 +2681,18 @@ test("agent timeout terminates model-output and tool process groups", async () =
 			setInterval(() => {}, 1000);`,
 		);
 		const modes = ["model", "tool"] as const;
-		const runs = modes.map((mode) => runAgent({
-			invocation: {
-				command: process.execPath,
-				args: [script, mode, join(directory, `${mode}.pid`)],
-			},
-			agent: testAgent(),
-			task: `Timeout during ${mode}`,
-			cwd: directory,
-			timeoutMs: TERMINATE_GRACE_MS + 50,
-		}));
+		const runs = modes.map((mode) =>
+			runAgent({
+				invocation: {
+					command: process.execPath,
+					args: [script, mode, join(directory, `${mode}.pid`)],
+				},
+				agent: testAgent(),
+				task: `Timeout during ${mode}`,
+				cwd: directory,
+				timeoutMs: TERMINATE_GRACE_MS + 50,
+			}),
+		);
 		const outcomes = await Promise.allSettled(runs);
 		for (const outcome of outcomes) {
 			assert.equal(outcome.status, "rejected");

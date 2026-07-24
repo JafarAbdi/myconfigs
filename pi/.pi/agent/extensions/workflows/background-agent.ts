@@ -3,8 +3,9 @@
 import { unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+	CANCELLATION_ERROR,
+	errorText,
 	runAgent,
-	truncateUtf8Bytes,
 	USAGE_COST_KEYS,
 	USAGE_COUNT_KEYS,
 	USAGE_OPTIONAL_KEYS,
@@ -19,7 +20,8 @@ import {
 	readJobRequest,
 	readJobStateAt,
 	transitionJobState,
-	updateRunningJobTelemetry,
+	JOB_SCHEMA_VERSION,
+	writeJobTelemetry,
 	writeJobResult,
 	type AgentJobRequest,
 	type JobRequest,
@@ -40,7 +42,6 @@ import {
 	type JobLivenessServer,
 } from "./processes.ts";
 
-const ERROR_BYTES_MAX = 4096;
 const COORDINATOR_PROMPT = `You coordinate a bounded dynamic workflow.
 Use workflow_nodes to delegate all implementation, research, review, and synthesis work.
 Node IDs must be unique. Dependencies must name already-succeeded nodes.
@@ -50,23 +51,19 @@ Choose the fewest nodes that can satisfy the goal. Before a bounded implementati
 only when scope is unknown, its report will feed multiple successors, or independent investigation
 is required. Then run one planner node that depends on any scout or researcher nodes and produces
 the implementation plan; every write node must depend on that plan node. Read-only goals need no plan.
-For implementation work, reserve three node slots before each write/review stage. Stop before
-writing when capacity is insufficient. Start exactly one write node. Its task must require a
-pre-edit deletion test, a direct/simple design choice, and a post-edit deletion pass. After it
-succeeds, submit correctness-reviewer and context-style-reviewer together.
-Both must depend on that write node. Context-style-reviewer must perform the deletion-first
-simplicity review. Accept only when both return explicit PASS.
-For actionable FAIL findings, add one write node that depends on
-both reports. Run both reviewers together again with dependencies on the fix. Stop on
-any other non-PASS outcome. Never accept an unreviewed write or treat a fix report as acceptance.
+Start exactly one write node. Its task must require a pre-edit deletion test, a direct/simple design
+choice, and a post-edit deletion pass. After it succeeds, submit correctness-reviewer and
+context-style-reviewer together. Both must depend on that write node. Context-style-reviewer must
+perform the deletion-first simplicity review. Accept only when both return explicit PASS.
+For a FAIL that names a concrete defect, add one write node that depends on both reports, then run
+both reviewers again with dependencies on the fix. Stop on any other non-PASS outcome. Never accept
+an unreviewed write or treat a fix report as acceptance.
 Finish with one self-contained final report grounded in node results. Include the conclusion,
 actionable findings, concrete evidence and file references, remaining uncertainty, and next steps.
 Do not create an artifact index; the runner appends verified links to successful node reports.`;
 
 function coordinatorAgent(request: WorkflowJobRequest): AgentDefinition {
-	const catalog = request.agents
-		.map((agent) => `- ${agent.name} (${agent.access}): ${agent.description}`)
-		.join("\n");
+	const catalog = request.agents.map((agent) => `- ${agent.name} (${agent.access}): ${agent.description}`).join("\n");
 	return {
 		name: "workflow-coordinator",
 		description: "Coordinates a dynamic agent workflow",
@@ -96,11 +93,6 @@ function aggregateUsage(result: AgentRunResult, state: JobState): AgentUsage {
 	return total;
 }
 
-function errorText(error: unknown): string {
-	const text = error instanceof Error ? error.message : String(error);
-	return truncateUtf8Bytes(text, ERROR_BYTES_MAX, " [truncated]");
-}
-
 async function removeSessionFile(path?: string): Promise<void> {
 	if (!path) return;
 	try {
@@ -110,14 +102,14 @@ async function removeSessionFile(path?: string): Promise<void> {
 	}
 }
 
-async function writeAgentProgress(
-	jobDir: string,
-	update: AgentRunUpdate,
-): Promise<void> {
+async function writeAgentProgress(jobDir: string, update: AgentRunUpdate): Promise<void> {
 	const state = await readJobStateAt(jobDir);
 	if (state.state !== "running") return;
-	await updateRunningJobTelemetry(jobDir, {
-		...state,
+	// A single-agent job has no nodes, so the pulse is built directly rather than projected
+	// out of a whole state.
+	await writeJobTelemetry(jobDir, {
+		version: JOB_SCHEMA_VERSION,
+		id: state.id,
 		activity: update.tool ?? "thinking",
 		toolCount: update.toolCount,
 		usage: update.usage,
@@ -128,16 +120,12 @@ async function drainRunnerProcessGroup(): Promise<void> {
 	await terminateProcessGroupMembers(await processGroupId(), [process.pid]);
 }
 
-async function runDirectAgent(
-	request: AgentJobRequest,
-	jobDir: string,
-	signal: AbortSignal,
-): Promise<AgentRunResult> {
+async function runDirectAgent(request: AgentJobRequest, jobDir: string, signal: AbortSignal): Promise<AgentRunResult> {
 	const lease = request.writerLeaseRoot
 		? await acquireWriterLease(request.writerLeaseRoot, request.cwd, request.id, {
-			protectDescendants: true,
-			processGroupId: await processGroupId(),
-		})
+				protectDescendants: true,
+				processGroupId: await processGroupId(),
+			})
 		: undefined;
 	const pulseWriter = new LatestPulseWriter<AgentRunUpdate>({
 		write: (update) => writeAgentProgress(jobDir, update),
@@ -158,24 +146,16 @@ async function runDirectAgent(
 		await pulseWriter.flush();
 		await drainRunnerProcessGroup();
 		if (lease) {
-			await terminateEnvironmentMarkerProcesses(
-				WRITER_OWNER_ENV,
-				lease.ownerId,
-				{
-					excludedProcessIds: [process.pid, process.ppid],
-					ownedProcessGroup: lease.processGroupId,
-				},
-			);
+			await terminateEnvironmentMarkerProcesses(WRITER_OWNER_ENV, lease.ownerId, {
+				excludedProcessIds: [process.pid, process.ppid],
+				ownedProcessGroup: lease.processGroupId,
+			});
 			await releaseWriterLease(lease);
 		}
 	}
 }
 
-async function runWorkflow(
-	request: WorkflowJobRequest,
-	jobDir: string,
-	signal: AbortSignal,
-): Promise<AgentRunResult> {
+async function runWorkflow(request: WorkflowJobRequest, jobDir: string, signal: AbortSignal): Promise<AgentRunResult> {
 	try {
 		return await runAgent({
 			invocation: request.invocation,
@@ -194,22 +174,11 @@ async function runWorkflow(
 	}
 }
 
-function executeJob(
-	request: JobRequest,
-	jobDir: string,
-	signal: AbortSignal,
-): Promise<AgentRunResult> {
-	return request.type === "agent"
-		? runDirectAgent(request, jobDir, signal)
-		: runWorkflow(request, jobDir, signal);
+function executeJob(request: JobRequest, jobDir: string, signal: AbortSignal): Promise<AgentRunResult> {
+	return request.type === "agent" ? runDirectAgent(request, jobDir, signal) : runWorkflow(request, jobDir, signal);
 }
 
-async function recordFailure(
-	jobDir: string,
-	error: unknown,
-	cancelled: boolean,
-	sessionFile?: string,
-): Promise<void> {
+async function recordFailure(jobDir: string, error: unknown, cancelled: boolean, sessionFile?: string): Promise<void> {
 	let message = errorText(error);
 	try {
 		await writeFile(join(jobDir, "stderr.log"), message, { encoding: "utf8", mode: 0o600 });
@@ -233,11 +202,7 @@ async function recordFailure(
 	if (!cancelled) process.exitCode = 1;
 }
 
-async function recordSuccess(
-	request: JobRequest,
-	jobDir: string,
-	result: AgentRunResult,
-): Promise<void> {
+async function recordSuccess(request: JobRequest, jobDir: string, result: AgentRunResult): Promise<void> {
 	const latest = await readJobStateAt(jobDir);
 	if (await readJobCancellation(jobDir, latest)) {
 		await removeSessionFile(request.sessionFile);
@@ -245,7 +210,7 @@ async function recordSuccess(
 			...latest,
 			state: "cancelled",
 			endedAt: new Date().toISOString(),
-			error: "agent run aborted",
+			error: CANCELLATION_ERROR,
 		});
 		return;
 	}

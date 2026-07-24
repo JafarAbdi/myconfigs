@@ -22,12 +22,7 @@ import {
 	type JobState,
 	type WorkflowJobRequest,
 } from "./job-store.ts";
-import {
-	acquireWriterLease,
-	releaseWriterLease,
-	waitForWriterLeaseRelease,
-	WriterLeaseBusyError,
-} from "./leases.ts";
+import { acquireWriterLeaseWithRetry, releaseWriterLease } from "./leases.ts";
 import {
 	AGENT_TIMEOUT_MS,
 	JOB_DIRECTORY_SCAN_COUNT_MAX,
@@ -81,33 +76,21 @@ function jobDeadline(createdAt: string, executionTimeoutMs: number): string {
 	return new Date(Date.parse(createdAt) + supervisionMs).toISOString();
 }
 
-async function acquireJobLaunchLease(
-	root: string,
-	jobsRoot: string,
-	ownerId: string,
-) {
-	const deadlineMs = Date.now() + JOB_START_TIMEOUT_MS;
-	for (let attempt = 0; attempt < JOB_LAUNCH_LEASE_ATTEMPT_COUNT_MAX; attempt += 1) {
-		try {
-			return await acquireWriterLease(root, jobsRoot, ownerId);
-		} catch (error) {
-			if (!(error instanceof WriterLeaseBusyError)) throw error;
-			await waitForWriterLeaseRelease(root, jobsRoot, deadlineMs);
-		}
-	}
-	throw new WriterLeaseBusyError("job launch lease attempt limit exceeded");
-}
-
 async function createJobRecordWithCapacity(
 	jobsRoot: string,
 	request: AgentJobRequest | WorkflowJobRequest,
 	state: JobState,
 ): Promise<void> {
 	await mkdir(jobsRoot, { recursive: true, mode: 0o700 });
-	const lease = await acquireJobLaunchLease(
+	const lease = await acquireWriterLeaseWithRetry(
 		join(dirname(jobsRoot), "job-launch-leases"),
 		jobsRoot,
 		`job-launch:${request.id}`,
+		{
+			attemptsMax: JOB_LAUNCH_LEASE_ATTEMPT_COUNT_MAX,
+			waitMs: JOB_START_TIMEOUT_MS,
+			exhausted: "job launch lease attempt limit exceeded",
+		},
 	);
 	try {
 		await pruneJobRecords(jobsRoot);
@@ -166,14 +149,18 @@ export async function startAgentJob(options: StartAgentJobOptions): Promise<JobS
 		agent: structuredClone(options.agent),
 		invocation: options.invocation,
 		sessionFile: options.sessionFile,
-		writerLeaseRoot: options.agent.access === "write"
-			? join(dirname(options.jobsRoot), "writer-leases")
-			: undefined,
+		writerLeaseRoot: options.agent.access === "write" ? join(dirname(options.jobsRoot), "writer-leases") : undefined,
 	};
 	const state: JobState = {
-		version: JOB_SCHEMA_VERSION, id, type: "agent", state: "queued", createdAt,
+		version: JOB_SCHEMA_VERSION,
+		id,
+		type: "agent",
+		state: "queued",
+		createdAt,
 		deadlineAt: jobDeadline(createdAt, AGENT_TIMEOUT_MS),
-		agent: options.agent.name, cwd: options.cwd, task: options.task,
+		agent: options.agent.name,
+		cwd: options.cwd,
+		task: options.task,
 	};
 	return createJob(options.jobsRoot, request, state);
 }
@@ -194,9 +181,16 @@ export async function startWorkflowJob(options: StartWorkflowJobOptions): Promis
 		model: options.model,
 	};
 	const state: JobState = {
-		version: JOB_SCHEMA_VERSION, id, type: "workflow", state: "queued", createdAt,
+		version: JOB_SCHEMA_VERSION,
+		id,
+		type: "workflow",
+		state: "queued",
+		createdAt,
 		deadlineAt: jobDeadline(createdAt, WORKFLOW_TIMEOUT_MS),
-		agent: "workflow-coordinator", cwd: options.cwd, task: options.goal, nodes: [],
+		agent: "workflow-coordinator",
+		cwd: options.cwd,
+		task: options.goal,
+		nodes: [],
 	};
 	return createJob(options.jobsRoot, request, state);
 }
@@ -234,10 +228,6 @@ async function failQueuedStart(
 	return readJobState(jobsRoot, id);
 }
 
-function isAbortError(error: unknown): boolean {
-	return error instanceof Error && error.name === "AbortError";
-}
-
 async function* observeJobStates(
 	jobsRoot: string,
 	id: string,
@@ -256,26 +246,17 @@ async function* observeJobStates(
 			yield await readJobState(jobsRoot, id);
 		}
 	} catch (error) {
-		if (!isAbortError(error)) throw error;
+		if (!(error instanceof Error && error.name === "AbortError")) throw error;
 		if (signal?.aborted) throw new Error("job observation aborted");
 	} finally {
 		await watcher.return?.();
 	}
 }
 
-async function waitForJobStart(
-	jobsRoot: string,
-	id: string,
-	evidence: SpawnEvidence,
-): Promise<JobState> {
+async function waitForJobStart(jobsRoot: string, id: string, evidence: SpawnEvidence): Promise<JobState> {
 	try {
 		const deadlineMs = Date.now() + JOB_START_TIMEOUT_MS;
-		for await (const state of observeJobStates(
-			jobsRoot,
-			id,
-			deadlineMs,
-			evidence.errorController.signal,
-		)) {
+		for await (const state of observeJobStates(jobsRoot, id, deadlineMs, evidence.errorController.signal)) {
 			if (state.state !== "queued") return state;
 		}
 	} catch (error) {
@@ -292,33 +273,22 @@ async function jobProcessMatches(state: JobState): Promise<boolean> {
 	return processTokenMatches(state.pid, state.processToken);
 }
 
-async function reconcileInterruptedJob(
-	jobsRoot: string,
-	id: string,
-): Promise<JobState> {
+async function reconcileInterruptedJob(jobsRoot: string, id: string): Promise<JobState> {
 	const state = await readJobState(jobsRoot, id);
 	if (isTerminalJobState(state.state)) return state;
 	if (state.state !== "running") throw new Error(`job ${id} has no running process`);
 	if (await jobProcessMatches(state)) {
 		throw new Error(`job ${id} liveness channel closed while its process is running`);
 	}
-	return reconcileInterruptedJobState(
-		jobDirectoryPath(jobsRoot, id),
-		"job runner exited without a terminal state",
-	);
+	return reconcileInterruptedJobState(jobDirectoryPath(jobsRoot, id), "job runner exited without a terminal state");
 }
 
-export async function observeJob(
-	jobsRoot: string,
-	state: JobState,
-	includeResult: boolean,
-): Promise<JobProjection> {
-	const observed = state.state === "running" && !(await jobProcessMatches(state))
-		? await reconcileInterruptedJob(jobsRoot, state.id)
-		: state;
-	return includeResult
-		? readJobProjection(jobsRoot, observed.id, true)
-		: projectJob(jobsRoot, observed);
+export async function observeJob(jobsRoot: string, state: JobState, includeResult: boolean): Promise<JobProjection> {
+	const observed =
+		state.state === "running" && !(await jobProcessMatches(state))
+			? await reconcileInterruptedJob(jobsRoot, state.id)
+			: state;
+	return includeResult ? readJobProjection(jobsRoot, observed.id, true) : projectJob(jobsRoot, observed);
 }
 
 async function connectWaitMonitor(
@@ -330,10 +300,7 @@ async function connectWaitMonitor(
 	if (state.state !== "running" || !state.pid || !state.processToken) {
 		throw new Error(`job ${state.id} has no running process`);
 	}
-	const handshakeDeadlineMs = Math.min(
-		deadlineMs,
-		Date.now() + JOB_LIVENESS_HANDSHAKE_TIMEOUT_MS,
-	);
+	const handshakeDeadlineMs = Math.min(deadlineMs, Date.now() + JOB_LIVENESS_HANDSHAKE_TIMEOUT_MS);
 	const timeoutSignal = AbortSignal.timeout(Math.max(1, handshakeDeadlineMs - Date.now()));
 	const connectSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 	try {
@@ -346,10 +313,7 @@ async function connectWaitMonitor(
 	} catch (error) {
 		if (signal?.aborted) throw new Error("job wait aborted");
 		if (timeoutSignal.aborted) {
-			throw new JobLivenessError(
-				"channel-unavailable",
-				`job ${state.id} liveness handshake timed out`,
-			);
+			throw new JobLivenessError("channel-failed", `job ${state.id} liveness handshake timed out`);
 		}
 		throw error;
 	}
@@ -406,22 +370,12 @@ export async function waitForJob(
 	onStateChange?: (state: JobState) => void,
 ): Promise<JobState> {
 	const initial = await readJobState(jobsRoot, id);
-	const state = await waitForJobUntil(
-		jobsRoot,
-		id,
-		Date.parse(initial.deadlineAt),
-		signal,
-		onStateChange,
-	);
+	const state = await waitForJobUntil(jobsRoot, id, Date.parse(initial.deadlineAt), signal, onStateChange);
 	if (isTerminalJobState(state.state)) return state;
 	throw new Error(`job ${id} exceeded its persisted deadline`);
 }
 
-async function resolveOwnedProcessRace(
-	jobsRoot: string,
-	id: string,
-	error: unknown,
-): Promise<JobState> {
+async function resolveOwnedProcessRace(jobsRoot: string, id: string, error: unknown): Promise<JobState> {
 	const latest = await readJobState(jobsRoot, id);
 	if (isTerminalJobState(latest.state)) return latest;
 	if (!latest.pid || !(await processIsRunning(latest.pid))) {
@@ -429,6 +383,11 @@ async function resolveOwnedProcessRace(
 	}
 	throw error;
 }
+
+const CANCEL_ESCALATION: { signal: NodeJS.Signals; graceMs: number }[] = [
+	{ signal: "SIGTERM", graceMs: TERMINATE_GRACE_MS },
+	{ signal: "SIGKILL", graceMs: JOB_LIVENESS_HANDSHAKE_TIMEOUT_MS },
+];
 
 export async function cancelJob(jobsRoot: string, id: string): Promise<JobState> {
 	const state = await readJobState(jobsRoot, id);
@@ -443,48 +402,25 @@ export async function cancelJob(jobsRoot: string, id: string): Promise<JobState>
 	try {
 		await claimJobCancellation(jobDir, state);
 	} catch (error) {
+		// Not the uniform race: a rejected claim never implies the runner process died,
+		// so this must not fall through to resolveOwnedProcessRace.
 		const latest = await readJobState(jobsRoot, id);
 		if (isTerminalJobState(latest.state)) return latest;
 		throw error;
 	}
-	try {
-		await signalOwnedProcessGroup(jobDir, state.pid, state.processToken, "SIGTERM");
-	} catch (error) {
-		return resolveOwnedProcessRace(jobsRoot, id, error);
-	}
-	try {
-		const waited = await waitForJobUntil(
-			jobsRoot,
-			id,
-			Date.now() + TERMINATE_GRACE_MS,
-		);
-		if (isTerminalJobState(waited.state)) return waited;
-	} catch (error) {
-		return resolveOwnedProcessRace(jobsRoot, id, error);
-	}
-	try {
-		await signalOwnedProcessGroup(jobDir, state.pid, state.processToken, "SIGKILL");
-	} catch (error) {
-		return resolveOwnedProcessRace(jobsRoot, id, error);
-	}
-	try {
-		const waited = await waitForJobUntil(
-			jobsRoot,
-			id,
-			Date.now() + JOB_LIVENESS_HANDSHAKE_TIMEOUT_MS,
-		);
-		if (isTerminalJobState(waited.state)) return waited;
-	} catch (error) {
-		return resolveOwnedProcessRace(jobsRoot, id, error);
+	for (const { signal, graceMs } of CANCEL_ESCALATION) {
+		try {
+			await signalOwnedProcessGroup(jobDir, state.pid, state.processToken, signal);
+			const waited = await waitForJobUntil(jobsRoot, id, Date.now() + graceMs);
+			if (isTerminalJobState(waited.state)) return waited;
+		} catch (error) {
+			return resolveOwnedProcessRace(jobsRoot, id, error);
+		}
 	}
 	throw new Error(`job ${id} survived SIGKILL`);
 }
 
-async function assertOwnedProcessGroup(
-	jobDir: string,
-	processId: number,
-	token: string,
-): Promise<void> {
+async function assertOwnedProcessGroup(jobDir: string, processId: number, token: string): Promise<void> {
 	if (!(await processTokenMatches(processId, token))) {
 		throw new Error("job process is not running");
 	}

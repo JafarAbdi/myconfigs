@@ -2,6 +2,9 @@
 // on timeout, abort, or a clean final result escalates SIGTERM to SIGKILL within bounds.
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
+// Type-only on purpose: the test suite imports this module without pi's node_modules on the
+// resolution path, so a value import from a pi package would make it unloadable there.
+import type { AssistantMessage, StopReason, Usage } from "@earendil-works/pi-ai";
 import {
 	AGENT_KILL_SETTLE_MS,
 	AGENT_OUTPUT_BYTES_MAX,
@@ -12,6 +15,7 @@ import {
 	AGENT_TIMEOUT_MS,
 	AGENT_USAGE_COST_MAX,
 	AGENT_USAGE_COUNT_MAX,
+	ERROR_BYTES_MAX,
 	JSONL_RECORD_BYTES_MAX,
 	JSONL_RECORD_COUNT_MAX,
 	STDERR_BYTES_MAX,
@@ -21,17 +25,15 @@ import {
 import type { AgentDefinition } from "./agents.ts";
 import { terminateProcessGroupMembers, WRITER_OWNER_ENV } from "./processes.ts";
 
-const CHILD_MODE_ENV = "PI_WORKFLOWS_MODE";
-const CHILD_MODE_NODE = "node";
-const CHILD_JOB_DIRECTORY_ENV = "PI_WORKFLOWS_JOB_DIRECTORY";
-const EXCLUDED_CHILD_TOOLS = [
-	"agent_run",
-	"job_cancel",
-	"job_status",
-	"job_wait",
-	"workflow_nodes",
-	"workflow_start",
-];
+// The parent sets these; the child reads them to decide which tools it may register.
+// Both sides must agree, so both sides import them from here.
+export const PROCESS_MODE_ENV = "PI_WORKFLOWS_MODE";
+export const PROCESS_MODE_COORDINATOR = "coordinator";
+export const PROCESS_MODE_NODE = "node";
+export const JOB_DIRECTORY_ENV = "PI_WORKFLOWS_JOB_DIRECTORY";
+// Persisted as a job error and compared by equality when reconciling a dead runner.
+export const CANCELLATION_ERROR = "agent run aborted";
+const EXCLUDED_CHILD_TOOLS = ["agent_run", "job_cancel", "job_status", "job_wait", "workflow_nodes", "workflow_start"];
 
 export interface PiInvocation {
 	command: string;
@@ -45,22 +47,9 @@ export interface AgentRunUpdate {
 	usage: AgentUsage;
 }
 
-export interface AgentUsage {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	cacheWrite1h?: number;
-	reasoning?: number;
-	totalTokens: number;
-	cost: {
-		input: number;
-		output: number;
-		cacheRead: number;
-		cacheWrite: number;
-		total: number;
-	};
-}
+// Pi's own usage shape, exactly as the child reports it on stdout. Deliberately not redefined:
+// a field added to pi's Usage must not silently disappear from our accounting.
+export type AgentUsage = Usage;
 
 export interface AgentRunResult {
 	output: string;
@@ -144,7 +133,7 @@ export class JsonlDecoder {
 	}
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
@@ -159,22 +148,28 @@ function emptyUsage(): AgentUsage {
 	};
 }
 
-export const USAGE_COUNT_KEYS =
-	["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const;
-export const USAGE_OPTIONAL_KEYS = ["cacheWrite1h", "reasoning"] as const;
-export const USAGE_COST_KEYS =
-	["input", "output", "cacheRead", "cacheWrite", "total"] as const;
+// Which Usage fields to bound-check and sum. Not a type mirror — the type comes from pi; these
+// drive iteration. Typed against Usage so a renamed pi field shows up here as a bad key.
+export const USAGE_COUNT_KEYS = [
+	"input",
+	"output",
+	"cacheRead",
+	"cacheWrite",
+	"totalTokens",
+] as const satisfies readonly (keyof Usage)[];
+export const USAGE_OPTIONAL_KEYS = ["cacheWrite1h", "reasoning"] as const satisfies readonly (keyof Usage)[];
+export const USAGE_COST_KEYS = [
+	"input",
+	"output",
+	"cacheRead",
+	"cacheWrite",
+	"total",
+] as const satisfies readonly (keyof Usage["cost"])[];
 
-function requireBoundedNumber(
-	source: Record<string, unknown>,
-	key: string,
-	valueMax: number,
-	integer: boolean,
-): void {
+function requireBoundedNumber(source: Record<string, unknown>, key: string, valueMax: number, integer: boolean): void {
 	const value = source[key];
 	const invalidInteger = integer && !Number.isSafeInteger(value);
-	if (typeof value !== "number" || !Number.isFinite(value) || invalidInteger ||
-		value < 0 || value > valueMax) {
+	if (typeof value !== "number" || !Number.isFinite(value) || invalidInteger || value < 0 || value > valueMax) {
 		throw new Error(`invalid usage ${key}`);
 	}
 }
@@ -217,8 +212,7 @@ function addBoundedNumber(
 	const value = source[key];
 	if (value === undefined) return;
 	const invalidInteger = integer && !Number.isSafeInteger(value);
-	if (typeof value !== "number" || !Number.isFinite(value) || invalidInteger ||
-		value < 0 || value > valueMax) {
+	if (typeof value !== "number" || !Number.isFinite(value) || invalidInteger || value < 0 || value > valueMax) {
 		throw new Error(`invalid usage ${key}`);
 	}
 	const total = (target[key] ?? 0) + value;
@@ -245,29 +239,34 @@ function collectUsage(message: Record<string, unknown>, usage: AgentUsage): void
 	}
 }
 
+// `pi --mode json` serialises its own AgentSessionEvent union to stdout, so a message_end
+// record is a MessageEndEvent and its assistant arm is pi's AssistantMessage. The envelope is
+// still probed rather than trusted: this is cross-process input from a possibly different pi
+// build, and nothing here typechecks at edit time. Partial<> is the honest view — every field
+// below is read defensively even though pi's type declares it present.
 function collectAssistantMessage(value: unknown, collected: CollectedOutput): boolean {
 	if (!isRecord(value) || value.type !== "message_end") return false;
-	const message = value.message;
-	if (!isRecord(message) || message.role !== "assistant") return false;
+	if (!isRecord(value.message) || value.message.role !== "assistant") return false;
+	const message = value.message as Partial<AssistantMessage> & Record<string, unknown>;
 	if (typeof message.model === "string") collected.model = message.model;
 	if (typeof message.stopReason === "string") collected.stopReason = message.stopReason;
 	if (typeof message.errorMessage === "string") collected.errorMessage = message.errorMessage;
-	collectUsage(message, collected.usage);
+	collectUsage(value.message, collected.usage);
 	collected.output = "";
 	if (!Array.isArray(message.content)) return true;
-	const text = message.content
+	collected.output = message.content
 		.filter((part): part is Record<string, unknown> => isRecord(part) && part.type === "text")
 		.map((part) => part.text)
 		.filter((part): part is string => typeof part === "string" && part.trim().length > 0)
 		.join("\n");
-	collected.output = text;
 	return true;
 }
 
 function buildAgentArgs(options: RunAgentOptions): string[] {
-	const excludedTools = options.processMode === "coordinator"
-		? EXCLUDED_CHILD_TOOLS.filter((tool) => tool !== "workflow_nodes")
-		: EXCLUDED_CHILD_TOOLS;
+	const excludedTools =
+		options.processMode === "coordinator"
+			? EXCLUDED_CHILD_TOOLS.filter((tool) => tool !== "workflow_nodes")
+			: EXCLUDED_CHILD_TOOLS;
 	const args = [
 		...options.invocation.args,
 		"--mode",
@@ -282,9 +281,7 @@ function buildAgentArgs(options: RunAgentOptions): string[] {
 	if (options.agent.model) args.push("--model", options.agent.model);
 	if (options.agent.skills === "none") args.push("--no-skills");
 	if (options.agent.systemPrompt) {
-		const flag = options.agent.systemPromptMode === "replace"
-			? "--system-prompt"
-			: "--append-system-prompt";
+		const flag = options.agent.systemPromptMode === "replace" ? "--system-prompt" : "--append-system-prompt";
 		args.push(flag, options.agent.systemPrompt);
 	}
 	args.push(options.task);
@@ -298,11 +295,7 @@ function appendTail(current: Buffer, chunk: Buffer): Buffer {
 	return combined.subarray(combined.length - STDERR_BYTES_MAX);
 }
 
-export function truncateUtf8Bytes(
-	text: string,
-	bytesMax: number,
-	marker: string,
-): string {
+export function truncateUtf8Bytes(text: string, bytesMax: number, marker: string): string {
 	const markerBytes = Buffer.byteLength(marker);
 	if (markerBytes >= bytesMax) throw new Error("truncation marker exceeds byte limit");
 	const bytes = Buffer.from(text);
@@ -312,11 +305,12 @@ export function truncateUtf8Bytes(
 	return bytes.subarray(0, end).toString("utf8") + marker;
 }
 
-function killProcess(
-	child: RunningChild,
-	signal: NodeJS.Signals,
-	isolateProcessGroup: boolean,
-): void {
+export function errorText(error: unknown): string {
+	const text = error instanceof Error ? error.message : String(error);
+	return truncateUtf8Bytes(text, ERROR_BYTES_MAX, " [truncated]");
+}
+
+function killProcess(child: RunningChild, signal: NodeJS.Signals, isolateProcessGroup: boolean): void {
 	if (child.exitCode !== null || child.signalCode !== null) return;
 	if (!child.pid) throw new Error("agent process has no process id");
 	if (isolateProcessGroup) {
@@ -362,10 +356,14 @@ export function currentPiInvocation(): PiInvocation {
 	return { command: process.execPath, args: [currentScript] };
 }
 
-const NONFINAL_STOP_REASONS: readonly string[] = ["aborted", "error", "length", "toolUse"];
+// Every pi StopReason except "stop" means the child stopped without a usable final answer.
+const NONFINAL_STOP_REASONS = ["aborted", "error", "length", "toolUse"] as const satisfies readonly StopReason[];
 
 function isNonFinalStopReason(stopReason: string | undefined): boolean {
-	return NONFINAL_STOP_REASONS.includes(stopReason ?? "");
+	// An absent stopReason counts as final: older/other pi builds may omit it entirely, and
+	// treating that as non-final would reject otherwise clean output.
+	if (stopReason === undefined) return false;
+	return (NONFINAL_STOP_REASONS as readonly string[]).includes(stopReason);
 }
 
 function completedRun(
@@ -382,11 +380,7 @@ function completedRun(
 	}
 	if (!collected.output.trim()) throw new Error("agent returned no final text");
 	return {
-		output: truncateUtf8Bytes(
-			collected.output,
-			AGENT_OUTPUT_BYTES_MAX,
-			"\n\n[output truncated]",
-		),
+		output: truncateUtf8Bytes(collected.output, AGENT_OUTPUT_BYTES_MAX, "\n\n[output truncated]"),
 		model: collected.model,
 		stopReason: collected.stopReason,
 		stderr: stderr.toString("utf8"),
@@ -396,23 +390,19 @@ function completedRun(
 	};
 }
 
-function hasCleanFinalOutput(collected: CollectedOutput): boolean {
-	if (!collected.output.trim()) return false;
-	return !isNonFinalStopReason(collected.stopReason);
-}
-
 function createAgentDecoder(
 	options: RunAgentOptions,
 	collected: CollectedOutput,
 	onCleanFinalOutput: () => void,
 ): JsonlDecoder {
 	let toolCount = 0;
-	const emitUpdate = (tool?: string) => options.onUpdate?.({
-		agent: options.agent.name,
-		tool,
-		toolCount,
-		usage: structuredClone(collected.usage),
-	});
+	const emitUpdate = (tool?: string) =>
+		options.onUpdate?.({
+			agent: options.agent.name,
+			tool,
+			toolCount,
+			usage: structuredClone(collected.usage),
+		});
 	return new JsonlDecoder((value) => {
 		const assistantEnded = collectAssistantMessage(value, collected);
 		if (isRecord(value) && value.type === "tool_execution_start") {
@@ -424,15 +414,10 @@ function createAgentDecoder(
 			emitUpdate(value.toolName);
 		} else if (assistantEnded) {
 			emitUpdate();
-			if (hasCleanFinalOutput(collected)) onCleanFinalOutput();
+			const clean = collected.output.trim() && !isNonFinalStopReason(collected.stopReason);
+			if (clean) onCleanFinalOutput();
 		}
 	});
-}
-
-async function settleExitedChildStreams(child: RunningChild): Promise<void> {
-	await new Promise<void>((resolve) => setImmediate(resolve));
-	child.stdout.destroy();
-	child.stderr.destroy();
 }
 
 function spawnAgentProcess(
@@ -446,8 +431,8 @@ function spawnAgentProcess(
 			detached: isolateProcessGroup,
 			env: {
 				...process.env,
-				[CHILD_MODE_ENV]: options.processMode ?? CHILD_MODE_NODE,
-				[CHILD_JOB_DIRECTORY_ENV]: options.jobDirectory,
+				[PROCESS_MODE_ENV]: options.processMode ?? PROCESS_MODE_NODE,
+				[JOB_DIRECTORY_ENV]: options.jobDirectory,
 				[WRITER_OWNER_ENV]: options.writerOwnerId,
 			},
 			shell: false,
@@ -478,11 +463,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
 	const startedAtMs = Date.now();
 	const collected: CollectedOutput = { output: "", usage: emptyUsage() };
 	const completionController = new AbortController();
-	const decoder = createAgentDecoder(
-		options,
-		collected,
-		() => completionController.abort(),
-	);
+	const decoder = createAgentDecoder(options, collected, () => completionController.abort());
 	const isolateProcessGroup = options.isolateProcessGroup ?? true;
 	const state = spawnAgentProcess(options, decoder, isolateProcessGroup);
 	const child = state.child;
@@ -513,7 +494,10 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
 		if (isolateProcessGroup && child.pid) {
 			await terminateProcessGroupMembers(child.pid);
 		}
-		await settleExitedChildStreams(child);
+		// Let queued stdout land before tearing the streams down.
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		child.stdout.destroy();
+		child.stderr.destroy();
 		if (!state.protocolError) {
 			try {
 				decoder.finish();
@@ -532,21 +516,11 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
 	}
 }
 
-function armExitSignals(
-	signal: AbortSignal | undefined,
-	completionSignal: AbortSignal,
-	abort: () => void,
-	complete: () => void,
-): void {
-	signal?.addEventListener("abort", abort, { once: true });
-	completionSignal.addEventListener("abort", complete, { once: true });
-	if (signal?.aborted) abort();
-	if (completionSignal.aborted) complete();
-}
-
 function waitForExit(
-	child: RunningChild, signal: AbortSignal | undefined,
-	timeoutMs: number, isolateProcessGroup: boolean,
+	child: RunningChild,
+	signal: AbortSignal | undefined,
+	timeoutMs: number,
+	isolateProcessGroup: boolean,
 	completionSignal: AbortSignal,
 ): Promise<number> {
 	return new Promise((resolve, reject) => {
@@ -579,7 +553,7 @@ function waitForExit(
 			terminationTimer.unref();
 		};
 		const timeout = setTimeout(() => requestTermination("agent timed out", false), timeoutMs);
-		const abort = () => requestTermination("agent run aborted", false);
+		const abort = () => requestTermination(CANCELLATION_ERROR, false);
 		const complete = () => {
 			if (completionTimer || terminationTimer) return;
 			completionTimer = setTimeout(
@@ -596,7 +570,10 @@ function waitForExit(
 			signal?.removeEventListener("abort", abort);
 			completionSignal.removeEventListener("abort", complete);
 		};
-		armExitSignals(signal, completionSignal, abort, complete);
+		signal?.addEventListener("abort", abort, { once: true });
+		completionSignal.addEventListener("abort", complete, { once: true });
+		if (signal?.aborted) abort();
+		if (completionSignal.aborted) complete();
 		const fail = (error: Error) => {
 			if (settled) return;
 			settled = true;
@@ -608,7 +585,7 @@ function waitForExit(
 			settled = true;
 			cleanup();
 			if (terminationError) reject(terminationError);
-			else resolve(completionCleanup ? 0 : code ?? 1);
+			else resolve(completionCleanup ? 0 : (code ?? 1));
 		};
 		child.once("error", fail).once("exit", finish);
 		if (child.exitCode !== null || child.signalCode !== null) finish(child.exitCode);
