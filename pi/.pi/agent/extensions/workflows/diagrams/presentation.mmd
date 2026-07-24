@@ -1,0 +1,8 @@
+flowchart TD
+  P[Projection] --> R[Receipt]
+  P --> F{Focused wait}
+  F -->|no| W[Pulse]
+  F -->|yes| L[Ledger]
+  L --> C[Compact]
+  L --> E[Ctrl O expands]
+  P --> Z[Report]
