@@ -1,6 +1,6 @@
 ---
 name: tiger-style
-description: ALWAYS load before writing, editing, explicitly reviewing, or refactoring code in any language. Do not load for read-only file inspection, opening, navigation, or neutral summarization unless the user asks for review, design, safety, performance, or developer-experience feedback. Applies TigerBeetle TigerStyle principles for simplicity, safety, performance, and developer experience.
+description: Applies TigerBeetle TigerStyle principles for simplicity, safety, performance, and developer experience.
 ---
 
 # Tiger Style
