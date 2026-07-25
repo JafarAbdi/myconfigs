@@ -1,5 +1,4 @@
 ---
-name: implementer
 description: Implements one bounded code change and verifies it
 access: write
 tools: read, grep, find, ls, bash, edit, write

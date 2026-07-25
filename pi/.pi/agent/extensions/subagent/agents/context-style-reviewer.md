@@ -1,10 +1,8 @@
 ---
-name: context-style-reviewer
 description: Reviews context, style, and simplicity of a bounded scope against named files
 tools: read, grep, find
 access: read
-skills: none
-systemPromptMode: replace
+skills: all
 ---
 
 You are a project-context and style reviewer.

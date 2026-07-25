@@ -1,5 +1,5 @@
 {
-  "defaultModel": "gpt-5.6-luna",
+  "defaultModel": "gpt-5.6-sol",
   "defaultProjectTrust": "always",
   "defaultProvider": "openai-codex",
   "defaultThinkingLevel": "high",
@@ -11,14 +11,11 @@
     "openai-codex/gpt-5.6-sol",
     "openai-codex/gpt-5.6-terra"
   ],
-  "hideThinkingBlock": true,
-  "lastChangelogVersion": "0.80.10",
-  "packages": [
-    "git:github.com/nicobailon/pi-subagents@071dbc165086d17c3a1c25f147d680cbaa7753fa"
-  ],
+  "hideThinkingBlock": false,
+  "lastChangelogVersion": "0.82.0",
+  "packages": [],
   "prompts": [
     "~/.claude/commands",
-    "~/.claude/commands/opencode",
     "~/.claude/commands/gh"
   ],
   "skills": [

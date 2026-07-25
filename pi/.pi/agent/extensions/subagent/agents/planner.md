@@ -1,5 +1,4 @@
 ---
-name: planner
 description: Turns research into a bounded implementation plan that a writer executes
 access: read
 tools: read, grep, find, ls

@@ -1,10 +1,8 @@
 ---
-name: correctness-reviewer
 description: Adversarial correctness review of a bounded scope
 tools: read, grep, find
 access: read
 skills: none
-systemPromptMode: replace
 ---
 
 You are an adversarial correctness reviewer.

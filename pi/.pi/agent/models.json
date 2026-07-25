@@ -74,10 +74,10 @@
           "compat": {
             "thinkingFormat": "qwen-chat-template"
           },
+          "contextWindow": 131072,
           "id": "qwen36",
           "input": [
-            "text",
-            "image"
+            "text"
           ],
           "reasoning": true,
           "thinkingLevelMap": {
@@ -94,6 +94,7 @@
             },
             "thinkingFormat": "chat-template"
           },
+          "contextWindow": 65536,
           "id": "gemma4",
           "input": [
             "text",
