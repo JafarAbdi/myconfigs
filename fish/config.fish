@@ -395,10 +395,10 @@ end
 
 alias git-commit='PI_OFFLINE=1 pi --no-session -p "/commit-message"'
 
-# Emit "<name>\t<path>" per worktree. <name> is the branch (detached worktrees
-# fall back to the path basename). git puts worktrees at arbitrary paths -- some
-# tools nest them (e.g. .../<branch>/<repo>) -- so never assume that the name,
-# the path basename, and the location all agree.
+# Emit "<branch>\t<path>" per worktree. Detached and bare entries have no branch,
+# so they fall back to the path basename. git puts worktrees at arbitrary paths --
+# some tools nest them (e.g. .../<branch>/<repo>) -- so never assume that the
+# branch, the path basename, and the location all agree.
 function __fish_git_worktree_entries
   set -l path
   git worktree list --porcelain 2>/dev/null | while read -l line
@@ -408,14 +408,20 @@ function __fish_git_worktree_entries
         set path $parts[2]
       case branch
         printf '%s\t%s\n' (string replace 'refs/heads/' '' -- $parts[2]) $path
-      case detached
+      case detached bare
         printf '%s\t%s\n' (basename $path) $path
     end
   end
 end
 
+# Completion candidates, as "<basename>\tbranch" -- note the fields are the
+# reverse of __fish_git_worktree_entries. fish renders the second field as the
+# greyed description, so you pick a directory name and see its branch as a hint.
 function __fish_git_worktree_names
-  __fish_git_worktree_entries | string split -f1 \t
+  for entry in (__fish_git_worktree_entries)
+    set -l fields (string split -m 1 \t -- $entry)
+    printf '%s\t%s\n' (basename -- "$fields[2]") $fields[1]
+  end
 end
 
 function wt
@@ -424,14 +430,25 @@ function wt
     return 1
   end
   set -l name $argv[1]
-  # Match by branch name first, then path basename, and cd to the real path --
-  # worktrees may live anywhere, not just as siblings of the main repo.
+  # A branch match anywhere beats a basename match anywhere, so scan for each in
+  # its own pass. cd to the real path -- worktrees may live anywhere, not just as
+  # siblings of the main repo.
+  set -l entries (__fish_git_worktree_entries)
   set -l target
-  for entry in (__fish_git_worktree_entries)
+  for entry in $entries
     set -l fields (string split -m 1 \t -- $entry)
-    if test "$fields[1]" = "$name"; or test (basename "$fields[2]") = "$name"
+    if test "$fields[1]" = "$name"
       set target $fields[2]
       break
+    end
+  end
+  if test -z "$target"
+    for entry in $entries
+      set -l fields (string split -m 1 \t -- $entry)
+      if test (basename -- "$fields[2]") = "$name"
+        set target $fields[2]
+        break
+      end
     end
   end
   if test -z "$target"

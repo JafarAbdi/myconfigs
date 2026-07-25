@@ -12,7 +12,7 @@ set -g __yo_agent_dir "$__yo_root/pi/agent"
 # ignores settings.json on resume, so a session that ever recorded a different
 # provider stays pinned to it forever. An explicit flag has no such state.
 # The provider itself is defined in pi/agent/models.json.
-set -g __yo_model llama-local/qwen36
+set -g __yo_model llama-local/gemma4
 
 function __yo_pane_environment
     if not set -q __yo_agent_dir; or test -z "$__yo_agent_dir"
