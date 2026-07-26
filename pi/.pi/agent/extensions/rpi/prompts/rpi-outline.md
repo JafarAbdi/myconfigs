@@ -3,15 +3,13 @@ description: RPI outline — check the design against the real code, then phase 
 argument-hint: "<task-slug> [instructions]"
 ---
 
-Task: `~/.pi/agent/tasks/$1/`
+Treat a decision in the final Run context as settled, but check any claim about the code before
+acting on it — `delegate` to `scout`. A wrong fact accepted here becomes the plan and then the code.
 
-Anything the human typed after the slug is extra instruction for this run: ${@:2}
-
-Treat a decision in it as settled, but check any claim about the code before acting on it —
-`delegate` to `scout`. A wrong fact accepted here becomes the plan and then the code.
-
-If a document you read names a `repo:` that is not this repository, stop and say so — the task
-belongs to a different checkout.
+If a document names a `repo:`, compare repository identity rather than top-level paths: linked
+worktrees have different roots. Treat it as this repository only when that checkout's and this
+checkout's `git rev-parse --path-format=absolute --git-common-dir` resolve to the same path;
+otherwise stop and say the task belongs to a different repository.
 
 Read `ticket.md`, `02-research.md`, and `03-design-discussion.md` in full. Do not read
 `01-research-questions.md`.
@@ -77,8 +75,8 @@ A checked `- [x]` phase is history, not a draft. When the document already exist
 
 ## Output
 
-Write `~/.pi/agent/tasks/$1/04-structure-outline.md`. If it already exists, update it in place;
-keep the number and the filename.
+Write `<task-directory>/04-structure-outline.md`. If it already exists, update it in place; keep
+the number and the filename.
 
 ````markdown
 ---
@@ -116,4 +114,11 @@ sha: [git rev-parse HEAD]
 
 ````
 
-Then stop. Report what you wrote, and close with `Next: /rpi $1` and nothing after it.
+Then stop. Report what you wrote.
+
+## Run context
+
+Task slug: `$1`
+Task directory: `~/.pi/agent/tasks/$1/`
+Additional instruction supplied through the `/rpi` controls: `${@:2}`
+Use the Task directory above wherever this prompt says `<task-directory>`.

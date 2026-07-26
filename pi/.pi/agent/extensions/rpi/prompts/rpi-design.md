@@ -3,10 +3,10 @@ description: RPI design — put the design decisions in front of the human, unre
 argument-hint: "<task-slug> [answers to open questions]"
 ---
 
-Task: `~/.pi/agent/tasks/$1/`
-
-If a document you read names a `repo:` that is not this repository, stop and say so — the task
-belongs to a different checkout.
+If a document names a `repo:`, compare repository identity rather than top-level paths: linked
+worktrees have different roots. Treat it as this repository only when that checkout's and this
+checkout's `git rev-parse --path-format=absolute --git-common-dir` resolve to the same path;
+otherwise stop and say the task belongs to a different repository.
 
 Read `ticket.md` and `02-research.md` in full. Do not read `01-research-questions.md`.
 
@@ -16,10 +16,7 @@ what is there. Say in the design where you went with the code over the ticket, a
 Feedback is an instruction to change this document, never to start implementing — even "just do
 it". Implementation is its own phase, in a session of its own.
 
-Anything the human typed after the slug is their decision on the open questions, and resolving
-those is then the whole job of this run: ${@:2}
-
-Treat their decisions as settled, but check any claim they make about the code before building
+Treat the human's decisions as settled, but check any claim they make about the code before building
 on it — `delegate` to `scout`. A wrong fact accepted here becomes the outline and then the code.
 
 Work in this session. Do not `delegate` the design itself: children run with no session and no UI,
@@ -47,6 +44,10 @@ settles it, not when the human says "do what you think". That is permission to r
 forcefully, not permission to close the question. Closing it yourself deletes the only gate in the
 chain where the human's judgement is what is being asked for.
 
+Every material user-visible fallback, degradation, or non-goal must be an unresolved design
+question with concrete options. Do not bury one as settled prose in error handling, compatibility,
+or `### What we're not doing`.
+
 When the human answers — this prompt run again with their feedback, or any clear indication of a
 decision, they do not have to say "resolve" — mark that heading `#### [x] ` and write the decision,
 the rationale, and the options discarded with why underneath it. The question stays where it is,
@@ -62,8 +63,8 @@ outline copies forward.
 
 ## Output
 
-Write `~/.pi/agent/tasks/$1/03-design-discussion.md`. If it already exists, update it in place;
-keep the number and the filename.
+Write `<task-directory>/03-design-discussion.md`. If it already exists, update it in place; keep
+the number and the filename.
 
 ````markdown
 ---
@@ -113,4 +114,11 @@ Rationale: [why, and why each discarded option was discarded]
 its file path and a real snippet, not a paraphrase]
 ````
 
-Then stop. Report what you wrote, and close with `Next: /rpi $1` and nothing after it.
+Then stop. Report what you wrote.
+
+## Run context
+
+Task slug: `$1`
+Task directory: `~/.pi/agent/tasks/$1/`
+The human's decision supplied through the `/rpi` controls is the whole job of this run: `${@:2}`
+Use the Task directory above wherever this prompt says `<task-directory>`.

@@ -15,6 +15,7 @@
  * exits 0 (the exit code is only set on the text-mode branch of print mode).
  */
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,12 +23,12 @@ import type { Usage } from "@earendil-works/pi-ai";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
+	type ExtensionAPI,
 	formatSize,
 	getMarkdownTheme,
 	parseFrontmatter,
-	truncateHead,
-	type ExtensionAPI,
 	type Theme,
+	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -42,7 +43,6 @@ const MUTATING_TOOLS = ["edit", "write", "bash"];
 /** What a read agent gets when its file names no tools: look at things, and find them first. */
 const READ_TOOLS = ["read", "grep", "find", "ls"];
 const NEVER_IN_CHILD = ["delegate"];
-const KILL_GRACE_MS = 2000;
 /** Children still running. The abort signal covers a cancelled call; this covers a dead session. */
 const LIVE = new Set<ReturnType<typeof spawn>>();
 const TASK_PREVIEW_MAX = 60;
@@ -60,14 +60,18 @@ interface Agent {
 interface RunResult {
 	agent: string;
 	task: string;
+	/** Text from the final assistant turn only. */
 	output: string;
+	/** Last nonempty assistant text, retained only for incomplete diagnostics. */
+	diagnosticOutput?: string;
 	stopReason?: string;
 	errorMessage?: string;
+	provider?: string;
 	model?: string;
+	termination?: "cancelled";
 	/** Tool the child is running right now. Progress only; absent once it has finished. */
 	activity?: string;
 	turns: number;
-	toolCount: number;
 	usage: Usage;
 	durationMs: number;
 }
@@ -124,7 +128,10 @@ function loadAgents(): { agents: Agent[]; broken: string[] } {
 			broken.push(`${name}: ${error instanceof Error ? error.message : error}`);
 		}
 	}
-	return { agents: agents.sort((left, right) => left.name.localeCompare(right.name)), broken };
+	return {
+		agents: agents.sort((left, right) => left.name.localeCompare(right.name)),
+		broken,
+	};
 }
 
 function buildArgs(
@@ -194,6 +201,37 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
+function isUsage(value: unknown): value is Usage {
+	if (!isRecord(value) || !isRecord(value.cost)) return false;
+	const cost = value.cost;
+	return (
+		COUNT_KEYS.every((key) => typeof value[key] === "number") && COST_KEYS.every((key) => typeof cost[key] === "number")
+	);
+}
+
+function isRunResult(value: unknown): value is RunResult {
+	if (!isRecord(value)) return false;
+	const optionalStrings = [
+		"diagnosticOutput",
+		"stopReason",
+		"errorMessage",
+		"provider",
+		"model",
+		"activity",
+		"termination",
+	];
+	return (
+		typeof value.agent === "string" &&
+		typeof value.task === "string" &&
+		typeof value.output === "string" &&
+		typeof value.turns === "number" &&
+		typeof value.durationMs === "number" &&
+		isUsage(value.usage) &&
+		optionalStrings.every((key) => value[key] === undefined || typeof value[key] === "string") &&
+		(value.termination === undefined || value.termination === "cancelled")
+	);
+}
+
 function assistantText(content: unknown): string {
 	if (!Array.isArray(content)) return "";
 	return content
@@ -202,8 +240,88 @@ function assistantText(content: unknown): string {
 		.join("\n");
 }
 
-function failed(result: RunResult): boolean {
-	return result.stopReason === "error" || result.stopReason === "aborted" || !result.output.trim();
+type OutcomeKind = "success" | "cancelled" | "aborted" | "model-error" | "invalid-response" | "length";
+
+interface ResultOutcome {
+	kind: OutcomeKind;
+	label: string;
+	message?: string;
+}
+
+function modelLabel(result: RunResult): string | undefined {
+	if (result.provider && result.model) {
+		return result.model.startsWith(`${result.provider}/`) ? result.model : `${result.provider}/${result.model}`;
+	}
+	return result.model ?? result.provider;
+}
+
+function errorContext(result: RunResult): string {
+	const model = modelLabel(result);
+	return model ? ` (${preview(model, 100)})` : "";
+}
+
+function errorDetail(result: RunResult): string | undefined {
+	const detail = result.errorMessage?.replace(/\s+/g, " ").trim();
+	if (!detail) return undefined;
+	return detail.length > 300 ? `${detail.slice(0, 299)}…` : detail;
+}
+
+function classifyResult(result: RunResult): ResultOutcome {
+	const context = errorContext(result);
+	const detail = errorDetail(result);
+	const suffix = detail ? `: ${detail}` : ".";
+
+	if (detail && /\b(?:TimeoutError|ETIMEDOUT|timeout|time(?:d)?\s*out|deadline exceeded)\b/i.test(detail)) {
+		return {
+			kind: "aborted",
+			label: "timeout/abort",
+			message: `${result.agent} timed out or was aborted${context}${suffix}`,
+		};
+	}
+	if (result.termination === "cancelled") {
+		return {
+			kind: "cancelled",
+			label: "cancelled",
+			message: `${result.agent} was cancelled.`,
+		};
+	}
+	if (result.stopReason === "length") {
+		return {
+			kind: "length",
+			label: "output limit",
+			message: `${result.agent} exceeded its output limit${context}. Retry with a narrower task or request a shorter response.`,
+		};
+	}
+	if (result.stopReason === "aborted") {
+		return {
+			kind: "aborted",
+			label: "timeout/abort",
+			message: `${result.agent} timed out or was aborted${context}${suffix}`,
+		};
+	}
+	if (result.stopReason === "error") {
+		return {
+			kind: "model-error",
+			label: "model error",
+			message: `${result.agent} model error${context}${suffix}`,
+		};
+	}
+	if (result.stopReason !== "stop" || !result.output.trim()) {
+		const reason = detail ?? (result.stopReason ? `unexpected stop reason: ${result.stopReason}` : undefined);
+		return {
+			kind: "invalid-response",
+			label: "no usable text",
+			message: `${result.agent} returned no usable final text${context}${reason ? `: ${reason}` : "."} Retry; if this persists, check the model/provider.`,
+		};
+	}
+	return { kind: "success", label: "completed" };
+}
+
+async function terminateChild(child: ReturnType<typeof spawn>): Promise<void> {
+	if (child.exitCode !== null || child.signalCode !== null) return;
+	const closed = once(child, "close");
+	child.kill("SIGKILL");
+	await closed;
 }
 
 function runAgent(
@@ -221,19 +339,31 @@ function runAgent(
 		agent: agent.name,
 		task,
 		output: "",
+		model: agent.model ?? inheritedModel,
 		turns: 0,
-		toolCount: 0,
 		usage: emptyUsage(),
 		durationMs: 0,
 	};
 
 	return new Promise((resolve, reject) => {
-		const child = spawn(invocation.command, invocation.args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+		const child = spawn(invocation.command, invocation.args, {
+			cwd,
+			shell: false,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
 		// Tracked so session teardown can end it. A child outliving its session is not merely a
 		// stray process: it goes on spending tokens with nothing left to read what it produces.
 		LIVE.add(child);
 		let pending = "";
 		let stderr = "";
+		const activeTools = new Map<string, string>();
+		let unidentifiedActivity: string | undefined;
+
+		const updateActivity = () => {
+			result.activity =
+				[...activeTools.values(), ...(unidentifiedActivity ? [unidentifiedActivity] : [])].join(", ") || undefined;
+			onProgress?.(snapshot(result, startedAtMs));
+		};
 
 		const consume = (line: string) => {
 			if (!line.trim()) return;
@@ -245,21 +375,33 @@ function runAgent(
 			}
 			if (!isRecord(event)) return;
 			if (event.type === "tool_execution_start" && typeof event.toolName === "string") {
-				result.toolCount += 1;
-				result.activity = event.toolName;
-				onProgress?.(snapshot(result, startedAtMs));
+				if (typeof event.toolCallId === "string") activeTools.set(event.toolCallId, event.toolName);
+				else unidentifiedActivity = event.toolName;
+				updateActivity();
+				return;
+			}
+			if (event.type === "tool_execution_end") {
+				if (typeof event.toolCallId === "string") {
+					activeTools.delete(event.toolCallId);
+				} else {
+					activeTools.clear();
+					unidentifiedActivity = undefined;
+				}
+				updateActivity();
 				return;
 			}
 			if (event.type !== "message_end" || !isRecord(event.message)) return;
 			if (event.message.role !== "assistant") return;
 			const message = event.message;
 			result.turns += 1;
+			if (typeof message.provider === "string") result.provider = message.provider;
 			if (typeof message.model === "string") result.model = message.model;
-			if (typeof message.stopReason === "string") result.stopReason = message.stopReason;
-			if (typeof message.errorMessage === "string") result.errorMessage = message.errorMessage;
+			result.stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
+			result.errorMessage = typeof message.errorMessage === "string" ? message.errorMessage : undefined;
 			if (isRecord(message.usage)) addUsage(result.usage, message.usage as Partial<Usage>);
 			const text = assistantText(message.content);
-			if (text.trim()) result.output = text;
+			result.output = text;
+			if (text.trim()) result.diagnosticOutput = text;
 			onProgress?.(snapshot(result, startedAtMs));
 		};
 
@@ -279,12 +421,8 @@ function runAgent(
 		});
 
 		const kill = () => {
-			child.kill("SIGTERM");
-			setTimeout(() => {
-				// Liveness, not `child.killed` — that flag means "a signal was sent", which the line
-				// above just made true, so the escalation could never fire.
-				if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-			}, KILL_GRACE_MS).unref();
+			result.termination = "cancelled";
+			void terminateChild(child);
 		};
 		if (signal?.aborted) kill();
 		else signal?.addEventListener("abort", kill, { once: true });
@@ -295,7 +433,10 @@ function runAgent(
 		// intermittently, and only under load, which is the worst way to lose an agent's whole run.
 		child.once("close", () => {
 			LIVE.delete(child);
+			signal?.removeEventListener("abort", kill);
 			consume(pending);
+			activeTools.clear();
+			unidentifiedActivity = undefined;
 			result.activity = undefined;
 			result.durationMs = Date.now() - startedAtMs;
 			if (!result.output.trim() && !result.errorMessage && stderr.trim()) {
@@ -332,19 +473,22 @@ function formatStats(result: RunResult): string {
 	if (result.usage.cacheRead) parts.push(`R${formatTokens(result.usage.cacheRead)}`);
 	if (result.usage.cost.total) parts.push(`$${result.usage.cost.total.toFixed(4)}`);
 	parts.push(formatDuration(result.durationMs));
-	if (result.model) parts.push(result.model);
+	const model = modelLabel(result);
+	if (model) parts.push(model);
 	return parts.join(" ");
 }
 
 function resultHeader(result: RunResult, isPartial: boolean, theme: Theme): string {
+	const outcome = classifyResult(result);
 	const glyph = isPartial
 		? theme.fg("accent", "⋯")
-		: failed(result)
-			? theme.fg("error", "✗")
-			: theme.fg("success", "✓");
+		: outcome.kind === "success"
+			? theme.fg("success", "✓")
+			: theme.fg("error", "✗");
 	let header = `${glyph} ${theme.fg("toolTitle", theme.bold(result.agent))}`;
-	if (!isPartial && failed(result) && result.stopReason) {
-		header += ` ${theme.fg("error", `[${result.stopReason}]`)}`;
+	if (!isPartial) {
+		const color = outcome.kind === "success" ? "success" : "error";
+		header += ` ${theme.fg(color, `[${outcome.label}]`)}`;
 	}
 	const stats = [result.activity, formatStats(result)].filter(Boolean).join(" · ");
 	return `${header} ${theme.fg("muted", `· ${stats}`)}`;
@@ -367,13 +511,19 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
 	// `/new`, `/resume`, `/reload` and quit all land here. Idempotent: a child that has already
 	// closed is gone from the set, and SIGTERM to one that is mid-exit is harmless.
-	pi.on("session_shutdown", () => {
-		for (const child of LIVE) child.kill("SIGTERM");
-		LIVE.clear();
+	pi.on("session_shutdown", async () => {
+		await Promise.all([...LIVE].map(terminateChild));
 	});
 
 	pi.on("before_agent_start", (event) => {
 		inheritedAppendSystemPrompt = event.systemPromptOptions.appendSystemPrompt;
+	});
+
+	// Returning preserves rich details and nested usage; this delegate-only hook supplies the
+	// error bit that custom-tool return values cannot set themselves.
+	pi.on("tool_result", (event) => {
+		if (event.toolName !== "delegate" || !isRunResult(event.details)) return;
+		if (classifyResult(event.details).kind !== "success") return { isError: true };
 	});
 
 	pi.registerTool({
@@ -390,8 +540,13 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 			"Emit two or more delegate calls in a single message when the results must be independent; write every task before issuing any of them.",
 		],
 		parameters: Type.Object({
-			agent: Type.String({ description: `One of: ${catalog.map((agent) => agent.name).join(", ")}` }),
-			task: Type.String({ description: "The complete brief. The agent sees nothing else.", minLength: 1 }),
+			agent: Type.String({
+				description: `One of: ${catalog.map((agent) => agent.name).join(", ")}`,
+			}),
+			task: Type.String({
+				description: "The complete brief. The agent sees nothing else.",
+				minLength: 1,
+			}),
 		}),
 
 		renderCall(args, theme) {
@@ -403,23 +558,27 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 		// Called during the run too (isPartial), so this is where progress, the full task, and the
 		// report all live: renderCall never receives `expanded`, so nothing collapsible can go there.
 		renderResult(result, { expanded, isPartial }, theme) {
-			const details = result.details as RunResult | undefined;
-			if (!details) {
+			const details = result.details;
+			if (!isRunResult(details)) {
 				const first = result.content[0];
 				return new Text(first?.type === "text" ? first.text : "(no output)", 0, 0);
 			}
+			const outcome = classifyResult(details);
 			const header = new Text(resultHeader(details, isPartial, theme), 0, 0);
 			if (!expanded) return header;
 			const container = new Container();
 			container.addChild(header);
 			container.addChild(new Text(theme.fg("muted", "── task ──"), 0, 0));
 			container.addChild(new Text(theme.fg("dim", details.task), 0, 0));
-			if (details.errorMessage) {
-				container.addChild(new Text(theme.fg("error", details.errorMessage), 0, 0));
+			if (!isPartial && outcome.message) {
+				container.addChild(new Text(theme.fg("error", outcome.message), 0, 0));
 			}
-			if (details.output.trim()) {
-				container.addChild(new Text(theme.fg("muted", "── report ──"), 0, 0));
-				container.addChild(new Markdown(details.output.trim(), 0, 0, getMarkdownTheme()));
+			const report = outcome.kind === "success" ? details.output : details.diagnosticOutput;
+			if (report?.trim()) {
+				const incomplete = isPartial || outcome.kind !== "success";
+				const label = incomplete ? "── diagnostic (incomplete) ──" : "── report ──";
+				container.addChild(new Text(theme.fg(incomplete ? "warning" : "muted", label), 0, 0));
+				container.addChild(new Markdown(report.trim(), 0, 0, getMarkdownTheme()));
 			}
 			return container;
 		},
@@ -439,21 +598,27 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				inheritedModel,
 				signal,
 				(partial) => {
-					onUpdate?.({ content: [{ type: "text", text: partial.activity ?? "thinking" }], details: partial });
+					onUpdate?.({
+						content: [{ type: "text", text: partial.activity ?? "thinking" }],
+						details: partial,
+					});
 				},
 			);
-			if (failed(result)) {
-				const reason = result.errorMessage ?? result.stopReason ?? "no output";
-				// Not `isError: true` — pi finalizes any returned value as a success and never reads
-				// that field, so it only ever misled the reader of this code. Throwing is the real
-				// signal, at the price of `details` and `usage`, which the error path discards. The
-				// tokens are already spent either way; a failure the model mistakes for an answer is
-				// the more expensive of the two.
-				throw new Error(`${agent.name} failed: ${reason}`);
+			const outcome = classifyResult(result);
+			if (outcome.kind !== "success") {
+				const failure = truncateHead(outcome.message ?? `${agent.name} failed.`, { maxLines: 10, maxBytes: 1000 });
+				return {
+					content: [{ type: "text" as const, text: failure.content }],
+					details: result,
+					usage: result.usage,
+				};
 			}
 			// Tools must bound what they put in the parent's context, and several of these run at
 			// once. `details` keeps the whole report for the expanded view.
-			const report = truncateHead(result.output, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
+			const report = truncateHead(result.output, {
+				maxLines: DEFAULT_MAX_LINES,
+				maxBytes: DEFAULT_MAX_BYTES,
+			});
 			return {
 				content: [
 					{

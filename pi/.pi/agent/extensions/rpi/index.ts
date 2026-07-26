@@ -1,50 +1,31 @@
-/**
- * RPI gate.
- *
- * The task folder is the state. `/rpi` reads it, works out which step comes next, and types that
- * step into the editor. The human presses enter, or edits it, or doesn't.
- *
- * Why this is code and not prose: the successor has to be *computed* from the folder. Riptide put
- * it in prose in each phase's final-answer template, so the chain survived only as long as one
- * model quoted the command correctly and a second model extracted it correctly. Here the order is
- * one array, read once.
- *
- * Phase N writes `NN-*.md`, so the first N with no document is the next phase. Nothing keys off
- * phase names and no phase records its own completion: deleting a document re-opens exactly that
- * phase, and that is the entire resume mechanism. Counting the documents instead would be wrong —
- * it works until you delete one from the middle, and then it silently skips ahead.
- *
- * Past the documents the folder stops being sufficient, so each remaining step reads the state its
- * own tool already keeps — the branch name for the worktree, the outline's checklist for the build.
- *
- * You describe the task; a small model names it in one standalone request that has nothing to do
- * with your conversation. Typing a description and a slug is saying the same thing twice, and the
- * slug is the half a machine can derive.
- */
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	existsSync,
 	lstatSync,
-	mkdirSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
+	readlinkSync,
+	realpathSync,
+	renameSync,
 	rmSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, isAbsolute, join, normalize } from "node:path";
+import { promisify } from "node:util";
 import { complete } from "@earendil-works/pi-ai/compat";
 import {
 	BorderedLoader,
 	DynamicBorder,
-	getAgentDir,
-	keyHint,
-	SessionManager,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type ExtensionContext,
+	getAgentDir,
+	keyHint,
 	type SessionInfo,
+	SessionManager,
+	withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
 import {
 	type AutocompleteItem,
@@ -55,43 +36,86 @@ import {
 	Text,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
+import {
+	loadPhasePrompt,
+	type PhasePrompt,
+	type PromptContext,
+	stripFrontmatter,
+} from "./prompt-loader.ts";
+import {
+	activeBranchMessageCount,
+	activeBuildState,
+	activePrState,
+	type BuildTaskState,
+	buildState,
+	CANCELLED,
+	createTask,
+	decidePersistedRun,
+	decideSessionPrompt,
+	identityState,
+	loadTaskState,
+	PHASES,
+	type Phase,
+	type PrTaskState,
+	plainState,
+	prNeedsRestart,
+	prState,
+	repositoryProblem,
+	STATE_VERSION,
+	type TaskState,
+} from "./state.ts";
 
-// The six phase commands ship beside this file. pi's automatic scan reads the agent dir's
-// `prompts/` one level deep and never descends into `extensions/`, so they are announced instead —
-// see the `resources_discover` handler below.
-const PROMPTS = join(dirname(fileURLToPath(import.meta.url)), "prompts");
-// `getAgentDir()`, never `~/.pi`: PI_CODING_AGENT_DIR moves the whole agent directory, and a
-// rebranded build names it something else. Hardcoding it would leave every task folder, every
-// worktree, and the entire resume mechanism pointing somewhere pi never looks.
 const TASKS = join(getAgentDir(), "tasks");
-// Beside the task folders: `tasks/<slug>` is what the work says, `worktrees/<slug>` is where it
-// happens, and both are gone with one `rm -rf` of the same parent.
 const WORKTREES = join(getAgentDir(), "worktrees");
-/** The chain, as the human sees it in the widget. */
-const STEPS = ["questions", "research", "design", "outline", "branch", "build", "pr"];
-/** The two steps `/rpi` handles by asking rather than by filling in a command. */
-const DESIGN_STEP = 2;
-const BRANCH_STEP = 4;
-/** Indexed like STEPS. The branch step has no command — `/rpi` runs it as a dialog. */
-const COMMANDS = ["/rpi-questions", "/rpi-research", "/rpi-design", "/rpi-outline", "", "/rpi-build", "/rpi-pr"];
-/** Steps 0..3 each write one numbered document; the rest leave no document behind. */
-const DOCUMENTS = 4;
-// The slug is a directory name and half a dozen filenames, so it has to be one plain word.
+const SESSION_PHASES = [
+	"questions",
+	"research",
+	"design",
+	"outline",
+	"build",
+	"pr",
+] as const;
+const STATE_FILE = "state.json";
 const SLUG = /^[a-z0-9][a-z0-9._-]*$/i;
 const SLUG_WORDS = 5;
-// A command handler gets no `ctx.signal`, so a timeout is the only thing standing between a git
-// call on a slow filesystem and a `/rpi` that never returns. Generous: reads are instant, and
-// `worktree add` on a large repository is not.
 const GIT_QUERY_MS = 5_000;
 const GIT_WRITE_MS = 120_000;
+const execFileAsync = promisify(execFile);
 
-// Naming a task is a one-second job, so it runs at the lowest effort. This route has
-// no constrained sampling — openai-codex-responses does not implement it — so `slugify` is what
-// makes the output safe, not the model.
+interface Place {
+	phase: Phase;
+	detail: string;
+}
+
+interface ReplacementContext extends ExtensionCommandContext {
+	sendUserMessage(
+		content: string,
+		options?: { deliverAs?: "steer" | "followUp" },
+	): Promise<void>;
+}
+
+interface BuildReview {
+	root: string;
+	base: string;
+	paths: string[];
+	snapshot: string;
+	phaseLine: string;
+	phaseNumber: number;
+}
+
+interface RepositoryEvidence {
+	root: string;
+	gitCommonDir: string;
+	head: string;
+	branch: string;
+}
+
+type RepositoryBootstrap =
+	| { kind: "absent"; root: string }
+	| { kind: "unborn"; root: string };
+
 const TITLE_PROVIDER = "openai-codex";
 const TITLE_MODEL = "gpt-5.6-luna";
-// 3-5 words, not 3-7: `slugify` keeps SLUG_WORDS words, and a title longer than the cap gets
-// truncated mid-phrase into something like `show-largest-files-under-a`.
 const TITLE_PROMPT = `Generate a concise, sentence-case title (3-5 words) that captures the goal of this coding task.
 Capitalize only the first word and proper nouns. The title becomes a directory name, so use plain
 ASCII English words only.
@@ -108,33 +132,121 @@ Bad (too long): Show the largest files under a directory with readable sizes
 Bad (wrong case): Show Largest Files By Directory
 Bad (refusal): I can't read that path`;
 
+function statePath(slug: string): string {
+	return join(TASKS, slug, STATE_FILE);
+}
+
+function safeRelativePath(path: string): boolean {
+	return (
+		path.length > 0 &&
+		path.length < 4096 &&
+		!isAbsolute(path) &&
+		!/[\0\r\n]/.test(path) &&
+		!path.includes("\\") &&
+		normalize(path) === path &&
+		path !== ".." &&
+		!path.startsWith("../")
+	);
+}
+
+function loadState(slug: string) {
+	return loadTaskState(statePath(slug));
+}
+
+function atomicWrite(path: string, content: string, mode = 0o600): void {
+	const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
+	try {
+		writeFileSync(temporary, content, { mode });
+		renameSync(temporary, path);
+	} catch (error) {
+		try {
+			unlinkSync(temporary);
+		} catch {}
+		throw error;
+	}
+}
+
+function saveState(slug: string, state: TaskState): void {
+	atomicWrite(statePath(slug), `${JSON.stringify(state, null, 2)}\n`);
+}
+
 function slugs(): string[] {
 	if (!existsSync(TASKS)) return [];
 	return readdirSync(TASKS, { withFileTypes: true })
-		.filter((entry) => entry.isDirectory())
+		.filter((entry) => entry.isDirectory() && SLUG.test(entry.name))
 		.map((entry) => entry.name)
 		.sort();
 }
 
-/**
- * The one document in a task folder whose name starts with `prefix`, or "" when there is none.
- * Matched by prefix rather than by full name because only the number is ours — `01-`, `02-` — and
- * the rest of the filename is the phase's to choose.
- */
-function documentIn(slug: string, prefix: string): string {
-	const dir = join(TASKS, slug);
-	const found = readdirSync(dir).find((name) => name.startsWith(prefix));
-	return found ? readFileSync(join(dir, found), "utf-8") : "";
+type TaskDirectoryStatus =
+	| { kind: "absent" }
+	| { kind: "valid"; path: string }
+	| { kind: "invalid"; reason: string };
+
+function taskDirectoryStatus(slug: string): TaskDirectoryStatus {
+	const path = join(TASKS, slug);
+	try {
+		const stat = lstatSync(path);
+		return stat.isDirectory() && !stat.isSymbolicLink()
+			? { kind: "valid", path }
+			: {
+					kind: "invalid",
+					reason: `${path} is not a regular task directory; move it aside and retry`,
+				};
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT")
+			return { kind: "absent" };
+		throw error;
+	}
 }
 
-/** Any text in, a valid slug or "" out. The only thing standing between a model and a path. */
+function documentNames(slug: string, prefix: string): string[] {
+	return readdirSync(join(TASKS, slug)).filter((name) =>
+		name.startsWith(prefix),
+	);
+}
+
+function documentIn(slug: string, prefix: string): string {
+	const names = documentNames(slug, prefix);
+	return names.length === 1
+		? readFileSync(join(TASKS, slug, names[0]), "utf-8")
+		: "";
+}
+
+function taskDocumentPath(slug: string, prefix: string): string {
+	const names = documentNames(slug, prefix);
+	if (names.length !== 1 || names[0].includes("/")) {
+		throw new Error(`expected exactly one ${prefix} task document`);
+	}
+	const directory = realpathSync(join(TASKS, slug));
+	const path = realpathSync(join(directory, names[0]));
+	if (dirname(path) !== directory)
+		throw new Error(`${names[0]} resolves outside the task directory`);
+	return path;
+}
+
+function firstUncheckedPhase(
+	outline: string,
+): { number: number; line: string } | undefined {
+	const match = /^- \[ \] Phase (\d+): .+$/m.exec(outline);
+	return match ? { number: Number(match[1]), line: match[0] } : undefined;
+}
+
 function slugify(text: string): string {
-	const words = text
+	return text
 		.toLowerCase()
 		.split(/[^a-z0-9]+/)
 		.filter(Boolean)
-		.slice(0, SLUG_WORDS);
-	return words.join("-").slice(0, 48).replace(/-+$/, "");
+		.slice(0, SLUG_WORDS)
+		.join("-")
+		.slice(0, 48)
+		.replace(/-+$/, "");
+}
+
+function unique(base: string): string {
+	let slug = base;
+	for (let n = 2; existsSync(join(TASKS, slug)); n++) slug = `${base}-${n}`;
+	return slug;
 }
 
 function ago(when: Date): string {
@@ -148,58 +260,60 @@ function ago(when: Date): string {
 	return `${Math.round(days / 7)}w ago`;
 }
 
-/** What a session for one phase of one task is called. The index for everything below. */
 function sessionName(slug: string, phase: string): string {
 	return `${slug} · ${phase}`;
 }
 
-function unique(base: string): string {
-	let slug = base;
-	for (let n = 2; existsSync(join(TASKS, slug)); n++) slug = `${base}-${n}`;
-	return slug;
+function samePaths(left: string[], right: string[]): boolean {
+	return (
+		left.length === right.length &&
+		left.every((path, index) => path === right[index])
+	);
 }
 
-/**
- * What `/rpi` types for a step. The branch step has no phase command of its own, so it types
- * `/rpi` — the gate runs that one itself. One definition, because deriving it twice is how
- * `@branch` came to mean "finished": an empty `COMMANDS` entry read as "no step left" in the
- * caller while `locate` read the same entry as "a step I run myself".
- */
-function stepFor(at: number, slug: string): string {
-	return `${COMMANDS[at] || "/rpi"} ${slug}`;
+function sameState(left: TaskState, right: TaskState): boolean {
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function regularFile(path: string): boolean {
+	try {
+		const stat = lstatSync(path);
+		return stat.isFile() && !stat.isSymbolicLink();
+	} catch {
+		return false;
+	}
+}
+
+function sameRepository(
+	left: RepositoryEvidence,
+	right: RepositoryEvidence,
+): boolean {
+	return (
+		left.root === right.root &&
+		left.gitCommonDir === right.gitCommonDir &&
+		left.head === right.head &&
+		left.branch === right.branch
+	);
+}
+
+function digest(text: string): string {
+	return createHash("sha256").update(text).digest("hex");
 }
 
 export default function rpi(pi: ExtensionAPI): void {
-	/** Where a task stands: which step, what to run, and the one number worth seeing at a glance. */
-	interface Place {
-		at: number;
-		step: string;
-		detail: string;
-		mark: string;
-	}
+	let active: { slug: string } | undefined;
 
-	/** The task this session is working on, and where it had got to when we last looked. */
-	let active: { slug: string; mark: string } | undefined;
-
-	/**
-	 * One standalone request, off to the side of everything. `complete` talks to the provider
-	 * directly — it never touches ctx.sessionManager — and it is handed only the description, so
-	 * nothing about the conversation reaches the model and nothing it says reaches the transcript.
-	 * No sessionId, no cache: this request is related to no other request.
-	 *
-	 * Throws on every failure. A task named by a guess is worse than a task the human renames.
-	 */
 	async function nameTask(
 		description: string,
 		ctx: ExtensionCommandContext,
 		signal?: AbortSignal,
 	): Promise<string> {
 		const model = ctx.modelRegistry.find(TITLE_PROVIDER, TITLE_MODEL);
-		if (!model) throw new Error(`${TITLE_PROVIDER}/${TITLE_MODEL} not available`);
+		if (!model)
+			throw new Error(`${TITLE_PROVIDER}/${TITLE_MODEL} not available`);
 		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 		if (!auth.ok) throw new Error(auth.error);
 		if (!auth.apiKey) throw new Error(`no API key for ${TITLE_PROVIDER}`);
-
 		const reply = await complete(
 			model,
 			{
@@ -207,7 +321,9 @@ export default function rpi(pi: ExtensionAPI): void {
 				messages: [
 					{
 						role: "user",
-						content: [{ type: "text", text: `<task>\n${description.trim()}\n</task>` }],
+						content: [
+							{ type: "text", text: `<task>\n${description.trim()}\n</task>` },
+						],
 						timestamp: Date.now(),
 					},
 				],
@@ -221,11 +337,12 @@ export default function rpi(pi: ExtensionAPI): void {
 				signal,
 			},
 		);
-		// A cut-off response still carries text, and a half-title makes a plausible-looking wrong
-		// folder name. Same rule as everywhere else here: refuse rather than guess.
-		if (reply.stopReason !== "stop") throw new Error(`the model stopped on "${reply.stopReason}"`);
+		if (reply.stopReason !== "stop")
+			throw new Error(`the model stopped on "${reply.stopReason}"`);
 		const title = reply.content
-			.filter((part): part is { type: "text"; text: string } => part.type === "text")
+			.filter(
+				(part): part is { type: "text"; text: string } => part.type === "text",
+			)
 			.map((part) => part.text)
 			.join(" ")
 			.trim();
@@ -233,88 +350,547 @@ export default function rpi(pi: ExtensionAPI): void {
 		return title;
 	}
 
-	/** The current branch, or undefined when cwd is not a git repository at all. */
-	async function branchOf(cwd: string): Promise<string | undefined> {
-		const shown = await pi.exec("git", ["branch", "--show-current"], { cwd, timeout: GIT_QUERY_MS });
-		return shown.code === 0 ? shown.stdout.trim() : undefined;
+	async function git(cwd: string, args: string[], timeout = GIT_QUERY_MS) {
+		return pi.exec("git", args, { cwd, timeout });
 	}
 
-	/**
-	 * Where git already has this task's branch checked out, if anywhere. Nothing about the worktree
-	 * is written down: git is the registry, and a copy in the task folder would be wrong the moment
-	 * you `git worktree move` it or take the branch-here option instead.
-	 */
-	async function worktreeFor(slug: string, cwd: string): Promise<string | undefined> {
-		const listed = await pi.exec("git", ["worktree", "list", "--porcelain"], { cwd, timeout: GIT_QUERY_MS });
-		if (listed.code !== 0) return undefined;
-		for (const block of listed.stdout.split("\n\n")) {
+	async function branchOf(cwd: string): Promise<string | undefined> {
+		const result = await git(cwd, ["branch", "--show-current"]);
+		return result.code === 0 ? result.stdout.trim() : undefined;
+	}
+
+	async function headOf(cwd: string): Promise<string | undefined> {
+		const result = await git(cwd, ["rev-parse", "HEAD"]);
+		return result.code === 0 ? result.stdout.trim() : undefined;
+	}
+
+	async function repositoryEvidenceDirect(
+		cwd: string,
+	): Promise<RepositoryEvidence | undefined> {
+		try {
+			const run = async (args: string[]) => {
+				const { stdout } = await execFileAsync("git", args, {
+					cwd,
+					encoding: "utf-8",
+					timeout: GIT_QUERY_MS,
+				});
+				return stdout.trim();
+			};
+			const [root, gitCommonDir, head, branch] = await Promise.all([
+				run(["rev-parse", "--show-toplevel"]),
+				run(["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+				run(["rev-parse", "--verify", "HEAD^{commit}"]),
+				run(["branch", "--show-current"]),
+			]);
+			return {
+				root: realpathSync(root),
+				gitCommonDir: realpathSync(gitCommonDir),
+				head,
+				branch,
+			};
+		} catch {
+			return undefined;
+		}
+	}
+
+	async function repositoryEvidence(
+		cwd: string,
+	): Promise<RepositoryEvidence | undefined> {
+		const [rootResult, commonResult, headResult, branchResult] =
+			await Promise.all([
+				git(cwd, ["rev-parse", "--show-toplevel"]),
+				git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+				git(cwd, ["rev-parse", "--verify", "HEAD^{commit}"]),
+				git(cwd, ["branch", "--show-current"]),
+			]);
+		if (
+			rootResult.code !== 0 ||
+			commonResult.code !== 0 ||
+			headResult.code !== 0 ||
+			branchResult.code !== 0
+		) {
+			return undefined;
+		}
+		try {
+			return {
+				root: realpathSync(rootResult.stdout.trim()),
+				gitCommonDir: realpathSync(commonResult.stdout.trim()),
+				head: headResult.stdout.trim(),
+				branch: branchResult.stdout.trim(),
+			};
+		} catch {
+			return undefined;
+		}
+	}
+
+	async function prepareInitialRepository(
+		ctx: ExtensionCommandContext,
+	): Promise<RepositoryEvidence | typeof CANCELLED> {
+		const repository = await repositoryEvidence(ctx.cwd);
+		if (repository) return repository;
+
+		const topLevel = await git(ctx.cwd, ["rev-parse", "--show-toplevel"]);
+		let bootstrap: RepositoryBootstrap;
+		if (topLevel.code === 0) {
+			const [common, branch, head] = await Promise.all([
+				git(ctx.cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+				git(ctx.cwd, ["branch", "--show-current"]),
+				git(ctx.cwd, ["rev-parse", "--verify", "HEAD^{commit}"]),
+			]);
+			if (common.code !== 0 || branch.code !== 0 || head.code === 0) {
+				throw new Error(
+					common.stderr.trim() ||
+						branch.stderr.trim() ||
+						"Git repository evidence could not be read consistently",
+				);
+			}
+			bootstrap = { kind: "unborn", root: realpathSync(topLevel.stdout.trim()) };
+		} else {
+			const detail = topLevel.stderr.trim();
+			if (detail && !/not a git repository/i.test(detail)) throw new Error(detail);
+			bootstrap = { kind: "absent", root: realpathSync(ctx.cwd) };
+		}
+		const action =
+			bootstrap.kind === "absent"
+				? `Run git init in ${bootstrap.root} and create an empty "Initialize repository" commit.`
+				: `Create an empty "Initialize repository" commit in ${bootstrap.root}; git init will not run.`;
+		if (
+			!(await ctx.ui.confirm(
+				"Initialize Git for RPI?",
+				`${action} Existing files will remain uncommitted.`,
+			))
+		)
+			return CANCELLED;
+
+		if (bootstrap.kind === "absent") {
+			const initialized = await git(bootstrap.root, ["init"], GIT_WRITE_MS);
+			if (initialized.code !== 0) {
+				throw new Error(
+					initialized.stderr.trim() || `git init failed in ${bootstrap.root}`,
+				);
+			}
+		}
+		if (await headOf(bootstrap.root)) {
+			throw new Error("Git HEAD appeared while initialization was awaiting confirmation; retry /rpi");
+		}
+		const committed = await git(
+			bootstrap.root,
+			[
+				"-c",
+				"core.hooksPath=",
+				"commit",
+				"--allow-empty",
+				"--only",
+				"--no-gpg-sign",
+				"--no-verify",
+				"-m",
+				"Initialize repository",
+				"--",
+			],
+			GIT_WRITE_MS,
+		);
+		if (committed.code !== 0) {
+			throw new Error(
+				committed.stderr.trim() ||
+					`could not create the empty initial commit in ${bootstrap.root}`,
+			);
+		}
+		const initialized = await repositoryEvidence(bootstrap.root);
+		if (!initialized) {
+			throw new Error(
+				`Git initialized in ${bootstrap.root}, but HEAD could not be verified`,
+			);
+		}
+		const [parents, tree, subject] = await Promise.all([
+			git(bootstrap.root, ["rev-list", "--parents", "-n", "1", initialized.head]),
+			git(bootstrap.root, ["diff-tree", "--root", "--quiet", initialized.head, "--"]),
+			git(bootstrap.root, ["log", "-1", "--format=%s", initialized.head]),
+		]);
+		if (
+			parents.code !== 0 ||
+			parents.stdout.trim().split(/\s+/).length !== 1 ||
+			tree.code !== 0 ||
+			subject.code !== 0 ||
+			subject.stdout.trim() !== "Initialize repository"
+		) {
+			throw new Error("Git initialization did not produce the expected empty root commit");
+		}
+		return initialized;
+	}
+
+	async function requireRepository(
+		cwd: string,
+		state: TaskState,
+		requiredBranch?: string,
+	): Promise<RepositoryEvidence> {
+		const repository = await repositoryEvidence(cwd);
+		if (!repository) {
+			throw new Error(
+				`repository invariant failed: ${cwd} is not a Git checkout with HEAD; reopen the task in its recorded repository`,
+			);
+		}
+		const base = await git(repository.root, [
+			"cat-file",
+			"-e",
+			`${state.baseSha}^{commit}`,
+		]);
+		const ancestor = requiredBranch
+			? await git(repository.root, [
+					"merge-base",
+					"--is-ancestor",
+					state.baseSha,
+					"HEAD",
+				])
+			: undefined;
+		const problem = repositoryProblem(
+			state,
+			{
+				gitCommonDir: repository.gitCommonDir,
+				base: base.code === 0 ? "present" : "missing",
+				branch: repository.branch,
+				ancestry: ancestor?.code === 0 ? "valid" : "invalid",
+			},
+			requiredBranch,
+		);
+		switch (problem) {
+			case "wrong-repository":
+				throw new Error(
+					`repository invariant failed: this checkout uses ${repository.gitCommonDir}, but the task records ${state.gitCommonDir}; cd to a linked worktree of the recorded repository`,
+				);
+			case "missing-base":
+				throw new Error(
+					`task base invariant failed: ${state.baseSha} is absent from ${state.gitCommonDir}; restore that object (for example with git fetch) before continuing`,
+				);
+			case "wrong-branch":
+				throw new Error(
+					`branch invariant failed: expected ${requiredBranch}, found ${repository.branch || "detached HEAD"}; check out ${requiredBranch}`,
+				);
+			case "base-not-ancestor":
+				throw new Error(
+					`task base invariant failed: ${requiredBranch} does not descend from recorded base ${state.baseSha}; repair or recreate the task branch from that SHA`,
+				);
+		}
+		return repository;
+	}
+
+	async function branchExists(slug: string, cwd: string): Promise<boolean> {
+		const result = await git(cwd, [
+			"show-ref",
+			"--verify",
+			"--quiet",
+			`refs/heads/${slug}`,
+		]);
+		return result.code === 0;
+	}
+
+	async function requireBranchDescends(
+		slug: string,
+		state: TaskState,
+		cwd: string,
+	): Promise<void> {
+		const result = await git(cwd, [
+			"merge-base",
+			"--is-ancestor",
+			state.baseSha,
+			`refs/heads/${slug}`,
+		]);
+		if (result.code !== 0) {
+			throw new Error(
+				`existing branch ${slug} does not descend from recorded base ${state.baseSha}; rename/delete that branch or repair the task before retrying`,
+			);
+		}
+	}
+
+	async function worktreeFor(
+		slug: string,
+		cwd: string,
+	): Promise<string | undefined> {
+		const result = await git(cwd, ["worktree", "list", "--porcelain"]);
+		if (result.code !== 0) return undefined;
+		for (const block of result.stdout.split("\n\n")) {
 			const lines = block.split("\n");
-			// Exact line, not a substring: `<slug>-2` must not match `<slug>`.
 			if (!lines.includes(`branch refs/heads/${slug}`)) continue;
-			return lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
+			return lines
+				.find((line) => line.startsWith("worktree "))
+				?.slice("worktree ".length);
 		}
 		return undefined;
 	}
 
-	async function branchExists(slug: string, cwd: string): Promise<boolean> {
-		const ref = await pi.exec("git", ["show-ref", "--verify", "--quiet", `refs/heads/${slug}`], {
-			cwd,
-			timeout: GIT_QUERY_MS,
-		});
-		return ref.code === 0;
+	async function indexClean(root: string): Promise<boolean> {
+		const result = await git(root, ["diff", "--cached", "--quiet", "--"]);
+		if (result.code > 1) throw new Error("could not inspect the index");
+		return result.code === 0;
 	}
 
-	/**
-	 * Where the task is (index into STEPS), the step to run next, and a signature of progress that
-	 * changes whenever the folder does — `at` alone sits still across every phase of a build.
-	 */
-	async function locate(slug: string, cwd: string): Promise<Place> {
-		const files = readdirSync(join(TASKS, slug));
-		const count = (body: string, pattern: RegExp) => body.match(pattern)?.length ?? 0;
-		// `detail` doubles as the progress signature: it is precisely the part of the state that
-		// moves while the step name stands still, which is the only thing `advance` needs to notice.
-		const at = (index: number, step: string, detail = "") => ({ at: index, step, detail, mark: `${index}:${detail}` });
+	async function unstagedAndUntrackedClean(root: string): Promise<boolean> {
+		const [unstaged, untracked] = await Promise.all([
+			git(root, ["diff", "--quiet", "--"]),
+			git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
+		]);
+		if (unstaged.code > 1 || untracked.code !== 0)
+			throw new Error("could not inspect the worktree");
+		return unstaged.code === 0 && untracked.stdout.length === 0;
+	}
 
-		// Open design questions stop the outline phase dead — it refuses to plan around them. Send
-		// the human back to design rather than at a phase that will bounce them with no way out.
-		//
-		// Ask the parser, never a regex of our own: a second way of counting is a second answer,
-		// and the two used to disagree — a `#### ` with no title counted here and produced no
-		// dialog there, so the widget said "1 unanswered" over a dialog with nothing in it.
-		//
-		// Trailing space on purpose: this is the one step where running the command unchanged does
-		// nothing, because only the human can close a design question. The cursor lands where the
-		// answer goes, and "unanswered" says act rather than merely reporting a number.
-		const open = questionsIn(documentIn(slug, "03-")).length;
-		if (open) return at(DESIGN_STEP, `/rpi-design ${slug} `, `${open} unanswered`);
+	async function repoClean(root: string): Promise<boolean> {
+		return (await indexClean(root)) && (await unstagedAndUntrackedClean(root));
+	}
 
-		const pending = Array.from({ length: DOCUMENTS }).findIndex((_, index) => {
-			const prefix = `${index + 1}`.padStart(2, "0");
-			return !files.some((name) => name.startsWith(`${prefix}-`));
+	async function resetIndex(root: string, base: string): Promise<boolean> {
+		try {
+			const result = await git(root, ["reset", "--mixed", base], GIT_WRITE_MS);
+			return result.code === 0 && (await indexClean(root));
+		} catch {
+			return false;
+		}
+	}
+
+	async function changedPaths(root: string): Promise<string[]> {
+		const [tracked, untracked] = await Promise.all([
+			git(root, ["diff", "--name-only", "--no-renames", "-z", "HEAD", "--"]),
+			git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
+		]);
+		if (tracked.code !== 0 || untracked.code !== 0)
+			throw new Error("could not inspect repository changes");
+		return [
+			...new Set(
+				`${tracked.stdout}${untracked.stdout}`.split("\0").filter(Boolean),
+			),
+		].sort();
+	}
+
+	async function workingSnapshot(
+		root: string,
+		paths: string[],
+	): Promise<string> {
+		const patch = await git(root, [
+			"diff",
+			"--binary",
+			"--full-index",
+			"--no-color",
+			"--no-ext-diff",
+			"--no-textconv",
+			"--no-renames",
+			"HEAD",
+			"--",
+			...paths,
+		]);
+		if (patch.code !== 0)
+			throw new Error("could not snapshot repository changes");
+		const hash = createHash("sha256");
+		for (const path of paths) {
+			hash.update(`path:${Buffer.byteLength(path)}:`).update(path);
+			try {
+				const absolute = join(root, path);
+				const stat = lstatSync(absolute);
+				hash.update(`\0mode:${stat.mode.toString(8)}\0`);
+				if (stat.isSymbolicLink()) {
+					const target = readlinkSync(absolute);
+					hash.update(`link:${Buffer.byteLength(target)}:`).update(target);
+				} else if (stat.isFile()) {
+					const body = readFileSync(absolute);
+					hash.update(`file:${body.length}:`).update(body);
+				} else {
+					hash.update("other");
+				}
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+				hash.update("\0missing");
+			}
+			hash.update("\0");
+		}
+		return hash
+			.update(`patch:${Buffer.byteLength(patch.stdout)}:`)
+			.update(patch.stdout)
+			.digest("hex");
+	}
+
+	async function binaryDiff(
+		root: string,
+		base: string,
+		head?: string,
+	): Promise<string> {
+		const range = head ? [base, head] : ["--cached", base];
+		const result = await git(root, [
+			"diff",
+			"--binary",
+			"--full-index",
+			"--no-color",
+			"--no-ext-diff",
+			"--no-textconv",
+			"--no-renames",
+			...range,
+			"--",
+		]);
+		if (result.code !== 0)
+			throw new Error("could not read the full binary diff");
+		return result.stdout;
+	}
+
+	interface Question {
+		title: string;
+		options: { answer: string; label: string }[];
+		recommended: string;
+	}
+
+	function questionsIn(design: string): Question[] {
+		return design
+			.replace(/^```[\s\S]*?^```/gm, "")
+			.split(/^#### /m)
+			.slice(1)
+			.filter((chunk) => !chunk.startsWith("[x] "))
+			.map((chunk) => {
+				const [heading, ...rest] = chunk.split("\n");
+				const body = rest.join("\n");
+				return {
+					title: heading.trim(),
+					recommended:
+						/^Recommendation:\s*\**\s*(Option [A-Z])/m.exec(body)?.[1] ?? "",
+					options: [
+						...body.matchAll(/^[-*]\s+\**\s*(Option [A-Z])\**\s*:\s*(.*)$/gm),
+					].map((match) => ({
+						answer: match[1],
+						label: `${match[1]}: ${match[2]}`,
+					})),
+				};
+			})
+			.filter((question) => question.title);
+	}
+
+	async function askQuestions(
+		ctx: ExtensionCommandContext,
+		design: string,
+	): Promise<string | typeof CANCELLED> {
+		const typedAnswer = "Type an answer…";
+		const leaveOpen = "Leave this one open";
+		const answers: string[] = [];
+		for (const question of questionsIn(design)) {
+			const labels = question.options.map((option) =>
+				option.answer === question.recommended
+					? `${option.label}  (recommended)`
+					: option.label,
+			);
+			const choice = await ctx.ui.select(question.title, [
+				...labels,
+				typedAnswer,
+				leaveOpen,
+			]);
+			if (!choice) return CANCELLED;
+			if (choice === leaveOpen) continue;
+			if (choice === typedAnswer) {
+				const typed = await ctx.ui.input(question.title, "your decision");
+				if (typed === undefined) return CANCELLED;
+				if (typed.trim()) answers.push(`${question.title} → ${typed.trim()}`);
+				continue;
+			}
+			answers.push(
+				`${question.title} → ${question.options[labels.indexOf(choice)].answer}`,
+			);
+		}
+		return answers.join("; ");
+	}
+
+	async function placeFor(slug: string, _cwd: string): Promise<Place> {
+		const loaded = loadState(slug);
+		if (loaded.kind === "malformed")
+			return { phase: "questions", detail: "blocked · malformed state.json" };
+		if (loaded.kind === "missing")
+			return { phase: "questions", detail: "blocked · missing state.json" };
+		const { phase } = loaded.state;
+		if (phase === "build" && loaded.state.commit)
+			return { phase, detail: "approved commit pending" };
+		if (phase === "design") {
+			const open = questionsIn(documentIn(slug, "03-")).length;
+			if (open) return { phase, detail: `${open} unanswered` };
+		}
+		if (phase === "build") {
+			const outline = documentIn(slug, "04-");
+			const done = outline.match(/^- \[[xX]\] Phase /gm)?.length ?? 0;
+			const open = outline.match(/^- \[ \] Phase /gm)?.length ?? 0;
+			if (done + open) {
+				const status = loaded.state.build.status;
+				return { phase, detail: `${done} of ${done + open} · ${status}` };
+			}
+		}
+		if (phase === "pr")
+			return {
+				phase,
+				detail: `audit ${loaded.state.pr.status}`,
+			};
+		return { phase, detail: "" };
+	}
+
+	function show(ctx: ExtensionContext, slug: string, place: Place): void {
+		const at = PHASES.indexOf(place.phase);
+		if (ctx.mode !== "tui") {
+			const dots = PHASES.slice(0, -1)
+				.map((phase, index) => {
+					if (place.phase === "done" || index < at) return `✓ ${phase}`;
+					if (index === at)
+						return `● ${phase}${place.detail ? ` · ${place.detail}` : ""}`;
+					return `○ ${phase}`;
+				})
+				.join("  ");
+			ctx.ui.setWidget("rpi", [
+				`rpi ${slug}  ${place.phase === "done" ? "done" : `/rpi ${slug}`}`,
+				dots,
+			]);
+			return;
+		}
+		ctx.ui.setWidget("rpi", (_tui, theme) => {
+			const compose = () => {
+				const dots = PHASES.slice(0, -1)
+					.map((phase, index) => {
+						if (place.phase === "done" || index < at)
+							return theme.fg("success", `✓ ${phase}`);
+						if (index === at) {
+							return theme.fg(
+								"accent",
+								`● ${phase}${place.detail ? ` · ${place.detail}` : ""}`,
+							);
+						}
+						return theme.fg("dim", `○ ${phase}`);
+					})
+					.join("  ");
+				const head =
+					theme.fg("muted", "rpi ") +
+					theme.fg("toolTitle", theme.bold(slug)) +
+					theme.fg("dim", place.phase === "done" ? "  done" : `  /rpi ${slug}`);
+				return `${head}\n${dots}`;
+			};
+			const text = new Text(compose(), 1, 0);
+			return {
+				render: (width: number) => text.render(width),
+				invalidate: () => {
+					text.setText(compose());
+					text.invalidate();
+				},
+			};
 		});
-		if (pending >= 0) return at(pending, stepFor(pending, slug));
+	}
 
-		// Branch setup leaves no document; the branch itself is the record that it ran. `/rpi` is
-		// still the step, but it opens a dialog instead of a session — see setupBranch.
-		if ((await branchOf(cwd)) !== slug) return at(BRANCH_STEP, stepFor(BRANCH_STEP, slug));
-
-		// The outline's Implementation Overview is the only checklist in the whole chain. Match the
-		// phase-line shape, not a bare box: an unchecked box anywhere else in the document would
-		// otherwise stall the chain here forever.
-		const outline = documentIn(slug, "04-");
-		if (/^- \[ \] Phase /m.test(outline)) {
-			// `[xX]`: a capital only ever means done too, and reading it as unfinished would freeze
-			// `detail` at "0 of N" — and with it `mark`, which is what tells `advance` to offer the
-			// next step at all.
-			const done = count(outline, /^- \[[xX]\] Phase /gm);
-			const build = STEPS.indexOf("build");
-			return at(build, stepFor(build, slug), `${done} of ${done + count(outline, /^- \[ \] Phase /gm)}`);
+	async function refresh(
+		ctx: ExtensionContext,
+		slug: string,
+		autofill = false,
+	): Promise<void> {
+		if (!existsSync(join(TASKS, slug))) {
+			if (active?.slug === slug) active = undefined;
+			ctx.ui.setWidget("rpi", undefined);
+			return;
 		}
-		if (!files.includes("pr-description.md")) {
-			const pr = STEPS.indexOf("pr");
-			return at(pr, stepFor(pr, slug));
+		const place = await placeFor(slug, ctx.cwd);
+		show(ctx, slug, place);
+		if (
+			autofill &&
+			ctx.mode === "tui" &&
+			place.phase !== "done" &&
+			ctx.isIdle() &&
+			!ctx.ui.getEditorText().trim()
+		) {
+			ctx.ui.setEditorText(`/rpi ${slug}`);
 		}
-		return at(STEPS.length, "");
 	}
 
 	interface TaskInfo {
@@ -325,99 +901,101 @@ export default function rpi(pi: ExtensionAPI): void {
 		place: Place;
 	}
 
-	type TaskChoice = { action: "new" | "cancel" } | { action: "select" | "remove"; slug: string };
+	type TaskChoice =
+		| { action: "new" | "cancel" }
+		| { action: "select" | "remove"; slug: string };
 
-	/** Read just enough task state to make the picker answer what, where, and how far. */
 	async function taskInfos(cwd: string): Promise<TaskInfo[]> {
 		const infos = await Promise.all(
 			slugs().map(async (slug): Promise<TaskInfo | undefined> => {
-				const dir = join(TASKS, slug);
+				const directory = join(TASKS, slug);
 				try {
-					const names = readdirSync(dir);
-					const ticket = existsSync(join(dir, "ticket.md")) ? readFileSync(join(dir, "ticket.md"), "utf-8") : "";
+					const names = readdirSync(directory);
+					const ticket = existsSync(join(directory, "ticket.md"))
+						? readFileSync(join(directory, "ticket.md"), "utf-8")
+						: "";
 					const title = /^#\s+(.+)$/m.exec(ticket)?.[1]?.trim() || slug;
 					const modified = new Date(
-						Math.max(lstatSync(dir).mtimeMs, ...names.map((name) => lstatSync(join(dir, name)).mtimeMs)),
+						Math.max(
+							lstatSync(directory).mtimeMs,
+							...names.map((name) => lstatSync(join(directory, name)).mtimeMs),
+						),
 					);
-					return { slug, title, search: `${slug} ${ticket}`, modified, place: await locate(slug, cwd) };
+					return {
+						slug,
+						title,
+						search: `${slug} ${ticket}`,
+						modified,
+						place: await placeFor(slug, cwd),
+					};
 				} catch {
-					// A task can disappear while the picker is being built. The next opening sees the truth.
 					return undefined;
 				}
 			}),
 		);
 		return infos
 			.filter((info): info is TaskInfo => info !== undefined)
-			.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+			.sort(
+				(left, right) => right.modified.getTime() - left.modified.getTime(),
+			);
 	}
 
-	/** Searchable task list. It returns intent; confirmation and mutation happen after it closes. */
 	async function pickTask(ctx: ExtensionCommandContext): Promise<TaskChoice> {
 		const tasks = await taskInfos(ctx.cwd);
 		if (!tasks.length) return { action: "new" };
-
-		// `custom` is the one UI method with no RPC implementation, so outside the TUI fall back to
-		// the plain selector. Removal goes with the rich picker: it is a destructive action and it
-		// should stay behind the dialog that spells out what it deletes.
 		if (ctx.mode !== "tui") {
 			const fresh = "New task…";
-			const labels = tasks.map((task) => `${task.slug} · ${STEPS[task.place.at] ?? "done"}`);
-			const pick = await ctx.ui.select("Resume a task, or start one:", [fresh, ...labels]);
-			if (!pick) return { action: "cancel" };
-			if (pick === fresh) return { action: "new" };
-			return { action: "select", slug: tasks[labels.indexOf(pick)].slug };
+			const labels = tasks.map((task) => `${task.slug} · ${task.place.phase}`);
+			const picked = await ctx.ui.select("Resume a task, or start one:", [
+				fresh,
+				...labels,
+			]);
+			if (!picked) return { action: "cancel" };
+			if (picked === fresh) return { action: "new" };
+			return { action: "select", slug: tasks[labels.indexOf(picked)].slug };
 		}
-
 		return ctx.ui.custom<TaskChoice>((tui, theme, keybindings, done) => {
-			// Explicit colour, not the default: `DynamicBorder`'s fallback reads a module-global
-			// theme that is undefined under jiti, which is how extensions load. Framed to match
-			// `ui.select`, which this flow also opens — the two dialogs are one conversation.
 			const border = new DynamicBorder((text) => theme.fg("border", text));
 			const input = new Input();
-			let focused = false;
 			let list: SelectList;
-
 			const choose = (item: SelectItem) => {
 				if (item.value === "new:") done({ action: "new" });
 				else done({ action: "select", slug: item.value.slice("task:".length) });
 			};
 			const rebuild = () => {
-				const choices = [
-					...tasks.map((task) => {
-						const phase = task.place.at < STEPS.length ? STEPS[task.place.at] : "done";
-						const progress = task.place.detail ? ` · ${task.place.detail}` : "";
-						return {
-							value: `task:${task.slug}`,
-							label: task.title,
-							description: `${task.slug} · ${phase}${progress} · ${ago(task.modified)}`,
-							search: task.search,
-						};
-					}),
-				];
-				// Prepended after filtering, never through it: `fuzzyFilter` re-sorts by score, so
-				// "New task…" would wander down the list the moment you typed anything.
-				const items = [
-					{ value: "new:", label: "New task…", description: "" },
-					...fuzzyFilter(choices, input.getValue(), (choice) => choice.search),
-				];
-				list = new SelectList(items, 10, {
-					selectedPrefix: (text) => theme.fg("accent", text),
-					selectedText: (text) => theme.fg("accent", text),
-					description: (text) => theme.fg("dim", text),
-					scrollInfo: (text) => theme.fg("muted", text),
-					noMatch: (text) => theme.fg("warning", text),
-				});
+				const choices = tasks.map((task) => ({
+					value: `task:${task.slug}`,
+					label: task.title,
+					description: `${task.slug} · ${task.place.phase}${task.place.detail ? ` · ${task.place.detail}` : ""} · ${ago(task.modified)}`,
+					search: task.search,
+				}));
+				list = new SelectList(
+					[
+						{ value: "new:", label: "New task…", description: "" },
+						...fuzzyFilter(
+							choices,
+							input.getValue(),
+							(choice) => choice.search,
+						),
+					],
+					10,
+					{
+						selectedPrefix: (text) => theme.fg("accent", text),
+						selectedText: (text) => theme.fg("accent", text),
+						description: (text) => theme.fg("dim", text),
+						scrollInfo: (text) => theme.fg("muted", text),
+						noMatch: (text) => theme.fg("warning", text),
+					},
+				);
 				list.onSelect = choose;
 				list.onCancel = () => done({ action: "cancel" });
 			};
 			rebuild();
-
 			return {
 				get focused() {
-					return focused;
+					return input.focused;
 				},
 				set focused(value: boolean) {
-					focused = value;
 					input.focused = value;
 				},
 				render(width: number) {
@@ -427,9 +1005,6 @@ export default function rpi(pi: ExtensionAPI): void {
 						keyHint("tui.select.confirm", "resume"),
 						keyHint("app.session.delete", "remove"),
 						keyHint("tui.select.cancel", "cancel"),
-						// Each `keyHint` colours itself and closes with a reset to the terminal
-						// default, so one `fg("dim")` around the joined string leaves every
-						// separator after the first hint uncoloured. Dim them individually.
 					].join(theme.fg("dim", " · "));
 					return [
 						...border.render(width),
@@ -445,7 +1020,11 @@ export default function rpi(pi: ExtensionAPI): void {
 				handleInput(data: string) {
 					if (keybindings.matches(data, "app.session.delete")) {
 						const item = list.getSelectedItem();
-						if (item?.value.startsWith("task:")) done({ action: "remove", slug: item.value.slice("task:".length) });
+						if (item?.value.startsWith("task:"))
+							done({
+								action: "remove",
+								slug: item.value.slice("task:".length),
+							});
 						return;
 					}
 					if (
@@ -471,33 +1050,39 @@ export default function rpi(pi: ExtensionAPI): void {
 		});
 	}
 
-	/** Permanently remove one inactive task and every phase session still indexed by its RPI name. */
-	async function removeTask(ctx: ExtensionCommandContext, slug: string): Promise<boolean> {
-		const dir = join(TASKS, slug);
-		const ownNames = new Set(STEPS.map((phase) => sessionName(slug, phase)));
-		if (active?.slug === slug || ownNames.has(pi.getSessionName() ?? "")) {
-			ctx.ui.notify("cannot remove the active task — run /new first", "warning");
+	async function removeTask(
+		ctx: ExtensionCommandContext,
+		slug: string,
+	): Promise<boolean> {
+		const directory = join(TASKS, slug);
+		const names = new Set(PHASES.map((phase) => sessionName(slug, phase)));
+		if (active?.slug === slug || names.has(pi.getSessionName() ?? "")) {
+			ctx.ui.notify(
+				"cannot remove the active task — run /new first",
+				"warning",
+			);
 			return false;
 		}
-		if (!SLUG.test(slug) || !existsSync(dir) || !lstatSync(dir).isDirectory()) {
+		if (
+			!SLUG.test(slug) ||
+			!existsSync(directory) ||
+			!lstatSync(directory).isDirectory()
+		) {
 			ctx.ui.notify(`${slug}: task no longer exists`, "warning");
 			return false;
 		}
-
-		const confirmed = await ctx.ui.confirm(
-			`Permanently remove ${slug}?`,
-			"Delete its task folder and RPI phase sessions? Git branches, worktrees, commits, and repository files are untouched.",
+		if (
+			!(await ctx.ui.confirm(
+				`Permanently remove ${slug}?`,
+				"Delete its task folder and RPI phase sessions? Git branches, worktrees, commits, and repository files are untouched.",
+			))
+		) {
+			return false;
+		}
+		const sessions = (await SessionManager.listAll()).filter((session) =>
+			names.has(session.name ?? ""),
 		);
-		if (!confirmed) return false;
-		if (!existsSync(dir) || !lstatSync(dir).isDirectory()) {
-			ctx.ui.notify(`${slug}: task no longer exists`, "warning");
-			return false;
-		}
-
-		const sessions = (await SessionManager.listAll()).filter((session) => ownNames.has(session.name ?? ""));
 		try {
-			// Pi 0.82 exposes session listing but not deletion. Mirror /resume's direct
-			// session-file removal until SessionManager provides a public delete API.
 			for (const session of sessions) {
 				try {
 					unlinkSync(session.path);
@@ -505,344 +1090,1557 @@ export default function rpi(pi: ExtensionAPI): void {
 					if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 				}
 			}
-			rmSync(dir, { recursive: true });
+			rmSync(directory, { recursive: true });
 		} catch (error) {
-			ctx.ui.notify(`could not remove ${slug}: ${error instanceof Error ? error.message : error}`, "error");
+			ctx.ui.notify(
+				`could not remove ${slug}: ${error instanceof Error ? error.message : error}`,
+				"error",
+			);
 			return false;
 		}
 		ctx.ui.notify(`${slug}: permanently removed`, "info");
 		return true;
 	}
 
-	/** One open design question, in the shape `rpi-design.md`'s template writes it. */
-	interface Question {
-		title: string;
-		options: { answer: string; label: string }[];
-		recommended: string;
-	}
-
-	/**
-	 * The open questions, and the only thing that reads them — `locate` counts what this returns
-	 * rather than matching headings itself, so the number in the widget and the dialogs the human
-	 * is given cannot disagree.
-	 *
-	 * A `####` heading is a question, and it is open until its heading starts with `[x]`. Bare
-	 * means open on purpose: a marker the model forgets to write leaves the question open and
-	 * stalls the chain, which is loud and escapable. The inverse — a box that must be present to
-	 * mean "open" — would read a forgotten marker as settled and start the outline on questions
-	 * nobody answered, which looks exactly like success.
-	 *
-	 * Nothing scopes this to a section any more. Losing the scope costs precision — a `####` used
-	 * anywhere else in the document now reads as a question — and buys the thing that matters:
-	 * there is no heading name left to misspell, and a heading name was all that stood between a
-	 * `### Design questions` typo and an outline written over live questions.
-	 */
-	function questionsIn(design: string): Question[] {
-		return design
-			// An option may carry a snippet, and a `####` inside one is code, not a question.
-			.replace(/^```[\s\S]*?^```/gm, "")
-			.split(/^#### /m)
-			.slice(1)
-			.filter((chunk) => !chunk.startsWith("[x] "))
-			.map((chunk) => {
-				const [heading, ...rest] = chunk.split("\n");
-				const body = rest.join("\n");
-				return {
-					title: heading.trim(),
-					// Tolerate the bold a model reaches for unprompted: `Recommendation: **Option A**`.
-					recommended: /^Recommendation:\s*\**\s*(Option [A-Z])/m.exec(body)?.[1] ?? "",
-					options: [...body.matchAll(/^[-*]\s+\**\s*(Option [A-Z])\**\s*:\s*(.*)$/gm)].map((match) => ({
-						answer: match[1],
-						// Whole text, no truncation: the selector renders each option through pi's
-						// `Text`, which wraps to the terminal's real width. Cutting at a fixed 90
-						// columns only threw away the end of the sentence that decides the question.
-						label: `${match[1]}: ${match[2]}`,
-					})),
-				};
-			})
-			.filter((question) => question.title);
-	}
-
-	/**
-	 * Walks the open questions one dialog at a time and returns the decisions as the text to hand
-	 * the design phase. Deliberately does not touch the document: closing a question means writing
-	 * the rationale and the discarded options as prose, which is the model's job, not a regex's.
-	 * Escape stops the walk and keeps whatever was answered up to that point.
-	 */
-	async function askQuestions(ctx: ExtensionCommandContext, design: string): Promise<string> {
-		const TYPE = "Type an answer…";
-		const SKIP = "Leave this one open";
-		const answers: string[] = [];
-		for (const question of questionsIn(design)) {
-			const labels = question.options.map((option) =>
-				option.answer === question.recommended ? `${option.label}  (recommended)` : option.label,
-			);
-			const choice = await ctx.ui.select(question.title, [...labels, TYPE, SKIP]);
-			if (!choice) break;
-			if (choice === SKIP) continue;
-			if (choice === TYPE) {
-				const typed = (await ctx.ui.input(question.title, "your decision"))?.trim();
-				if (typed) answers.push(`${question.title} → ${typed}`);
-				continue;
-			}
-			answers.push(`${question.title} → ${question.options[labels.indexOf(choice)].answer}`);
-		}
-		return answers.join("; ");
-	}
-
-	/**
-	 * Sessions already run for this step. Every phase session is named `<slug> · <phase>` by the
-	 * input handler, so the name is the index — nothing extra is recorded to make this work.
-	 * Newest first, and never the session we are standing in.
-	 */
-	async function priorSessions(ctx: ExtensionCommandContext, slug: string, phase: string): Promise<SessionInfo[]> {
+	async function priorSessions(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		phase: Phase,
+	): Promise<SessionInfo[]> {
 		const here = ctx.sessionManager.getSessionFile();
-		const listed = await SessionManager.list(ctx.cwd);
-		return listed.filter((session) => session.name === sessionName(slug, phase) && session.path !== here);
+		return (await SessionManager.listAll())
+			.filter(
+				(session) =>
+					session.name === sessionName(slug, phase) && session.path !== here,
+			)
+			.sort(
+				(left, right) => right.modified.getTime() - left.modified.getTime(),
+			);
 	}
 
-	/**
-	 * The one step pi runs itself rather than handing over as text. Returns true when the chain can
-	 * carry on in this directory — a worktree cannot, because the work is now somewhere else and pi
-	 * cannot change its own cwd.
-	 */
-	async function setupBranch(ctx: ExtensionCommandContext, slug: string): Promise<boolean> {
-		// Refuse rather than guess: without a repository, "which branch" has no answer, and every
-		// option in the dialog below would be a git command with nothing to run against.
-		const branch = await branchOf(ctx.cwd);
-		if (branch === undefined) {
-			ctx.ui.notify(`${ctx.cwd} is not a git repository`, "error");
-			return false;
+	async function choosePhaseSession(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		phase: PhasePrompt,
+	): Promise<SessionInfo | "new"> {
+		return (
+			(await priorSessions(ctx, slug, phase)).find(
+				(session) => session.cwd && regularFile(session.path),
+			) ?? "new"
+		);
+	}
+
+	async function enterPhase(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		phase: PhasePrompt,
+		context: PromptContext = {},
+		activate?: () => void,
+	): Promise<void> {
+		await ctx.waitForIdle();
+		const selected = await choosePhaseSession(ctx, slug, phase);
+		const cwd = selected === "new" ? ctx.cwd : selected.cwd;
+		const loaded = loadState(slug);
+		if (
+			loaded.kind !== "valid" ||
+			(!activate && loaded.state.phase !== phase)
+		) {
+			throw new Error(
+				`${slug}: state.json changed before ${phase} could start; run /rpi again`,
+			);
+		}
+		const expected = loaded.state;
+		const selectedRepository = await requireRepository(cwd, expected);
+		const fullPrompt = loadPhasePrompt(phase, slug, context);
+		const continuation = continuationPrompt(phase, context);
+		const parentSession = ctx.sessionManager.getSessionFile();
+		const selectedPath = selected === "new" ? undefined : selected.path;
+
+		const current = loadState(slug);
+		if (current.kind !== "valid" || !sameState(current.state, expected)) {
+			throw new Error(
+				"task state changed while the phase session was selected; run /rpi again",
+			);
+		}
+		const repository = await requireRepository(cwd, current.state);
+		const latestRepository = await repositoryEvidence(cwd);
+		if (
+			!latestRepository ||
+			!sameRepository(repository, latestRepository) ||
+			!sameRepository(latestRepository, selectedRepository)
+		) {
+			throw new Error(
+				"repository HEAD or checkout changed while the phase session was selected; run /rpi again",
+			);
+		}
+		const finalState = loadState(slug);
+		if (finalState.kind !== "valid" || !sameState(finalState.state, expected)) {
+			throw new Error(
+				"task state changed immediately before the phase session switch; run /rpi again",
+			);
 		}
 
-		// Already set up, just not from here. Offering to create it again only produces git's
-		// "a branch named X already exists", which tells the human nothing about where it went.
+		const withSession = async (replacement: ReplacementContext) => {
+			try {
+				const replacementRepository = await repositoryEvidenceDirect(
+					replacement.cwd,
+				);
+				if (
+					!replacementRepository ||
+					!sameRepository(replacementRepository, repository)
+				) {
+					replacement.ui.notify(
+						"repository changed during the session switch; run /rpi again",
+						"error",
+					);
+					return;
+				}
+				const replacementState = loadState(slug);
+				if (
+					replacementState.kind !== "valid" ||
+					!sameState(replacementState.state, expected)
+				) {
+					replacement.ui.notify(
+						"task state changed during the session switch; run /rpi again",
+						"error",
+					);
+					return;
+				}
+				activate?.();
+				const activeState = loadState(slug);
+				if (activeState.kind !== "valid" || activeState.state.phase !== phase) {
+					throw new Error(`task did not enter ${phase}; run /rpi again`);
+				}
+				show(replacement, slug, await placeFor(slug, replacement.cwd));
+				const decision = decideSessionPrompt(
+					currentMessageCount(replacement),
+					context.extra === undefined ? "none" : "provided",
+				);
+				if (decision === "full") {
+					await replacement.sendUserMessage(fullPrompt);
+					return;
+				}
+				if (decision === "continuation") {
+					await replacement.sendUserMessage(continuation);
+					return;
+				}
+				if (
+					replacement.mode === "tui" &&
+					!replacement.ui.getEditorText().trim()
+				) {
+					replacement.ui.setEditorText(`/rpi ${slug}`);
+				}
+				replacement.ui.notify(
+					`${phase} session resumed — run /rpi to advance, or type feedback`,
+					"info",
+				);
+			} catch (error) {
+				replacement.ui.notify(
+					error instanceof Error ? error.message : String(error),
+					"error",
+				);
+			}
+		};
+		const replaced = selectedPath
+			? await ctx.switchSession(selectedPath, { withSession })
+			: await ctx.newSession({
+					parentSession,
+					setup: async (manager) => {
+						manager.appendSessionInfo(sessionName(slug, phase));
+					},
+					withSession,
+				});
+		if (replaced.cancelled) {
+			await refresh(ctx, slug);
+			ctx.ui.notify(
+				`session switch cancelled — /rpi ${slug} did not enter ${phase}`,
+				"warning",
+			);
+		}
+	}
+
+	async function setupBranch(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: TaskState,
+	): Promise<"here" | "elsewhere" | undefined> {
+		let repository: RepositoryEvidence;
+		try {
+			repository = await requireRepository(ctx.cwd, state);
+		} catch (error) {
+			ctx.ui.notify(
+				error instanceof Error ? error.message : String(error),
+				"error",
+			);
+			return undefined;
+		}
+		if (repository.branch === slug) {
+			try {
+				await requireRepository(ctx.cwd, state, slug);
+				return "here";
+			} catch (error) {
+				ctx.ui.notify(
+					error instanceof Error ? error.message : String(error),
+					"error",
+				);
+				return undefined;
+			}
+		}
 		const existing = await worktreeFor(slug, ctx.cwd);
 		if (existing) {
-			ctx.ui.notify(`${slug} is already checked out at ${existing} — cd there && pi`, "info");
-			return false;
+			try {
+				await requireBranchDescends(slug, state, ctx.cwd);
+			} catch (error) {
+				ctx.ui.notify(
+					error instanceof Error ? error.message : String(error),
+					"error",
+				);
+				return undefined;
+			}
+			ctx.ui.notify(
+				`${slug} is already checked out at ${existing} — cd there && pi`,
+				"info",
+			);
+			return "elsewhere";
 		}
-
 		const reuse = await branchExists(slug, ctx.cwd);
+		if (reuse) {
+			try {
+				await requireBranchDescends(slug, state, ctx.cwd);
+			} catch (error) {
+				ctx.ui.notify(
+					error instanceof Error ? error.message : String(error),
+					"error",
+				);
+				return undefined;
+			}
+		}
 		const path = join(WORKTREES, slug);
 		const worktree = `Worktree at ${path}`;
 		const here = `Branch off in ${ctx.cwd}`;
 		const choice = await ctx.ui.select(
 			`Implementation for "${slug}" runs on its own branch.\n\n` +
-				`You are on "${branch}" in ${ctx.cwd}, so every phase of the outline\n` +
-				`would land in this checkout.${reuse ? `\n\nBranch "${slug}" already exists and will be reused.` : ""}`,
-			[worktree, here, "Cancel"],
+				`You are on "${repository.branch || "detached HEAD"}" in ${ctx.cwd}.` +
+				`${reuse ? `\n\nBranch "${slug}" already exists and will be reused.` : ""}`,
+			[worktree, here],
 		);
-
-		if (choice === worktree) {
-			// TODO: a fresh worktree carries no untracked local files — `.env*` above all — and no
-			// installed dependencies, so the build phase's Verification commands can fail for
-			// reasons that have nothing to do with the code. Copy the local files across at least.
-			const args = reuse ? ["worktree", "add", path, slug] : ["worktree", "add", "-b", slug, path, "HEAD"];
-			const made = await pi.exec("git", args, { cwd: ctx.cwd, timeout: GIT_WRITE_MS });
-			if (made.code !== 0) {
-				ctx.ui.notify(made.stderr.trim() || "git worktree add failed", "error");
-				return false;
+		if (!choice) return undefined;
+		try {
+			await requireRepository(ctx.cwd, state);
+			const args =
+				choice === worktree
+					? reuse
+						? ["worktree", "add", path, slug]
+						: ["worktree", "add", "-b", slug, path, state.baseSha]
+					: reuse
+						? ["checkout", slug]
+						: ["checkout", "-b", slug, state.baseSha];
+			const result = await git(ctx.cwd, args, GIT_WRITE_MS);
+			if (result.code !== 0)
+				throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
+			if (choice === worktree) {
+				ctx.ui.notify(`worktree ready — cd ${path} && pi`, "info");
+				return "elsewhere";
 			}
-			ctx.ui.notify(`worktree ready — cd ${path} && pi`, "info");
-			return false;
+			await requireRepository(ctx.cwd, state, slug);
+			return "here";
+		} catch (error) {
+			ctx.ui.notify(
+				error instanceof Error ? error.message : String(error),
+				"error",
+			);
+			return undefined;
 		}
-
-		if (choice === here) {
-			const checkout = await pi.exec("git", reuse ? ["checkout", slug] : ["checkout", "-b", slug], {
-				cwd: ctx.cwd,
-				timeout: GIT_WRITE_MS,
-			});
-			if (checkout.code !== 0) {
-				ctx.ui.notify(checkout.stderr.trim() || "git checkout failed", "error");
-				return false;
-			}
-			return true;
-		}
-		return false;
 	}
 
-	/**
-	 * The widget is the answer to "what now" — it sits above the editor for the whole session, so
-	 * the question never has to be asked. `at` is recomputed from the folder every time, so it is
-	 * never a cached lie about progress.
-	 */
-	function show(ctx: ExtensionContext, slug: string, place: Place): void {
-		// RPC accepts widget lines but ignores component factories, so outside the TUI the same
-		// two lines go over unstyled rather than silently not appearing at all.
-		if (ctx.mode !== "tui") {
-			const dots = STEPS.map((name, index) => {
-				if (index < place.at) return `✓ ${name}`;
-				if (index === place.at) return `● ${name}${place.detail ? ` · ${place.detail}` : ""}`;
-				return `○ ${name}`;
-			}).join("  ");
-			ctx.ui.setWidget("rpi", [`rpi ${slug}  ${place.at < STEPS.length ? place.step : "done"}`, dots]);
-			return;
-		}
-		ctx.ui.setWidget("rpi", (_tui, theme) => {
-			// Rebuilt on invalidate, never baked once: a string built here carries the ANSI codes of
-			// the theme that was live when it was built, and clearing the render cache cannot undo
-			// that. Pre-baking would leave the widget in the old palette for the rest of the session
-			// after `/theme` or an automatic light/dark switch. `theme` itself stays valid — it is a
-			// proxy onto whichever theme is current — so re-running this picks the new one up.
-			const compose = () => {
-				const dots = STEPS.map((name, index) => {
-					if (index < place.at) return theme.fg("success", `✓ ${name}`);
-					// Only the step you are on carries its detail: 6 open questions is the answer to
-					// "can I press enter yet", and it belongs where you are looking, not in prose.
-					if (index === place.at) return theme.fg("accent", `● ${name}${place.detail ? ` · ${place.detail}` : ""}`);
-					return theme.fg("dim", `○ ${name}`);
-				}).join("  ");
-				const head =
-					theme.fg("muted", "rpi ") +
-					theme.fg("toolTitle", theme.bold(slug)) +
-					theme.fg("dim", place.at < STEPS.length ? `  ${place.step}` : "  done");
-				return `${head}\n${dots}`;
-			};
-			// `1, 0` is what pi wraps its own widget lines in, so this sits in the same column.
-			const text = new Text(compose(), 1, 0);
-			return {
-				render: (width: number) => text.render(width),
-				invalidate: () => {
-					text.setText(compose());
-					text.invalidate();
-				},
-			};
+	function sendCurrent(ctx: ExtensionContext, prompt: string): void {
+		if (ctx.isIdle()) pi.sendUserMessage(prompt);
+		else pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+	}
+
+	function continuationPrompt(
+		phase: PhasePrompt,
+		context: PromptContext = {},
+	): string {
+		return [
+			`Continue the current RPI ${phase} phase in this initialized session. Do not start another phase.`,
+			...(context.extra?.trim()
+				? [`Human feedback or decisions:\n${context.extra.trim()}`]
+				: []),
+			...(context.phaseLine
+				? [`Authoritative build phase:\n${context.phaseLine}`]
+				: []),
+			...(context.baseSha
+				? [`Recorded task base SHA: ${context.baseSha}`]
+				: []),
+			...(context.head
+				? [
+						`Expected PR HEAD: ${context.head}\nAudit exactly ${context.baseSha}..${context.head}.`,
+					]
+				: []),
+		].join("\n\n");
+	}
+
+	function expandNoArguments(body: string): string {
+		return body.replace(
+			/\$\{(\d+|ARGUMENTS|@):-([^}]*)\}|\$\{@:(\d+)(?::(\d+))?\}|\$(ARGUMENTS|@|\d+)/g,
+			(
+				_match,
+				defaultTarget: string | undefined,
+				defaultValue: string | undefined,
+			) => (defaultTarget ? (defaultValue ?? "") : ""),
+		);
+	}
+
+	function commitPrompt(): string {
+		const commands = pi
+			.getCommands()
+			.filter(
+				(command) =>
+					command.name === "commit-message" && command.source === "prompt",
+			);
+		if (commands.length !== 1)
+			throw new Error(
+				"the canonical /commit-message prompt is unavailable or ambiguous",
+			);
+		const body = stripFrontmatter(
+			readFileSync(commands[0].sourceInfo.path, "utf-8"),
+		);
+		const expanded = expandNoArguments(body);
+		if (!expanded.trim())
+			throw new Error("the canonical /commit-message prompt is empty");
+		return expanded;
+	}
+
+	async function checkOutlinePhase(
+		slug: string,
+		phaseLine: string,
+	): Promise<void> {
+		const path = taskDocumentPath(slug, "04-");
+		await withFileMutationQueue(path, async () => {
+			const body = readFileSync(path, "utf-8");
+			const checkedLine = phaseLine.replace("[ ]", "[x]");
+			const lines = body.split("\n");
+			const unchecked = lines.filter((line) => line === phaseLine).length;
+			const checked = lines.filter((line) => line === checkedLine).length;
+			if (unchecked === 0 && checked === 1) return;
+			if (unchecked !== 1 || checked !== 0)
+				throw new Error(
+					"the approved outline phase line is missing or ambiguous",
+				);
+			atomicWrite(
+				path,
+				lines
+					.map((line) => (line === phaseLine ? checkedLine : line))
+					.join("\n"),
+				lstatSync(path).mode & 0o777,
+			);
 		});
 	}
 
-	/**
-	 * Called after every agent run once a task is active. The editor is only filled when the folder
-	 * actually moved — an unrelated question leaves `at` alone and must not have its answer replaced
-	 * — and never over text the human is already typing.
-	 *
-	 * What gets filled is `/rpi`, never the next phase command. The phase belongs in a session of
-	 * its own, and `/rpi` is what opens one. Filling the phase command here would run it in the
-	 * session that just finished the previous phase, which is the whole thing we are avoiding.
-	 */
-	async function advance(ctx: ExtensionContext): Promise<void> {
-		if (!active || !ctx.hasUI) return;
-		// Deleting the folder is documented cleanup, so this is reachable on purpose. Without the
-		// check `locate` throws on every settle and the widget freezes displaying the last step it
-		// managed to compute — a stale claim about progress, which is the one thing it must not be.
-		if (!existsSync(join(TASKS, active.slug))) {
-			active = undefined;
-			ctx.ui.setWidget("rpi", undefined);
-			return;
-		}
-		const place = await locate(active.slug, ctx.cwd);
-		show(ctx, active.slug, place);
-		if (place.mark === active.mark) return;
-		// Never consume a transition we could not act on. Committing the mark first meant one stray
-		// keystroke sitting in the editor swallowed the move permanently, and `/rpi` was never
-		// offered again for the rest of the session — every later settle stopped on the line above.
-		if (place.step && ctx.ui.getEditorText().trim()) return;
-		active.mark = place.mark;
-		if (place.step) ctx.ui.setEditorText(`/rpi ${active.slug}`);
+	async function closeNoCodePhase(
+		slug: string,
+		phaseLine: string,
+		resolution: string,
+	): Promise<void> {
+		const path = taskDocumentPath(slug, "04-");
+		await withFileMutationQueue(path, async () => {
+			const body = readFileSync(path, "utf-8");
+			const checkedLine = phaseLine.replace("[ ]", "[x]");
+			const heading = `## ${phaseLine.replace(/^- \[ \] /, "")}`;
+			if (body.split(heading).length !== 2)
+				throw new Error("the no-code phase heading is missing or ambiguous");
+			const start = body.indexOf(heading);
+			const next = body.indexOf("\n## Phase ", start + heading.length);
+			const section = body.slice(start, next < 0 ? body.length : next);
+			const paragraph = `Resolution: ${resolution}`;
+			const lines = body.split("\n");
+			const unchecked = lines.filter((line) => line === phaseLine).length;
+			const checked = lines.filter((line) => line === checkedLine).length;
+			if (unchecked === 0 && checked === 1 && section.includes(paragraph))
+				return;
+			if (unchecked !== 1 || checked !== 0 || /^Resolution:/m.test(section)) {
+				throw new Error("the no-code phase is already settled or ambiguous");
+			}
+			const settled = lines
+				.map((line) => (line === phaseLine ? checkedLine : line))
+				.join("\n");
+			atomicWrite(
+				path,
+				settled.replace(heading, `${heading}\n\n${paragraph}`),
+				lstatSync(path).mode & 0o777,
+			);
+		});
 	}
 
-	/**
-	 * The gate types `/rpi-<phase> <slug>`, so those commands have to exist, and an extension is
-	 * the only thing that knows where its own prompts live. Announcing them here rather than
-	 * listing the directory in settings.json keeps this folder a drop-in — copy it and the chain
-	 * works — and removes the one failure that says nothing: a lost settings entry leaves `/rpi`
-	 * cheerfully typing a command that pi no longer recognises, and the editor takes it as chat.
-	 */
-	pi.on("resources_discover", () => ({ promptPaths: [PROMPTS] }));
+	type CommitInspection =
+		| { kind: "retry" }
+		| { kind: "cancelable" }
+		| { kind: "verified"; next: Phase }
+		| { kind: "blocked"; reason: string };
+
+	async function inspectCommit(
+		ctx: ExtensionContext,
+		slug: string,
+		state: BuildTaskState,
+	): Promise<CommitInspection> {
+		const commit = state.commit;
+		if (!commit)
+			return { kind: "blocked", reason: "no approved commit is pending" };
+		try {
+			const repository = await requireRepository(ctx.cwd, state, slug);
+			const { root, head } = repository;
+			if (head === commit.parent) {
+				const matches =
+					digest(await binaryDiff(root, commit.parent)) === commit.diff;
+				if (matches && (await unstagedAndUntrackedClean(root)))
+					return { kind: "retry" };
+				if (await indexClean(root)) return { kind: "cancelable" };
+				return {
+					kind: "blocked",
+					reason:
+						"the staged diff or worktree no longer matches the approved commit",
+				};
+			}
+			const parents = await git(root, [
+				"rev-list",
+				"--parents",
+				"-n",
+				"1",
+				head,
+			]);
+			const fields = parents.stdout.trim().split(/\s+/);
+			const exactChild =
+				parents.code === 0 &&
+				fields.length === 2 &&
+				fields[0] === head &&
+				fields[1] === commit.parent;
+			const matches =
+				digest(await binaryDiff(root, commit.parent, head)) === commit.diff;
+			if (!exactChild || !matches || !(await repoClean(root))) {
+				return {
+					kind: "blocked",
+					reason:
+						"HEAD is not the one clean commit containing the exact approved diff",
+				};
+			}
+			await checkOutlinePhase(slug, commit.phaseLine);
+			const nextPhase = firstUncheckedPhase(documentIn(slug, "04-"));
+			if (nextPhase)
+				saveState(slug, buildState(state, nextPhase.line, state.build.session));
+			else await enterPrState(ctx, slug, state);
+			ctx.ui.notify("approved commit verified; outline phase checked", "info");
+			return { kind: "verified", next: nextPhase ? "build" : "pr" };
+		} catch (error) {
+			return {
+				kind: "blocked",
+				reason: `commit verification could not finish: ${error instanceof Error ? error.message : error}`,
+			};
+		}
+	}
+
+	async function handlePendingCommit(
+		ctx: ExtensionCommandContext,
+		slug: string,
+	): Promise<void> {
+		const loaded = loadState(slug);
+		if (
+			loaded.kind !== "valid" ||
+			loaded.state.phase !== "build" ||
+			!loaded.state.commit
+		)
+			return;
+		const inspection = await inspectCommit(ctx, slug, loaded.state);
+		if (inspection.kind === "verified") {
+			await refresh(ctx, slug, true);
+			return;
+		}
+		if (inspection.kind === "blocked") {
+			ctx.ui.notify(inspection.reason, "error");
+			await refresh(ctx, slug);
+			return;
+		}
+		if (inspection.kind === "cancelable") {
+			if (
+				await ctx.ui.confirm(
+					"Clear interrupted commit approval?",
+					"HEAD did not advance and the index is clean.",
+				)
+			) {
+				saveState(
+					slug,
+					buildState(
+						loaded.state,
+						loaded.state.build.phaseLine,
+						loaded.state.build.session,
+					),
+				);
+				await refresh(ctx, slug, true);
+			}
+			return;
+		}
+		const choice = await ctx.ui.select(
+			"Approved staged diff · commit not created",
+			["Retry /commit-message", "Cancel/revise"],
+		);
+		if (!choice) return;
+		const current = loadState(slug);
+		if (
+			current.kind !== "valid" ||
+			current.state.phase !== "build" ||
+			!current.state.commit
+		) {
+			ctx.ui.notify("the approved commit state changed", "error");
+			return;
+		}
+		const rechecked = await inspectCommit(ctx, slug, current.state);
+		if (rechecked.kind !== "retry") {
+			ctx.ui.notify(
+				rechecked.kind === "blocked"
+					? rechecked.reason
+					: "the commit state changed while the menu was open",
+				"error",
+			);
+			return;
+		}
+		const currentSession = ctx.sessionManager.getSessionFile();
+		if (!currentSession || !isAbsolute(currentSession)) {
+			ctx.ui.notify(
+				"commit recovery requires a persisted current session",
+				"error",
+			);
+			return;
+		}
+		if (choice === "Retry /commit-message") {
+			try {
+				saveState(slug, {
+					...current.state,
+					build: { ...current.state.build, session: currentSession },
+				});
+				sendCurrent(ctx, commitPrompt());
+			} catch (error) {
+				ctx.ui.notify(
+					error instanceof Error ? error.message : String(error),
+					"error",
+				);
+			}
+			return;
+		}
+		const edited = await ctx.ui.editor("What should the build revise?");
+		if (edited === undefined) return;
+		const feedback = edited.trim();
+		if (!feedback) {
+			ctx.ui.notify("nonempty revision feedback is required", "warning");
+			return;
+		}
+		try {
+			const repository = await requireRepository(ctx.cwd, current.state, slug);
+			if (!(await resetIndex(repository.root, current.state.commit.parent))) {
+				throw new Error(
+					"could not reset the approved index; run git reset --mixed HEAD and retry",
+				);
+			}
+			const resumed = buildState(
+				current.state,
+				current.state.build.phaseLine,
+				currentSession,
+			);
+			saveState(slug, resumed);
+			sendCurrent(
+				ctx,
+				continuationPrompt("build", {
+					extra: feedback,
+					phaseLine: resumed.build.phaseLine,
+				}),
+			);
+			await refresh(ctx, slug);
+		} catch (error) {
+			ctx.ui.notify(
+				error instanceof Error ? error.message : String(error),
+				"error",
+			);
+		}
+	}
+
+	async function captureBuildReview(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: BuildTaskState,
+	): Promise<BuildReview> {
+		if (ctx.sessionManager.getSessionFile() !== state.build.session) {
+			throw new Error(
+				"build approval must run in the exact session that owns this build phase",
+			);
+		}
+		const repository = await requireRepository(ctx.cwd, state, slug);
+		const { root } = repository;
+		if (!(await indexClean(root))) {
+			throw new Error(
+				"build approval requires a clean index; use git reset to unstage while preserving the worktree",
+			);
+		}
+		const current = firstUncheckedPhase(documentIn(slug, "04-"));
+		if (!current || current.line !== state.build.phaseLine) {
+			throw new Error(
+				`build-state invariant failed: state.json records "${state.build.phaseLine}" but that is not the first unchecked outline line; restore the outline or recreate state.json deliberately`,
+			);
+		}
+		const base = repository.head;
+		const paths = await changedPaths(root);
+		if (!paths.every(safeRelativePath))
+			throw new Error("repository changes contain an unsafe path");
+		const snapshot = await workingSnapshot(root, paths);
+		if (
+			(await headOf(root)) !== base ||
+			(await branchOf(root)) !== slug ||
+			!(await indexClean(root)) ||
+			!samePaths(paths, await changedPaths(root)) ||
+			(await workingSnapshot(root, paths)) !== snapshot
+		) {
+			throw new Error(
+				"repository evidence changed while review was being captured",
+			);
+		}
+		return {
+			root,
+			base,
+			paths,
+			snapshot,
+			phaseLine: current.line,
+			phaseNumber: current.number,
+		};
+	}
+
+	async function revalidateReview(
+		slug: string,
+		state: BuildTaskState,
+		review: BuildReview,
+	): Promise<void> {
+		await requireRepository(review.root, state, slug);
+		if (
+			(await branchOf(review.root)) !== slug ||
+			(await headOf(review.root)) !== review.base
+		) {
+			throw new Error("branch or HEAD changed while approval was open");
+		}
+		if (!(await indexClean(review.root)))
+			throw new Error("the index changed while approval was open");
+		if (!samePaths(review.paths, await changedPaths(review.root))) {
+			throw new Error("the changed path set changed while approval was open");
+		}
+		if (
+			(await workingSnapshot(review.root, review.paths)) !== review.snapshot
+		) {
+			throw new Error("file contents changed while approval was open");
+		}
+		const current = firstUncheckedPhase(documentIn(slug, "04-"));
+		if (!current || current.line !== review.phaseLine)
+			throw new Error("the first unchecked outline phase changed");
+	}
+
+	async function stageApprovedBuild(
+		slug: string,
+		state: BuildTaskState,
+		review: BuildReview,
+	): Promise<void> {
+		const added = await git(
+			review.root,
+			["add", "--", ...review.paths],
+			GIT_WRITE_MS,
+		);
+		try {
+			if (added.code !== 0)
+				throw new Error(added.stderr.trim() || "git add failed");
+			const cached = await git(review.root, [
+				"diff",
+				"--cached",
+				"--name-only",
+				"--no-renames",
+				"-z",
+				review.base,
+				"--",
+			]);
+			const cachedPaths = cached.stdout.split("\0").filter(Boolean).sort();
+			if (cached.code !== 0 || !samePaths(review.paths, cachedPaths)) {
+				throw new Error("cached paths do not exactly match the approved paths");
+			}
+			if (!(await unstagedAndUntrackedClean(review.root))) {
+				throw new Error("unstaged or untracked changes remain after staging");
+			}
+			if (
+				(await workingSnapshot(review.root, review.paths)) !== review.snapshot
+			) {
+				throw new Error("file contents changed during staging");
+			}
+			const diff = digest(await binaryDiff(review.root, review.base));
+			saveState(slug, {
+				...state,
+				commit: { parent: review.base, diff, phaseLine: review.phaseLine },
+			});
+		} catch (error) {
+			try {
+				await requireRepository(review.root, state, slug);
+				if (!(await resetIndex(review.root, review.base)))
+					throw new Error("git reset failed");
+			} catch {
+				throw new Error(
+					`approval failed and index reset was incomplete: ${error instanceof Error ? error.message : error}`,
+				);
+			}
+			throw error;
+		}
+	}
+
+	async function approveBuild(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: BuildTaskState,
+		review: BuildReview,
+	): Promise<void> {
+		if (!review.paths.length) {
+			ctx.ui.notify(
+				"there are no changes to commit; use Close with no code",
+				"warning",
+			);
+			return;
+		}
+		let prompt: string;
+		try {
+			prompt = commitPrompt();
+			await revalidateReview(slug, state, review);
+			await requireRepository(review.root, state, slug);
+			await stageApprovedBuild(slug, state, review);
+		} catch (error) {
+			ctx.ui.notify(
+				`approval failed: ${error instanceof Error ? error.message : error}`,
+				"error",
+			);
+			return;
+		}
+		sendCurrent(ctx, prompt);
+	}
+
+	async function closeBuildNoCode(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: BuildTaskState,
+		review: BuildReview,
+	): Promise<void> {
+		if (review.paths.length) {
+			ctx.ui.notify(
+				"Close with no code requires a completely clean repository",
+				"warning",
+			);
+			return;
+		}
+		const edited = await ctx.ui.editor(
+			"Why is this phase closing with no code?",
+		);
+		if (edited === undefined) return;
+		const resolution = edited.trim().replace(/\s+/g, " ");
+		if (!resolution) {
+			ctx.ui.notify("a nonempty resolution is required", "warning");
+			return;
+		}
+		try {
+			await revalidateReview(slug, state, review);
+			if (!(await repoClean(review.root)))
+				throw new Error("the repository is not completely clean");
+			await closeNoCodePhase(slug, review.phaseLine, resolution);
+			const next = firstUncheckedPhase(documentIn(slug, "04-"));
+			if (next)
+				saveState(slug, buildState(state, next.line, state.build.session));
+			else await enterPrState(ctx, slug, state);
+			ctx.ui.notify(`phase ${review.phaseNumber} closed with no code`, "info");
+			await refresh(ctx, slug, true);
+		} catch (error) {
+			ctx.ui.notify(
+				`could not close phase: ${error instanceof Error ? error.message : error}`,
+				"error",
+			);
+		}
+	}
+
+	function invalidatePrDescription(slug: string): void {
+		const path = join(TASKS, slug, "pr-description.md");
+		try {
+			const stat = lstatSync(path);
+			if (!stat.isFile() && !stat.isSymbolicLink()) {
+				throw new Error(
+					`${path} is not a file; move it aside, then retry the PR transition`,
+				);
+			}
+			unlinkSync(path);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		}
+	}
+
+	async function enterPrState(
+		ctx: ExtensionContext,
+		slug: string,
+		state: TaskState,
+	): Promise<PrTaskState> {
+		const repository = await requireRepository(ctx.cwd, state, slug);
+		if (!(await repoClean(repository.root))) {
+			throw new Error(
+				"PR transition requires a clean repository; commit or remove every worktree and index change, then retry",
+			);
+		}
+		invalidatePrDescription(slug);
+		const next = prState(state, repository.head);
+		saveState(slug, next);
+		return next;
+	}
+
+	async function advancePlainPhase(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: TaskState,
+		phase: Exclude<PhasePrompt, "build" | "pr">,
+	): Promise<void> {
+		saveState(slug, plainState(state, phase));
+		active = { slug };
+		await enterPhase(ctx, slug, phase);
+	}
+
+	async function revisit(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: TaskState,
+		phase: "design" | "outline",
+		question: string,
+	): Promise<void> {
+		const edited = await ctx.ui.editor(question);
+		if (edited === undefined) return;
+		const feedback = edited.trim();
+		if (!feedback) {
+			ctx.ui.notify("nonempty feedback is required", "warning");
+			return;
+		}
+		const current = loadState(slug);
+		if (current.kind !== "valid" || !sameState(current.state, state)) {
+			ctx.ui.notify(
+				"task state changed while feedback was open; run /rpi again",
+				"error",
+			);
+			return;
+		}
+		await enterPhase(ctx, slug, phase, { extra: feedback }, () => {
+			const latest = loadState(slug);
+			if (latest.kind !== "valid" || !sameState(latest.state, current.state)) {
+				throw new Error(
+					"task state changed during the session switch; run /rpi again",
+				);
+			}
+			if (latest.state.phase === "pr") invalidatePrDescription(slug);
+			saveState(slug, plainState(latest.state, phase));
+		});
+	}
+
+	async function beginBuild(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: TaskState,
+		phaseLine: string,
+	): Promise<void> {
+		const branchState = plainState(state, "branch");
+		saveState(slug, branchState);
+		const result = await setupBranch(ctx, slug, branchState);
+		if (!result) {
+			await refresh(ctx, slug, true);
+			return;
+		}
+		const next = buildState(branchState, phaseLine);
+		saveState(slug, next);
+		if (result === "elsewhere") {
+			await refresh(ctx, slug, true);
+			return;
+		}
+		await startOrGatePersistedRun(ctx, slug, next);
+	}
+
+	async function handleBuild(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: BuildTaskState,
+	): Promise<void> {
+		let review: BuildReview;
+		try {
+			review = await captureBuildReview(ctx, slug, state);
+		} catch (error) {
+			ctx.ui.notify(
+				error instanceof Error ? error.message : String(error),
+				"error",
+			);
+			return;
+		}
+		const paths =
+			review.paths.length === 1
+				? "1 changed path"
+				: `${review.paths.length} changed paths`;
+		const choice = await ctx.ui.select(
+			`Phase ${review.phaseNumber} · ${paths} · review with git diff`,
+			["Approve & commit", "Close with no code", "Revisit design"],
+		);
+		if (choice === "Approve & commit")
+			return approveBuild(ctx, slug, state, review);
+		if (choice === "Close with no code")
+			return closeBuildNoCode(ctx, slug, state, review);
+		if (choice === "Revisit design") {
+			return revisit(
+				ctx,
+				slug,
+				state,
+				"design",
+				"Why revisit the design, and what should change?",
+			);
+		}
+	}
+
+	function validPrDescription(slug: string): boolean {
+		const path = join(TASKS, slug, "pr-description.md");
+		try {
+			const stat = lstatSync(path);
+			return (
+				stat.isFile() &&
+				!stat.isSymbolicLink() &&
+				readFileSync(path, "utf-8").trim().length > 0
+			);
+		} catch {
+			return false;
+		}
+	}
+
+	async function handlePr(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: PrTaskState,
+	): Promise<void> {
+		if (!(await validatePrHead(ctx, slug, state, ctx.cwd))) return;
+		const choice = await ctx.ui.select(`${slug} · pr`, [
+			"Finish",
+			"Add repair phase",
+			"Revisit design",
+		]);
+		if (choice === "Add repair phase") {
+			return revisit(
+				ctx,
+				slug,
+				state,
+				"outline",
+				"Describe the repair phase to append",
+			);
+		}
+		if (choice === "Revisit design") {
+			return revisit(
+				ctx,
+				slug,
+				state,
+				"design",
+				"Why revisit the design, and what should change?",
+			);
+		}
+		if (choice !== "Finish") return;
+		try {
+			if (!(await validatePrHead(ctx, slug, state, ctx.cwd))) return;
+			if (!validPrDescription(slug)) {
+				throw new Error(
+					`PR output invariant failed: ${join(TASKS, slug, "pr-description.md")} must be a nonempty regular non-symlink file; repair it or rerun the audit`,
+				);
+			}
+			saveState(slug, plainState(state, "done"));
+			active = { slug };
+			await refresh(ctx, slug, true);
+		} catch (error) {
+			ctx.ui.notify(
+				error instanceof Error ? error.message : String(error),
+				"error",
+			);
+		}
+	}
+
+	async function handleCurrentPhase(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: TaskState,
+	): Promise<void> {
+		switch (state.phase) {
+			case "questions":
+			case "research": {
+				const phase = state.phase;
+				const prefix = phase === "questions" ? "01-" : "02-";
+				if (!documentIn(slug, prefix)) {
+					ctx.ui.notify(
+						`cannot advance ${phase}: expected one ${prefix} artifact`,
+						"error",
+					);
+					return;
+				}
+				return advancePlainPhase(
+					ctx,
+					slug,
+					state,
+					phase === "questions" ? "research" : "design",
+				);
+			}
+			case "design": {
+				const design = documentIn(slug, "03-");
+				const open = questionsIn(design);
+				if (open.length) {
+					const answers = await askQuestions(ctx, design);
+					if (answers === CANCELLED) return;
+					if (!answers) {
+						ctx.ui.notify(
+							`${open.length} design question(s) remain; submit at least one answer to continue`,
+							"warning",
+						);
+						return;
+					}
+					sendCurrent(ctx, continuationPrompt("design", { extra: answers }));
+					return;
+				}
+				if (!design) {
+					ctx.ui.notify(
+						"cannot advance design: expected one 03- artifact",
+						"error",
+					);
+					return;
+				}
+				return advancePlainPhase(ctx, slug, state, "outline");
+			}
+			case "outline": {
+				const open = questionsIn(documentIn(slug, "03-"));
+				if (open.length) {
+					ctx.ui.notify(
+						`${open.length} design question(s) reopened; returning to design`,
+						"warning",
+					);
+					return advancePlainPhase(ctx, slug, state, "design");
+				}
+				const outline = documentIn(slug, "04-");
+				if (!outline) {
+					ctx.ui.notify(
+						"cannot advance outline: expected one 04- artifact",
+						"error",
+					);
+					return;
+				}
+				if (!/^- \[(?: |[xX])\] Phase \d+: .+$/m.test(outline)) {
+					ctx.ui.notify(
+						"cannot advance outline: no implementation phases found",
+						"error",
+					);
+					return;
+				}
+				const first = firstUncheckedPhase(outline);
+				if (!first) {
+					try {
+						const next = await enterPrState(ctx, slug, state);
+						return startOrGatePersistedRun(ctx, slug, next);
+					} catch (error) {
+						ctx.ui.notify(
+							error instanceof Error ? error.message : String(error),
+							"error",
+						);
+						return;
+					}
+				}
+				return beginBuild(ctx, slug, state, first.line);
+			}
+			case "build":
+				return handleBuild(ctx, slug, state);
+			case "pr":
+				return handlePr(ctx, slug, state);
+			case "branch":
+			case "done":
+				return;
+		}
+	}
+
+	function currentMessageCount(ctx: ExtensionContext): number {
+		return activeBranchMessageCount(ctx.sessionManager.getBranch());
+	}
+
+	function persistedContext(
+		state: BuildTaskState | PrTaskState,
+	): PromptContext {
+		return state.phase === "build"
+			? { phaseLine: state.build.phaseLine }
+			: { baseSha: state.baseSha, head: state.pr.head };
+	}
+
+	function runStatus(
+		state: BuildTaskState | PrTaskState,
+	): "pending" | "active" {
+		return state.phase === "build" ? state.build.status : state.pr.status;
+	}
+
+	function runSession(state: BuildTaskState | PrTaskState): string | undefined {
+		return state.phase === "build" ? state.build.session : state.pr.session;
+	}
+
+	function activateRun(
+		state: BuildTaskState | PrTaskState,
+		session: string,
+	): BuildTaskState | PrTaskState {
+		return state.phase === "build"
+			? activeBuildState(state, state.build.phaseLine, session)
+			: activePrState(state, state.pr.head, session);
+	}
+
+	function resetRun(
+		state: BuildTaskState | PrTaskState,
+	): BuildTaskState | PrTaskState {
+		return state.phase === "build"
+			? buildState(state, state.build.phaseLine)
+			: prState(state, state.pr.head);
+	}
+
+	async function validatePersistedRun(
+		cwd: string,
+		slug: string,
+		state: BuildTaskState | PrTaskState,
+	): Promise<RepositoryEvidence> {
+		const repository = await requireRepository(cwd, state, slug);
+		if (state.phase === "build") {
+			const current = firstUncheckedPhase(documentIn(slug, "04-"));
+			if (!current || current.line !== state.build.phaseLine) {
+				throw new Error(
+					`build-state invariant failed: state.json records "${state.build.phaseLine}" but that is not the first unchecked outline line; restore the outline or recreate state.json deliberately`,
+				);
+			}
+		}
+		const latest = await repositoryEvidence(cwd);
+		if (!latest || !sameRepository(repository, latest)) {
+			throw new Error(
+				"repository HEAD or checkout changed during run validation; run /rpi again",
+			);
+		}
+		return latest;
+	}
+
+	function invalidatePrRun(
+		ctx: ExtensionContext,
+		slug: string,
+		state: PrTaskState,
+		head: string,
+	): undefined {
+		const loaded = loadState(slug);
+		if (loaded.kind !== "valid" || !sameState(loaded.state, state)) {
+			throw new Error(
+				"task state changed while PR HEAD was checked; run /rpi again",
+			);
+		}
+		invalidatePrDescription(slug);
+		saveState(slug, prState(state, head, state.pr.session));
+		ctx.ui.notify(
+			`PR HEAD changed from ${state.pr.head} to ${head}; the audit was invalidated — run /rpi ${slug} again`,
+			"warning",
+		);
+		return undefined;
+	}
+
+	async function validatePrHead(
+		ctx: ExtensionContext,
+		slug: string,
+		state: BuildTaskState | PrTaskState,
+		cwd: string,
+	): Promise<RepositoryEvidence | undefined> {
+		if (state.phase !== "pr") return validatePersistedRun(cwd, slug, state);
+		const repository = await repositoryEvidence(cwd);
+		if (!repository) {
+			throw new Error(
+				`repository invariant failed: ${cwd} is not a Git checkout with HEAD; reopen the task in its recorded repository`,
+			);
+		}
+		if (repository.gitCommonDir !== state.gitCommonDir) {
+			throw new Error(
+				`repository invariant failed: this checkout uses ${repository.gitCommonDir}, but the task records ${state.gitCommonDir}; cd to a linked worktree of the recorded repository`,
+			);
+		}
+		if (repository.branch !== slug) {
+			throw new Error(
+				`branch invariant failed: expected ${slug}, found ${repository.branch || "detached HEAD"}; check out ${slug}`,
+			);
+		}
+		if (prNeedsRestart(state, repository.head)) {
+			return invalidatePrRun(ctx, slug, state, repository.head);
+		}
+		const base = await git(repository.root, [
+			"cat-file",
+			"-e",
+			`${state.baseSha}^{commit}`,
+		]);
+		if (base.code !== 0) {
+			throw new Error(
+				`task base invariant failed: ${state.baseSha} is absent from ${state.gitCommonDir}; restore that object (for example with git fetch) before continuing`,
+			);
+		}
+		const ancestor = await git(repository.root, [
+			"merge-base",
+			"--is-ancestor",
+			state.baseSha,
+			repository.head,
+		]);
+		if (ancestor.code !== 0) {
+			throw new Error(
+				`task base invariant failed: ${slug} does not descend from recorded base ${state.baseSha}; repair or recreate the task branch from that SHA`,
+			);
+		}
+		const latest = await repositoryEvidence(cwd);
+		if (
+			!latest ||
+			latest.gitCommonDir !== state.gitCommonDir ||
+			latest.branch !== slug
+		) {
+			throw new Error(
+				"repository checkout changed during PR validation; run /rpi again",
+			);
+		}
+		if (prNeedsRestart(state, latest.head)) {
+			return invalidatePrRun(ctx, slug, state, latest.head);
+		}
+		return latest;
+	}
+
+	async function enterPersistedRun(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		initialState: BuildTaskState | PrTaskState,
+	): Promise<void> {
+		let state = initialState;
+		let selected: SessionInfo | undefined;
+		const owner = runSession(state);
+		selected = owner
+			? (await SessionManager.listAll()).find(
+					(session) => session.path === owner,
+				)
+			: runStatus(state) === "active"
+				? undefined
+				: (await priorSessions(ctx, slug, state.phase)).find(
+						(session) => session.cwd && regularFile(session.path),
+					);
+		if (runStatus(state) === "active") {
+			if (!owner || !selected?.cwd || !regularFile(owner)) {
+				const rerun = await ctx.ui.confirm(
+					`Rerun ${state.phase} in a fresh session?`,
+					`The session bound to this active ${state.phase} run is missing. This resets the run to pending and reruns the same persisted range.`,
+				);
+				if (!rerun) return;
+				const loaded = loadState(slug);
+				if (loaded.kind !== "valid" || !sameState(loaded.state, state)) {
+					throw new Error(
+						"task run changed while rerun confirmation was open; run /rpi again",
+					);
+				}
+				state = resetRun(state);
+				saveState(slug, state);
+				selected = undefined;
+			}
+		}
+		const phase = state.phase;
+		const cwd = selected?.cwd || ctx.cwd;
+		const selectedRepository = await validatePrHead(ctx, slug, state, cwd);
+		if (!selectedRepository) return;
+		const context = persistedContext(state);
+		const fullPrompt = loadPhasePrompt(phase, slug, context);
+		const continuation = continuationPrompt(phase, context);
+		const parentSession = ctx.sessionManager.getSessionFile();
+
+		const loaded = loadState(slug);
+		if (loaded.kind !== "valid" || !sameState(loaded.state, state)) {
+			throw new Error(
+				"task run changed before its session switch; run /rpi again",
+			);
+		}
+		const repository = await validatePrHead(ctx, slug, state, cwd);
+		if (!repository) return;
+		if (!sameRepository(repository, selectedRepository)) {
+			throw new Error(
+				"repository HEAD or checkout changed before the session switch; run /rpi again",
+			);
+		}
+		const finalState = loadState(slug);
+		if (finalState.kind !== "valid" || !sameState(finalState.state, state)) {
+			throw new Error(
+				"task run changed immediately before its session switch; run /rpi again",
+			);
+		}
+
+		const withSession = async (replacement: ReplacementContext) => {
+			try {
+				const replacementRepository = await repositoryEvidenceDirect(
+					replacement.cwd,
+				);
+				if (
+					!replacementRepository ||
+					!sameRepository(replacementRepository, repository)
+				) {
+					replacement.ui.notify(
+						"repository or PR HEAD changed during the session switch; run /rpi again",
+						"error",
+					);
+					return;
+				}
+				const replacementState = loadState(slug);
+				if (
+					replacementState.kind !== "valid" ||
+					!sameState(replacementState.state, state)
+				) {
+					replacement.ui.notify(
+						"task run changed during the session switch; run /rpi again",
+						"error",
+					);
+					return;
+				}
+				show(replacement, slug, await placeFor(slug, replacement.cwd));
+				const decision = decidePersistedRun(
+					runStatus(state),
+					currentMessageCount(replacement),
+					"other",
+				);
+				if (decision === "full" || decision === "continuation") {
+					const session = replacement.sessionManager.getSessionFile();
+					if (!session || !isAbsolute(session))
+						throw new Error("RPI runs require a persisted session file");
+					saveState(slug, activateRun(state, session));
+					await replacement.sendUserMessage(
+						decision === "full" ? fullPrompt : continuation,
+					);
+					return;
+				}
+				if (
+					replacement.mode === "tui" &&
+					!replacement.ui.getEditorText().trim()
+				) {
+					replacement.ui.setEditorText(`/rpi ${slug}`);
+				}
+				replacement.ui.notify(
+					`${phase} session resumed — run /rpi to open its gate, or type feedback`,
+					"info",
+				);
+			} catch (error) {
+				replacement.ui.notify(
+					error instanceof Error ? error.message : String(error),
+					"error",
+				);
+			}
+		};
+		const replaced = selected
+			? await ctx.switchSession(selected.path, { withSession })
+			: await ctx.newSession({
+					parentSession,
+					setup: async (manager) => {
+						manager.appendSessionInfo(sessionName(slug, phase));
+					},
+					withSession,
+				});
+		if (replaced.cancelled)
+			ctx.ui.notify(
+				`session switch cancelled — ${phase} run unchanged`,
+				"warning",
+			);
+	}
+
+	async function startOrGatePersistedRun(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: BuildTaskState | PrTaskState,
+	): Promise<void> {
+		if (!(await validatePrHead(ctx, slug, state, ctx.cwd))) return;
+		const currentSession = ctx.sessionManager.getSessionFile();
+		const owner = runSession(state);
+		const inPhaseSession =
+			pi.getSessionName() === sessionName(slug, state.phase);
+		if (!inPhaseSession || (owner !== undefined && currentSession !== owner)) {
+			await enterPersistedRun(ctx, slug, state);
+			return;
+		}
+		const decision = decidePersistedRun(
+			runStatus(state),
+			currentMessageCount(ctx),
+			"current",
+		);
+		if (decision === "gate") {
+			if (state.phase === "build") await handleBuild(ctx, slug, state);
+			else await handlePr(ctx, slug, state);
+			return;
+		}
+		if (decision === "resume") return;
+		const loaded = loadState(slug);
+		if (loaded.kind !== "valid" || !sameState(loaded.state, state)) {
+			throw new Error(
+				"task run changed before its prompt could be sent; run /rpi again",
+			);
+		}
+		if (!(await validatePrHead(ctx, slug, state, ctx.cwd))) return;
+		const finalState = loadState(slug);
+		if (finalState.kind !== "valid" || !sameState(finalState.state, state)) {
+			throw new Error(
+				"task run changed immediately before its prompt could be sent; run /rpi again",
+			);
+		}
+		if (!currentSession || !isAbsolute(currentSession))
+			throw new Error("RPI runs require a persisted session file");
+		const activeRun = activateRun(state, currentSession);
+		saveState(slug, activeRun);
+		const context = persistedContext(activeRun);
+		sendCurrent(
+			ctx,
+			decision === "full"
+				? loadPhasePrompt(state.phase, slug, context)
+				: continuationPrompt(state.phase, context),
+		);
+	}
 
 	pi.on("agent_settled", async (_event, ctx) => {
-		await advance(ctx);
+		if (!ctx.hasUI) return;
+		let slug = active?.slug;
+		if (!slug) {
+			const [sessionSlug, sessionPhase] = (pi.getSessionName() ?? "").split(
+				" · ",
+			);
+			if (
+				!sessionSlug ||
+				!SLUG.test(sessionSlug) ||
+				!SESSION_PHASES.includes(
+					sessionPhase as (typeof SESSION_PHASES)[number],
+				) ||
+				!existsSync(join(TASKS, sessionSlug))
+			) {
+				return;
+			}
+			slug = sessionSlug;
+			active = { slug };
+		}
+		const loaded = loadState(slug);
+		if (
+			loaded.kind === "valid" &&
+			loaded.state.phase === "build" &&
+			loaded.state.commit
+		) {
+			await inspectCommit(ctx, slug, loaded.state);
+		}
+		await refresh(ctx, slug, true);
 	});
 
-	/**
-	 * Resuming a phase session gets its widget back. The name `setup` gave it is the whole record —
-	 * it is written before `session_start` fires, so by here it is already readable, and the same
-	 * name that lets `/rpi` recognise a session it is standing in identifies it again on the way
-	 * back in. Nothing is stored to make this work; a session whose name is not `<slug> · <phase>`
-	 * simply has no task, which is the truth.
-	 */
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx.hasUI) return;
 		const [slug, phase] = (pi.getSessionName() ?? "").split(" · ");
-		if (!slug || !STEPS.includes(phase) || !SLUG.test(slug) || !existsSync(join(TASKS, slug))) return;
-		const place = await locate(slug, ctx.cwd);
-		active = { slug, mark: place.mark };
-		show(ctx, slug, place);
+		if (
+			!slug ||
+			!SESSION_PHASES.includes(phase as (typeof SESSION_PHASES)[number]) ||
+			!SLUG.test(slug) ||
+			!existsSync(join(TASKS, slug))
+		) {
+			return;
+		}
+		active = { slug };
+		await refresh(ctx, slug);
 	});
 
-	/**
-	 * A phase command running is how a session learns which task it belongs to. `/rpi` replaces the
-	 * session, and the replacement gets a fresh extension instance whose `active` is empty.
-	 *
-	 * Not for want of an alternative: `newSession` runs `setup` (agent-session-runtime.ts:251-252)
-	 * before `finishSessionReplacement` on the line below it reaches the emit, so the session
-	 * already carries its name when `session_start` fires and `getSessionName()` could rebuild
-	 * `active` from it. Binding on the command is the smaller signal — it names the task itself,
-	 * needs no marker to have been left behind, and reads the same when the human types the phase
-	 * command by hand in a session `/rpi` never created.
-	 */
 	pi.on("input", async (event, ctx) => {
-		const match = /^\/rpi-([a-z]+)\s+(\S+)/.exec(event.text.trim());
-		if (!match) return;
-		const [, phase, slug] = match;
-		if (!SLUG.test(slug) || !existsSync(join(TASKS, slug))) return;
-		const place = await locate(slug, ctx.cwd);
-		active = { slug, mark: place.mark };
-		if (ctx.hasUI) show(ctx, slug, place);
+		if (/^\/rpi-[^\s]*/.test(event.text.trim())) {
+			if (ctx.hasUI)
+				ctx.ui.notify(
+					"RPI phase commands are internal; use /rpi <slug>",
+					"warning",
+				);
+			return { action: "handled" as const };
+		}
+		if (event.source === "extension") return { action: "continue" as const };
+		const [slug, sessionPhase] = (pi.getSessionName() ?? "").split(" · ");
+		if (
+			!slug ||
+			!SLUG.test(slug) ||
+			!SESSION_PHASES.includes(sessionPhase as PhasePrompt)
+		) {
+			return { action: "continue" as const };
+		}
+		const loaded = loadState(slug);
+		if (loaded.kind !== "valid") {
+			if (ctx.hasUI)
+				ctx.ui.notify(
+					`${slug}: state.json is ${loaded.kind}; repair it before phase work`,
+					"error",
+				);
+			return { action: "handled" as const };
+		}
+		if (loaded.state.phase !== sessionPhase) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`${slug} is in ${loaded.state.phase}, not this ${sessionPhase} session; use /rpi ${slug} to switch safely`,
+					"warning",
+				);
+			}
+			return { action: "handled" as const };
+		}
+		try {
+			if (
+				(loaded.state.phase === "build" || loaded.state.phase === "pr") &&
+				ctx.sessionManager.getSessionFile() !== runSession(loaded.state)
+			) {
+				throw new Error(
+					`this session does not own the active ${loaded.state.phase} run; use /rpi ${slug}`,
+				);
+			}
+			if (loaded.state.phase === "pr") {
+				if (!(await validatePrHead(ctx, slug, loaded.state, ctx.cwd))) {
+					return { action: "handled" as const };
+				}
+			} else {
+				await requireRepository(
+					ctx.cwd,
+					loaded.state,
+					sessionPhase === "build" ? slug : undefined,
+				);
+			}
+			return { action: "continue" as const };
+		} catch (error) {
+			if (ctx.hasUI)
+				ctx.ui.notify(
+					error instanceof Error ? error.message : String(error),
+					"error",
+				);
+			return { action: "handled" as const };
+		}
 	});
 
 	pi.registerCommand("rpi", {
-		description: "Start a task, or fill in its next RPI step",
-		getArgumentCompletions: async (prefix: string): Promise<AutocompleteItem[] | null> => {
-			// Past the first space you are writing instructions. Completing there would replace
-			// them, because what gets swapped is the whole argument span, not the last word.
+		description: "Start, resume, or advance an RPI task",
+		getArgumentCompletions: async (
+			prefix: string,
+		): Promise<AutocompleteItem[] | null> => {
 			if (/\s/.test(prefix)) return null;
-			const [slug = "", step] = prefix.split("@");
-			// A step list is a fixed seven names and says nothing a description could add. Slugs
-			// carry where each task stands, which is the question you are asking by pressing tab.
-			if (step !== undefined) {
-				const items = STEPS.map((name) => `${slug}@${name}`)
-					.filter((value) => value.startsWith(prefix))
-					.map((value) => ({ value, label: value }));
-				return items.length ? items : null;
-			}
-			const matched = slugs().filter((value) => value.startsWith(prefix));
+			const matched = slugs().filter((slug) => slug.startsWith(prefix));
 			if (!matched.length) return null;
 			return Promise.all(
-				matched.map(async (value) => {
-					const place = await locate(value, process.cwd());
-					const phase = place.at < STEPS.length ? STEPS[place.at] : "done";
-					return { value, label: value, description: place.detail ? `${phase} · ${place.detail}` : phase };
+				matched.map(async (slug) => {
+					const place = await placeFor(slug, process.cwd());
+					return {
+						value: slug,
+						label: slug,
+						description: place.detail
+							? `${place.phase} · ${place.detail}`
+							: place.phase,
+					};
 				}),
 			);
 		},
-
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			// `hasUI`, not `mode`: dialogs, notifications, the widget and the editor prefill all
-			// work over RPC too. Only the task picker needs a real terminal, and it says so itself.
 			if (!ctx.hasUI) {
-				ctx.ui.notify("/rpi needs a UI to ask you anything", "warning");
+				throw new Error(
+					"/rpi requires TUI or RPC extension-UI support; rerun pi in TUI or RPC mode",
+				);
+			}
+			await ctx.waitForIdle();
+			const words = args.trim().split(/\s+/).filter(Boolean);
+			if (words.length > 1 || (words[0] && !SLUG.test(words[0]))) {
+				ctx.ui.notify("usage: /rpi [slug]", "warning");
 				return;
 			}
-			// `/rpi <slug>@<step> [instructions]`. The step is the only way back — the gate always
-			// computes forwards, and a phase command typed by hand cannot switch sessions, because
-			// session replacement exists on command contexts only. One entrance, every step.
-			//
-			// Joined by `@` rather than a space so a step can never be mistaken for the first word
-			// of the instructions: `/rpi foo build the thing` would otherwise silently mean step
-			// `build` with instructions `the thing`.
-			const [head = "", ...rest] = args.trim().split(/\s+/);
-			const [first = "", stepName] = head.split("@");
-			const forced = stepName === undefined ? -1 : STEPS.indexOf(stepName);
-			const instructions = rest.join(" ").trim();
-			if ((first && !SLUG.test(first)) || (stepName !== undefined && forced < 0)) {
-				ctx.ui.notify(`usage: /rpi [slug][@${STEPS.join("|")}] [instructions]`, "warning");
-				return;
-			}
-			let named = first;
-			// Bare `/rpi` + enter used to go straight to "new task", so coming back a day later
-			// without the slug in mind quietly built a second folder for work already underway.
-			// Completions only fire after a space, so this is the only place the list is reachable.
+			let named = words[0] ?? "";
 			while (!named && slugs().length) {
 				const choice = await pickTask(ctx);
 				if (choice.action === "cancel") return;
@@ -855,156 +2653,199 @@ export default function rpi(pi: ExtensionAPI): void {
 			}
 
 			let slug = named;
-			if (!named || !existsSync(join(TASKS, named, "ticket.md"))) {
-				const description = await ctx.ui.editor(named ? `${named}/ticket.md` : "New task — what do you want to do?");
+			const directory = named
+				? taskDirectoryStatus(named)
+				: { kind: "absent" as const };
+			if (directory.kind === "invalid") {
+				ctx.ui.notify(directory.reason, "error");
+				return;
+			}
+			let origin: "existing" | "created";
+			if (directory.kind === "valid") {
+				const missing = ["ticket.md", STATE_FILE].filter(
+					(file) => !existsSync(join(directory.path, file)),
+				);
+				if (missing.length) {
+					ctx.ui.notify(
+						`${directory.path} already exists but is missing ${missing.join(" and ")}; restore those files or remove the directory explicitly — RPI will not overwrite it`,
+						"error",
+					);
+					return;
+				}
+				origin = "existing";
+			} else {
+				const description = await ctx.ui.editor(
+					named ? `${named}/ticket.md` : "New task — what do you want to do?",
+				);
 				if (!description?.trim()) return;
-				// Naming can fail, and by then the description is typed and unsaved. Asking for a
-				// name is not the guessed fallback that was rejected — it is the human supplying
-				// what the model could not, and it is the difference between a prompt and a retype.
-				//
-				// Behind a loader rather than a notification: this is a network call, and a toast
-				// dismisses itself while the request is still running, leaving the UI apparently
-				// frozen with no way out. Escape aborts the request and drops through to asking.
-				const title = await ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) => {
-					const loader = new BorderedLoader(tui, theme, "Naming the task…");
-					loader.onAbort = () => done(undefined);
-					nameTask(description, ctx, loader.signal)
-						.then(done)
-						.catch((error) => {
-							ctx.ui.notify(`could not name the task: ${error instanceof Error ? error.message : error}`, "warning");
-							done(undefined);
-						});
-					return loader;
-				});
-
-				// Naming is the machine's job and it is silent when it works: you already said what
-				// the task is, and being asked to approve a directory name adds a keystroke to
-				// every task to catch a case the model gets right. You are only asked when there
-				// is nothing to propose.
-				// `unique("")` is `-2`, not `""` — an empty base still collides with the tasks
-				// directory itself — so a failed naming call would silently make a folder called
-				// `-2`. Nothing may reach `unique` until there is something to make unique.
+				let title: string | undefined | typeof CANCELLED;
+				if (ctx.mode === "tui") {
+					title = await ctx.ui.custom<string | undefined | typeof CANCELLED>(
+						(tui, theme, _keybindings, done) => {
+							const loader = new BorderedLoader(tui, theme, "Naming the task…");
+							loader.onAbort = () => done(CANCELLED);
+							nameTask(description, ctx, loader.signal)
+								.then(done)
+								.catch((error) => {
+									ctx.ui.notify(
+										`could not name the task: ${error instanceof Error ? error.message : error}`,
+										"warning",
+									);
+									done(undefined);
+								});
+							return loader;
+						},
+					);
+				} else {
+					try {
+						title = await nameTask(description, ctx);
+					} catch (error) {
+						ctx.ui.notify(
+							`could not name the task: ${error instanceof Error ? error.message : error}`,
+							"warning",
+						);
+					}
+				}
+				if (title === CANCELLED) return;
 				const derived = slugify(title ?? "");
 				slug = named || (derived ? unique(derived) : "");
 				if (!slug) {
-					const typed = (await ctx.ui.input("Task name — one word, e.g. largest-files"))?.trim();
+					const typed = (
+						await ctx.ui.input("Task name — one word, e.g. largest-files")
+					)?.trim();
 					if (!typed || !SLUG.test(typed)) return;
 					slug = unique(typed);
 				}
-				mkdirSync(join(TASKS, slug), { recursive: true });
-				writeFileSync(join(TASKS, slug, "ticket.md"), `# ${title ?? slug}\n\n${description.trim()}\n`);
+				let prepared: RepositoryEvidence | typeof CANCELLED;
+				try {
+					prepared = await prepareInitialRepository(ctx);
+				} catch (error) {
+					ctx.ui.notify(
+						error instanceof Error ? error.message : String(error),
+						"error",
+					);
+					return;
+				}
+				if (prepared === CANCELLED) return;
+				const repository = prepared;
+				try {
+					createTask(
+						TASKS,
+						slug,
+						`# ${title ?? slug}\n\n${description.trim()}\n`,
+						identityState(repository.gitCommonDir, repository.head),
+					);
+					origin = "created";
+				} catch (error) {
+					ctx.ui.notify(
+						`task creation failed: ${error instanceof Error ? error.message : error}`,
+						"error",
+					);
+					return;
+				}
 			}
 
-			const derived = await locate(slug, ctx.cwd);
-			// Forcing moves the step and nothing else. `detail` is a measurement of the folder — how
-			// many questions are open, how many phases are built — so it describes where the task
-			// actually is, never where you asked to be sent, and the mark that carries it goes too.
-			let place: Place =
-				forced < 0 || forced === derived.at
-					? derived
-					: { at: forced, step: stepFor(forced, slug), detail: "", mark: `${forced}:` };
-			active = { slug, mark: place.mark };
-			// Reads `place` at call time, so it reports wherever the task turned out to be.
-			const reportFinished = () => {
-				show(ctx, slug, place);
+			const loaded = loadState(slug);
+			if (loaded.kind !== "valid") {
+				ctx.ui.notify(
+					`${STATE_FILE} is ${loaded.kind}; restore a complete schema-version-${STATE_VERSION} state file from backup or remove the task directory and recreate it`,
+					"error",
+				);
+				return;
+			}
+			const state = loaded.state;
+			try {
+				const ticket = lstatSync(join(TASKS, slug, "ticket.md"));
+				if (!ticket.isFile() || ticket.isSymbolicLink()) {
+					throw new Error(
+						"ticket.md is not a regular non-symlink file; restore it inside the task directory",
+					);
+				}
+			} catch (error) {
+				ctx.ui.notify(
+					`${slug}: ${error instanceof Error ? error.message : error}`,
+					"error",
+				);
+				return;
+			}
+			active = { slug };
+			await refresh(ctx, slug);
+
+			if (state.phase === "build" && state.commit) {
+				try {
+					await requireRepository(ctx.cwd, state, slug);
+					await handlePendingCommit(ctx, slug);
+				} catch (error) {
+					ctx.ui.notify(
+						error instanceof Error ? error.message : String(error),
+						"error",
+					);
+				}
+				return;
+			}
+			if (state.phase === "done") {
 				ctx.ui.notify(`${slug}: finished — ${join(TASKS, slug)}`, "info");
-			};
-			if (!place.step) {
-				reportFinished();
 				return;
 			}
-
-			// The one place the human is the only one who can act. Asking beats prefilling a command
-			// that, pressed as-is, regenerates the same questions — which is what it used to do.
-			const answers =
-				place.at === DESIGN_STEP && place.detail ? await askQuestions(ctx, documentIn(slug, "03-")) : "";
-
-			// The branch step is git, not a phase, so pi runs it here instead of handing over a
-			// command to paste. Declining, failing, or moving to a worktree all end the turn.
-			//
-			// Gated on the branch rather than on the step, so forcing cannot step over it:
-			// `/rpi <slug>@build` on main would otherwise implement the phase and commit onto main.
-			if (place.at >= BRANCH_STEP && (await branchOf(ctx.cwd)) !== slug) {
-				if (!(await setupBranch(ctx, slug))) {
-					show(ctx, slug, place);
+			if (state.phase === "branch") {
+				const first = firstUncheckedPhase(documentIn(slug, "04-"));
+				if (!first) {
+					ctx.ui.notify(
+						"the outline has no unchecked phase; repair it and retry",
+						"error",
+					);
 					return;
 				}
-			}
-
-			// The branch step is a dialog, never a session. Standing on it once the branch exists
-			// means there is nothing left to run here, so go on to where the task actually is —
-			// which can be the end of it, for a task that was only ever checked out elsewhere.
-			if (place.at === BRANCH_STEP) {
-				place = await locate(slug, ctx.cwd);
-				active = { slug, mark: place.mark };
-				if (!place.step) {
-					reportFinished();
-					return;
-				}
-			}
-
-			// Everything the human supplied reaches the phase — typed after the slug, chosen in the
-			// question dialog, forced step or derived. Spliced once, onto whichever command we ended
-			// up with, so no branch above has to remember to carry it. `trimEnd` guards the design
-			// step's deliberate trailing space.
-			//
-			// No `COMMANDS[place.at]` guard is needed: every step reachable here owns a phase
-			// command. The branch step is the one that does not, and neither block above can leave
-			// us standing on it. `answers` is likewise only ever non-empty at the design step, which
-			// is below both blocks and so cannot have moved out from under it.
-			const extra = [instructions, answers].filter(Boolean).join("; ");
-			if (extra) place = { ...place, step: `${place.step.trimEnd()} ${extra}` };
-
-			// The session's name says which step it is for, so it also says whether you are already
-			// standing in the right one. Nothing to replace if you are.
-			const phase = STEPS[place.at];
-			const name = sessionName(slug, phase);
-			if (pi.getSessionName() === name) {
-				show(ctx, slug, place);
-				ctx.ui.setEditorText(place.step);
+				await beginBuild(ctx, slug, state, first.line);
 				return;
 			}
-
-			// Every phase runs in a session of its own. That is what makes the folder the only state
-			// worth having, and it is the only thing that makes the research firewall real — a phase
-			// forbidden to read the ticket cannot be trusted in a session that already read it.
-			await ctx.waitForIdle();
-
-			// A second run of the same step is either "carry on where I left off" or "that attempt
-			// went wrong, start clean". Both are reasonable and only you know which, so offer the
-			// ones that exist rather than silently making another.
-			const prior = await priorSessions(ctx, slug, phase);
-			// Numbered so two sessions with the same length and age still pick apart exactly.
-			const labels = prior.map((s, index) => `${index + 1}. ${s.messageCount} messages, ${ago(s.modified)}`);
-			const start = "Start a fresh one";
-			const chosen = labels.length
-				? await ctx.ui.select(`Sessions already exist for ${phase}:`, [...labels, start])
-				: start;
-			if (!chosen) return;
-			const resume = prior[labels.indexOf(chosen)];
-
-			const parentSession = ctx.sessionManager.getSessionFile();
-			// Runs in this closure, not the replacement's. Only plain strings cross.
-			const withSession = async (replacement: ExtensionContext) => {
-				show(replacement, slug, place);
-				replacement.ui.setEditorText(place.step);
-			};
-			const replaced = resume
-				? await ctx.switchSession(resume.path, { withSession })
-				: await ctx.newSession({
-						parentSession,
-						// Named here rather than when the phase first runs, so a second `/rpi` can see
-						// it is already in the right session instead of making another.
-						setup: async (sm) => {
-							sm.appendSessionInfo(name);
-						},
-						withSession,
-					});
-			// Another extension can veto the switch, and then `withSession` never runs: no widget,
-			// no prefill, nothing said. Silence there reads as `/rpi` being broken.
-			if (replaced.cancelled) {
-				show(ctx, slug, place);
-				ctx.ui.notify(`session switch cancelled — ${place.step} not started`, "warning");
+			if (state.phase === "build") {
+				if ((await branchOf(ctx.cwd)) !== slug) {
+					const result = await setupBranch(ctx, slug, state);
+					if (result !== "here") return;
+				}
+				try {
+					await startOrGatePersistedRun(ctx, slug, state);
+				} catch (error) {
+					ctx.ui.notify(
+						error instanceof Error ? error.message : String(error),
+						"error",
+					);
+				}
+				return;
+			}
+			if (state.phase === "pr") {
+				try {
+					if (!(await validatePrHead(ctx, slug, state, ctx.cwd))) return;
+					await startOrGatePersistedRun(ctx, slug, state);
+				} catch (error) {
+					ctx.ui.notify(
+						error instanceof Error ? error.message : String(error),
+						"error",
+					);
+				}
+				return;
+			}
+			const phase = state.phase;
+			try {
+				await requireRepository(ctx.cwd, state);
+				if (
+					origin === "existing" &&
+					pi.getSessionName() === sessionName(slug, phase)
+				) {
+					if (currentMessageCount(ctx) === 0) {
+						sendCurrent(ctx, loadPhasePrompt(phase, slug));
+						return;
+					}
+					await handleCurrentPhase(ctx, slug, state);
+					return;
+				}
+				await enterPhase(ctx, slug, phase);
+			} catch (error) {
+				ctx.ui.notify(
+					error instanceof Error ? error.message : String(error),
+					"error",
+				);
 			}
 		},
 	});

@@ -3,23 +3,21 @@ description: RPI pr — verify the branch and write its PR description
 argument-hint: "<task-slug> [instructions]"
 ---
 
-Task: `~/.pi/agent/tasks/$1/`
+Treat a decision in the final Run context as settled, but check any claim about the code before
+acting on it — `delegate` to `scout`. A wrong fact accepted here dismisses a real finding.
 
-Anything the human typed after the slug is extra instruction for this run: ${@:2}
-
-Treat a decision in it as settled, but check any claim about the code before acting on it —
-`delegate` to `scout`. A wrong fact accepted here dismisses a real finding.
-
-If a document you read names a `repo:` that is not this repository, stop and say so — the task
-belongs to a different checkout.
+If a document names a `repo:`, compare repository identity rather than top-level paths: linked
+worktrees have different roots. Treat it as this repository only when that checkout's and this
+checkout's `git rev-parse --path-format=absolute --git-common-dir` resolve to the same path;
+otherwise stop and say the task belongs to a different repository.
 
 Read `ticket.md` and `04-structure-outline.md` in full; read `03-design-discussion.md` and
 `02-research.md` if the diff raises something they would answer.
 
 Run every phase's `### Verification` commands, not just the last phase's. Stop on a failure.
 
-Read the whole branch diff against its base — `git diff main...HEAD`, or the repo's default branch
-if it is not `main` — and read files the diff references but does not show.
+Read the whole branch diff using the exact recorded range in the final Run context. Do not infer
+`main`, a default branch, or a merge base. Read files the diff references but does not show.
 
 **Never push, never create or edit a PR.** No `git push`, no `gh pr create`, no `gh pr edit`. If
 there are uncommitted changes, say so and stop; do not commit them.
@@ -27,22 +25,16 @@ there are uncommitted changes, say so and stop; do not commit them.
 ## Audit the branch
 
 Read `~/.pi/agent/extensions/subagent/prompts/audit.md` and follow it over the whole branch diff.
-It is a slash command, so its first line carries an unexpanded `${@:-…}` placeholder — the scope is
-the branch diff, not whatever that line appears to say.
+It is a slash command, so its first line carries an unexpanded all-arguments-with-default
+placeholder — the scope is the branch diff, not whatever that line appears to say.
 
-On a blocking finding, report it and stop — but say how to act on it, quoting both commands:
-
-```text
-/rpi $1@outline append a repair phase: <the finding, in one line>
-/rpi $1@pr <why the finding is wrong or not worth fixing>
-```
-
-The first appends an unchecked phase, which sends `/rpi` back to build. The second overrides you.
-Do not fix the code here, and do not write the description around a finding you have not settled.
+On a blocking finding, report it in one clear line and stop. The human can use `/rpi <task-slug>`
+to continue the audit, add a repair phase, or revisit the design. Do not fix the code here, and do
+not write the description around a finding the human has not settled.
 
 ## Describe it
 
-Write `~/.pi/agent/tasks/$1/pr-description.md`:
+Write `<task-directory>/pr-description.md`:
 
 ````markdown
 # [title]
@@ -70,8 +62,18 @@ what to look for.
 Then stop. Report the path, and the exact commands the human can run if they want the PR:
 
 ```text
-git push -u origin $1
-gh pr create --body-file ~/.pi/agent/tasks/$1/pr-description.md
+git push -u origin <task-slug>
+gh pr create --body-file <task-directory>/pr-description.md
 ```
 
-Close with `Next: /rpi $1` and nothing after it.
+Then stop.
+
+## Run context
+
+Task slug: `$1`
+Task directory: `~/.pi/agent/tasks/$1/`
+Additional instruction supplied through the `/rpi` controls: `${@:2}`
+Recorded task base SHA: `{{RPI_BASE_SHA}}`
+Expected PR HEAD: `{{RPI_PR_HEAD}}`
+Audit exactly: `git diff {{RPI_BASE_SHA}}..{{RPI_PR_HEAD}}`
+Substitute the Task slug and Task directory above for `<task-slug>` and `<task-directory>`.

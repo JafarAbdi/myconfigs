@@ -3,10 +3,6 @@ description: RPI questions — write the query plan for the research phase
 argument-hint: "<task-slug> [instructions]"
 ---
 
-Task: `~/.pi/agent/tasks/$1/`
-
-Anything the human typed after the slug is extra instruction for this run: ${@:2}
-
 Read `ticket.md` in full.
 
 Write a query plan: the questions the research phase will answer. You are not answering them.
@@ -30,8 +26,8 @@ typography, spacing, theming — whether or not the ticket mentions it.
 
 ## Output
 
-Write `~/.pi/agent/tasks/$1/01-research-questions.md`. If it already exists, update it in place;
-keep the number and the filename.
+Write `<task-directory>/01-research-questions.md`. If it already exists, update it in place; keep
+the number and the filename.
 
 ````markdown
 ---
@@ -55,4 +51,11 @@ sha: [git rev-parse HEAD]
 Preserve every pointer the ticket supplied verbatim — exact URLs, exact paths, exact package names.
 Drop the section only if the ticket gave none.
 
-Then stop. Report what you wrote, and close with `Next: /rpi $1` and nothing after it.
+Then stop. Report what you wrote.
+
+## Run context
+
+Task slug: `$1`
+Task directory: `~/.pi/agent/tasks/$1/`
+Additional instruction supplied through the `/rpi` controls: `${@:2}`
+Use the Task directory above wherever this prompt says `<task-directory>`.

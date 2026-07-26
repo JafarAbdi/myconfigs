@@ -3,21 +3,19 @@ description: RPI build — implement the next unchecked phase of the outline
 argument-hint: "<task-slug> [instructions]"
 ---
 
-Task: `~/.pi/agent/tasks/$1/`
+Treat a decision in the final Run context as settled, but check any claim about the code before
+acting on it — `delegate` to `scout`. A wrong fact accepted here becomes the plan and then the code.
 
-Anything the human typed after the slug is extra instruction for this run: ${@:2}
-
-Treat a decision in it as settled, but check any claim about the code before acting on it —
-`delegate` to `scout`. A wrong fact accepted here becomes the plan and then the code.
-
-If a document you read names a `repo:` that is not this repository, stop and say so — the task
-belongs to a different checkout.
+If a document names a `repo:`, compare repository identity rather than top-level paths: linked
+worktrees have different roots. Treat it as this repository only when that checkout's and this
+checkout's `git rev-parse --path-format=absolute --git-common-dir` resolve to the same path;
+otherwise stop and say the task belongs to a different repository.
 
 Read `04-structure-outline.md` in full.
 
-Take the **first unchecked** `- [ ]` in the Implementation Overview. That box is the whole resume
-mechanism: it is the only record of what is done, so trust it, and do not go looking for other
-markers. One phase per run.
+Implement the authoritative unchecked phase line in the final Run context. Confirm it is the first
+unchecked `- [ ]` in the Implementation Overview; if it is not, stop with the mismatch. That line
+is the whole run. Do not look for other markers. One phase per run.
 
 **The repository is the current working directory.** Resolve every file path relative to it and
 ignore absolute repository paths in the documents, verification commands included — those point at
@@ -52,20 +50,21 @@ If the implementer escalates instead of fixing, the rule above applies: stop and
 
 ## Report and stop
 
-Tell the human what changed, what you ran, what the reviewer found, what you fixed for it, and what
-you left, plus any manual check the phase listed. Then stop and wait. Do not start the next phase,
-and do not commit before they confirm.
+Report normally: what changed, the exact verification commands and results, the reviewer's findings
+and fixes, anything left, and any manual check. Name the repository-relative paths changed by this
+phase, including tests and deletions. If Git shows unrelated pre-existing changes, stop and put them
+before the human instead of including them.
 
-Once they confirm:
+If the phase is impossible or unnecessary, explain why it can close with no code.
 
-1. Change that phase's `- [ ]` to `- [x]` in the Implementation Overview. Change nothing else in the
-   document — not the heading, not any other line. Never invent another marker.
-2. Stage the files this phase changed, by name — never `git add -A` or `git add .`. Then read
-   `~/.claude/commands/gh/commit-message.md` and follow it; it commits the staged set and nothing
-   else.
+Do not stage or commit anything. Do not edit any outline checkbox or add a `Resolution:` paragraph.
+Do not start another phase or claim the task transitioned. The extension presents the report and
+repository state to the human, who reviews with `git diff` and decides what happens next.
 
-If a phase turns out to be impossible or unnecessary, check it anyway and add a `Resolution:`
-paragraph under that phase saying why it closed with no code. `- [x]` means *settled*, not *code
-was written*; never invent a third state.
+## Run context
 
-Then stop. Report what you wrote, and close with `Next: /rpi $1` and nothing after it.
+Task slug: `$1`
+Task directory: `~/.pi/agent/tasks/$1/`
+Additional instruction supplied through the `/rpi` controls: `${@:2}`
+Authoritative unchecked phase line: `{{RPI_PHASE_LINE}}`
+Use the Task directory above for all task-document paths.

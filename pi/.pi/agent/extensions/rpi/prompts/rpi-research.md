@@ -3,12 +3,10 @@ description: RPI research — answer the query plan and write the codebase expla
 argument-hint: "<task-slug> [instructions]"
 ---
 
-Task: `~/.pi/agent/tasks/$1/`
-
-Anything the human typed after the slug is extra instruction for this run: ${@:2}
-
-If a document you read names a `repo:` that is not this repository, stop and say so — the task
-belongs to a different checkout.
+If a document names a `repo:`, compare repository identity rather than top-level paths: linked
+worktrees have different roots. Treat it as this repository only when that checkout's and this
+checkout's `git rev-parse --path-format=absolute --git-common-dir` resolve to the same path;
+otherwise stop and say the task belongs to a different repository.
 
 Read `01-research-questions.md` in full.
 
@@ -33,8 +31,8 @@ more round of targeted agents, then stop and record what remains open.
 
 ## Output
 
-Write `~/.pi/agent/tasks/$1/02-research.md`. If it already exists, update the affected sections
-in place rather than appending; keep the number and the filename.
+Write `<task-directory>/02-research.md`. If it already exists, update the affected sections in
+place rather than appending; keep the number and the filename.
 
 Open it with frontmatter recording where and when it was written:
 
@@ -63,4 +61,11 @@ it end to end.
 - Then Open Questions: things you could not trace. Investigative only — "how does X reach Y", never
   "should Z be refactored". "None" if none.
 
-Then stop. Report what you wrote, and close with `Next: /rpi $1` and nothing after it.
+Then stop. Report what you wrote.
+
+## Run context
+
+Task slug: `$1`
+Task directory: `~/.pi/agent/tasks/$1/`
+Additional instruction supplied through the `/rpi` controls: `${@:2}`
+Use the Task directory above wherever this prompt says `<task-directory>`.
