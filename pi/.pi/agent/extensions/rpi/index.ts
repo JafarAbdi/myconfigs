@@ -1224,6 +1224,13 @@ export default function rpi(pi: ExtensionAPI): void {
 					await replacement.sendUserMessage(continuation);
 					return;
 				}
+				if (activate) {
+					replacement.ui.notify(
+						`${phase} session resumed — continue in chat when ready`,
+						"info",
+					);
+					return;
+				}
 				if (
 					replacement.mode === "tui" &&
 					!replacement.ui.getEditorText().trim()
@@ -1898,10 +1905,18 @@ export default function rpi(pi: ExtensionAPI): void {
 		slug: string,
 		state: TaskState,
 		phase: Exclude<PhasePrompt, "build" | "pr">,
+		context: PromptContext = {},
 	): Promise<void> {
-		saveState(slug, plainState(state, phase));
-		active = { slug };
-		await enterPhase(ctx, slug, phase);
+		await enterPhase(ctx, slug, phase, context, () => {
+			const latest = loadState(slug);
+			if (latest.kind !== "valid" || !sameState(latest.state, state)) {
+				throw new Error(
+					"task state changed during the session switch; run /rpi again",
+				);
+			}
+			saveState(slug, plainState(latest.state, phase));
+			active = { slug };
+		});
 	}
 
 	async function revisit(
@@ -2110,19 +2125,27 @@ export default function rpi(pi: ExtensionAPI): void {
 				return advancePlainPhase(ctx, slug, state, "outline");
 			}
 			case "outline": {
-				const open = questionsIn(documentIn(slug, "03-"));
+				const design = documentIn(slug, "03-");
+				const open = questionsIn(design);
 				if (open.length) {
-					ctx.ui.notify(
-						`${open.length} design question(s) reopened; returning to design`,
-						"warning",
-					);
-					return advancePlainPhase(ctx, slug, state, "design");
+					const answers = await askQuestions(ctx, design);
+					if (answers === CANCELLED) return;
+					if (!answers) {
+						ctx.ui.notify(
+							`${open.length} design question(s) remain; submit at least one answer to continue`,
+							"warning",
+						);
+						return;
+					}
+					return advancePlainPhase(ctx, slug, state, "design", {
+						extra: answers,
+					});
 				}
 				const outline = documentIn(slug, "04-");
 				if (!outline) {
 					ctx.ui.notify(
-						"cannot advance outline: expected one 04- artifact",
-						"error",
+						"outline work is not finished — continue in chat, then run /rpi again",
+						"warning",
 					);
 					return;
 				}
