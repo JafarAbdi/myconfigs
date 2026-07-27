@@ -1,340 +1,208 @@
 import assert from "node:assert/strict";
+import { Check } from "typebox/value";
 import {
-	insertQuestions,
-	parseDesignQuestions,
-	type QuestionsInput,
-	questionsSchema,
-	serializeQuestions,
-	validateQuestions,
+	EMPTY_QUESTION_STORE,
+	answerQuestion,
+	parseQuestionStore,
+	questionAnswerSchema,
+	questionInputSchema,
+	questionStoreSchema,
+	serializeQuestionStore,
+	type QuestionInput,
+	type QuestionStore,
+	updateDesignQuestions,
+	updateDesignQuestionsSchema,
+	validateQuestionInput,
+	validateQuestionStore,
 } from "./questions.ts";
 
-const input: QuestionsInput = {
-	task_slug: "cache-policy",
-	questions: [
-		{
-			title: "Cache ownership",
-			question: "Which layer should own the cache?",
-			options: ["The adapter", "The caller"],
-			recommended_option: 1,
-			recommendation: "it already owns the remote lifecycle",
-		},
-	],
-};
+const input = (title = "Cache ownership"): QuestionInput => ({
+	title,
+	question: "Which layer should own the cache?",
+	options: ["The adapter", "The caller"],
+	recommended_option: 1,
+	recommendation: "The adapter already owns the remote lifecycle.",
+});
+const update = (store: QuestionStore, questions: QuestionInput[], ids: string[] = []) =>
+	updateDesignQuestions(store, { incorporated_question_ids: ids, questions });
 
+assert.equal(Check(questionInputSchema, input()), true);
+assert.equal(Check(questionInputSchema, { ...input(), extra: true }), false);
+assert.equal(Check(questionStoreSchema, EMPTY_QUESTION_STORE), true);
 assert.equal(
-	(
-		questionsSchema as typeof questionsSchema & {
-			additionalProperties: boolean;
-		}
-	).additionalProperties,
+	(updateDesignQuestionsSchema.properties.questions as { maxItems?: number }).maxItems,
+	undefined,
+	"the lifecycle tool must not cap question count",
+);
+assert.equal(
+	(updateDesignQuestionsSchema as unknown as { additionalProperties: boolean })
+		.additionalProperties,
 	false,
 );
 assert.equal(
-	(
-		questionsSchema.properties.questions
-			.items as typeof questionsSchema.properties.questions.items & {
-			additionalProperties: boolean;
-		}
-	).additionalProperties,
-	false,
+	Check(updateDesignQuestionsSchema, {
+		task_slug: "cache-policy",
+		incorporated_question_ids: [],
+		questions: [],
+	}),
+	true,
+	"the schema describes shape; semantic validation rejects an empty operation",
 );
-assert.equal(
-	(
-		questionsSchema.properties
-			.questions as typeof questionsSchema.properties.questions & {
-			minItems: number;
-		}
-	).minItems,
-	1,
-);
-assert.equal(
-	serializeQuestions(input),
-	[
-		"#### Cache ownership",
-		"",
-		"Which layer should own the cache?",
-		"",
-		"- Option A: The adapter",
-		"- Option B: The caller",
-		"",
-		"Recommendation: Option A — it already owns the remote lifecycle",
-	].join("\n"),
-);
+assert.throws(() => update(EMPTY_QUESTION_STORE, []), /at least one operation/);
 
-const twentySix: QuestionsInput = {
-	...input,
-	questions: [
-		{
-			...input.questions[0],
-			options: Array.from({ length: 26 }, (_, index) => `Choice ${index + 1}`),
-			recommended_option: 26,
-		},
-	],
-};
-assert.match(serializeQuestions(twentySix), /- Option Z: Choice 26/);
-assert.match(serializeQuestions(twentySix), /Recommendation: Option Z —/);
+const one = update(EMPTY_QUESTION_STORE, [input()]);
+assert.deepEqual(one.questions[0], {
+	id: "Q1",
+	...input(),
+	status: "open",
+	answer: null,
+});
+const manyInputs = Array.from({ length: 100 }, (_, index) => input(`Decision ${index + 1}`));
+const many = update(EMPTY_QUESTION_STORE, manyInputs);
+assert.equal(many.questions.length, 100);
+assert.equal(many.questions[99].id, "Q100");
+assert.equal(EMPTY_QUESTION_STORE.questions.length, 0, "mutation is pure");
 
-const design = (body: string) =>
-	`# Design\n\n### Context\n\nContext.\n\n### Design Questions\n\n${body}\n\n### Patterns to follow\n\nPattern.`;
-const open = serializeQuestions(input);
-const resolved = [
-	"#### [x] Storage format",
-	"",
-	"Which format should persist?",
-	"",
-	"- Option A: JSON",
-	"- Option B: SQLite",
-	"",
-	"Decision: Option B",
-	"Rationale: It provides transactions; JSON does not.",
-].join("\n");
-
-const parsedOpen = parseDesignQuestions(design(open));
-assert.equal(parsedOpen.kind, "valid");
-if (parsedOpen.kind === "valid") {
-	assert.equal(parsedOpen.questions.length, 1);
-	assert.deepEqual(parsedOpen.questions[0], {
-		status: "open",
-		title: "Cache ownership",
-		question: "Which layer should own the cache?",
-		options: ["The adapter", "The caller"],
-		recommendedOption: 1,
-		recommendation: "it already owns the remote lifecycle",
-	});
-}
-
-const parsedResolved = parseDesignQuestions(design(resolved));
-assert.equal(parsedResolved.kind, "valid");
-if (parsedResolved.kind === "valid")
-	assert.equal(parsedResolved.questions[0].status, "resolved");
-assert.equal(
-	parseDesignQuestions(design(open).replaceAll("\n", "\r\n")).kind,
-	"valid",
+const invalidMember = { ...input("Broken"), options: ["Only one"] };
+assert.throws(
+	() => update(EMPTY_QUESTION_STORE, [input("Valid"), invalidMember]),
+	/exact input schema/,
 );
-
-const multiple = parseDesignQuestions(design(`${open}\n\n${resolved}`));
-assert.equal(multiple.kind, "valid");
-if (multiple.kind === "valid") assert.equal(multiple.questions.length, 2);
-
-const fenced = parseDesignQuestions(
-	design(
-		[
-			"```md",
-			"### Design Questions",
-			"#### Fake",
-			"- Option A: Fake",
-			"```",
-			open,
-			"~~~md",
-			"#### [ ] Also fake",
-			"- Option Z: Fake",
-			"~~~",
-		].join("\n"),
-	),
-);
-assert.equal(fenced.kind, "valid");
-if (fenced.kind === "valid") assert.equal(fenced.questions.length, 1);
-const unterminatedFence = parseDesignQuestions(design(`${open}\n\n\`\`\`md`));
-assert.equal(unterminatedFence.kind, "invalid");
-if (unterminatedFence.kind === "invalid")
-	assert.match(unterminatedFence.error, /unterminated Markdown code fence/);
-
-function reject(body: string, pattern: RegExp): void {
-	const result = parseDesignQuestions(design(body));
-	assert.equal(result.kind, "invalid", body);
-	if (result.kind === "invalid") {
-		assert.match(result.error, /^line \d+:/);
-		assert.match(result.error, pattern);
-	}
-}
-
-reject(
-	[
-		"#### One option",
-		"",
-		"Choose.",
-		"",
-		"- Option A: Alone",
-		"",
-		"Recommendation: Option A — only choice",
-	].join("\n"),
-	/One option.*2\.\.26/,
-);
-
-const twentySeven = Array.from(
-	{ length: 27 },
-	(_, index) =>
-		`- Option ${String.fromCharCode(65 + (index % 26))}: Value ${index}`,
-).join("\n");
-reject(
-	`#### Too many\n\nChoose.\n\n${twentySeven}\n\nRecommendation: Option A — first`,
-	/Too many/,
-);
-reject(
-	"#### Gap\n\nChoose.\n\n- Option A: One\n- Option C: Three\n\nRecommendation: Option A — first",
-	/expected Option B/,
-);
-reject(
-	"#### Duplicate labels\n\nChoose.\n\n- Option A: One\n- Option A: Two\n\nRecommendation: Option A — first",
-	/expected Option B/,
-);
-reject(
-	"#### Duplicate values\n\nChoose.\n\n- Option A: Same\n- Option B: Same\n\nRecommendation: Option A — first",
-	/duplicates option text/,
-);
-reject(
-	"#### Missing recommendation\n\nChoose.\n\n- Option A: One\n- Option B: Two",
-	/requires exactly one Recommendation; found 0/,
-);
-reject(
-	"#### Duplicate recommendation\n\nChoose.\n\n- Option A: One\n- Option B: Two\n\nRecommendation: Option A — first\nRecommendation: Option B — second",
-	/requires exactly one Recommendation; found 2/,
-);
-reject(
-	"#### Out of range\n\nChoose.\n\n- Option A: One\n- Option B: Two\n\nRecommendation: Option C — third",
-	/names missing Option C/,
-);
-reject(
-	"#### [x] Broken resolution\n\nChoose.\n\n- Option A: One\n- Option B: Two\n\nDecision: \nRationale: reason",
-	/Decision/,
-);
-reject(
-	"#### [x] Still recommended\n\nChoose.\n\n- Option A: One\n- Option B: Two\n\nRecommendation: Option A — first\nDecision: One\nRationale: reason",
-	/recommendation/i,
-);
-reject(`${open}\n\n${open}`, /duplicate question title "Cache ownership"/);
-reject(
-	"#### [ ] Malformed\n\nChoose.\n\n- Option A: One\n- Option B: Two",
-	/question heading must be/,
-);
-reject(
-	"#### Trailing prose\n\nChoose.\n\n- Option A: One\n- Option B: Two\nExtra prose\nRecommendation: Option A — first",
-	/unexpected content/,
-);
-reject(
-	"#### Bad order\n\nChoose.\n\n- Option A: One\nRecommendation: Option A — first\n- Option B: Two",
-	/option after recommendation/,
-);
-reject(
-	"#### [x] Backwards\n\nChoose.\n\n- Option A: One\n- Option B: Two\n\nRationale: reason\nDecision: One",
-	/requires Decision before Rationale/,
-);
-reject(
-	"#### [x] Padded\n\nChoose.\n\n- Option A: One\n- Option B: Two\n\nDecision: Option A \nRationale: reason",
-	/Decision must not have surrounding whitespace/,
-);
-reject(
-	"#### Padded recommendation\n\nChoose.\n\n- Option A: One\n- Option B: Two\n\nRecommendation: Option A — reason\t",
-	/Recommendation rationale must not have surrounding whitespace/,
-);
-reject(
-	"#### [x] Control\n\nChoose.\n\n- Option A: One\n- Option B: Two\n\nDecision: Option A\u0085hidden\nRationale: reason",
-	/Decision must not contain control characters/,
-);
-reject(
-	"#### [x] Line separator\n\nChoose.\n\n- Option A: One\n- Option B: Two\n\nDecision: Option A\nRationale: visible\u2029hidden",
-	/Rationale/,
-);
-reject("Loose prose", /unexpected content before the first question/);
-const outsideSection = parseDesignQuestions(
-	`# Design\n\n#### Outside\n\n### Design Questions\n\n${open}`,
-);
-assert.equal(outsideSection.kind, "invalid");
-if (outsideSection.kind === "invalid")
-	assert.match(outsideSection.error, /must be inside/);
-
-assert.deepEqual(validateQuestions({ task_slug: "ok", questions: [] }), [
-	"questions must contain at least one entry",
+assert.deepEqual(EMPTY_QUESTION_STORE, { version: 1, questions: [] });
+assert.deepEqual(validateQuestionInput({ ...input(), options: ["same", "same"] }), [
+	"duplicate option 2 (matches option 1)",
+]);
+assert.deepEqual(validateQuestionInput({ ...input(), recommended_option: 3 }), [
+	"recommended_option 3 exceeds 2 options",
 ]);
 assert.match(
-	validateQuestions({
-		...input,
-		questions: [
-			{ ...input.questions[0], recommendation: "reason\u009fhidden" },
-		],
-	}).join("\n"),
-	/recommendation must not contain control characters/,
+	validateQuestionInput({ ...input(), title: " padded " }).join("\n"),
+	/surrounding whitespace/,
 );
 assert.match(
-	validateQuestions({
-		...input,
-		questions: [
-			{ ...input.questions[0], options: ["visible\u2028hidden", "second"] },
-		],
-	}).join("\n"),
-	/option 1 must be a single line/,
+	validateQuestionInput({ ...input(), question: "two\nlines" }).join("\n"),
+	/single line/,
 );
 assert.match(
-	validateQuestions({
-		task_slug: "ok",
-		questions: [
-			{
-				...input.questions[0],
-				title: "[x] Injected",
-				question: "#### Injected",
-			},
-		],
-	}).join("\n"),
-	/title must not start.*question must not start with Markdown structure/s,
+	validateQuestionInput({ ...input(), recommendation: "bad\u0085value" }).join("\n"),
+	/control characters/,
 );
 
-assert.deepEqual(
-	validateQuestions({
-		task_slug: " ",
-		questions: [
-			{
-				title: "Repeated",
-				question: "line one\nline two",
-				options: ["same", "same"],
-				recommended_option: 3,
-				recommendation: " ",
-			},
-			{
-				title: "Repeated",
-				question: "Question",
-				options: ["one"],
-				recommended_option: 1,
-				recommendation: "Reason",
-			},
-		],
-	}),
-	[
-		"task_slug must not be empty",
-		'question 1 ("Repeated"): question must be a single line',
-		'question 1 ("Repeated"): recommendation must not be empty',
-		'question 1 ("Repeated"): duplicate option 2 (matches option 1)',
-		'question 1 ("Repeated"): recommended_option 3 exceeds 2 options',
-		'question 2 ("Repeated"): duplicate title (first used by question 1)',
-		'question 2 ("Repeated"): options must contain 2..26 entries',
-	],
-);
+const twentySix = input("Twenty six");
+twentySix.options = Array.from({ length: 26 }, (_, index) => `Choice ${index + 1}`);
+twentySix.recommended_option = 26;
+assert.equal(update(EMPTY_QUESTION_STORE, [twentySix]).questions[0].options.length, 26);
+assert.equal(Check(questionInputSchema, { ...twentySix, options: [...twentySix.options, "27"] }), false);
 
-const inserted = insertQuestions(
-	"# Design\n\n### Design Questions\n\n### Next\n\nUntouched.\n",
-	input,
+const encoded = serializeQuestionStore(one);
+assert.equal(encoded, `${JSON.stringify(one, null, 2)}\n`);
+assert.deepEqual(parseQuestionStore(encoded), one);
+assert.throws(() => parseQuestionStore("not JSON"), /invalid questions JSON/);
+assert.throws(() => parseQuestionStore('{"version":1,"questions":[],"extra":1}'), /exact version-1/);
+assert.throws(() => parseQuestionStore('{"version":2,"questions":[]}'), /exact version-1/);
+assert.throws(() => parseQuestionStore("[]"), /exact version-1/);
+
+for (const malformed of [
+	{ ...one, questions: [{ ...one.questions[0], id: "Q2" }] },
+	{ ...one, questions: [{ ...one.questions[0], id: "Q01" }] },
+	{ ...one, questions: [{ ...one.questions[0], status: "answered", answer: null }] },
+	{ ...one, questions: [{ ...one.questions[0], status: "open", answer: { kind: "option", option: 1 } }] },
+	{ ...one, questions: [{ ...one.questions[0], status: "resolved" }] },
+	{ ...one, questions: [{ ...one.questions[0], extra: true }] },
+]) {
+	assert.notDeepEqual(validateQuestionStore(malformed), [], JSON.stringify(malformed));
+}
+assert.equal(Check(questionAnswerSchema, { kind: "option", option: 1 }), true);
+assert.equal(Check(questionAnswerSchema, { kind: "free_text", text: "Other" }), true);
+assert.equal(Check(questionAnswerSchema, { kind: "option", option: 1, text: "mixed" }), false);
+
+const optionAnswered = answerQuestion(one, "Q1", { kind: "option", option: 2 });
+assert.deepEqual(optionAnswered.questions[0].answer, { kind: "option", option: 2 });
+assert.equal(optionAnswered.questions[0].status, "answered");
+assert.equal(one.questions[0].status, "open", "answer transition is pure");
+const freeTextAnswered = answerQuestion(one, "Q1", {
+	kind: "free_text",
+	text: "  The repository owner decides  ",
+});
+assert.deepEqual(freeTextAnswered.questions[0].answer, {
+	kind: "free_text",
+	text: "The repository owner decides",
+});
+const multilineAnswered = answerQuestion(one, "Q1", {
+	kind: "free_text",
+	text: "  Use retries.\nStop after three failures.  ",
+});
+assert.deepEqual(multilineAnswered.questions[0].answer, {
+	kind: "free_text",
+	text: "Use retries.\nStop after three failures.",
+});
+assert.deepEqual(validateQuestionStore(multilineAnswered), []);
+assert.throws(
+	() => answerQuestion(one, "Q1", { kind: "free_text", text: "   " }),
+	/answer text must not be empty/,
 );
+assert.throws(() => answerQuestion(one, "Q1", { kind: "option", option: 3 }), /exceeds 2 options/);
+assert.throws(() => answerQuestion(one, "Q9", { kind: "option", option: 1 }), /unknown/);
 assert.equal(
-	inserted,
-	`# Design\n\n### Design Questions\n\n${open}\n\n### Next\n\nUntouched.\n`,
+	answerQuestion(optionAnswered, "Q1", { kind: "option", option: 2 }),
+	optionAnswered,
+	"an exact answer retry is idempotent",
 );
 assert.throws(
-	() => insertQuestions(design(open), input),
-	/duplicate question title/,
-);
-assert.equal(
-	insertQuestions("# Design\n\n### Design Questions", input),
-	`# Design\n\n### Design Questions\n\n${open}`,
-	"a document without a trailing newline must remain without one",
-);
-assert.equal(
-	insertQuestions("# Design\n\n### Design Questions\n", input),
-	`# Design\n\n### Design Questions\n\n${open}\n`,
-	"a document with a trailing newline must retain exactly one",
-);
-const crlfDocument = "# Design\r\n\r\n### Design Questions\r\n\r\n### Next\r\n";
-assert.equal(
-	insertQuestions(crlfDocument, input),
-	`# Design\r\n\r\n### Design Questions\r\n\r\n${open.replaceAll("\n", "\r\n")}\r\n\r\n### Next\r\n`,
+	() => answerQuestion(optionAnswered, "Q1", { kind: "option", option: 1 }),
+	/immutable answer/,
 );
 
-console.log("rpi questions: ok");
+const incorporated = update(optionAnswered, [], ["Q1"]);
+assert.equal(incorporated.questions[0].status, "incorporated");
+assert.deepEqual(incorporated.questions[0].answer, { kind: "option", option: 2 });
+assert.deepEqual(update(incorporated, [], ["Q1"]), incorporated);
+assert.throws(() => update(one, [], ["Q1"]), /has not been answered/);
+assert.throws(() => update(one, [], ["Q9"]), /unknown question/);
+assert.throws(() => update(optionAnswered, [], ["Q1", "Q1"]), /duplicate incorporated/);
+
+assert.deepEqual(update(one, [input()]), one, "an exact repeated submission is a no-op");
+const reorderedInput: QuestionInput = {
+	recommendation: input().recommendation,
+	recommended_option: input().recommended_option,
+	options: input().options,
+	question: input().question,
+	title: input().title,
+};
+assert.deepEqual(
+	update(one, [reorderedInput]),
+	one,
+	"idempotency must not depend on JSON property order",
+);
+assert.throws(
+	() => update(one, [{ ...input(), question: "A conflicting question" }]),
+	/conflicting duplicate title/,
+);
+assert.equal(update(EMPTY_QUESTION_STORE, [input(), input()]).questions.length, 1);
+assert.throws(
+	() => update(EMPTY_QUESTION_STORE, [input(), { ...input(), recommendation: "Conflict" }]),
+	/conflicting duplicate title/,
+);
+
+const acknowledgedAndAdded = update(optionAnswered, [input("Eviction timing")], ["Q1"]);
+assert.deepEqual(
+	acknowledgedAndAdded.questions.map(({ id, status }) => ({ id, status })),
+	[
+		{ id: "Q1", status: "incorporated" },
+		{ id: "Q2", status: "open" },
+	],
+);
+assert.deepEqual(acknowledgedAndAdded.questions[0].answer, optionAnswered.questions[0].answer);
+assert.equal(acknowledgedAndAdded.questions[0].title, one.questions[0].title);
+
+const duplicateTitles: QuestionStore = {
+	version: 1,
+	questions: [
+		one.questions[0],
+		{ ...one.questions[0], id: "Q2" },
+	],
+};
+assert.match(validateQuestionStore(duplicateTitles).join("\n"), /duplicate title/);
+assert.throws(() => serializeQuestionStore(duplicateTitles), /duplicate title/);
+
+console.log("rpi structured questions: ok");

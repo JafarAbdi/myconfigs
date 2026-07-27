@@ -34,6 +34,34 @@ interface CapturedPrompt {
 	name: string | undefined;
 }
 
+interface CapturedSelection {
+	question: string;
+	options: string[];
+}
+
+interface QuestionUpdateParams {
+	task_slug: string;
+	incorporated_question_ids: string[];
+	questions: Array<{
+		title: string;
+		question: string;
+		options: string[];
+		recommended_option: number;
+		recommendation: string;
+	}>;
+}
+
+interface RegisteredTool {
+	name: string;
+	execute(
+		toolCallId: string,
+		params: QuestionUpdateParams,
+		signal: AbortSignal,
+		onUpdate: (update: unknown) => void,
+		ctx: MockContext,
+	): Promise<unknown>;
+}
+
 interface SessionOptions {
 	parentSession?: string;
 	setup?: (manager: SessionManagerInstance) => Promise<void>;
@@ -42,7 +70,7 @@ interface SessionOptions {
 
 interface MockContext {
 	cwd: string;
-	mode: "rpc";
+	mode: "rpc" | "tui";
 	hasUI: true;
 	sessionManager: SessionManagerInstance;
 	modelRegistry: { find(): undefined };
@@ -60,27 +88,29 @@ interface MockContext {
 	getSystemPrompt(): string;
 	getSystemPromptOptions(): Record<string, never>;
 	waitForIdle(): Promise<void>;
-	newSession(options?: SessionOptions): Promise<{ cancelled: false }>;
+	newSession(options?: SessionOptions): Promise<{ cancelled: boolean }>;
 	switchSession(
 		path: string,
 		options?: Pick<SessionOptions, "withSession">,
-	): Promise<{ cancelled: false }>;
+	): Promise<{ cancelled: boolean }>;
 	sendUserMessage(text: string): Promise<void>;
 }
 
 interface MockUI {
 	editor(question: string): Promise<string | undefined>;
 	confirm(title: string, body: string): Promise<boolean>;
-	select(): Promise<string | undefined>;
-	input(): Promise<undefined>;
-	custom(): Promise<undefined>;
+	select(question: string, options: string[]): Promise<string | undefined>;
+	input(question: string, placeholder?: string): Promise<string | undefined>;
+	custom<T>(): Promise<T | undefined>;
 	notify(message: string, level: string): void;
-	setWidget(): void;
+	setWidget(key: string, value: unknown): void;
 	getEditorText(): string;
 	setEditorText(text: string): void;
 }
 
 const agentDir = mkdtempSync(join(tmpdir(), "rpi-workflow-agent-"));
+const configuredAgentDir = `${agentDir}-link`;
+symlinkSync(agentDir, configuredAgentDir, "dir");
 const scratch = mkdtempSync(join(tmpdir(), "rpi-workflow-repos-"));
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 const gitIdentity = {
@@ -92,7 +122,7 @@ const gitIdentity = {
 const previousGitIdentity = new Map(
 	Object.keys(gitIdentity).map((name) => [name, process.env[name]]),
 );
-process.env.PI_CODING_AGENT_DIR = agentDir;
+process.env.PI_CODING_AGENT_DIR = configuredAgentDir;
 Object.assign(process.env, gitIdentity);
 
 const extensionDirectory = dirname(fileURLToPath(import.meta.url));
@@ -103,6 +133,7 @@ let removeLocalModules = false;
 
 function cleanupTempFiles(): void {
 	rmSync(scratch, { recursive: true, force: true });
+	rmSync(configuredAgentDir, { force: true });
 	rmSync(agentDir, { recursive: true, force: true });
 	if (removeLocalModules)
 		rmSync(localModules, { recursive: true, force: true });
@@ -202,6 +233,33 @@ async function main(): Promise<void> {
 	const tasks = join(agentDir, "tasks");
 	const worktrees = join(agentDir, "worktrees");
 	const phaseLine = "- [ ] Phase 1: Implement the focused change";
+	const emptyDesign = "# Design\n\n### Proposed architecture\n\nUse the existing adapter.\n";
+	const cacheInput = {
+		title: "Cache ownership",
+		question: "Which layer should own the cache?",
+		options: ["The adapter", "The caller"],
+		recommended_option: 1,
+		recommendation: "The adapter already owns the remote lifecycle.",
+	};
+	const evictionInput = {
+		title: "Eviction timing",
+		question: "When should stale entries be removed?",
+		options: ["During writes", "By a background timer"],
+		recommended_option: 1,
+		recommendation: "Write-time eviction avoids another lifecycle.",
+	};
+	const cacheQuestion = {
+		id: "Q1",
+		...cacheInput,
+		status: "open",
+		answer: null,
+	};
+	const evictionQuestion = {
+		id: "Q2",
+		...evictionInput,
+		status: "open",
+		answer: null,
+	};
 
 	function state(
 		gitLocation: string,
@@ -241,19 +299,46 @@ async function main(): Promise<void> {
 		) as Record<string, unknown>;
 	}
 
+	function persistQuestions(slug: string, questions: unknown[]): void {
+		writeFileSync(
+			join(tasks, slug, "questions.json"),
+			`${JSON.stringify({ version: 1, questions }, null, 2)}\n`,
+		);
+	}
+
+	function loadQuestions(slug: string): {
+		version: number;
+		questions: Array<Record<string, unknown>>;
+	} {
+		return JSON.parse(
+			readFileSync(join(tasks, slug, "questions.json"), "utf8"),
+		) as { version: number; questions: Array<Record<string, unknown>> };
+	}
+
 	class Harness {
 		readonly notices: Notice[] = [];
 		readonly prompts: CapturedPrompt[] = [];
 		readonly switches: string[] = [];
 		readonly confirmations: Array<{ title: string; body: string }> = [];
 		readonly editors: string[] = [];
+		readonly selections: CapturedSelection[] = [];
+		readonly tools: string[] = [];
+		readonly widgets: unknown[] = [];
+		cancelNextSwitch = false;
+		beforeNextConfirm: (() => Promise<void> | void) | undefined;
 		private manager: SessionManagerInstance | undefined;
 		private command:
 			| ((args: string, ctx: MockContext) => Promise<void>)
 			| undefined;
+		private sessionStart:
+			| ((event: unknown, ctx: MockContext) => Promise<void>)
+			| undefined;
+		private questionTool: RegisteredTool | undefined;
 		private editorAnswers: string[] = [];
 		private confirmAnswers: boolean[] = [];
 		private selectAnswers: string[] = [];
+		private inputAnswers: string[] = [];
+		private customAnswers: unknown[] = [];
 		private readonly commitPrompt = join(agentDir, "commit-message.md");
 
 		constructor() {
@@ -262,8 +347,17 @@ async function main(): Promise<void> {
 				"---\ndescription: test\n---\nCommit the staged change.\n",
 			);
 			const api = {
-				on: () => undefined,
-				registerTool: () => undefined,
+				on: (
+					event: string,
+					handler: (event: unknown, ctx: MockContext) => Promise<void>,
+				) => {
+					if (event === "session_start") this.sessionStart = handler;
+				},
+				registerTool: (tool: RegisteredTool) => {
+					this.tools.push(tool.name);
+					if (tool.name === "rpi_update_design_questions")
+						this.questionTool = tool;
+				},
 				registerCommand: (
 					name: string,
 					options: {
@@ -295,6 +389,7 @@ async function main(): Promise<void> {
 			this.confirmAnswers =
 				options.confirm === undefined ? [] : [options.confirm];
 			this.selectAnswers = [];
+			this.inputAnswers = [];
 			const source = SessionManager.create(cwd);
 			this.persistSession(source, `source · ${slug}`);
 			await this.withManager(source, () =>
@@ -302,15 +397,63 @@ async function main(): Promise<void> {
 			);
 		}
 
+		async updateQuestions(
+			manager: SessionManagerInstance,
+			params: QuestionUpdateParams,
+		): Promise<void> {
+			assert.ok(this.questionTool, "question lifecycle tool was not registered");
+			await this.withManager(manager, () =>
+				this.questionTool?.execute(
+					"test-tool-call",
+					params,
+					new AbortController().signal,
+					() => undefined,
+					this.context(manager),
+				),
+			);
+		}
+
+		async startSession(manager: SessionManagerInstance): Promise<void> {
+			assert.ok(this.sessionStart, "session_start was not registered");
+			await this.withManager(manager, () =>
+				this.sessionStart?.({}, this.context(manager)),
+			);
+		}
+
+		async remove(slug: string, cwd: string): Promise<void> {
+			assert.ok(this.command, "RPI command was not registered");
+			this.confirmAnswers = [true];
+			this.customAnswers = [
+				{ action: "remove", slug },
+				{ action: "cancel" },
+			];
+			const source = SessionManager.create(cwd);
+			this.persistSession(source, `remove · ${slug}`);
+			await this.withManager(source, () =>
+				this.command?.("", this.context(source, "tui")),
+			);
+		}
+
 		async invokeInSession(
 			slug: string,
 			manager: SessionManagerInstance,
-			selection?: string,
+			selection?: string | string[],
+			editorAnswer?: string,
+			inputAnswer?: string | string[],
 		): Promise<void> {
 			assert.ok(this.command, "RPI command was not registered");
-			this.editorAnswers = [];
+			this.editorAnswers = editorAnswer === undefined ? [] : [editorAnswer];
 			this.confirmAnswers = [];
-			this.selectAnswers = selection ? [selection] : [];
+			this.selectAnswers = Array.isArray(selection)
+				? [...selection]
+				: selection
+					? [selection]
+					: [];
+			this.inputAnswers = Array.isArray(inputAnswer)
+				? [...inputAnswer]
+				: inputAnswer === undefined
+					? []
+					: [inputAnswer];
 			await this.withManager(manager, () =>
 				this.command?.(slug, this.context(manager)),
 			);
@@ -370,7 +513,10 @@ async function main(): Promise<void> {
 			});
 		}
 
-		private context(manager: SessionManagerInstance): MockContext {
+		private context(
+			manager: SessionManagerInstance,
+			mode: "rpc" | "tui" = "rpc",
+		): MockContext {
 			const ui: MockUI = {
 				editor: async (question) => {
 					this.editors.push(question);
@@ -378,21 +524,29 @@ async function main(): Promise<void> {
 				},
 				confirm: async (title, body) => {
 					this.confirmations.push({ title, body });
+					const before = this.beforeNextConfirm;
+					this.beforeNextConfirm = undefined;
+					await before?.();
 					return this.confirmAnswers.shift() ?? false;
 				},
-				select: async () => this.selectAnswers.shift(),
-				input: async () => undefined,
-				custom: async () => undefined,
+				select: async (question, options) => {
+					this.selections.push({ question, options });
+					return this.selectAnswers.shift();
+				},
+				input: async () => this.inputAnswers.shift(),
+				custom: async <T>() => this.customAnswers.shift() as T | undefined,
 				notify: (message, level) => {
 					this.notices.push({ message, level, cwd: manager.getCwd() });
 				},
-				setWidget: () => undefined,
+				setWidget: (_key, value) => {
+					this.widgets.push(value);
+				},
 				getEditorText: () => "",
 				setEditorText: () => undefined,
 			};
 			const context: MockContext = {
 				cwd: manager.getCwd(),
-				mode: "rpc",
+				mode,
 				hasUI: true,
 				sessionManager: manager,
 				modelRegistry: { find: () => undefined },
@@ -426,6 +580,10 @@ async function main(): Promise<void> {
 				},
 				switchSession: async (path, options = {}) => {
 					this.switches.push(path);
+					if (this.cancelNextSwitch) {
+						this.cancelNextSwitch = false;
+						return { cancelled: true };
+					}
 					const replacement = SessionManager.open(path);
 					assert.equal(replacement.getCwd(), replacement.getHeader()?.cwd);
 					await this.withManager(replacement, () =>
@@ -439,7 +597,32 @@ async function main(): Promise<void> {
 		}
 	}
 
+	async function preparePlainTask(
+		slug: string,
+		phase: "design" | "outline",
+		design: string,
+		questions: unknown[] = [],
+	): Promise<string> {
+		const repository = await initRepository(slug);
+		const worktree = join(worktrees, slug);
+		mkdirSync(worktrees, { recursive: true });
+		await git(
+			repository.root,
+			"worktree",
+			"add",
+			"-b",
+			slug,
+			worktree,
+			repository.head,
+		);
+		persistTask(slug, state(repository.common, repository.head, phase));
+		writeFileSync(join(tasks, slug, "03-design.md"), design);
+		if (questions.length) persistQuestions(slug, questions);
+		return worktree;
+	}
+
 	const harness = new Harness();
+	assert.deepEqual(harness.tools, ["rpi_update_design_questions"]);
 
 	try {
 		for (const slug of ["foo.", "foo..bar", "foo.lock"]) {
@@ -584,7 +767,10 @@ async function main(): Promise<void> {
 			const repository = await initRepository(slug);
 			await git(repository.root, "branch", slug, repository.head);
 			persistTask(slug, state(repository.root, repository.head, "creating"));
-			await harness.invoke(slug, repository.root);
+			const unflushedSource = SessionManager.create(repository.root);
+			assert.ok(unflushedSource.getSessionFile());
+			assert.equal(existsSync(unflushedSource.getSessionFile() ?? ""), false);
+			await harness.invokeInSession(slug, unflushedSource);
 			assert.equal(
 				await git(join(worktrees, slug), "rev-parse", "HEAD"),
 				repository.head,
@@ -612,6 +798,358 @@ async function main(): Promise<void> {
 				await git(join(worktrees, slug), "rev-parse", "HEAD"),
 				branchHead,
 			);
+		}
+
+		{
+			const slug = "cancel-plain-target";
+			await preparePlainTask(slug, "design", emptyDesign);
+			const source = SessionManager.create(scratch);
+			const promptCount = harness.prompts.length;
+			harness.cancelNextSwitch = true;
+			await harness.invokeInSession(slug, source);
+			const target = harness.switches.at(-1);
+			assert.ok(target);
+			assert.equal(existsSync(target), false);
+			assert.equal(loadState(slug).phase, "design");
+			assert.equal(harness.prompts.length, promptCount);
+			assert.ok(
+				harness.notices.some(
+					(notice) =>
+						notice.message ===
+						"session switch cancelled — design unchanged",
+				),
+			);
+		}
+
+		{
+			const slug = "question-tool-flow";
+			const worktree = await preparePlainTask(slug, "design", emptyDesign);
+			const owner = harness.createOwner(worktree, `${slug} · design`);
+			await harness.startSession(owner);
+			await harness.updateQuestions(owner, {
+				task_slug: slug,
+				incorporated_question_ids: [],
+				questions: [cacheInput, evictionInput],
+			});
+			assert.deepEqual(
+				loadQuestions(slug).questions.map(({ id, status }) => ({ id, status })),
+				[
+					{ id: "Q1", status: "open" },
+					{ id: "Q2", status: "open" },
+				],
+			);
+			assert.match(JSON.stringify(harness.widgets.at(-1)), /2 unanswered/);
+			await harness.invokeInSession(slug, owner, [
+				"A — The adapter",
+				"A — During writes",
+			]);
+			const followUp = {
+				...cacheInput,
+				title: "Refresh ownership",
+				question: "Which layer should request refreshes?",
+			};
+			const mutation = {
+				task_slug: slug,
+				incorporated_question_ids: ["Q1", "Q2"],
+				questions: [followUp],
+			};
+			await harness.updateQuestions(owner, mutation);
+			await harness.updateQuestions(owner, mutation);
+			assert.deepEqual(
+				loadQuestions(slug).questions.map(({ id, status }) => ({ id, status })),
+				[
+					{ id: "Q1", status: "incorporated" },
+					{ id: "Q2", status: "incorporated" },
+					{ id: "Q3", status: "open" },
+				],
+			);
+			assert.match(JSON.stringify(harness.widgets.at(-1)), /1 unanswered/);
+		}
+
+		{
+			const slug = "design-question-flow";
+			const worktree = await preparePlainTask(slug, "design", emptyDesign, [
+				cacheQuestion,
+				evictionQuestion,
+			]);
+			const owner = harness.createOwner(worktree, `${slug} · design`);
+			const promptCount = harness.prompts.length;
+			const selectionCount = harness.selections.length;
+
+			await harness.invokeInSession(
+				slug,
+				owner,
+				["A — The adapter", "Type an answer…"],
+				undefined,
+				"After each write",
+			);
+			assert.equal(loadState(slug).phase, "design");
+			assert.equal(harness.prompts.length, promptCount + 1);
+			assert.match(
+				harness.prompts.at(-1)?.text ?? "",
+				/Q1 · Cache ownership → Option A: The adapter/,
+			);
+			assert.match(
+				harness.prompts.at(-1)?.text ?? "",
+				/Q2 · Eviction timing → After each write/,
+			);
+			assert.deepEqual(harness.selections.at(-2), {
+				question: [
+					"Cache ownership",
+					"",
+					"Which layer should own the cache?",
+					"",
+					"Recommendation: A — The adapter already owns the remote lifecycle.",
+				].join("\n"),
+				options: ["A — The adapter", "B — The caller", "Type an answer…"],
+			});
+			assert.match(
+				JSON.stringify(harness.widgets.at(-1)),
+				/2 awaiting incorporation/,
+			);
+			const stored = loadQuestions(slug).questions;
+			assert.deepEqual(
+				stored.map(({ id, status, answer }) => ({ id, status, answer })),
+				[
+					{ id: "Q1", status: "answered", answer: { kind: "option", option: 1 } },
+					{
+						id: "Q2",
+						status: "answered",
+						answer: { kind: "free_text", text: "After each write" },
+					},
+				],
+			);
+
+			await harness.invokeInSession(slug, owner);
+			assert.equal(harness.prompts.length, promptCount + 2);
+			assert.equal(
+				harness.selections.length,
+				selectionCount + 2,
+				"answered records must be resent before opening more dialogs",
+			);
+		}
+
+		{
+			const slug = "design-partial-cancel";
+			const worktree = await preparePlainTask(slug, "design", emptyDesign, [
+				cacheQuestion,
+				evictionQuestion,
+			]);
+			const owner = harness.createOwner(worktree, `${slug} · design`);
+			const promptCount = harness.prompts.length;
+			await harness.invokeInSession(slug, owner, "A — The adapter");
+			assert.equal(harness.prompts.length, promptCount + 1);
+			assert.match(harness.prompts.at(-1)?.text ?? "", /Q1 · Cache ownership/);
+			assert.doesNotMatch(harness.prompts.at(-1)?.text ?? "", /Q2 · Eviction timing/);
+			assert.deepEqual(
+				loadQuestions(slug).questions.map(({ id, status }) => ({ id, status })),
+				[
+					{ id: "Q1", status: "answered" },
+					{ id: "Q2", status: "open" },
+				],
+			);
+		}
+
+		{
+			const slug = "design-continue";
+			const worktree = await preparePlainTask(slug, "design", emptyDesign);
+			const owner = harness.createOwner(worktree, `${slug} · design`);
+			const promptCount = harness.prompts.length;
+
+			await harness.invokeInSession(slug, owner);
+			assert.equal(harness.prompts.length, promptCount);
+			assert.equal(loadState(slug).phase, "design");
+			assert.deepEqual(harness.selections.at(-1)?.options, [
+				"Agree & continue to outline",
+				"Continue designing",
+			]);
+			assert.match(JSON.stringify(harness.widgets.at(-1)), /awaiting agreement/);
+
+			await harness.invokeInSession(
+				slug,
+				owner,
+				"Continue designing",
+				"Remove the compatibility fallback.",
+			);
+			assert.equal(loadState(slug).phase, "design");
+			assert.equal(harness.prompts.at(-1)?.session, owner.getSessionFile());
+			assert.match(
+				harness.prompts.at(-1)?.text ?? "",
+				/Human feedback or decisions:\nRemove the compatibility fallback\./,
+			);
+			assert.equal(harness.editors.at(-1), "Optional design feedback");
+		}
+
+		{
+			const slug = "symlinked-question-store";
+			const worktree = await preparePlainTask(slug, "design", emptyDesign);
+			const external = join(scratch, `${slug}.json`);
+			writeFileSync(external, '{"version":1,"questions":[]}\n');
+			symlinkSync(external, join(tasks, slug, "questions.json"));
+			const owner = harness.createOwner(worktree, `${slug} · design`);
+			const selectionCount = harness.selections.length;
+			await harness.invokeInSession(slug, owner);
+			assert.equal(harness.selections.length, selectionCount);
+			assert.ok(
+				harness.notices.some(
+					(notice) =>
+						notice.level === "error" &&
+						notice.message.includes(
+							"questions.json is not a regular non-symlink file",
+						),
+				),
+			);
+		}
+
+		{
+			const slug = "malformed-question-store";
+			const worktree = await preparePlainTask(slug, "design", emptyDesign);
+			const path = join(tasks, slug, "questions.json");
+			const malformed = '{"version":1,"questions":[';
+			writeFileSync(path, malformed);
+			const owner = harness.createOwner(worktree, `${slug} · design`);
+			await harness.invokeInSession(slug, owner);
+			assert.equal(readFileSync(path, "utf8"), malformed);
+			await assert.rejects(
+				harness.updateQuestions(owner, {
+					task_slug: slug,
+					incorporated_question_ids: [],
+					questions: [cacheInput],
+				}),
+				/invalid questions JSON/,
+			);
+			assert.equal(readFileSync(path, "utf8"), malformed);
+		}
+
+		{
+			const slug = "directory-question-store";
+			const worktree = await preparePlainTask(slug, "design", emptyDesign);
+			const path = join(tasks, slug, "questions.json");
+			mkdirSync(path);
+			writeFileSync(join(path, "sentinel"), "keep\n");
+			const owner = harness.createOwner(worktree, `${slug} · design`);
+			await harness.invokeInSession(slug, owner);
+			assert.equal(readFileSync(join(path, "sentinel"), "utf8"), "keep\n");
+			await assert.rejects(
+				harness.updateQuestions(owner, {
+					task_slug: slug,
+					incorporated_question_ids: [],
+					questions: [cacheInput],
+				}),
+				/not a regular non-symlink file/,
+			);
+			assert.equal(readFileSync(join(path, "sentinel"), "utf8"), "keep\n");
+		}
+
+		{
+			const slug = "design-agreement-fresh-outline";
+			const worktree = await preparePlainTask(slug, "design", emptyDesign);
+			const staleOutline = harness.createOwner(worktree, `${slug} · outline`);
+			const staleOutlinePath = staleOutline.getSessionFile();
+			assert.ok(staleOutlinePath);
+			const designOwner = harness.createOwner(worktree, `${slug} · design`);
+			const switchCount = harness.switches.length;
+
+			await harness.invokeInSession(
+				slug,
+				designOwner,
+				"Agree & continue to outline",
+			);
+			const outlinePrompt = harness.prompts.at(-1);
+			assert.equal(loadState(slug).phase, "outline");
+			assert.equal(outlinePrompt?.name, `${slug} · outline`);
+			assert.notEqual(outlinePrompt?.session, staleOutlinePath);
+			assert.match(outlinePrompt?.text ?? "", /## Mechanical translation only/);
+			assert.equal(
+				harness.switches.slice(switchCount).includes(staleOutlinePath),
+				false,
+				"agreement must not resume an older same-name Outline session",
+			);
+		}
+
+		{
+			const slug = "outline-cannot-incorporate";
+			const answered = {
+				...cacheQuestion,
+				status: "answered",
+				answer: { kind: "option", option: 1 },
+			};
+			const worktree = await preparePlainTask(slug, "outline", emptyDesign, [
+				answered,
+			]);
+			const owner = harness.createOwner(worktree, `${slug} · outline`);
+			await harness.startSession(owner);
+			await assert.rejects(
+				harness.updateQuestions(owner, {
+					task_slug: slug,
+					incorporated_question_ids: ["Q1"],
+					questions: [],
+				}),
+				/Outline may add questions but may not incorporate answers/,
+			);
+		}
+
+		{
+			const slug = "outline-question-backtrack";
+			const worktree = await preparePlainTask(slug, "outline", emptyDesign, [
+				cacheQuestion,
+			]);
+			const designOwner = harness.createOwner(worktree, `${slug} · design`);
+			const designPath = designOwner.getSessionFile();
+			assert.ok(designPath);
+			const outlineOwner = harness.createOwner(worktree, `${slug} · outline`);
+			const promptCount = harness.prompts.length;
+			const selectionCount = harness.selections.length;
+
+			await harness.invokeInSession(slug, outlineOwner);
+			assert.equal(loadState(slug).phase, "design");
+			assert.equal(harness.switches.at(-1), designPath);
+			assert.equal(harness.prompts.length, promptCount);
+			assert.equal(
+				harness.selections.length,
+				selectionCount,
+				"Outline must return to Design without answering the question",
+			);
+		}
+
+		{
+			const slug = "pr-repair-through-design";
+			const repository = await initRepository(slug);
+			const worktree = join(worktrees, slug);
+			await git(
+				repository.root,
+				"worktree",
+				"add",
+				"-b",
+				slug,
+				worktree,
+				repository.head,
+			);
+			const prOwner = harness.createOwner(worktree, `${slug} · pr`);
+			const prPath = prOwner.getSessionFile();
+			assert.ok(prPath);
+			persistTask(
+				slug,
+				state(repository.common, repository.head, "pr", {
+					pr: { status: "active", session: prPath },
+				}),
+			);
+			writeFileSync(join(tasks, slug, "03-design.md"), emptyDesign);
+			writeFileSync(join(tasks, slug, "pr-description.md"), "Existing PR\n");
+
+			await harness.invokeInSession(
+				slug,
+				prOwner,
+				"Add repair phase",
+				"Repair the failed retry behavior.",
+			);
+			assert.equal(loadState(slug).phase, "design");
+			assert.equal(harness.prompts.at(-1)?.name, `${slug} · design`);
+			assert.match(
+				harness.prompts.at(-1)?.text ?? "",
+				/Repair the failed retry behavior\./,
+			);
+			assert.equal(existsSync(join(tasks, slug, "pr-description.md")), false);
 		}
 
 		{
@@ -644,6 +1182,47 @@ async function main(): Promise<void> {
 			assert.ok(
 				harness.notices.some((notice) =>
 					notice.message.includes("is not a regular non-symlink file"),
+				),
+			);
+		}
+
+		{
+			const slug = "cancel-build-target";
+			const repository = await initRepository(slug);
+			const worktree = join(worktrees, slug);
+			await git(
+				repository.root,
+				"worktree",
+				"add",
+				"-b",
+				slug,
+				worktree,
+				repository.head,
+			);
+			persistTask(
+				slug,
+				state(repository.common, repository.head, "build", {
+					build: { phaseLine, status: "pending" },
+				}),
+				`${phaseLine}\n`,
+			);
+			const source = SessionManager.create(repository.root);
+			harness.cancelNextSwitch = true;
+			await harness.invokeInSession(slug, source);
+			const target = harness.switches.at(-1);
+			assert.ok(target);
+			assert.equal(existsSync(target), false);
+			assert.deepEqual(
+				loadState(slug),
+				state(repository.common, repository.head, "build", {
+					build: { phaseLine, status: "pending" },
+				}),
+			);
+			assert.ok(
+				harness.notices.some(
+					(notice) =>
+						notice.message ===
+						"session switch cancelled — build run unchanged",
 				),
 			);
 		}
@@ -873,6 +1452,146 @@ async function main(): Promise<void> {
 			assert.equal(
 				readFileSync(join(worktree, "foo"), "utf8"),
 				"ordinary baseline\n",
+			);
+		}
+
+		{
+			const slug = "remove-absent-worktree";
+			const repository = await initRepository(slug);
+			const worktree = join(worktrees, slug);
+			await git(
+				repository.root,
+				"worktree",
+				"add",
+				"-b",
+				slug,
+				worktree,
+				repository.head,
+			);
+			persistTask(slug, state(repository.common, repository.head, "questions"));
+			const owner = harness.createOwner(worktree, `${slug} · questions`);
+			const ownerPath = owner.getSessionFile();
+			assert.ok(ownerPath);
+			const doneSession = harness.createOwner(worktree, `${slug} · done`);
+			const donePath = doneSession.getSessionFile();
+			assert.ok(donePath);
+			const otherSession = harness.createOwner(
+				worktree,
+				`${slug}-other · questions`,
+			);
+			const otherPath = otherSession.getSessionFile();
+			assert.ok(otherPath);
+			rmSync(worktree, { recursive: true });
+			await harness.remove(slug, repository.root);
+			assert.equal(existsSync(join(tasks, slug)), false);
+			assert.equal(existsSync(ownerPath), false);
+			assert.equal(existsSync(donePath), true);
+			assert.equal(existsSync(otherPath), true);
+			assert.equal(
+				await git(repository.root, "rev-parse", `refs/heads/${slug}`),
+				repository.head,
+			);
+			assert.match(
+				await git(repository.root, "worktree", "list", "--porcelain"),
+				new RegExp(`worktree ${worktree}`),
+			);
+			assert.ok(
+				harness.notices.some(
+					(notice) =>
+						notice.level === "warning" &&
+						notice.message.includes("worktree is absent"),
+				),
+			);
+		}
+
+		{
+			const slug = "remove-malformed-state";
+			const repository = await initRepository(slug);
+			const worktree = join(worktrees, slug);
+			await git(
+				repository.root,
+				"worktree",
+				"add",
+				"-b",
+				slug,
+				worktree,
+				repository.head,
+			);
+			persistTask(slug, state(repository.common, repository.head, "questions"));
+			persistQuestions(slug, [cacheQuestion]);
+			writeFileSync(join(tasks, slug, "state.json"), "not json\n");
+			const owner = harness.createOwner(worktree, `${slug} · questions`);
+			const ownerPath = owner.getSessionFile();
+			assert.ok(ownerPath);
+			await harness.startSession(owner);
+			const plain = harness.createOwner(repository.root, "plain session");
+			await harness.startSession(plain);
+			await harness.remove(slug, repository.root);
+			assert.equal(existsSync(worktree), false);
+			assert.equal(existsSync(ownerPath), false);
+			assert.equal(existsSync(join(tasks, slug)), false);
+			assert.equal(
+				await git(repository.root, "rev-parse", `refs/heads/${slug}`),
+				repository.head,
+			);
+			assert.ok(
+				harness.notices.some(
+					(notice) =>
+						notice.level === "warning" &&
+						notice.message === `${slug}: state.json is malformed`,
+				),
+			);
+		}
+
+		{
+			const slug = "keep-changed-worktree";
+			const repository = await initRepository(slug);
+			writeFileSync(join(repository.root, ".gitignore"), "ignored.log\n");
+			await git(repository.root, "add", ".gitignore");
+			await git(repository.root, "commit", "-m", "Ignore test log");
+			repository.head = await git(repository.root, "rev-parse", "HEAD");
+			const worktree = join(worktrees, slug);
+			await git(
+				repository.root,
+				"worktree",
+				"add",
+				"-b",
+				slug,
+				worktree,
+				repository.head,
+			);
+			persistTask(slug, state(repository.common, repository.head, "questions"));
+			harness.beforeNextConfirm = () => {
+				writeFileSync(join(worktree, "ignored.log"), "keep\n");
+			};
+			await harness.remove(slug, repository.root);
+			assert.equal(existsSync(join(worktree, "ignored.log")), true);
+			assert.equal(existsSync(join(tasks, slug)), true);
+			assert.ok(
+				harness.notices.some(
+					(notice) =>
+						notice.level === "error" &&
+						notice.message.includes("including ignored files"),
+				),
+			);
+		}
+
+		{
+			const slug = "keep-unsafe-worktree";
+			const repository = await initRepository(slug);
+			const worktree = join(worktrees, slug);
+			mkdirSync(worktree, { recursive: true });
+			writeFileSync(join(worktree, "unrelated.txt"), "keep\n");
+			persistTask(slug, state(repository.common, repository.head, "questions"));
+			await harness.remove(slug, repository.root);
+			assert.equal(existsSync(join(worktree, "unrelated.txt")), true);
+			assert.equal(existsSync(join(tasks, slug)), true);
+			assert.ok(
+				harness.notices.some(
+					(notice) =>
+						notice.level === "error" &&
+						notice.message.includes("exists but is not a Git checkout"),
+				),
 			);
 		}
 

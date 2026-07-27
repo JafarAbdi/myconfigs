@@ -1,82 +1,80 @@
 ---
-description: RPI outline — check the design against the real code, then phase the work
+description: RPI outline — mechanically translate the agreed design into implementation phases
 argument-hint: "<task-slug> [instructions]"
 ---
-
-Treat a decision in the final Run context as settled, but check any claim about the code before
-acting on it — `delegate` to `scout`. A wrong fact accepted here becomes the plan and then the code.
 
 Treat any document `repo:` path as historical provenance only. The canonical task worktree named
 in the Run context is the repository for this phase; do not leave it.
 
 Read `ticket.md`, `02-research.md`, and `03-design-discussion.md` in full. Do not read
-`01-research-questions.md`.
+`01-research-questions.md`. Read design decisions from `03-design-discussion.md`, never from
+question Markdown or `questions.json`; the extension returns to Design before Outline whenever a
+question is open or awaiting incorporation.
 
-Where they disagree the later document wins — design discussion over research over ticket — and
-the code you check below wins over all three.
+The agreed design is authoritative for behavior, scope, architecture, policy, failure semantics,
+and trade-offs. Feedback changes the outline only. Never implement, edit repository code, or begin
+Build.
 
-Feedback is an instruction to change this document, never to start implementing — even "just do
-it". Implementation is the next phase, in a session of its own.
+## Mechanical translation only
 
-If `03-design-discussion.md` has any open canonical question in `### Design Questions`, stop and
-say which. Do not answer it and do not write an outline around it. Malformed question blocks are
-also blockers; report them and stop so the design phase can repair them.
+Translate the agreed design into thin, independently verifiable implementation slices. Do not
+choose behavior or architecture, expand scope, or invent a fallback, compatibility path, policy,
+mechanism, or abstraction. Do not conceal an unresolved choice in implementation prose.
 
-## This phase is adversarial, not clerical
+Before slicing, verify only repository facts needed for exact paths, signatures, patterns, and
+commands. Send independent checks to parallel `scout` delegates in one message. Code wins over the
+documents as current fact, but not as permission to change the agreed design. Harmless factual
+corrections may update paths or signatures only when behavior, architecture, scope, policy,
+trade-offs, and failure semantics remain unchanged.
 
-The design was written from research, and research goes stale and gets things wrong. Before you
-phase anything, take each decision in the design and check it against the code that exists right
-now — `delegate` to `scout` in one message for the ones worth checking in parallel.
+## Mechanical escape hatch
 
-When a decision does not survive contact with the code, change the plan and say plainly in the
-outline what you changed and why. When something is genuinely undecidable from the code, call
-`rpi_add_design_questions` with every new question and stop. Never hand-write a new `####` block;
-the extension adds canonical questions to `03-design-discussion.md`. An outline may not carry an
-unsettled question into the build.
+If inspection exposes a missing decision or invalidates the agreed architecture, do not repair,
+reinterpret, or outline around the gap. Collect every currently identifiable blocking decision,
+then call `rpi_update_design_questions` once with:
+
+- `incorporated_question_ids: []` — Outline never acknowledges answers;
+- `questions` containing all blockers, with no question-count limit.
+
+Each blocker needs a concise noun-phrase title, concrete question, 2–26 distinct concrete options,
+a 1-based recommended option, and a compact rationale stating the main reason it wins. Never edit
+`questions.json`, never add question Markdown, and never continue writing the outline after the
+tool call. `/rpi` returns the task to Design for prose incorporation and renewed explicit
+agreement; RPI then starts a fresh full-prompt Outline session.
 
 ## Phases
 
-Thin vertical slices. Each one cuts through as many layers as the change has and is verifiable on
-its own, by commands in this repo, without the next phase existing. Not `add the types` → `add the
-API` → `add the UI` → `add tests`; that hands you four piles of unfinished work.
+Use thin vertical slices. Each cuts through as many layers as needed and is independently verifiable
+by commands in this repository. Do not produce horizontal piles such as types, then API, then UI,
+then tests.
 
-Say what changes in which file and why. Show signatures, not bodies — this document is the header
-file, the implementer writes the definitions. Name the test files and the pattern to follow, taken
-from what the research found, and prefer an automated check every time one is possible.
+Say what changes in which file and why. Show signatures, not bodies. Name test files and established
+patterns found in research, and prefer an automated check whenever possible.
 
 ## The one marker
 
-`- [ ]` in the Implementation Overview is the **only** checkbox in this document, and the only
-record anywhere of what is finished. There is no second checklist under a phase, headings carry no
-status glyph, and nothing else in the chain tracks progress. Checked means *settled* — including a
-phase that closed without code — so there is never a third state. `### Verification` below is a
-plain list, not a checklist, for the same reason.
+`- [ ]` in the Implementation Overview is the only checkbox in this document and the only progress
+record. There is no phase-local checklist; headings have no status glyph; Verification is a plain
+list. Checked means settled, including a phase closed without code.
 
-Write the overview lines exactly as `- [ ] Phase N: title`. `/rpi` reads that shape to decide
-whether implementation is finished.
+Write overview lines exactly as `- [ ] Phase N: title`. `/rpi` reads that shape to determine whether
+implementation is finished.
 
 ## Every path is relative to the repository root
 
-`src/main.rs`, never `/home/you/project/src/main.rs`. Implementation runs in a worktree that does
-not exist yet, so an absolute path here sends the work back to this checkout. Verification commands
-too: no `--manifest-path` at this directory, no absolute paths into `target/`.
+Use `src/main.rs`, never an absolute path. Implementation runs in another worktree. Verification
+commands must also avoid absolute paths and checkout-specific flags.
 
-## Re-running this after work has started
+## Re-running after work has started
 
-A checked `- [x]` phase is history, not a draft. When the document already exists:
-
-- Never uncheck, renumber, reword, or delete a phase that is `- [x]`. The build phase trusts those
-  boxes and will redo whatever you re-open.
-- New work is **appended** as new phases with the next free numbers, whether it is a feature, a
-  fix, or a correction.
-- If a finished phase turns out to be wrong, leave it checked and add a new phase that repairs it,
-  naming what it supersedes.
-- Unchecked phases are still drafts — reorder, rewrite, or drop those freely.
+A checked `- [x]` phase is history. Never uncheck, renumber, reword, or delete it. Append repairs or
+new work as phases with the next free numbers and name what a repair supersedes. Unchecked phases
+remain drafts and may be reordered, rewritten, or removed.
 
 ## Output
 
-Write `<task-directory>/04-structure-outline.md`. If it already exists, update it in place; keep
-the number and the filename.
+Write `<task-directory>/04-structure-outline.md`. If it exists, update it in place and keep its
+number and filename.
 
 ````markdown
 ---
@@ -104,14 +102,13 @@ sha: [git rev-parse HEAD]
 
 ### File Changes
 
-- **`path/to/file.ts`**: [what changes] — signature only, where a signature helps
+- **`path/to/file.ts`**: [what changes] — signature only, where useful
 
 ### Verification
 
 - [runnable command]
 - [runnable command]
-- Manual: [only if a human genuinely has to look at something]
-
+- Manual: [only when a human genuinely must inspect something]
 ````
 
 Then stop. Report what you wrote.
@@ -120,5 +117,5 @@ Then stop. Report what you wrote.
 
 Task slug: `$1`
 Task directory: `~/.pi/agent/tasks/$1/`
-Additional instruction supplied through the `/rpi` controls: `${@:2}`
+Additional instruction supplied through `/rpi` controls: `${@:2}`
 Use the Task directory above wherever this prompt says `<task-directory>`.

@@ -392,10 +392,20 @@ for (const phase of [
 	}
 }
 for (const phase of ["design", "outline"]) {
-	const prompt = prompts.get(phase);
-	assert.ok(prompt?.includes("rpi_add_design_questions"));
-	assert.match(prompt ?? "", /never hand-write a new `####`/i);
+	const prompt = prompts.get(phase) ?? "";
+	assert.ok(prompt.includes("rpi_update_design_questions"));
+	assert.ok(prompt.includes("questions.json"));
+	assert.equal(prompt.includes("rpi_add_design_question"), false);
+	assert.equal(prompt.includes("### Design Questions"), false);
+	assert.equal(prompt.includes("malformed"), false);
 }
+const designPrompt = prompts.get("design") ?? "";
+assert.ok(designPrompt.includes("incorporated_question_ids"));
+assert.match(designPrompt, /no question-count\s+limit/i);
+assert.match(
+	prompts.get("outline") ?? "",
+	/Mechanical escape hatch[\s\S]*every currently identifiable blocking decision/i,
+);
 const root = mkdtempSync(join(tmpdir(), "rpi-state-test-"));
 try {
 	const tasks = join(root, "tasks");

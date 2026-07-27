@@ -43,12 +43,15 @@ import {
 	stripFrontmatter,
 } from "./prompt-loader.ts";
 import {
-	insertQuestions,
-	optionLabel,
-	type ParsedQuestion,
-	parseDesignQuestions,
-	questionsSchema,
-	validateQuestions,
+	answerQuestion,
+	EMPTY_QUESTION_STORE,
+	parseQuestionStore,
+	type Question,
+	type QuestionAnswer,
+	type QuestionStore,
+	serializeQuestionStore,
+	updateDesignQuestions,
+	updateDesignQuestionsSchema,
 } from "./questions.ts";
 import {
 	activeBranchMessageCount,
@@ -64,7 +67,6 @@ import {
 	createTask,
 	decidePersistedRun,
 	decideSessionPrompt,
-	deletingState,
 	identityState,
 	invariantError,
 	loadTaskState,
@@ -80,8 +82,9 @@ import {
 	type TaskState,
 } from "./state.ts";
 
-const TASKS = join(getAgentDir(), "tasks");
-const WORKTREES = join(getAgentDir(), "worktrees");
+const AGENT_DIR = realpathSync(getAgentDir());
+const TASKS = join(AGENT_DIR, "tasks");
+const WORKTREES = join(AGENT_DIR, "worktrees");
 const SESSION_PHASES = [
 	"questions",
 	"research",
@@ -91,6 +94,7 @@ const SESSION_PHASES = [
 	"pr",
 ] as const;
 const STATE_FILE = "state.json";
+const QUESTIONS_FILE = "questions.json";
 const SLUG = /^[a-z0-9][a-z0-9._-]*$/i;
 const SLUG_WORDS = 5;
 const GIT_QUERY_MS = 5_000;
@@ -190,6 +194,29 @@ function statePath(slug: string): string {
 
 function loadState(slug: string) {
 	return loadTaskState(statePath(slug));
+}
+
+function questionStorePath(slug: string): string {
+	const expectedDirectory = join(TASKS, slug);
+	const directory = realpathSync(expectedDirectory);
+	if (directory !== expectedDirectory)
+		throw new Error(`${expectedDirectory} is not the exact task directory`);
+	const candidate = join(directory, QUESTIONS_FILE);
+	if (!existsSync(candidate)) return candidate;
+	const stat = lstatSync(candidate);
+	if (!stat.isFile() || stat.isSymbolicLink())
+		throw new Error(`${QUESTIONS_FILE} is not a regular non-symlink file`);
+	const path = realpathSync(candidate);
+	if (dirname(path) !== directory)
+		throw new Error(`${QUESTIONS_FILE} resolves outside the task directory`);
+	return path;
+}
+
+function loadQuestionStore(slug: string): QuestionStore {
+	const path = questionStorePath(slug);
+	return existsSync(path)
+		? parseQuestionStore(readFileSync(path, "utf-8"))
+		: { ...EMPTY_QUESTION_STORE, questions: [] };
 }
 
 function atomicWrite(path: string, content: string, mode = 0o600): void {
@@ -335,10 +362,6 @@ function sameCheckout(
 		left.head === right.head &&
 		left.branch === right.branch
 	);
-}
-
-function digest(text: string): string {
-	return createHash("sha256").update(text).digest("hex");
 }
 
 export default function rpi(pi: ExtensionAPI): void {
@@ -751,29 +774,35 @@ export default function rpi(pi: ExtensionAPI): void {
 		return hash.digest("hex");
 	}
 
-	type OpenQuestion = Extract<ParsedQuestion, { status: "open" }>;
+	type OpenQuestion = Extract<Question, { status: "open" }>;
+	type AnsweredQuestion = Extract<Question, { status: "answered" }>;
 	type DesignQuestions =
 		| { kind: "missing" }
 		| { kind: "invalid"; error: string }
-		| { kind: "valid"; open: OpenQuestion[]; digest: string };
+		| {
+				kind: "valid";
+				store: QuestionStore;
+				open: OpenQuestion[];
+				answered: AnsweredQuestion[];
+		  };
 
 	function designQuestionsIn(slug: string): DesignQuestions {
 		const names = documentNames(slug, "03-");
 		if (names.length === 0) return { kind: "missing" };
 		try {
-			const path = taskDocumentPath(slug, "03-");
-			const body = readFileSync(path, "utf-8");
-			const parsed = parseDesignQuestions(body);
-			return parsed.kind === "invalid"
-				? { kind: "invalid", error: parsed.error }
-				: {
-						kind: "valid",
-						digest: digest(body),
-						open: parsed.questions.filter(
-							(question): question is OpenQuestion =>
-								question.status === "open",
-						),
-					};
+			taskDocumentPath(slug, "03-");
+			const store = loadQuestionStore(slug);
+			return {
+				kind: "valid",
+				store,
+				open: store.questions.filter(
+					(question): question is OpenQuestion => question.status === "open",
+				),
+				answered: store.questions.filter(
+					(question): question is AnsweredQuestion =>
+						question.status === "answered",
+				),
+			};
 		} catch (error) {
 			return {
 				kind: "invalid",
@@ -789,51 +818,73 @@ export default function rpi(pi: ExtensionAPI): void {
 		ctx.ui.notify(
 			questions.kind === "missing"
 				? "cannot advance design: expected one 03- artifact"
-				: `cannot advance design: malformed design questions — ${questions.error}`,
+				: `cannot advance design: invalid ${QUESTIONS_FILE} — ${questions.error}`,
 			"error",
 		);
 	}
 
-	async function askQuestions(
-		ctx: ExtensionCommandContext,
-		questions: OpenQuestion[],
-	): Promise<string | typeof CANCELLED> {
-		const typedAnswer = "Type an answer…";
-		const leaveOpen = "Leave this one open";
-		const answers: string[] = [];
-		for (const question of questions) {
-			const labels = question.options.map((option, index) => {
-				const label = `${optionLabel(index + 1)}: ${option}`;
-				return index + 1 === question.recommendedOption
-					? `${label}  (recommended)`
-					: label;
-			});
-			const prompt = [
-				question.title,
-				question.question,
-				`Recommendation: ${optionLabel(question.recommendedOption)} — ${question.recommendation}`,
-			].join("\n");
-			const choice = await ctx.ui.select(prompt, [
-				...labels,
-				typedAnswer,
-				leaveOpen,
-			]);
-			if (!choice) return CANCELLED;
-			if (choice === leaveOpen) continue;
-			if (choice === typedAnswer) {
-				const typed = await ctx.ui.input(prompt, "your decision");
-				if (typed === undefined) return CANCELLED;
-				if (typed.trim()) answers.push(`${question.title} → ${typed.trim()}`);
-				continue;
-			}
-			answers.push(
-				`${question.title} → ${optionLabel(labels.indexOf(choice) + 1)}`,
-			);
-		}
-		return answers.join("; ");
+	function optionLetter(index: number): string {
+		if (!Number.isInteger(index) || index < 1 || index > 26)
+			throw new Error(`option index ${index} is outside 1..26`);
+		return String.fromCharCode(64 + index);
 	}
 
-	function questionToolState(slug: string): TaskState {
+	async function askQuestion(
+		ctx: ExtensionCommandContext,
+		question: OpenQuestion,
+	): Promise<QuestionAnswer | typeof CANCELLED> {
+		const typedAnswer = "Type an answer…";
+		const labels = question.options.map(
+			(option, index) => `${optionLetter(index + 1)} — ${option}`,
+		);
+		const prompt = [
+			question.title,
+			"",
+			question.question,
+			"",
+			`Recommendation: ${optionLetter(question.recommended_option)} — ${question.recommendation}`,
+		].join("\n");
+		const choice = await ctx.ui.select(prompt, [...labels, typedAnswer]);
+		if (!choice) return CANCELLED;
+		if (choice === typedAnswer) {
+			const typed = await ctx.ui.input(prompt, "your decision");
+			return typed?.trim()
+				? { kind: "free_text", text: typed.trim() }
+				: CANCELLED;
+		}
+		const option = labels.indexOf(choice) + 1;
+		return option > 0 ? { kind: "option", option } : CANCELLED;
+	}
+
+	function formatAnsweredQuestions(questions: AnsweredQuestion[]): string {
+		const decisions = questions.map((question) => {
+			const answer = question.answer;
+			const decision =
+				answer.kind === "option"
+					? `Option ${optionLetter(answer.option)}: ${question.options[answer.option - 1]}`
+					: answer.text;
+			return `- ${question.id} · ${question.title} → ${decision}`;
+		});
+		return ["Human decisions awaiting incorporation:", ...decisions].join("\n");
+	}
+
+	async function persistQuestionAnswer(
+		slug: string,
+		id: string,
+		answer: QuestionAnswer,
+	): Promise<void> {
+		const path = questionStorePath(slug);
+		await withFileMutationQueue(path, async () => {
+			const store = loadQuestionStore(slug);
+			const updated = answerQuestion(store, id, answer);
+			const mode = existsSync(path) ? lstatSync(path).mode & 0o777 : 0o600;
+			atomicWrite(path, serializeQuestionStore(updated), mode);
+		});
+	}
+
+	function questionToolState(
+		slug: string,
+	): { phase: "design" | "outline"; state: TaskState } {
 		if (!SLUG.test(slug) || active?.slug !== slug)
 			throw new Error(`${slug}: this is not the active RPI task`);
 		const name = pi.getSessionName();
@@ -845,7 +896,7 @@ export default function rpi(pi: ExtensionAPI): void {
 					: undefined;
 		if (!phase)
 			throw new Error(
-				`${slug}: design questions may only be added from its design or outline session`,
+				`${slug}: design questions may only be updated from its design or outline session`,
 			);
 		const loaded = loadState(slug);
 		if (loaded.kind !== "valid")
@@ -854,49 +905,46 @@ export default function rpi(pi: ExtensionAPI): void {
 			throw new Error(
 				`${slug}: state is in ${loaded.state.phase}, not this ${phase} session`,
 			);
-		return loaded.state;
+		return { phase, state: loaded.state };
 	}
 
 	pi.registerTool({
-		name: "rpi_add_design_questions",
-		label: "Add RPI Design Questions",
+		name: "rpi_update_design_questions",
+		label: "Update RPI Design Questions",
 		description:
-			"Add unresolved design questions to the active RPI task using canonical Markdown. The extension assigns Option A-Z labels.",
+			"Acknowledge incorporated Design answers and atomically add any number of structured questions.",
 		promptSnippet:
-			"Add canonical unresolved questions to the active RPI design document",
-		parameters: questionsSchema,
-		// Prefer native strict sampling where supported. Pi marks llama.cpp
-		// non-strict, but it may still grammar-constrain ordinary tool parameters.
+			"Update the active RPI task's structured Design-question lifecycle",
+		parameters: updateDesignQuestionsSchema,
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		executionMode: "sequential",
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const problems = validateQuestions(params);
-			if (problems.length)
-				throw new Error(`invalid design questions:\n${problems.join("\n")}`);
 			const slug = params.task_slug;
-			const state = questionToolState(slug);
+			const { phase, state } = questionToolState(slug);
+			if (phase === "outline" && params.incorporated_question_ids.length)
+				throw new Error("Outline may add questions but may not incorporate answers");
 			await requireRepository(ctx.cwd, state, slug);
-			const path = taskDocumentPath(slug, "03-");
+			const path = questionStorePath(slug);
+			let updated: QuestionStore | undefined;
 			await withFileMutationQueue(path, async () => {
-				const current = questionToolState(slug);
-				if (!sameState(current, state))
-					throw new Error(
-						`${slug}: task state changed before questions could be added`,
-					);
-				if (taskDocumentPath(slug, "03-") !== path)
-					throw new Error(`${slug}: the design document changed while queued`);
-				const body = readFileSync(path, "utf-8");
-				const updated = insertQuestions(body, params);
-				atomicWrite(path, updated, lstatSync(path).mode & 0o777);
+				const store = loadQuestionStore(slug);
+				updated = updateDesignQuestions(store, params);
+				const serialized = serializeQuestionStore(updated);
+				if (!existsSync(path) || serialized !== serializeQuestionStore(store)) {
+					const mode = existsSync(path) ? lstatSync(path).mode & 0o777 : 0o600;
+					atomicWrite(path, serialized, mode);
+				}
 			});
+			if (!updated) throw new Error("question update did not complete");
+			await refresh(ctx, slug);
 			return {
 				content: [
 					{
 						type: "text" as const,
-						text: `Added ${params.questions.length} design question(s) to ${path}`,
+						text: `Updated ${updated.questions.length} design-question records in ${path}`,
 					},
 				],
-				details: { path, count: params.questions.length },
+				details: { path, count: updated.questions.length },
 			};
 		},
 	});
@@ -914,9 +962,21 @@ export default function rpi(pi: ExtensionAPI): void {
 		if (phase === "design") {
 			const questions = designQuestionsIn(slug);
 			if (questions.kind === "invalid")
-				return { phase, detail: "blocked · malformed design questions" };
-			if (questions.kind === "valid" && questions.open.length)
-				return { phase, detail: `${questions.open.length} unanswered` };
+				return { phase, detail: `blocked · invalid ${QUESTIONS_FILE}` };
+			if (questions.kind === "valid") {
+				const details = [
+					questions.open.length
+						? `${questions.open.length} unanswered`
+						: "",
+					questions.answered.length
+						? `${questions.answered.length} awaiting incorporation`
+						: "",
+				].filter(Boolean);
+				return {
+					phase,
+					detail: details.join(" · ") || "awaiting agreement",
+				};
+			}
 		}
 		if (phase === "build") {
 			try {
@@ -1168,12 +1228,75 @@ export default function rpi(pi: ExtensionAPI): void {
 		});
 	}
 
+	type RemovalEvidence =
+		| { kind: "absent"; worktree: string }
+		| { kind: "managed"; gitDirectory: string; worktree: string };
+
+	async function removalClean(root: string): Promise<boolean> {
+		const [index, unstaged, untracked] = await Promise.all([
+			git(root, ["diff", "--cached", "--quiet", "--"]),
+			git(root, ["diff", "--quiet", "--"]),
+			git(root, ["ls-files", "--others", "-z"]),
+		]);
+		if (index.code > 1 || unstaged.code > 1 || untracked.code !== 0)
+			throw new Error("could not inspect the worktree");
+		return index.code === 0 && unstaged.code === 0 && !untracked.stdout;
+	}
+
+	async function removalEvidence(slug: string): Promise<RemovalEvidence> {
+		const worktree = join(WORKTREES, slug);
+		if (!existsSync(worktree)) return { kind: "absent", worktree };
+		let canonicalRoot: string;
+		try {
+			canonicalRoot = realpathSync(worktree);
+		} catch {
+			throw invariantError(`exact worktree root ${worktree}`, "unreadable path");
+		}
+		const repository = await repositoryEvidence(worktree);
+		if (!repository)
+			throw invariantError(
+				`Git checkout with HEAD at ${worktree}`,
+				`${worktree} exists but is not a Git checkout with HEAD`,
+			);
+		if (canonicalRoot !== worktree || repository.root !== worktree)
+			throw invariantError(
+				`exact worktree root ${worktree}`,
+				`canonical path ${canonicalRoot}; repository root ${repository.root}`,
+			);
+		if (repository.branch !== slug)
+			throw invariantError(
+				`branch ${slug} at ${worktree}`,
+				`branch ${repository.branch || "<detached>"}`,
+			);
+		if (!(await removalClean(worktree)))
+			throw invariantError(
+				`clean worktree ${worktree}`,
+				"dirty worktree, including ignored files",
+			);
+		const common = await git(worktree, [
+			"rev-parse",
+			"--path-format=absolute",
+			"--git-common-dir",
+		]);
+		if (common.code !== 0)
+			throw new Error(
+				common.stderr.trim() || "Git common directory could not be resolved",
+			);
+		return {
+			kind: "managed",
+			gitDirectory: realpathSync(common.stdout.trim()),
+			worktree,
+		};
+	}
+
 	async function removeTask(
 		ctx: ExtensionCommandContext,
 		slug: string,
 	): Promise<boolean> {
 		const directory = join(TASKS, slug);
-		const names = new Set(PHASES.map((phase) => sessionName(slug, phase)));
+		const names = new Set(
+			SESSION_PHASES.map((phase) => sessionName(slug, phase)),
+		);
 		if (active?.slug === slug || names.has(pi.getSessionName() ?? "")) {
 			ctx.ui.notify(
 				"cannot remove the active task — run /new first",
@@ -1189,68 +1312,70 @@ export default function rpi(pi: ExtensionAPI): void {
 			ctx.ui.notify(`${slug}: task no longer exists`, "warning");
 			return false;
 		}
+		let evidence: RemovalEvidence;
+		try {
+			evidence = await removalEvidence(slug);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			ctx.ui.notify(
+				message.startsWith("RPI invariant failed\n")
+					? message
+					: `could not inspect ${slug}: ${message}`,
+				"error",
+			);
+			return false;
+		}
 		const loaded = loadState(slug);
-		if (loaded.kind !== "valid") {
-			ctx.ui.notify(`${slug}: state.json is ${loaded.kind}`, "error");
-			return false;
-		}
-		let state = loaded.state;
-		if (
-			state.phase !== "deleting" &&
-			!(await ctx.ui.confirm(
-				`Permanently remove ${slug}?`,
-				"Delete its exact clean RPI worktree, task folder, and phase sessions? The Git branch and commits remain.",
-			))
-		) {
-			return false;
-		}
+		if (loaded.kind !== "valid")
+			ctx.ui.notify(`${slug}: state.json is ${loaded.kind}`, "warning");
+		if (evidence.kind === "absent")
+			ctx.ui.notify(
+				`${slug}: worktree is absent; Git branches, commits, and worktree registrations will be left untouched`,
+				"warning",
+			);
+		const confirmed = await ctx.ui.confirm(
+			`Permanently remove ${slug}?`,
+			evidence.kind === "absent"
+				? "Delete the stale RPI task folder and named phase sessions only?"
+				: "Delete its exact clean RPI worktree, task folder, and named phase sessions? The Git branch and commits remain.",
+		);
+		if (!confirmed) return false;
 		const sessions = (await SessionManager.listAll()).filter((session) =>
 			names.has(session.name ?? ""),
 		);
 		try {
-			const worktree = join(WORKTREES, slug);
-			if (state.phase !== "deleting") {
-				const repository = await requireRepository(worktree, state, slug);
-				if (!(await repoClean(repository.root)))
-					throw invariantError(`clean worktree ${worktree}`, "dirty worktree");
-				const common = await git(repository.root, [
-					"rev-parse",
-					"--path-format=absolute",
-					"--git-common-dir",
-				]);
-				if (common.code !== 0)
-					throw new Error(
-						common.stderr.trim() ||
-							"Git common directory could not be resolved",
-					);
-				state = deletingState(state, realpathSync(common.stdout.trim()));
-				saveState(slug, state);
-			} else if (existsSync(worktree)) {
-				const repository = await requireRepository(worktree, state, slug);
-				if (!(await repoClean(repository.root)))
-					throw invariantError(`clean worktree ${worktree}`, "dirty worktree");
-			} else if (await worktreeFor(slug, state.gitDirectory)) {
+			const verified = await removalEvidence(slug);
+			if (
+				verified.kind !== evidence.kind ||
+				verified.worktree !== evidence.worktree ||
+				(verified.kind === "managed" &&
+					evidence.kind === "managed" &&
+					verified.gitDirectory !== evidence.gitDirectory)
+			)
 				throw invariantError(
-					`${worktree} absent and unregistered`,
-					`${worktree} absent but still registered`,
+					"unchanged removal target after confirmation",
+					"worktree evidence changed while confirmation was open",
 				);
-			}
-			if (existsSync(worktree)) {
+			evidence = verified;
+			if (evidence.kind === "managed") {
 				const removed = await git(
-					state.gitDirectory,
-					["worktree", "remove", worktree],
+					evidence.gitDirectory,
+					["worktree", "remove", evidence.worktree],
 					GIT_WRITE_MS,
 				);
 				if (removed.code !== 0)
 					throw new Error(
 						removed.stderr.trim() || "git worktree remove failed",
 					);
+				if (
+					existsSync(evidence.worktree) ||
+					(await worktreeFor(slug, evidence.gitDirectory))
+				)
+					throw invariantError(
+						`${evidence.worktree} removed and unregistered`,
+						"worktree removal is incomplete",
+					);
 			}
-			if (existsSync(worktree) || (await worktreeFor(slug, state.gitDirectory)))
-				throw invariantError(
-					`${worktree} removed and unregistered`,
-					"worktree removal is incomplete",
-				);
 			for (const session of sessions) {
 				try {
 					unlinkSync(session.path);
@@ -1307,16 +1432,42 @@ export default function rpi(pi: ExtensionAPI): void {
 		return candidates[0];
 	}
 
+	function createTargetSession(
+		cwd: string,
+		name: string,
+		parentSession?: string,
+	): string {
+		const manager = SessionManager.create(
+			cwd,
+			undefined,
+			parentSession ? { parentSession } : undefined,
+		);
+		manager.appendSessionInfo(name);
+		const path = manager.getSessionFile();
+		const header = manager.getHeader();
+		if (!path || !header)
+			throw new Error("RPI could not initialize the target session");
+		writeFileSync(
+			path,
+			`${[header, ...manager.getEntries()].map((entry) => JSON.stringify(entry)).join("\n")}\n`,
+			{ flag: "wx", mode: 0o600 },
+		);
+		return path;
+	}
+
 	async function enterPhase(
 		ctx: ExtensionCommandContext,
 		slug: string,
 		phase: PhasePrompt,
 		context: PromptContext = {},
 		activate?: () => void,
+		fresh = false,
 	): Promise<void> {
 		await ctx.waitForIdle();
 		const worktree = join(WORKTREES, slug);
-		const selected = await choosePhaseSession(ctx, slug, phase);
+		const selected = fresh
+			? undefined
+			: await choosePhaseSession(ctx, slug, phase);
 		const loaded = loadState(slug);
 		if (
 			loaded.kind !== "valid" ||
@@ -1360,6 +1511,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		};
 
 		let replaced: { cancelled: boolean };
+		let createdTarget: string | undefined;
 		if (selected) {
 			replaced = await ctx.switchSession(selected.path, {
 				withSession: withPhaseSession,
@@ -1374,28 +1526,19 @@ export default function rpi(pi: ExtensionAPI): void {
 			});
 		} else {
 			const source = ctx.sessionManager.getSessionFile();
-			if (!source || !isAbsolute(source) || !regularFile(source))
-				throw new Error(
-					"cross-cwd RPI handoff requires a persisted source session",
-				);
-			const handoff = SessionManager.forkFrom(source, worktree);
-			const handoffPath = handoff.getSessionFile();
-			if (!handoffPath)
-				throw new Error("cross-cwd RPI handoff did not create a session file");
-			replaced = await ctx.switchSession(handoffPath, {
-				withSession: async (handoffContext) => {
-					await handoffContext.newSession({
-						parentSession: handoffContext.sessionManager.getSessionFile(),
-						setup: async (manager) => {
-							manager.appendSessionInfo(sessionName(slug, phase));
-						},
-						withSession: withPhaseSession,
-					});
-				},
+			createdTarget = createTargetSession(
+				worktree,
+				sessionName(slug, phase),
+				source && isAbsolute(source) && regularFile(source) ? source : undefined,
+			);
+			replaced = await ctx.switchSession(createdTarget, {
+				withSession: withPhaseSession,
 			});
 		}
-		if (replaced.cancelled)
+		if (replaced.cancelled) {
+			if (createdTarget) unlinkSync(createdTarget);
 			ctx.ui.notify(`session switch cancelled — ${phase} unchanged`, "warning");
+		}
 	}
 
 	function sendCurrent(ctx: ExtensionContext, prompt: string): void {
@@ -1934,24 +2077,19 @@ export default function rpi(pi: ExtensionAPI): void {
 		state: TaskState,
 		phase: Exclude<PhasePrompt, "build" | "pr">,
 		context: PromptContext = {},
-		reviewedDesign?: string,
+		fresh = false,
 	): Promise<void> {
-		await enterPhase(ctx, slug, phase, context, () => {
-			if (reviewedDesign !== undefined) {
-				const questions = designQuestionsIn(slug);
-				if (
-					questions.kind !== "valid" ||
-					questions.open.length !== 0 ||
-					questions.digest !== reviewedDesign
-				) {
-					throw new Error(
-						"design questions changed during the session switch; review them and run /rpi again",
-					);
-				}
-			}
-			saveState(slug, plainState(state, phase));
-			active = { slug };
-		});
+		await enterPhase(
+			ctx,
+			slug,
+			phase,
+			context,
+			() => {
+				saveState(slug, plainState(state, phase));
+				active = { slug };
+			},
+			fresh,
+		);
 	}
 
 	async function revisit(
@@ -2077,8 +2215,8 @@ export default function rpi(pi: ExtensionAPI): void {
 				ctx,
 				slug,
 				state,
-				"outline",
-				"Describe the repair phase to append",
+				"design",
+				"Describe the repair that the design must address",
 			);
 		}
 		if (choice === "Revisit design") {
@@ -2139,27 +2277,57 @@ export default function rpi(pi: ExtensionAPI): void {
 					designQuestionsError(ctx, questions);
 					return;
 				}
-				if (questions.open.length) {
-					const answers = await askQuestions(ctx, questions.open);
-					if (answers === CANCELLED) return;
-					if (!answers) {
-						ctx.ui.notify(
-							`${questions.open.length} design question(s) remain; submit at least one answer to continue`,
-							"warning",
-						);
-						return;
-					}
-					sendCurrent(ctx, continuationPrompt("design", { extra: answers }));
+				if (questions.answered.length) {
+					sendCurrent(
+						ctx,
+						continuationPrompt("design", {
+							extra: formatAnsweredQuestions(questions.answered),
+						}),
+					);
 					return;
 				}
-				return advancePlainPhase(
-					ctx,
-					slug,
-					state,
-					"outline",
-					{},
-					questions.digest,
-				);
+				if (questions.open.length) {
+					const answeredIds: string[] = [];
+					for (const question of questions.open) {
+						const answer = await askQuestion(ctx, question);
+						if (answer === CANCELLED) break;
+						await persistQuestionAnswer(slug, question.id, answer);
+						answeredIds.push(question.id);
+					}
+					if (!answeredIds.length) return;
+					const current = designQuestionsIn(slug);
+					if (current.kind !== "valid") {
+						designQuestionsError(ctx, current);
+						return;
+					}
+					const answered = current.answered.filter((question) =>
+						answeredIds.includes(question.id),
+					);
+					await refresh(ctx, slug);
+					sendCurrent(
+						ctx,
+						continuationPrompt("design", {
+							extra: formatAnsweredQuestions(answered),
+						}),
+					);
+					return;
+				}
+				const choice = await ctx.ui.select(`${slug} · design`, [
+					"Agree & continue to outline",
+					"Continue designing",
+				]);
+				if (choice === "Agree & continue to outline") {
+					return advancePlainPhase(ctx, slug, state, "outline", {}, true);
+				}
+				if (choice === "Continue designing") {
+					const feedback = await ctx.ui.editor("Optional design feedback");
+					if (feedback === undefined) return;
+					sendCurrent(
+						ctx,
+						continuationPrompt("design", { extra: feedback.trim() }),
+					);
+				}
+				return;
 			}
 			case "outline": {
 				const questions = designQuestionsIn(slug);
@@ -2167,24 +2335,13 @@ export default function rpi(pi: ExtensionAPI): void {
 					ctx.ui.notify(
 						questions.kind === "missing"
 							? "returning to design: expected one 03- artifact"
-							: `returning to design: malformed design questions — ${questions.error}`,
+							: `returning to design: invalid ${QUESTIONS_FILE} — ${questions.error}`,
 						"warning",
 					);
 					return advancePlainPhase(ctx, slug, state, "design");
 				}
-				if (questions.open.length) {
-					const answers = await askQuestions(ctx, questions.open);
-					if (answers === CANCELLED) return;
-					if (!answers) {
-						ctx.ui.notify(
-							`${questions.open.length} design question(s) remain; submit at least one answer to continue`,
-							"warning",
-						);
-						return;
-					}
-					return advancePlainPhase(ctx, slug, state, "design", {
-						extra: answers,
-					});
+				if (questions.open.length || questions.answered.length) {
+					return advancePlainPhase(ctx, slug, state, "design");
 				}
 				const outline = documentIn(slug, "04-");
 				if (!outline) {
@@ -2402,6 +2559,7 @@ export default function rpi(pi: ExtensionAPI): void {
 			}
 		};
 		let replaced: { cancelled: boolean };
+		let createdTarget: string | undefined;
 		if (selected) {
 			replaced = await ctx.switchSession(selected.path, { withSession });
 		} else if (realpathSync(ctx.cwd) === worktree) {
@@ -2414,31 +2572,20 @@ export default function rpi(pi: ExtensionAPI): void {
 			});
 		} else {
 			const source = ctx.sessionManager.getSessionFile();
-			if (!source || !isAbsolute(source) || !regularFile(source))
-				throw new Error(
-					"cross-cwd RPI handoff requires a persisted source session",
-				);
-			const handoff = SessionManager.forkFrom(source, worktree);
-			const handoffPath = handoff.getSessionFile();
-			if (!handoffPath)
-				throw new Error("cross-cwd RPI handoff did not create a session file");
-			replaced = await ctx.switchSession(handoffPath, {
-				withSession: async (handoffContext) => {
-					await handoffContext.newSession({
-						parentSession: handoffContext.sessionManager.getSessionFile(),
-						setup: async (manager) => {
-							manager.appendSessionInfo(sessionName(slug, phase));
-						},
-						withSession,
-					});
-				},
-			});
+			createdTarget = createTargetSession(
+				worktree,
+				sessionName(slug, phase),
+				source && isAbsolute(source) && regularFile(source) ? source : undefined,
+			);
+			replaced = await ctx.switchSession(createdTarget, { withSession });
 		}
-		if (replaced.cancelled)
+		if (replaced.cancelled) {
+			if (createdTarget) unlinkSync(createdTarget);
 			ctx.ui.notify(
 				`session switch cancelled — ${phase} run unchanged`,
 				"warning",
 			);
+		}
 	}
 
 	async function switchToOwnedSession(
@@ -2574,6 +2721,8 @@ export default function rpi(pi: ExtensionAPI): void {
 			!SLUG.test(slug) ||
 			!existsSync(join(TASKS, slug))
 		) {
+			active = undefined;
+			ctx.ui.setWidget("rpi", undefined);
 			return;
 		}
 		active = { slug };

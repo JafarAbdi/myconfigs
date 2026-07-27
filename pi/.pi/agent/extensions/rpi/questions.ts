@@ -1,585 +1,288 @@
 import { type Static, Type } from "typebox";
+import { Check } from "typebox/value";
 
-export const questionsSchema = Type.Object(
+const oneLineSchema = Type.String({ minLength: 1 });
+
+export const questionInputSchema = Type.Object(
 	{
-		task_slug: Type.String({
-			description: "Active RPI task slug from the phase prompt",
-			minLength: 1,
-			pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$",
-		}),
-		questions: Type.Array(
-			Type.Object(
-				{
-					title: Type.String({
-						description: "Concise one-line question heading",
-						minLength: 1,
-					}),
-					question: Type.String({
-						description: "One-line design question",
-						minLength: 1,
-					}),
-					options: Type.Array(
-						Type.String({
-							description: "One-line option text without an Option A-Z label",
-							minLength: 1,
-						}),
-						{
-							description:
-								"Options in display order; the extension assigns labels",
-							minItems: 2,
-							maxItems: 26,
-						},
-					),
-					recommended_option: Type.Integer({
-						description: "1-based index into options",
-						minimum: 1,
-						maximum: 26,
-					}),
-					recommendation: Type.String({
-						description: "One-line rationale for the recommended option",
-						minLength: 1,
-					}),
-				},
-				{ additionalProperties: false },
-			),
-			{
-				description: "New unresolved questions to add in one batch",
-				minItems: 1,
-			},
-		),
+		title: oneLineSchema,
+		question: oneLineSchema,
+		options: Type.Array(oneLineSchema, { minItems: 2, maxItems: 26 }),
+		recommended_option: Type.Integer({ minimum: 1, maximum: 26 }),
+		recommendation: oneLineSchema,
 	},
 	{ additionalProperties: false },
 );
 
-export type QuestionsInput = Static<typeof questionsSchema>;
+export const questionAnswerSchema = Type.Union([
+	Type.Object(
+		{ kind: Type.Literal("option"), option: Type.Integer({ minimum: 1, maximum: 26 }) },
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			kind: Type.Literal("free_text"),
+			text: Type.String({ minLength: 1 }),
+		},
+		{ additionalProperties: false },
+	),
+]);
 
-export type ParsedQuestion =
-	| {
-			status: "open";
-			title: string;
-			question: string;
-			options: string[];
-			recommendedOption: number;
-			recommendation: string;
-	  }
-	| {
-			status: "resolved";
-			title: string;
-			question: string;
-			options: string[];
-			decision: string;
-			rationale: string;
-	  };
+const questionContentProperties = {
+	id: Type.String({ pattern: "^Q[1-9][0-9]*$" }),
+	title: oneLineSchema,
+	question: oneLineSchema,
+	options: Type.Array(oneLineSchema, { minItems: 2, maxItems: 26 }),
+	recommended_option: Type.Integer({ minimum: 1, maximum: 26 }),
+	recommendation: oneLineSchema,
+};
 
-type ParseDesignQuestionsResult =
-	| {
-			kind: "valid";
-			questions: ParsedQuestion[];
-			sectionEnd: number;
-	  }
-	| { kind: "invalid"; line: number; error: string };
+export const questionSchema = Type.Union([
+	Type.Object(
+		{
+			...questionContentProperties,
+			status: Type.Literal("open"),
+			answer: Type.Null(),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			...questionContentProperties,
+			status: Type.Literal("answered"),
+			answer: questionAnswerSchema,
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			...questionContentProperties,
+			status: Type.Literal("incorporated"),
+			answer: questionAnswerSchema,
+		},
+		{ additionalProperties: false },
+	),
+]);
 
-const DESIGN_HEADING = "### Design Questions";
-const OPTION = /^- Option ([A-Z]): (.+)$/;
-const OPEN_HEADING = /^#### (.+)$/;
-const RESOLVED_TITLE = /^\[x\] (.+)$/;
+export const questionStoreSchema = Type.Object(
+	{
+		version: Type.Literal(1),
+		questions: Type.Array(questionSchema),
+	},
+	{ additionalProperties: false },
+);
+
+export const updateDesignQuestionsSchema = Type.Object(
+	{
+		task_slug: Type.String({
+			minLength: 1,
+			pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+		}),
+		incorporated_question_ids: Type.Array(Type.String({ pattern: "^Q[1-9][0-9]*$" })),
+		questions: Type.Array(questionInputSchema),
+	},
+	{ additionalProperties: false },
+);
+
+export type QuestionInput = Static<typeof questionInputSchema>;
+export type QuestionAnswer = Static<typeof questionAnswerSchema>;
+export type Question = Static<typeof questionSchema>;
+export type QuestionStore = Static<typeof questionStoreSchema>;
+export type UpdateDesignQuestions = Static<typeof updateDesignQuestionsSchema>;
+export type LifecycleMutation = Pick<
+	UpdateDesignQuestions,
+	"incorporated_question_ids" | "questions"
+>;
+
+export const EMPTY_QUESTION_STORE: QuestionStore = { version: 1, questions: [] };
 
 function fieldProblem(value: string): string | undefined {
 	if (!value.trim()) return "must not be empty";
-	if (/(?:[\r\n]|\p{Zl}|\p{Zp})/u.test(value)) return "must be a single line";
 	if (value !== value.trim()) return "must not have surrounding whitespace";
+	if (/(?:[\r\n]|\p{Zl}|\p{Zp})/u.test(value)) return "must be a single line";
 	if (/\p{Cc}/u.test(value)) return "must not contain control characters";
 	return undefined;
 }
 
-/** Returns all semantic diagnostics; structural validation belongs to the TypeBox schema. */
-export function validateQuestions(input: QuestionsInput): string[] {
+export function validateQuestionInput(input: QuestionInput): string[] {
 	const errors: string[] = [];
-	const slugProblem = fieldProblem(input.task_slug);
-	if (slugProblem) errors.push(`task_slug ${slugProblem}`);
-	else if (!/^[a-z0-9][a-z0-9._-]*$/i.test(input.task_slug))
-		errors.push("task_slug has invalid characters");
+	for (const [name, value] of [
+		["title", input.title],
+		["question", input.question],
+		["recommendation", input.recommendation],
+	] as const) {
+		const problem = fieldProblem(value);
+		if (problem) errors.push(`${name} ${problem}`);
+	}
+	const seen = new Map<string, number>();
+	input.options.forEach((option, index) => {
+		const problem = fieldProblem(option);
+		if (problem) errors.push(`option ${index + 1} ${problem}`);
+		const first = seen.get(option);
+		if (first !== undefined)
+			errors.push(`duplicate option ${index + 1} (matches option ${first})`);
+		else seen.set(option, index + 1);
+	});
+	if (input.recommended_option > input.options.length)
+		errors.push(
+			`recommended_option ${input.recommended_option} exceeds ${input.options.length} options`,
+		);
+	return errors;
+}
 
-	if (input.questions.length === 0)
-		errors.push("questions must contain at least one entry");
-	const titles = new Map<string, number>();
-	input.questions.forEach((question, index) => {
-		const at = `question ${index + 1}${question.title.trim() ? ` ("${question.title}")` : ""}`;
-		for (const [name, value] of [
-			["title", question.title],
-			["question", question.question],
-			["recommendation", question.recommendation],
-		] as const) {
-			const problem = fieldProblem(value);
-			if (problem) errors.push(`${at}: ${name} ${problem}`);
+function freeTextProblem(value: string): string | undefined {
+	if (!value.trim()) return "must not be empty";
+	if (value !== value.trim()) return "must not have surrounding whitespace";
+	return undefined;
+}
+
+function questionInput(question: Question): QuestionInput {
+	return {
+		title: question.title,
+		question: question.question,
+		options: [...question.options],
+		recommended_option: question.recommended_option,
+		recommendation: question.recommendation,
+	};
+}
+
+function sameInput(left: QuestionInput, right: QuestionInput): boolean {
+	return (
+		left.title === right.title &&
+		left.question === right.question &&
+		left.options.length === right.options.length &&
+		left.options.every((option, index) => option === right.options[index]) &&
+		left.recommended_option === right.recommended_option &&
+		left.recommendation === right.recommendation
+	);
+}
+
+function storeProblems(store: QuestionStore): string[] {
+	const errors: string[] = [];
+	const titles = new Set<string>();
+	store.questions.forEach((question, index) => {
+		const expectedId = `Q${index + 1}`;
+		if (question.id !== expectedId)
+			errors.push(`question ${index + 1} must have immutable insertion-order id ${expectedId}`);
+		if (titles.has(question.title)) errors.push(`duplicate title "${question.title}"`);
+		titles.add(question.title);
+		errors.push(...validateQuestionInput(questionInput(question)).map((error) => `${question.id} ${error}`));
+		if (question.answer?.kind === "option" && question.answer.option > question.options.length)
+			errors.push(`${question.id} answer option ${question.answer.option} exceeds ${question.options.length} options`);
+		if (question.answer?.kind === "free_text") {
+			const problem = freeTextProblem(question.answer.text);
+			if (problem) errors.push(`${question.id} answer text ${problem}`);
 		}
-		if (question.title.startsWith("["))
-			errors.push(`${at}: title must not start with "["`);
-		if (
-			/^(?:#{1,6}(?:\s|$)|`{3}|~{3}|- Option\b|Recommendation:|Decision:|Rationale:)/.test(
-				question.question,
-			)
-		)
-			errors.push(`${at}: question must not start with Markdown structure`);
-
-		const titleKey = question.title.trim();
-		if (titleKey) {
-			const first = titles.get(titleKey);
-			if (first !== undefined)
-				errors.push(`${at}: duplicate title (first used by question ${first})`);
-			else titles.set(titleKey, index + 1);
-		}
-
-		if (question.options.length < 2 || question.options.length > 26)
-			errors.push(`${at}: options must contain 2..26 entries`);
-		const options = new Map<string, number>();
-		question.options.forEach((option, optionIndex) => {
-			const problem = fieldProblem(option);
-			if (problem) errors.push(`${at}: option ${optionIndex + 1} ${problem}`);
-			const key = option.trim();
-			if (!key) return;
-			const first = options.get(key);
-			if (first !== undefined)
-				errors.push(
-					`${at}: duplicate option ${optionIndex + 1} (matches option ${first})`,
-				);
-			else options.set(key, optionIndex + 1);
-		});
-		if (
-			!Number.isInteger(question.recommended_option) ||
-			question.recommended_option < 1 ||
-			question.recommended_option > 26
-		)
-			errors.push(`${at}: recommended_option must be an integer from 1..26`);
-		else if (question.recommended_option > question.options.length)
-			errors.push(
-				`${at}: recommended_option ${question.recommended_option} exceeds ${question.options.length} options`,
-			);
 	});
 	return errors;
 }
 
-export function optionLabel(index: number): string {
-	if (!Number.isInteger(index) || index < 1 || index > 26)
-		throw new Error(`option index ${index} is outside 1..26`);
-	return `Option ${String.fromCharCode(64 + index)}`;
+export function validateQuestionStore(value: unknown): string[] {
+	if (!Check(questionStoreSchema, value)) return ["does not match the exact version-1 question store schema"];
+	return storeProblems(value);
 }
 
-export function serializeQuestions(input: QuestionsInput): string {
-	const errors = validateQuestions(input);
-	if (errors.length) throw new Error(errors.join("\n"));
-	return input.questions
-		.map((question) =>
-			[
-				`#### ${question.title}`,
-				"",
-				question.question,
-				"",
-				...question.options.map(
-					(option, index) => `- ${optionLabel(index + 1)}: ${option}`,
-				),
-				"",
-				`Recommendation: ${optionLabel(question.recommended_option)} — ${question.recommendation}`,
-			].join("\n"),
-		)
-		.join("\n\n");
-}
-
-interface SourceLine {
-	text: string;
-	line: number;
-	start: number;
-	ignored: boolean;
-}
-
-function sourceLines(document: string): {
-	lines: SourceLine[];
-	unterminatedFence?: number;
-} {
-	const lines: SourceLine[] = [];
-	let offset = 0;
-	let fence:
-		| { marker: "`" | "~"; length: number; openingLine: number }
-		| undefined;
-	for (const [index, raw] of document.split("\n").entries()) {
-		const text = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-		const marker = /^ {0,3}(`{3,}|~{3,})/.exec(text)?.[1];
-		const ignored = fence !== undefined || marker !== undefined;
-		lines.push({ text, line: index + 1, start: offset, ignored });
-		if (fence) {
-			const close = new RegExp(
-				`^ {0,3}\\${fence.marker}{${fence.length},}\\s*$`,
-			);
-			if (close.test(text)) fence = undefined;
-		} else if (marker) {
-			fence = {
-				marker: marker[0] as "`" | "~",
-				length: marker.length,
-				openingLine: index + 1,
-			};
-		}
-		offset += raw.length + 1;
+export function parseQuestionStore(json: string): QuestionStore {
+	let value: unknown;
+	try {
+		value = JSON.parse(json);
+	} catch (error) {
+		throw new Error(`invalid questions JSON: ${error instanceof Error ? error.message : String(error)}`);
 	}
-	return { lines, unterminatedFence: fence?.openingLine };
+	const errors = validateQuestionStore(value);
+	if (errors.length) throw new Error(`invalid question store: ${errors.join("; ")}`);
+	return value as QuestionStore;
 }
 
-function invalid(line: number, error: string): ParseDesignQuestionsResult {
-	return { kind: "invalid", line, error: `line ${line}: ${error}` };
+export function serializeQuestionStore(store: QuestionStore): string {
+	const errors = validateQuestionStore(store);
+	if (errors.length) throw new Error(`invalid question store: ${errors.join("; ")}`);
+	return `${JSON.stringify(store, null, 2)}\n`;
 }
 
-export function parseDesignQuestions(
-	document: string,
-): ParseDesignQuestionsResult {
-	const source = sourceLines(document);
-	if (source.unterminatedFence !== undefined)
-		return invalid(
-			source.unterminatedFence,
-			"unterminated Markdown code fence",
-		);
-	const { lines } = source;
-	const headings = lines.filter(
-		(line) => !line.ignored && line.text === DESIGN_HEADING,
+export function updateDesignQuestions(
+	store: QuestionStore,
+	mutation: LifecycleMutation,
+): QuestionStore {
+	const existingErrors = validateQuestionStore(store);
+	if (existingErrors.length) throw new Error(`invalid question store: ${existingErrors.join("; ")}`);
+	if (!mutation.incorporated_question_ids.length && !mutation.questions.length)
+		throw new Error("question lifecycle mutation requires at least one operation");
+
+	const ids = new Set<string>();
+	for (const id of mutation.incorporated_question_ids) {
+		if (ids.has(id)) throw new Error(`duplicate incorporated question id ${id}`);
+		ids.add(id);
+		const question = store.questions.find((candidate) => candidate.id === id);
+		if (!question) throw new Error(`unknown question id ${id}`);
+		if (question.status === "open") throw new Error(`question ${id} has not been answered`);
+	}
+
+	const additions: QuestionInput[] = [];
+	const byTitle = new Map(store.questions.map((question) => [question.title, question]));
+	for (const input of mutation.questions) {
+		if (!Check(questionInputSchema, input)) throw new Error("question does not match the exact input schema");
+		const problems = validateQuestionInput(input);
+		if (problems.length) throw new Error(`invalid question "${input.title}": ${problems.join("; ")}`);
+		const existing = byTitle.get(input.title);
+		if (existing) {
+			if (!sameInput(questionInput(existing), input))
+				throw new Error(`conflicting duplicate title "${input.title}"`);
+			continue;
+		}
+		const repeated = additions.find((candidate) => candidate.title === input.title);
+		if (repeated) {
+			if (!sameInput(repeated, input)) throw new Error(`conflicting duplicate title "${input.title}"`);
+			continue;
+		}
+		additions.push(input);
+	}
+
+	const questions = store.questions.map((question): Question =>
+		ids.has(question.id) && question.status === "answered"
+			? { ...question, status: "incorporated" }
+			: question,
 	);
-	if (headings.length !== 1) {
-		const line = headings[1]?.line ?? headings[0]?.line ?? 1;
-		return invalid(
-			line,
-			`expected exactly one "${DESIGN_HEADING}" section; found ${headings.length}`,
-		);
-	}
-	const heading = headings[0];
-	const headingIndex = lines.indexOf(heading);
-	let endIndex = lines.length;
-	for (let index = headingIndex + 1; index < lines.length; index++) {
-		if (!lines[index].ignored && /^###(?:\s|$)/.test(lines[index].text)) {
-			endIndex = index;
-			break;
-		}
-	}
-
-	for (const [index, line] of lines.entries()) {
-		if (
-			!line.ignored &&
-			/^####(?!#)/.test(line.text) &&
-			(index <= headingIndex || index >= endIndex)
-		)
-			return invalid(
-				line.line,
-				`question heading must be inside "${DESIGN_HEADING}"`,
-			);
-	}
-
-	const questionStarts: Array<{
-		index: number;
-		title: string;
-		status: "open" | "resolved";
-	}> = [];
-	for (let index = headingIndex + 1; index < endIndex; index++) {
-		const line = lines[index];
-		if (line.ignored || !/^####(?!#)/.test(line.text)) continue;
-		const headingMatch = OPEN_HEADING.exec(line.text);
-		if (!headingMatch) return invalid(line.line, "malformed question heading");
-		const resolved = RESOLVED_TITLE.exec(headingMatch[1]);
-		if (/^\[/.test(headingMatch[1]) && !resolved)
-			return invalid(
-				line.line,
-				'question heading must be "#### title" or "#### [x] title"',
-			);
-		const title = resolved?.[1] ?? headingMatch[1];
-		const titleProblem = fieldProblem(title);
-		if (titleProblem)
-			return invalid(line.line, `question title ${titleProblem}`);
-		questionStarts.push({
-			index,
-			title,
-			status: resolved ? "resolved" : "open",
+	for (const input of additions) {
+		questions.push({
+			id: `Q${questions.length + 1}`,
+			...input,
+			options: [...input.options],
+			status: "open",
+			answer: null,
 		});
 	}
-
-	const firstQuestion = questionStarts[0]?.index ?? endIndex;
-	const stray = lines
-		.slice(headingIndex + 1, firstQuestion)
-		.find((line) => !line.ignored && line.text.trim());
-	if (stray)
-		return invalid(
-			stray.line,
-			`unexpected content before the first question in "${DESIGN_HEADING}"`,
-		);
-
-	const seenTitles = new Map<string, number>();
-	const questions: ParsedQuestion[] = [];
-	for (const [questionIndex, start] of questionStarts.entries()) {
-		const headingLine = lines[start.index].line;
-		const firstTitleLine = seenTitles.get(start.title);
-		if (firstTitleLine !== undefined)
-			return invalid(
-				headingLine,
-				`duplicate question title "${start.title}" (first declared on line ${firstTitleLine})`,
-			);
-		seenTitles.set(start.title, headingLine);
-		const stop = questionStarts[questionIndex + 1]?.index ?? endIndex;
-		const body = lines.slice(start.index + 1, stop);
-		const options: Array<{ label: number; value: string; line: number }> = [];
-		const recommendations: Array<{
-			option: number;
-			rationale: string;
-			line: number;
-		}> = [];
-		const decisions: Array<{ value: string; line: number }> = [];
-		const rationales: Array<{ value: string; line: number }> = [];
-		let firstStructure = body.length;
-		let terminal: "recommendation" | "decision" | "rationale" | undefined;
-
-		for (const [bodyIndex, line] of body.entries()) {
-			if (line.ignored || !line.text.trim()) continue;
-			const option = OPTION.exec(line.text);
-			if (option) {
-				const optionProblem = fieldProblem(option[2]);
-				if (optionProblem)
-					return invalid(
-						line.line,
-						`question "${start.title}" ${optionLabel(option[1].charCodeAt(0) - 64)} ${optionProblem}`,
-					);
-				if (terminal)
-					return invalid(
-						line.line,
-						`question "${start.title}" has an option after ${terminal}`,
-					);
-				firstStructure = Math.min(firstStructure, bodyIndex);
-				options.push({
-					label: option[1].charCodeAt(0) - 64,
-					value: option[2],
-					line: line.line,
-				});
-				continue;
-			}
-			if (/^- Option\b/.test(line.text))
-				return invalid(
-					line.line,
-					`malformed option in question "${start.title}"`,
-				);
-			const recommendation = /^Recommendation: Option ([A-Z]) — (.+)$/.exec(
-				line.text,
-			);
-			if (recommendation) {
-				const rationaleProblem = fieldProblem(recommendation[2]);
-				if (rationaleProblem)
-					return invalid(
-						line.line,
-						`question "${start.title}" Recommendation rationale ${rationaleProblem}`,
-					);
-				firstStructure = Math.min(firstStructure, bodyIndex);
-				terminal = "recommendation";
-				recommendations.push({
-					option: recommendation[1].charCodeAt(0) - 64,
-					rationale: recommendation[2],
-					line: line.line,
-				});
-				continue;
-			}
-			if (/^Recommendation:/.test(line.text))
-				return invalid(
-					line.line,
-					`malformed Recommendation in question "${start.title}"`,
-				);
-			if (line.text.startsWith("Decision:")) {
-				const decision = /^Decision: (.+)$/.exec(line.text);
-				if (!decision)
-					return invalid(
-						line.line,
-						`question "${start.title}" Decision must use exact \`Decision: value\` syntax`,
-					);
-				const decisionProblem = fieldProblem(decision[1]);
-				if (decisionProblem)
-					return invalid(
-						line.line,
-						`question "${start.title}" Decision ${decisionProblem}`,
-					);
-				if (terminal === "recommendation" || terminal === "rationale")
-					return invalid(
-						line.line,
-						`question "${start.title}" has Decision after ${terminal}`,
-					);
-				firstStructure = Math.min(firstStructure, bodyIndex);
-				terminal = "decision";
-				decisions.push({ value: decision[1], line: line.line });
-				continue;
-			}
-			if (line.text.startsWith("Rationale:")) {
-				const rationale = /^Rationale: (.+)$/.exec(line.text);
-				if (!rationale)
-					return invalid(
-						line.line,
-						`question "${start.title}" Rationale must use exact \`Rationale: value\` syntax`,
-					);
-				const rationaleProblem = fieldProblem(rationale[1]);
-				if (rationaleProblem)
-					return invalid(
-						line.line,
-						`question "${start.title}" Rationale ${rationaleProblem}`,
-					);
-				if (terminal !== "decision" && terminal !== "rationale")
-					return invalid(
-						line.line,
-						`question "${start.title}" requires Decision before Rationale`,
-					);
-				firstStructure = Math.min(firstStructure, bodyIndex);
-				terminal = "rationale";
-				rationales.push({ value: rationale[1], line: line.line });
-				continue;
-			}
-			if (firstStructure !== body.length)
-				return invalid(
-					line.line,
-					`question "${start.title}" has unexpected content after its options`,
-				);
-		}
-
-		const proseLines = body
-			.slice(0, firstStructure)
-			.filter((line) => !line.ignored && line.text.trim());
-		if (proseLines.length > 1)
-			return invalid(
-				proseLines[1].line,
-				`question "${start.title}" prose must be a single line`,
-			);
-		const proseProblem = proseLines[0]
-			? fieldProblem(proseLines[0].text)
-			: undefined;
-		if (proseProblem)
-			return invalid(
-				proseLines[0].line,
-				`question "${start.title}" prose ${proseProblem}`,
-			);
-		const prose = proseLines.map((line) => line.text);
-		if (!prose.length)
-			return invalid(
-				headingLine,
-				`question "${start.title}" has no question prose`,
-			);
-		if (options.length < 2 || options.length > 26)
-			return invalid(
-				headingLine,
-				`question "${start.title}" must have 2..26 options; found ${options.length}`,
-			);
-		const optionValues = new Map<string, number>();
-		for (const [index, option] of options.entries()) {
-			if (option.label !== index + 1)
-				return invalid(
-					option.line,
-					`question "${start.title}" options must be sequential from Option A; expected ${optionLabel(index + 1)}`,
-				);
-			if (!option.value)
-				return invalid(
-					option.line,
-					`question "${start.title}" has an empty option`,
-				);
-			const first = optionValues.get(option.value);
-			if (first !== undefined)
-				return invalid(
-					option.line,
-					`question "${start.title}" duplicates option text from line ${first}`,
-				);
-			optionValues.set(option.value, option.line);
-		}
-
-		const common = {
-			title: start.title,
-			question: prose.join("\n"),
-			options: options.map((option) => option.value),
-		};
-		if (start.status === "open") {
-			if (decisions.length || rationales.length)
-				return invalid(
-					(decisions[0] ?? rationales[0]).line,
-					`open question "${start.title}" must not contain Decision or Rationale`,
-				);
-			if (recommendations.length !== 1)
-				return invalid(
-					recommendations[1]?.line ?? headingLine,
-					`open question "${start.title}" requires exactly one Recommendation; found ${recommendations.length}`,
-				);
-			const recommendation = recommendations[0];
-			if (!recommendation.rationale)
-				return invalid(
-					recommendation.line,
-					`question "${start.title}" has an empty Recommendation rationale`,
-				);
-			if (recommendation.option > options.length)
-				return invalid(
-					recommendation.line,
-					`question "${start.title}" Recommendation names missing ${optionLabel(recommendation.option)}`,
-				);
-			questions.push({
-				status: "open",
-				...common,
-				recommendedOption: recommendation.option,
-				recommendation: recommendation.rationale,
-			});
-		} else {
-			if (recommendations.length)
-				return invalid(
-					recommendations[0].line,
-					`resolved question "${start.title}" must not contain Recommendation`,
-				);
-			if (decisions.length !== 1 || !decisions[0]?.value)
-				return invalid(
-					decisions[1]?.line ?? decisions[0]?.line ?? headingLine,
-					`resolved question "${start.title}" requires exactly one nonempty Decision`,
-				);
-			if (rationales.length !== 1 || !rationales[0]?.value)
-				return invalid(
-					rationales[1]?.line ?? rationales[0]?.line ?? headingLine,
-					`resolved question "${start.title}" requires exactly one nonempty Rationale`,
-				);
-			questions.push({
-				status: "resolved",
-				...common,
-				decision: decisions[0].value,
-				rationale: rationales[0].value,
-			});
-		}
-	}
-
-	return {
-		kind: "valid",
-		questions,
-		sectionEnd:
-			endIndex < lines.length ? lines[endIndex].start : document.length,
-	};
+	return { version: 1, questions };
 }
 
-export function insertQuestions(
-	document: string,
-	input: QuestionsInput,
-): string {
-	const parsed = parseDesignQuestions(document);
-	if (parsed.kind === "invalid") throw new Error(parsed.error);
-	const newline = document.includes("\r\n") ? "\r\n" : "\n";
-	const serialized = serializeQuestions(input).replaceAll("\n", newline);
-	if (!serialized) return document;
-	const existing = new Set(parsed.questions.map((question) => question.title));
-	for (const question of input.questions) {
-		if (existing.has(question.title.trim()))
-			throw new Error(`duplicate question title "${question.title}"`);
+export function answerQuestion(
+	store: QuestionStore,
+	id: string,
+	answer: QuestionAnswer,
+): QuestionStore {
+	const errors = validateQuestionStore(store);
+	if (errors.length) throw new Error(`invalid question store: ${errors.join("; ")}`);
+	if (!Check(questionAnswerSchema, answer)) throw new Error("answer does not match the exact answer schema");
+	const question = store.questions.find((candidate) => candidate.id === id);
+	if (!question) throw new Error(`unknown question id ${id}`);
+	if (answer.kind === "option" && answer.option > question.options.length)
+		throw new Error(`answer option ${answer.option} exceeds ${question.options.length} options`);
+	let storedAnswer = answer;
+	if (answer.kind === "free_text") {
+		storedAnswer = { ...answer, text: answer.text.trim() };
+		const problem = freeTextProblem(storedAnswer.text);
+		if (problem) throw new Error(`answer text ${problem}`);
 	}
-
-	let insertion = parsed.sectionEnd;
-	while (document.slice(0, insertion).endsWith(newline))
-		insertion -= newline.length;
-	const before = document.slice(0, insertion);
-	const after = document.slice(insertion);
-	const prefix = before.endsWith(newline + newline)
-		? ""
-		: before.endsWith(newline)
-			? newline
-			: newline + newline;
-	const atDocumentEnd = parsed.sectionEnd === document.length;
-	const suffix =
-		atDocumentEnd || after.startsWith(newline + newline) || !after
-			? ""
-			: after.startsWith(newline)
-				? newline
-				: newline + newline;
-	return `${before}${prefix}${serialized}${suffix}${after}`;
+	if (question.status !== "open") {
+		if (JSON.stringify(question.answer) === JSON.stringify(storedAnswer)) return store;
+		throw new Error(`question ${id} already has an immutable answer`);
+	}
+	return {
+		version: 1,
+		questions: store.questions.map((candidate) =>
+			candidate.id === id
+				? { ...candidate, status: "answered", answer: storedAnswer }
+				: candidate,
+		),
+	};
 }

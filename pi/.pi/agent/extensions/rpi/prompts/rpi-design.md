@@ -1,77 +1,90 @@
 ---
-description: RPI design — put the design decisions in front of the human, unresolved
-argument-hint: "<task-slug> [answers to open questions]"
+description: RPI design — put every material design decision in front of the human
+argument-hint: "<task-slug> [ID-addressed human answers or design feedback]"
 ---
 
 Treat any document `repo:` path as historical provenance only. The canonical task worktree named
 in the Run context is the repository for this phase; do not leave it.
 
-Read `ticket.md` and `02-research.md` in full. Do not read `01-research-questions.md`.
+Read `ticket.md` and `02-research.md` in full. Read `03-design-discussion.md` and `questions.json`
+when they exist. Do not read `01-research-questions.md`. `03-design-discussion.md` is the
+authoritative design; `questions.json` is machine-owned decision provenance.
 
-Where they disagree, `02-research.md` wins: the ticket says what someone wants, the research says
-what is there. Say in the design where you went with the code over the ticket, and why.
+Where the documents disagree about current facts, verify the relevant code and follow the code.
+Record consequential disagreements and their effect on the design. Feedback continues design; it
+never authorizes implementation, repository edits, implementation artifacts, or Outline.
 
-Feedback is an instruction to change this document, never to start implementing — even "just do
-it". Implementation is its own phase, in a session of its own.
+Work in this session. Do not delegate design or decisions. Use `delegate` only to establish facts:
+parallel `scout` delegates for independent repository questions and existing patterns, and
+`researcher` for external facts. Ask for exact paths, signatures, and snippets. Facts are
+investigated; choices about behavior, scope, policy, and trade-offs belong to the human.
 
-Treat the human's decisions as settled, but check any claim they make about the code before building
-on it — `delegate` to `scout`. A wrong fact accepted here becomes the outline and then the code.
+## Design loop
 
-Work in this session. Do not `delegate` the design itself: children run with no session and no UI,
-so they cannot ask you anything and you cannot ask the human through them.
+1. Inspect the ticket, research, current design, question history, and current feedback.
+2. Treat each delivered answer as an immutable human decision identified by its question ID. Never
+   reinterpret, rewrite, merge, or silently discard it.
+3. Investigate all independent factual gaps in parallel. Never ask the human for a discoverable
+   fact.
+4. After every delivered answer set, immediately update all affected prose in
+   `03-design-discussion.md`. Keep the whole design coherent: behavior, architecture, assumptions,
+   invariants, terminology, non-goals, failures, edge cases, trade-offs, and repository patterns.
+   Put synthesized rationale in the relevant architecture, failure, or trade-off prose; do not add
+   a question-history section.
+5. Only after the prose incorporates every delivered answer, call
+   `rpi_update_design_questions`. Put those IDs in `incorporated_question_ids`; in the same atomic
+   call, `questions` may contain every useful follow-up currently identified, with no question-count
+   limit. Either list may be empty, but the call must perform at least one operation.
+6. Recompute remaining decisions after incorporation. Continue until all currently identifiable
+   independent and dependent material choices have been represented. Report readiness only when no
+   material decision remains.
 
-Two things are worth a `scout` — a specific fact the research left thin, and the patterns below.
-The research phase never saw the ticket, so it could not know which existing code this change
-should look like; you do. Send scouts for the two or three places the codebase already does what
-you are about to do, and ask each for the real snippet, not a description of it.
+Never edit `questions.json` directly. Never write questions, answers, recommendations, statuses, or
+IDs into Markdown. The lifecycle tool is the only way to acknowledge answers or add questions.
+Design may acknowledge answered IDs; Outline may not. Acknowledge only answers already incorporated
+into the prose.
 
-## The rule this phase exists for
+## Question guidance
 
-**You may recommend. You may not resolve.**
+**You may recommend. You may not decide for the human.** “Do what you think” permits a strong
+recommendation, not self-resolution.
 
-A question is a canonical `####` block inside `### Design Questions`, and it is open until that
-heading starts with `[x]`. `/rpi` validates every question block and refuses to start the outline
-while any parsed question remains open. Malformed questions also block advancement — the direction
-that stalls and asks rather than the one that proceeds without you.
+Each tool question needs a concise noun-phrase `title`, one concrete `question`, 2–26 distinct
+concrete `options`, a 1-based `recommended_option`, and a compact `recommendation`. State the main
+reason the recommended option wins; do not restate every option or write an essay. Add as many
+questions in one call as the design needs. Do not artificially serialize independent choices, and
+do not add ceremonial questions.
 
-The validator reserves `####` for questions inside `### Design Questions`. Use `-` or bold for
-sub-points anywhere else in this document.
+Material user-visible behavior, fallback, degradation, compatibility, policy, architecture,
+trade-off, or non-goal is a human decision. Decisions made moot by simplification need no question.
 
-Every design question is written open, with options and your recommendation. Add every new
-question through `rpi_add_design_questions`; never hand-write a new `####` question block. The
-extension assigns the option labels and serializes the canonical Markdown. Write or update the
-rest of the design document first, leaving `### Design Questions` present, then call the tool once
-with the complete batch of new questions.
+## Simplification test
 
-None of them is resolved in the first pass — not when the answer looks obvious, not when the
-research all but settles it, not when the human says "do what you think". That is permission to
-recommend forcefully, not permission to close the question. Closing it yourself deletes the only
-gate in the chain where the human's judgement is what is being asked for.
+Draft the smallest design satisfying the real goal and constraints. Before adding scope, a
+mechanism, layer, abstraction, configuration, fallback, or compatibility path, try deletion or an
+existing repository pattern first. Remove speculative flexibility and accidental requirements.
+Every retained addition needs a concrete present need and an explanation of why existing
+infrastructure is insufficient. Recommend the simpler option unless a verified constraint defeats
+it.
 
-Every material user-visible fallback, degradation, or non-goal must be an unresolved design
-question with concrete options. Do not bury one as settled prose in error handling, compatibility,
-or `### What we're not doing`.
+## Readiness
 
-When the human answers — this prompt run again with their feedback, or any clear indication of a
-decision, they do not have to say "resolve" — direct editing is allowed to resolve that existing
-question only. Mark its heading `#### [x] `, replace its `Recommendation` line with one nonempty
-`Decision:` line and one nonempty `Rationale:` line, including why the discarded options lost.
-Keep the original question and options unchanged. Questions they did not answer keep their bare
-heading and canonical `Recommendation` line. If `/rpi` reports that an existing block is malformed,
-repair that block to the canonical shape before doing anything else; this recovery rule does not
-permit adding a new block by hand.
+When no material decision remains, do not start Outline. Explicitly report:
+`Design is ready for shared-understanding confirmation; no material design questions remain.`
+Only separate human agreement through `/rpi` may advance, and it always starts a fresh full-prompt
+Outline session.
 
 ## Every path is relative to the repository root
 
-`src/main.rs`, never `/home/you/project/src/main.rs`. The outline reads this document and the
-implementation runs in a checkout that is not this one, so an absolute path here follows them
-there. Applies to the snippets under `### Patterns to follow` above all — those are the paths the
-outline copies forward.
+Use `src/main.rs`, never `/home/you/project/src/main.rs`. The outline reads this document and the
+implementation runs in another checkout. This applies especially to snippets under
+`### Patterns to follow`.
 
 ## Output
 
-Write `<task-directory>/03-design-discussion.md`. If it already exists, update it in place; keep
-the number and the filename.
+Write `<task-directory>/03-design-discussion.md`. If it exists, update it in place and keep its
+number and filename. Use the structure below, omitting optional empty headings. Do not add a
+Markdown question section or copy bracketed guidance into the document.
 
 ````markdown
 ---
@@ -84,22 +97,31 @@ sha: [git rev-parse HEAD]
 
 ### Current State
 
-[what a user sees and experiences today — behaviour and pain, no file paths]
+[what a user sees today — behavior and pain, no file paths]
 
 ### Desired End State
+
+### Assumptions and invariants
+
+[material assumptions and invariants; distinguish verified facts from assumptions]
 
 ### What we're not doing
 
 ### Proposed End State Architecture
 
-Before / After, as mermaid where a diagram earns its place, plus a concise description.
+[the smallest design; Before / After mermaid only where a diagram earns its place]
 
-### Design Questions
+### Failure behavior and edge cases
+
+[material cases using concrete scenarios]
+
+### Trade-offs and rejected alternatives
+
+[why retained mechanisms earn their place and why simpler alternatives fail]
 
 ### Patterns to follow
 
-[patterns the research found in this codebase that the implementation should follow — each with
-its file path and a real snippet, not a paraphrase]
+[repository-relative paths and real snippets for patterns the implementation should follow]
 ````
 
 Then stop. Report what you wrote.
@@ -108,5 +130,5 @@ Then stop. Report what you wrote.
 
 Task slug: `$1`
 Task directory: `~/.pi/agent/tasks/$1/`
-The human's decision supplied through the `/rpi` controls is the whole job of this run: `${@:2}`
+The human decisions or feedback supplied through `/rpi` are the whole job of this run: `${@:2}`
 Use the Task directory above wherever this prompt says `<task-directory>`.
