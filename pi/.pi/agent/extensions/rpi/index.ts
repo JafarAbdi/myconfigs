@@ -1179,13 +1179,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		}));
 	}
 
-	function widgetHead(slug: string, phase: Phase): string {
-		if (phase === "done") return `rpi ${slug}  done`;
-		if (phase === "deleting") return `rpi ${slug}  removing`;
-		return `rpi ${slug}  /rpi ${slug}`;
-	}
-
-	function show(ctx: ExtensionContext, slug: string, place: Place): void {
+	function show(ctx: ExtensionContext, place: Place): void {
 		const steps = visibleSteps(place);
 		if (ctx.mode !== "tui") {
 			const dots = steps
@@ -1196,15 +1190,16 @@ export default function rpi(pi: ExtensionAPI): void {
 					return `○ ${phase}`;
 				})
 				.join("  ");
-			ctx.ui.setWidget("rpi", [
-				widgetHead(slug, place.phase),
-				...(dots ? [dots] : []),
-			]);
+			ctx.ui.setWidget("rpi", dots ? [dots] : undefined);
+			return;
+		}
+		if (!steps.length) {
+			ctx.ui.setWidget("rpi", undefined);
 			return;
 		}
 		ctx.ui.setWidget("rpi", (_tui, theme) => {
-			const compose = () => {
-				const dots = steps
+			const compose = () =>
+				steps
 					.map(({ phase, status }) => {
 						if (status === "complete")
 							return theme.fg("success", `✓ ${phase}`);
@@ -1217,18 +1212,6 @@ export default function rpi(pi: ExtensionAPI): void {
 						return theme.fg("dim", `○ ${phase}`);
 					})
 					.join("  ");
-				const suffix =
-					place.phase === "done"
-						? "  done"
-						: place.phase === "deleting"
-							? "  removing"
-							: `  /rpi ${slug}`;
-				const head =
-					theme.fg("muted", "rpi ") +
-					theme.fg("toolTitle", theme.bold(slug)) +
-					theme.fg("dim", suffix);
-				return dots ? `${head}\n${dots}` : head;
-			};
 			const text = new Text(compose(), 1, 0);
 			return {
 				render: (width: number) => text.render(width),
@@ -1251,7 +1234,7 @@ export default function rpi(pi: ExtensionAPI): void {
 			return;
 		}
 		const place = await placeFor(slug);
-		show(ctx, slug, place);
+		show(ctx, place);
 		if (
 			autofill &&
 			ctx.mode === "tui" &&
@@ -1684,7 +1667,7 @@ export default function rpi(pi: ExtensionAPI): void {
 				if (current.kind !== "valid" || !sameState(current.state, expected))
 					throw new Error("task state changed during the session switch");
 				activate?.(replacement);
-				show(replacement, slug, await placeFor(slug));
+				show(replacement, await placeFor(slug));
 				const decision = decideSessionPrompt(
 					currentMessageCount(replacement),
 					context.extra === undefined ? "none" : "provided",
@@ -2784,7 +2767,7 @@ export default function rpi(pi: ExtensionAPI): void {
 					);
 					return;
 				}
-				show(replacement, slug, await placeFor(slug));
+				show(replacement, await placeFor(slug));
 				const decision =
 					runStatus(state) === "pending"
 						? "full"
