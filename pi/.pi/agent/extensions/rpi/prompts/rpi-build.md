@@ -6,10 +6,9 @@ argument-hint: "<task-slug> [instructions]"
 Treat a decision in the final Run context as settled, but check any claim about the code before
 acting on it — `delegate` to `scout`. A wrong fact accepted here becomes the plan and then the code.
 
-If a document names a `repo:`, compare repository identity rather than top-level paths: linked
-worktrees have different roots. Treat it as this repository only when that checkout's and this
-checkout's `git rev-parse --path-format=absolute --git-common-dir` resolve to the same path;
-otherwise stop and say the task belongs to a different repository.
+The current working directory must be the canonical task worktree named in the Run context. Treat
+document `repo:` paths as historical provenance only; never leave this worktree. Stop on any cwd
+or branch mismatch.
 
 Read `04-structure-outline.md` in full.
 

@@ -12,7 +12,7 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, normalize } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { complete } from "@earendil-works/pi-ai/compat";
 import {
@@ -43,25 +43,40 @@ import {
 	stripFrontmatter,
 } from "./prompt-loader.ts";
 import {
+	insertQuestions,
+	optionLabel,
+	type ParsedQuestion,
+	parseDesignQuestions,
+	questionsSchema,
+	validateQuestions,
+} from "./questions.ts";
+import {
 	activeBranchMessageCount,
 	activeBuildState,
 	activePrState,
 	type BuildTaskState,
 	buildState,
 	CANCELLED,
+	type ClosingTaskState,
+	type CommittingTaskState,
+	closingState,
+	committingState,
 	createTask,
 	decidePersistedRun,
 	decideSessionPrompt,
+	deletingState,
 	identityState,
+	invariantError,
 	loadTaskState,
 	PHASES,
 	type Phase,
 	type PrTaskState,
 	plainState,
-	prNeedsRestart,
 	prState,
-	repositoryProblem,
 	STATE_VERSION,
+	type StagingTaskState,
+	safeRelativePath,
+	stagingState,
 	type TaskState,
 } from "./state.ts";
 
@@ -82,6 +97,44 @@ const GIT_QUERY_MS = 5_000;
 const GIT_WRITE_MS = 120_000;
 const execFileAsync = promisify(execFile);
 
+interface GitResult {
+	code: number;
+	stdout: string;
+	stderr: string;
+}
+
+async function git(
+	cwd: string,
+	args: string[],
+	timeout = GIT_QUERY_MS,
+): Promise<GitResult> {
+	try {
+		const { stdout, stderr } = await execFileAsync("git", args, {
+			cwd,
+			encoding: "utf-8",
+			timeout,
+		});
+		return { code: 0, stdout, stderr };
+	} catch (error) {
+		const failure = error as Error & {
+			code?: number;
+			killed?: boolean;
+			stdout?: string;
+			stderr?: string;
+		};
+		return {
+			code:
+				typeof failure.code === "number"
+					? failure.code
+					: failure.killed
+						? 124
+						: 1,
+			stdout: failure.stdout ?? "",
+			stderr: failure.stderr ?? failure.message,
+		};
+	}
+}
+
 interface Place {
 	phase: Phase;
 	detail: string;
@@ -96,7 +149,7 @@ interface ReplacementContext extends ExtensionCommandContext {
 
 interface BuildReview {
 	root: string;
-	base: string;
+	parent: string;
 	paths: string[];
 	snapshot: string;
 	phaseLine: string;
@@ -105,7 +158,6 @@ interface BuildReview {
 
 interface RepositoryEvidence {
 	root: string;
-	gitCommonDir: string;
 	head: string;
 	branch: string;
 }
@@ -134,19 +186,6 @@ Bad (refusal): I can't read that path`;
 
 function statePath(slug: string): string {
 	return join(TASKS, slug, STATE_FILE);
-}
-
-function safeRelativePath(path: string): boolean {
-	return (
-		path.length > 0 &&
-		path.length < 4096 &&
-		!isAbsolute(path) &&
-		!/[\0\r\n]/.test(path) &&
-		!path.includes("\\") &&
-		normalize(path) === path &&
-		path !== ".." &&
-		!path.startsWith("../")
-	);
 }
 
 function loadState(slug: string) {
@@ -207,9 +246,8 @@ function documentNames(slug: string, prefix: string): string[] {
 }
 
 function documentIn(slug: string, prefix: string): string {
-	const names = documentNames(slug, prefix);
-	return names.length === 1
-		? readFileSync(join(TASKS, slug, names[0]), "utf-8")
+	return documentNames(slug, prefix).length === 1
+		? readFileSync(taskDocumentPath(slug, prefix), "utf-8")
 		: "";
 }
 
@@ -219,7 +257,11 @@ function taskDocumentPath(slug: string, prefix: string): string {
 		throw new Error(`expected exactly one ${prefix} task document`);
 	}
 	const directory = realpathSync(join(TASKS, slug));
-	const path = realpathSync(join(directory, names[0]));
+	const candidate = join(directory, names[0]);
+	const stat = lstatSync(candidate);
+	if (!stat.isFile() || stat.isSymbolicLink())
+		throw new Error(`${names[0]} is not a regular non-symlink file`);
+	const path = realpathSync(candidate);
 	if (dirname(path) !== directory)
 		throw new Error(`${names[0]} resolves outside the task directory`);
 	return path;
@@ -284,13 +326,12 @@ function regularFile(path: string): boolean {
 	}
 }
 
-function sameRepository(
+function sameCheckout(
 	left: RepositoryEvidence,
 	right: RepositoryEvidence,
 ): boolean {
 	return (
 		left.root === right.root &&
-		left.gitCommonDir === right.gitCommonDir &&
 		left.head === right.head &&
 		left.branch === right.branch
 	);
@@ -350,8 +391,9 @@ export default function rpi(pi: ExtensionAPI): void {
 		return title;
 	}
 
-	async function git(cwd: string, args: string[], timeout = GIT_QUERY_MS) {
-		return pi.exec("git", args, { cwd, timeout });
+	async function validTaskSlug(cwd: string, slug: string): Promise<boolean> {
+		const result = await git(cwd, ["check-ref-format", "--branch", slug]);
+		return result.code === 0;
 	}
 
 	async function branchOf(cwd: string): Promise<string | undefined> {
@@ -364,48 +406,16 @@ export default function rpi(pi: ExtensionAPI): void {
 		return result.code === 0 ? result.stdout.trim() : undefined;
 	}
 
-	async function repositoryEvidenceDirect(
-		cwd: string,
-	): Promise<RepositoryEvidence | undefined> {
-		try {
-			const run = async (args: string[]) => {
-				const { stdout } = await execFileAsync("git", args, {
-					cwd,
-					encoding: "utf-8",
-					timeout: GIT_QUERY_MS,
-				});
-				return stdout.trim();
-			};
-			const [root, gitCommonDir, head, branch] = await Promise.all([
-				run(["rev-parse", "--show-toplevel"]),
-				run(["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-				run(["rev-parse", "--verify", "HEAD^{commit}"]),
-				run(["branch", "--show-current"]),
-			]);
-			return {
-				root: realpathSync(root),
-				gitCommonDir: realpathSync(gitCommonDir),
-				head,
-				branch,
-			};
-		} catch {
-			return undefined;
-		}
-	}
-
 	async function repositoryEvidence(
 		cwd: string,
 	): Promise<RepositoryEvidence | undefined> {
-		const [rootResult, commonResult, headResult, branchResult] =
-			await Promise.all([
-				git(cwd, ["rev-parse", "--show-toplevel"]),
-				git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-				git(cwd, ["rev-parse", "--verify", "HEAD^{commit}"]),
-				git(cwd, ["branch", "--show-current"]),
-			]);
+		const [rootResult, headResult, branchResult] = await Promise.all([
+			git(cwd, ["rev-parse", "--show-toplevel"]),
+			git(cwd, ["rev-parse", "--verify", "HEAD^{commit}"]),
+			git(cwd, ["branch", "--show-current"]),
+		]);
 		if (
 			rootResult.code !== 0 ||
-			commonResult.code !== 0 ||
 			headResult.code !== 0 ||
 			branchResult.code !== 0
 		) {
@@ -414,7 +424,6 @@ export default function rpi(pi: ExtensionAPI): void {
 		try {
 			return {
 				root: realpathSync(rootResult.stdout.trim()),
-				gitCommonDir: realpathSync(commonResult.stdout.trim()),
 				head: headResult.stdout.trim(),
 				branch: branchResult.stdout.trim(),
 			};
@@ -427,37 +436,50 @@ export default function rpi(pi: ExtensionAPI): void {
 		ctx: ExtensionCommandContext,
 	): Promise<RepositoryEvidence | typeof CANCELLED> {
 		const repository = await repositoryEvidence(ctx.cwd);
-		if (repository) return repository;
+		if (repository) {
+			if (!repository.branch)
+				throw new Error(
+					"RPI requires a named base branch; detached HEAD is unsupported",
+				);
+			if (!(await repoClean(repository.root)))
+				ctx.ui.notify(
+					"existing checkout changes are excluded; the RPI worktree starts from committed HEAD",
+					"info",
+				);
+			return repository;
+		}
 
 		const topLevel = await git(ctx.cwd, ["rev-parse", "--show-toplevel"]);
 		let bootstrap: RepositoryBootstrap;
 		if (topLevel.code === 0) {
-			const [common, branch, head] = await Promise.all([
-				git(ctx.cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+			const [branch, head] = await Promise.all([
 				git(ctx.cwd, ["branch", "--show-current"]),
 				git(ctx.cwd, ["rev-parse", "--verify", "HEAD^{commit}"]),
 			]);
-			if (common.code !== 0 || branch.code !== 0 || head.code === 0) {
+			if (branch.code !== 0 || head.code === 0) {
 				throw new Error(
-					common.stderr.trim() ||
-						branch.stderr.trim() ||
+					branch.stderr.trim() ||
 						"Git repository evidence could not be read consistently",
 				);
 			}
-			bootstrap = { kind: "unborn", root: realpathSync(topLevel.stdout.trim()) };
+			bootstrap = {
+				kind: "unborn",
+				root: realpathSync(topLevel.stdout.trim()),
+			};
 		} else {
 			const detail = topLevel.stderr.trim();
-			if (detail && !/not a git repository/i.test(detail)) throw new Error(detail);
+			if (detail && !/not a git repository/i.test(detail))
+				throw new Error(detail);
 			bootstrap = { kind: "absent", root: realpathSync(ctx.cwd) };
 		}
 		const action =
 			bootstrap.kind === "absent"
-				? `Run git init in ${bootstrap.root} and create an empty "Initialize repository" commit.`
-				: `Create an empty "Initialize repository" commit in ${bootstrap.root}; git init will not run.`;
+				? `Run git init in ${bootstrap.root}, git add -A, and create the root commit "Initialize repository".`
+				: `Run git add -A and create the root commit "Initialize repository" in ${bootstrap.root}.`;
 		if (
 			!(await ctx.ui.confirm(
-				"Initialize Git for RPI?",
-				`${action} Existing files will remain uncommitted.`,
+				"Initialize Git and commit the local baseline?",
+				`${action} Every current non-ignored file will be committed. Nothing will be pushed.`,
 			))
 		)
 			return CANCELLED;
@@ -471,7 +493,15 @@ export default function rpi(pi: ExtensionAPI): void {
 			}
 		}
 		if (await headOf(bootstrap.root)) {
-			throw new Error("Git HEAD appeared while initialization was awaiting confirmation; retry /rpi");
+			throw new Error(
+				"Git HEAD appeared while initialization was awaiting confirmation; retry /rpi",
+			);
+		}
+		const added = await git(bootstrap.root, ["add", "-A"], GIT_WRITE_MS);
+		if (added.code !== 0) {
+			throw new Error(
+				added.stderr.trim() || `git add -A failed in ${bootstrap.root}`,
+			);
 		}
 		const committed = await git(
 			bootstrap.root,
@@ -480,40 +510,45 @@ export default function rpi(pi: ExtensionAPI): void {
 				"core.hooksPath=",
 				"commit",
 				"--allow-empty",
-				"--only",
 				"--no-gpg-sign",
 				"--no-verify",
 				"-m",
 				"Initialize repository",
-				"--",
 			],
 			GIT_WRITE_MS,
 		);
 		if (committed.code !== 0) {
 			throw new Error(
 				committed.stderr.trim() ||
-					`could not create the empty initial commit in ${bootstrap.root}`,
+					`could not create the initial baseline commit in ${bootstrap.root}`,
 			);
 		}
 		const initialized = await repositoryEvidence(bootstrap.root);
-		if (!initialized) {
+		if (!initialized?.branch) {
 			throw new Error(
-				`Git initialized in ${bootstrap.root}, but HEAD could not be verified`,
+				`Git initialized in ${bootstrap.root}, but a named HEAD could not be verified`,
 			);
 		}
-		const [parents, tree, subject] = await Promise.all([
-			git(bootstrap.root, ["rev-list", "--parents", "-n", "1", initialized.head]),
-			git(bootstrap.root, ["diff-tree", "--root", "--quiet", initialized.head, "--"]),
+		const [parents, subject] = await Promise.all([
+			git(bootstrap.root, [
+				"rev-list",
+				"--parents",
+				"-n",
+				"1",
+				initialized.head,
+			]),
 			git(bootstrap.root, ["log", "-1", "--format=%s", initialized.head]),
 		]);
 		if (
 			parents.code !== 0 ||
 			parents.stdout.trim().split(/\s+/).length !== 1 ||
-			tree.code !== 0 ||
 			subject.code !== 0 ||
-			subject.stdout.trim() !== "Initialize repository"
+			subject.stdout.trim() !== "Initialize repository" ||
+			!(await repoClean(bootstrap.root))
 		) {
-			throw new Error("Git initialization did not produce the expected empty root commit");
+			throw new Error(
+				"Git initialization did not produce the expected clean root commit",
+			);
 		}
 		return initialized;
 	}
@@ -521,84 +556,59 @@ export default function rpi(pi: ExtensionAPI): void {
 	async function requireRepository(
 		cwd: string,
 		state: TaskState,
-		requiredBranch?: string,
+		slug: string,
 	): Promise<RepositoryEvidence> {
 		const repository = await repositoryEvidence(cwd);
+		const expectedRoot = join(WORKTREES, slug);
 		if (!repository) {
-			throw new Error(
-				`repository invariant failed: ${cwd} is not a Git checkout with HEAD; reopen the task in its recorded repository`,
+			throw invariantError(
+				`Git checkout with HEAD at ${expectedRoot}`,
+				`${cwd} is not a Git checkout with HEAD`,
 			);
 		}
-		const base = await git(repository.root, [
-			"cat-file",
-			"-e",
-			`${state.baseSha}^{commit}`,
+		let canonicalRoot: string;
+		try {
+			canonicalRoot = realpathSync(expectedRoot);
+		} catch {
+			throw invariantError(`exact worktree ${expectedRoot}`, "worktree absent");
+		}
+		if (canonicalRoot !== expectedRoot || repository.root !== expectedRoot) {
+			throw invariantError(
+				`exact worktree root ${expectedRoot}`,
+				`canonical path ${canonicalRoot}; repository root ${repository.root}`,
+			);
+		}
+		if (repository.branch !== slug) {
+			throw invariantError(
+				`branch ${slug} at ${expectedRoot}`,
+				`branch ${repository.branch || "<detached>"}`,
+			);
+		}
+		const baseBranch = await git(repository.root, [
+			"show-ref",
+			"--verify",
+			"--quiet",
+			`refs/heads/${state.baseBranch}`,
 		]);
-		const ancestor = requiredBranch
-			? await git(repository.root, [
-					"merge-base",
-					"--is-ancestor",
-					state.baseSha,
-					"HEAD",
-				])
-			: undefined;
-		const problem = repositoryProblem(
-			state,
-			{
-				gitCommonDir: repository.gitCommonDir,
-				base: base.code === 0 ? "present" : "missing",
-				branch: repository.branch,
-				ancestry: ancestor?.code === 0 ? "valid" : "invalid",
-			},
-			requiredBranch,
-		);
-		switch (problem) {
-			case "wrong-repository":
-				throw new Error(
-					`repository invariant failed: this checkout uses ${repository.gitCommonDir}, but the task records ${state.gitCommonDir}; cd to a linked worktree of the recorded repository`,
-				);
-			case "missing-base":
-				throw new Error(
-					`task base invariant failed: ${state.baseSha} is absent from ${state.gitCommonDir}; restore that object (for example with git fetch) before continuing`,
-				);
-			case "wrong-branch":
-				throw new Error(
-					`branch invariant failed: expected ${requiredBranch}, found ${repository.branch || "detached HEAD"}; check out ${requiredBranch}`,
-				);
-			case "base-not-ancestor":
-				throw new Error(
-					`task base invariant failed: ${requiredBranch} does not descend from recorded base ${state.baseSha}; repair or recreate the task branch from that SHA`,
-				);
+		if (baseBranch.code !== 0) {
+			throw invariantError(
+				`named base branch ${state.baseBranch}`,
+				`refs/heads/${state.baseBranch} is missing`,
+			);
 		}
 		return repository;
 	}
 
-	async function branchExists(slug: string, cwd: string): Promise<boolean> {
-		const result = await git(cwd, [
-			"show-ref",
-			"--verify",
-			"--quiet",
-			`refs/heads/${slug}`,
-		]);
-		return result.code === 0;
-	}
-
-	async function requireBranchDescends(
+	async function branchHead(
 		slug: string,
-		state: TaskState,
 		cwd: string,
-	): Promise<void> {
+	): Promise<string | undefined> {
 		const result = await git(cwd, [
-			"merge-base",
-			"--is-ancestor",
-			state.baseSha,
-			`refs/heads/${slug}`,
+			"rev-parse",
+			"--verify",
+			`refs/heads/${slug}^{commit}`,
 		]);
-		if (result.code !== 0) {
-			throw new Error(
-				`existing branch ${slug} does not descend from recorded base ${state.baseSha}; rename/delete that branch or repair the task before retrying`,
-			);
-		}
+		return result.code === 0 ? result.stdout.trim() : undefined;
 	}
 
 	async function worktreeFor(
@@ -606,7 +616,11 @@ export default function rpi(pi: ExtensionAPI): void {
 		cwd: string,
 	): Promise<string | undefined> {
 		const result = await git(cwd, ["worktree", "list", "--porcelain"]);
-		if (result.code !== 0) return undefined;
+		if (result.code !== 0) {
+			throw new Error(
+				result.stderr.trim() || "git worktree list could not be inspected",
+			);
+		}
 		for (const block of result.stdout.split("\n\n")) {
 			const lines = block.split("\n");
 			if (!lines.includes(`branch refs/heads/${slug}`)) continue;
@@ -637,6 +651,54 @@ export default function rpi(pi: ExtensionAPI): void {
 		return (await indexClean(root)) && (await unstagedAndUntrackedClean(root));
 	}
 
+	async function recoverCreating(
+		slug: string,
+		state: TaskState,
+	): Promise<void> {
+		if (state.phase !== "creating") return;
+		const path = join(WORKTREES, slug);
+		const base = await branchHead(state.baseBranch, state.sourceRoot);
+		if (!base)
+			throw invariantError(
+				`named base branch ${state.baseBranch}`,
+				`refs/heads/${state.baseBranch} is missing`,
+			);
+		const branch = await branchHead(slug, state.sourceRoot);
+		const registered = await worktreeFor(slug, state.sourceRoot);
+		if (registered && registered !== path) {
+			throw invariantError(
+				`branch ${slug} worktree at ${path}`,
+				`branch ${slug} worktree at ${registered}`,
+			);
+		}
+		if (existsSync(path) && !registered) {
+			throw invariantError(
+				`${path} absent or registered as the ${slug} worktree`,
+				`${path} exists but is not registered as that worktree`,
+			);
+		}
+		if (!registered) {
+			const args = branch
+				? ["worktree", "add", path, slug]
+				: [
+						"worktree",
+						"add",
+						"-b",
+						slug,
+						path,
+						`refs/heads/${state.baseBranch}`,
+					];
+			const result = await git(state.sourceRoot, args, GIT_WRITE_MS);
+			if (result.code !== 0)
+				throw new Error(result.stderr.trim() || "git worktree add failed");
+		}
+		await requireRepository(path, state, slug);
+		if (!(await repoClean(path))) {
+			throw invariantError(`clean worktree ${path}`, "dirty worktree");
+		}
+		saveState(slug, plainState(state, "questions"));
+	}
+
 	async function resetIndex(root: string, base: string): Promise<boolean> {
 		try {
 			const result = await git(root, ["reset", "--mixed", base], GIT_WRITE_MS);
@@ -660,24 +722,10 @@ export default function rpi(pi: ExtensionAPI): void {
 		].sort();
 	}
 
-	async function workingSnapshot(
+	async function contentSnapshot(
 		root: string,
 		paths: string[],
 	): Promise<string> {
-		const patch = await git(root, [
-			"diff",
-			"--binary",
-			"--full-index",
-			"--no-color",
-			"--no-ext-diff",
-			"--no-textconv",
-			"--no-renames",
-			"HEAD",
-			"--",
-			...paths,
-		]);
-		if (patch.code !== 0)
-			throw new Error("could not snapshot repository changes");
 		const hash = createHash("sha256");
 		for (const path of paths) {
 			hash.update(`path:${Buffer.byteLength(path)}:`).update(path);
@@ -700,78 +748,72 @@ export default function rpi(pi: ExtensionAPI): void {
 			}
 			hash.update("\0");
 		}
-		return hash
-			.update(`patch:${Buffer.byteLength(patch.stdout)}:`)
-			.update(patch.stdout)
-			.digest("hex");
+		return hash.digest("hex");
 	}
 
-	async function binaryDiff(
-		root: string,
-		base: string,
-		head?: string,
-	): Promise<string> {
-		const range = head ? [base, head] : ["--cached", base];
-		const result = await git(root, [
-			"diff",
-			"--binary",
-			"--full-index",
-			"--no-color",
-			"--no-ext-diff",
-			"--no-textconv",
-			"--no-renames",
-			...range,
-			"--",
-		]);
-		if (result.code !== 0)
-			throw new Error("could not read the full binary diff");
-		return result.stdout;
+	type OpenQuestion = Extract<ParsedQuestion, { status: "open" }>;
+	type DesignQuestions =
+		| { kind: "missing" }
+		| { kind: "invalid"; error: string }
+		| { kind: "valid"; open: OpenQuestion[]; digest: string };
+
+	function designQuestionsIn(slug: string): DesignQuestions {
+		const names = documentNames(slug, "03-");
+		if (names.length === 0) return { kind: "missing" };
+		try {
+			const path = taskDocumentPath(slug, "03-");
+			const body = readFileSync(path, "utf-8");
+			const parsed = parseDesignQuestions(body);
+			return parsed.kind === "invalid"
+				? { kind: "invalid", error: parsed.error }
+				: {
+						kind: "valid",
+						digest: digest(body),
+						open: parsed.questions.filter(
+							(question): question is OpenQuestion =>
+								question.status === "open",
+						),
+					};
+		} catch (error) {
+			return {
+				kind: "invalid",
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
 	}
 
-	interface Question {
-		title: string;
-		options: { answer: string; label: string }[];
-		recommended: string;
-	}
-
-	function questionsIn(design: string): Question[] {
-		return design
-			.replace(/^```[\s\S]*?^```/gm, "")
-			.split(/^#### /m)
-			.slice(1)
-			.filter((chunk) => !chunk.startsWith("[x] "))
-			.map((chunk) => {
-				const [heading, ...rest] = chunk.split("\n");
-				const body = rest.join("\n");
-				return {
-					title: heading.trim(),
-					recommended:
-						/^Recommendation:\s*\**\s*(Option [A-Z])/m.exec(body)?.[1] ?? "",
-					options: [
-						...body.matchAll(/^[-*]\s+\**\s*(Option [A-Z])\**\s*:\s*(.*)$/gm),
-					].map((match) => ({
-						answer: match[1],
-						label: `${match[1]}: ${match[2]}`,
-					})),
-				};
-			})
-			.filter((question) => question.title);
+	function designQuestionsError(
+		ctx: ExtensionCommandContext,
+		questions: Exclude<DesignQuestions, { kind: "valid" }>,
+	): void {
+		ctx.ui.notify(
+			questions.kind === "missing"
+				? "cannot advance design: expected one 03- artifact"
+				: `cannot advance design: malformed design questions — ${questions.error}`,
+			"error",
+		);
 	}
 
 	async function askQuestions(
 		ctx: ExtensionCommandContext,
-		design: string,
+		questions: OpenQuestion[],
 	): Promise<string | typeof CANCELLED> {
 		const typedAnswer = "Type an answer…";
 		const leaveOpen = "Leave this one open";
 		const answers: string[] = [];
-		for (const question of questionsIn(design)) {
-			const labels = question.options.map((option) =>
-				option.answer === question.recommended
-					? `${option.label}  (recommended)`
-					: option.label,
-			);
-			const choice = await ctx.ui.select(question.title, [
+		for (const question of questions) {
+			const labels = question.options.map((option, index) => {
+				const label = `${optionLabel(index + 1)}: ${option}`;
+				return index + 1 === question.recommendedOption
+					? `${label}  (recommended)`
+					: label;
+			});
+			const prompt = [
+				question.title,
+				question.question,
+				`Recommendation: ${optionLabel(question.recommendedOption)} — ${question.recommendation}`,
+			].join("\n");
+			const choice = await ctx.ui.select(prompt, [
 				...labels,
 				typedAnswer,
 				leaveOpen,
@@ -779,38 +821,114 @@ export default function rpi(pi: ExtensionAPI): void {
 			if (!choice) return CANCELLED;
 			if (choice === leaveOpen) continue;
 			if (choice === typedAnswer) {
-				const typed = await ctx.ui.input(question.title, "your decision");
+				const typed = await ctx.ui.input(prompt, "your decision");
 				if (typed === undefined) return CANCELLED;
 				if (typed.trim()) answers.push(`${question.title} → ${typed.trim()}`);
 				continue;
 			}
 			answers.push(
-				`${question.title} → ${question.options[labels.indexOf(choice)].answer}`,
+				`${question.title} → ${optionLabel(labels.indexOf(choice) + 1)}`,
 			);
 		}
 		return answers.join("; ");
 	}
 
-	async function placeFor(slug: string, _cwd: string): Promise<Place> {
+	function questionToolState(slug: string): TaskState {
+		if (!SLUG.test(slug) || active?.slug !== slug)
+			throw new Error(`${slug}: this is not the active RPI task`);
+		const name = pi.getSessionName();
+		const phase =
+			name === sessionName(slug, "design")
+				? "design"
+				: name === sessionName(slug, "outline")
+					? "outline"
+					: undefined;
+		if (!phase)
+			throw new Error(
+				`${slug}: design questions may only be added from its design or outline session`,
+			);
+		const loaded = loadState(slug);
+		if (loaded.kind !== "valid")
+			throw new Error(`${slug}: state.json is ${loaded.kind}`);
+		if (loaded.state.phase !== phase)
+			throw new Error(
+				`${slug}: state is in ${loaded.state.phase}, not this ${phase} session`,
+			);
+		return loaded.state;
+	}
+
+	pi.registerTool({
+		name: "rpi_add_design_questions",
+		label: "Add RPI Design Questions",
+		description:
+			"Add unresolved design questions to the active RPI task using canonical Markdown. The extension assigns Option A-Z labels.",
+		promptSnippet:
+			"Add canonical unresolved questions to the active RPI design document",
+		parameters: questionsSchema,
+		// Prefer native strict sampling where supported. Pi marks llama.cpp
+		// non-strict, but it may still grammar-constrain ordinary tool parameters.
+		constrainedSampling: { type: "json_schema", strict: "prefer" },
+		executionMode: "sequential",
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const problems = validateQuestions(params);
+			if (problems.length)
+				throw new Error(`invalid design questions:\n${problems.join("\n")}`);
+			const slug = params.task_slug;
+			const state = questionToolState(slug);
+			await requireRepository(ctx.cwd, state, slug);
+			const path = taskDocumentPath(slug, "03-");
+			await withFileMutationQueue(path, async () => {
+				const current = questionToolState(slug);
+				if (!sameState(current, state))
+					throw new Error(
+						`${slug}: task state changed before questions could be added`,
+					);
+				if (taskDocumentPath(slug, "03-") !== path)
+					throw new Error(`${slug}: the design document changed while queued`);
+				const body = readFileSync(path, "utf-8");
+				const updated = insertQuestions(body, params);
+				atomicWrite(path, updated, lstatSync(path).mode & 0o777);
+			});
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: `Added ${params.questions.length} design question(s) to ${path}`,
+					},
+				],
+				details: { path, count: params.questions.length },
+			};
+		},
+	});
+
+	async function placeFor(slug: string): Promise<Place> {
 		const loaded = loadState(slug);
 		if (loaded.kind === "malformed")
 			return { phase: "questions", detail: "blocked · malformed state.json" };
 		if (loaded.kind === "missing")
 			return { phase: "questions", detail: "blocked · missing state.json" };
 		const { phase } = loaded.state;
-		if (phase === "build" && loaded.state.commit)
-			return { phase, detail: "approved commit pending" };
+		if (phase === "closing") return { phase, detail: "no-code recovery" };
+		if (phase === "staging") return { phase, detail: "staging recovery" };
+		if (phase === "committing") return { phase, detail: "commit recovery" };
 		if (phase === "design") {
-			const open = questionsIn(documentIn(slug, "03-")).length;
-			if (open) return { phase, detail: `${open} unanswered` };
+			const questions = designQuestionsIn(slug);
+			if (questions.kind === "invalid")
+				return { phase, detail: "blocked · malformed design questions" };
+			if (questions.kind === "valid" && questions.open.length)
+				return { phase, detail: `${questions.open.length} unanswered` };
 		}
 		if (phase === "build") {
-			const outline = documentIn(slug, "04-");
-			const done = outline.match(/^- \[[xX]\] Phase /gm)?.length ?? 0;
-			const open = outline.match(/^- \[ \] Phase /gm)?.length ?? 0;
-			if (done + open) {
-				const status = loaded.state.build.status;
-				return { phase, detail: `${done} of ${done + open} · ${status}` };
+			try {
+				const outline = documentIn(slug, "04-");
+				const done = outline.match(/^- \[[xX]\] Phase /gm)?.length ?? 0;
+				const open = outline.match(/^- \[ \] Phase /gm)?.length ?? 0;
+				if (done + open) {
+					const status = loaded.state.build.status;
+					return { phase, detail: `${done} of ${done + open} · ${status}` };
+				}
+			} catch {
+				return { phase, detail: "blocked · invalid outline artifact" };
 			}
 		}
 		if (phase === "pr")
@@ -880,7 +998,7 @@ export default function rpi(pi: ExtensionAPI): void {
 			ctx.ui.setWidget("rpi", undefined);
 			return;
 		}
-		const place = await placeFor(slug, ctx.cwd);
+		const place = await placeFor(slug);
 		show(ctx, slug, place);
 		if (
 			autofill &&
@@ -905,7 +1023,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		| { action: "new" | "cancel" }
 		| { action: "select" | "remove"; slug: string };
 
-	async function taskInfos(cwd: string): Promise<TaskInfo[]> {
+	async function taskInfos(): Promise<TaskInfo[]> {
 		const infos = await Promise.all(
 			slugs().map(async (slug): Promise<TaskInfo | undefined> => {
 				const directory = join(TASKS, slug);
@@ -926,7 +1044,7 @@ export default function rpi(pi: ExtensionAPI): void {
 						title,
 						search: `${slug} ${ticket}`,
 						modified,
-						place: await placeFor(slug, cwd),
+						place: await placeFor(slug),
 					};
 				} catch {
 					return undefined;
@@ -941,7 +1059,7 @@ export default function rpi(pi: ExtensionAPI): void {
 	}
 
 	async function pickTask(ctx: ExtensionCommandContext): Promise<TaskChoice> {
-		const tasks = await taskInfos(ctx.cwd);
+		const tasks = await taskInfos();
 		if (!tasks.length) return { action: "new" };
 		if (ctx.mode !== "tui") {
 			const fresh = "New task…";
@@ -1071,10 +1189,17 @@ export default function rpi(pi: ExtensionAPI): void {
 			ctx.ui.notify(`${slug}: task no longer exists`, "warning");
 			return false;
 		}
+		const loaded = loadState(slug);
+		if (loaded.kind !== "valid") {
+			ctx.ui.notify(`${slug}: state.json is ${loaded.kind}`, "error");
+			return false;
+		}
+		let state = loaded.state;
 		if (
+			state.phase !== "deleting" &&
 			!(await ctx.ui.confirm(
 				`Permanently remove ${slug}?`,
-				"Delete its task folder and RPI phase sessions? Git branches, worktrees, commits, and repository files are untouched.",
+				"Delete its exact clean RPI worktree, task folder, and phase sessions? The Git branch and commits remain.",
 			))
 		) {
 			return false;
@@ -1083,6 +1208,49 @@ export default function rpi(pi: ExtensionAPI): void {
 			names.has(session.name ?? ""),
 		);
 		try {
+			const worktree = join(WORKTREES, slug);
+			if (state.phase !== "deleting") {
+				const repository = await requireRepository(worktree, state, slug);
+				if (!(await repoClean(repository.root)))
+					throw invariantError(`clean worktree ${worktree}`, "dirty worktree");
+				const common = await git(repository.root, [
+					"rev-parse",
+					"--path-format=absolute",
+					"--git-common-dir",
+				]);
+				if (common.code !== 0)
+					throw new Error(
+						common.stderr.trim() ||
+							"Git common directory could not be resolved",
+					);
+				state = deletingState(state, realpathSync(common.stdout.trim()));
+				saveState(slug, state);
+			} else if (existsSync(worktree)) {
+				const repository = await requireRepository(worktree, state, slug);
+				if (!(await repoClean(repository.root)))
+					throw invariantError(`clean worktree ${worktree}`, "dirty worktree");
+			} else if (await worktreeFor(slug, state.gitDirectory)) {
+				throw invariantError(
+					`${worktree} absent and unregistered`,
+					`${worktree} absent but still registered`,
+				);
+			}
+			if (existsSync(worktree)) {
+				const removed = await git(
+					state.gitDirectory,
+					["worktree", "remove", worktree],
+					GIT_WRITE_MS,
+				);
+				if (removed.code !== 0)
+					throw new Error(
+						removed.stderr.trim() || "git worktree remove failed",
+					);
+			}
+			if (existsSync(worktree) || (await worktreeFor(slug, state.gitDirectory)))
+				throw invariantError(
+					`${worktree} removed and unregistered`,
+					"worktree removal is incomplete",
+				);
 			for (const session of sessions) {
 				try {
 					unlinkSync(session.path);
@@ -1092,8 +1260,11 @@ export default function rpi(pi: ExtensionAPI): void {
 			}
 			rmSync(directory, { recursive: true });
 		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
 			ctx.ui.notify(
-				`could not remove ${slug}: ${error instanceof Error ? error.message : error}`,
+				message.startsWith("RPI invariant failed\n")
+					? message
+					: `could not remove ${slug}: ${message}`,
 				"error",
 			);
 			return false;
@@ -1122,12 +1293,18 @@ export default function rpi(pi: ExtensionAPI): void {
 		ctx: ExtensionCommandContext,
 		slug: string,
 		phase: PhasePrompt,
-	): Promise<SessionInfo | "new"> {
-		return (
-			(await priorSessions(ctx, slug, phase)).find(
-				(session) => session.cwd && regularFile(session.path),
-			) ?? "new"
+	): Promise<SessionInfo | undefined> {
+		const worktree = join(WORKTREES, slug);
+		const candidates = (await priorSessions(ctx, slug, phase)).filter(
+			(session) => regularFile(session.path),
 		);
+		const invalid = candidates.find((session) => session.cwd !== worktree);
+		if (invalid) {
+			throw new Error(
+				`session invariant failed: ${invalid.path} records cwd ${invalid.cwd || "<missing>"}, expected ${worktree}`,
+			);
+		}
+		return candidates[0];
 	}
 
 	async function enterPhase(
@@ -1138,109 +1315,42 @@ export default function rpi(pi: ExtensionAPI): void {
 		activate?: () => void,
 	): Promise<void> {
 		await ctx.waitForIdle();
+		const worktree = join(WORKTREES, slug);
 		const selected = await choosePhaseSession(ctx, slug, phase);
-		const cwd = selected === "new" ? ctx.cwd : selected.cwd;
 		const loaded = loadState(slug);
 		if (
 			loaded.kind !== "valid" ||
 			(!activate && loaded.state.phase !== phase)
 		) {
-			throw new Error(
-				`${slug}: state.json changed before ${phase} could start; run /rpi again`,
-			);
+			throw new Error(`${slug}: state changed before ${phase} could start`);
 		}
 		const expected = loaded.state;
-		const selectedRepository = await requireRepository(cwd, expected);
+		const repository = await requireRepository(worktree, expected, slug);
 		const fullPrompt = loadPhasePrompt(phase, slug, context);
 		const continuation = continuationPrompt(phase, context);
-		const parentSession = ctx.sessionManager.getSessionFile();
-		const selectedPath = selected === "new" ? undefined : selected.path;
 
-		const current = loadState(slug);
-		if (current.kind !== "valid" || !sameState(current.state, expected)) {
-			throw new Error(
-				"task state changed while the phase session was selected; run /rpi again",
-			);
-		}
-		const repository = await requireRepository(cwd, current.state);
-		const latestRepository = await repositoryEvidence(cwd);
-		if (
-			!latestRepository ||
-			!sameRepository(repository, latestRepository) ||
-			!sameRepository(latestRepository, selectedRepository)
-		) {
-			throw new Error(
-				"repository HEAD or checkout changed while the phase session was selected; run /rpi again",
-			);
-		}
-		const finalState = loadState(slug);
-		if (finalState.kind !== "valid" || !sameState(finalState.state, expected)) {
-			throw new Error(
-				"task state changed immediately before the phase session switch; run /rpi again",
-			);
-		}
-
-		const withSession = async (replacement: ReplacementContext) => {
+		const withPhaseSession = async (replacement: ReplacementContext) => {
 			try {
-				const replacementRepository = await repositoryEvidenceDirect(
-					replacement.cwd,
-				);
-				if (
-					!replacementRepository ||
-					!sameRepository(replacementRepository, repository)
-				) {
-					replacement.ui.notify(
-						"repository changed during the session switch; run /rpi again",
-						"error",
-					);
-					return;
-				}
-				const replacementState = loadState(slug);
-				if (
-					replacementState.kind !== "valid" ||
-					!sameState(replacementState.state, expected)
-				) {
-					replacement.ui.notify(
-						"task state changed during the session switch; run /rpi again",
-						"error",
-					);
-					return;
-				}
+				const observed = await repositoryEvidence(replacement.cwd);
+				if (!observed || !sameCheckout(observed, repository))
+					throw new Error("repository changed during the session switch");
+				const current = loadState(slug);
+				if (current.kind !== "valid" || !sameState(current.state, expected))
+					throw new Error("task state changed during the session switch");
 				activate?.();
-				const activeState = loadState(slug);
-				if (activeState.kind !== "valid" || activeState.state.phase !== phase) {
-					throw new Error(`task did not enter ${phase}; run /rpi again`);
-				}
-				show(replacement, slug, await placeFor(slug, replacement.cwd));
+				show(replacement, slug, await placeFor(slug));
 				const decision = decideSessionPrompt(
 					currentMessageCount(replacement),
 					context.extra === undefined ? "none" : "provided",
 				);
-				if (decision === "full") {
-					await replacement.sendUserMessage(fullPrompt);
-					return;
-				}
-				if (decision === "continuation") {
+				if (decision === "full") await replacement.sendUserMessage(fullPrompt);
+				else if (decision === "continuation")
 					await replacement.sendUserMessage(continuation);
-					return;
-				}
-				if (activate) {
+				else
 					replacement.ui.notify(
-						`${phase} session resumed — continue in chat when ready`,
+						`${phase} session resumed — continue in chat or run /rpi ${slug}`,
 						"info",
 					);
-					return;
-				}
-				if (
-					replacement.mode === "tui" &&
-					!replacement.ui.getEditorText().trim()
-				) {
-					replacement.ui.setEditorText(`/rpi ${slug}`);
-				}
-				replacement.ui.notify(
-					`${phase} session resumed — run /rpi to advance, or type feedback`,
-					"info",
-				);
 			} catch (error) {
 				replacement.ui.notify(
 					error instanceof Error ? error.message : String(error),
@@ -1248,116 +1358,44 @@ export default function rpi(pi: ExtensionAPI): void {
 				);
 			}
 		};
-		const replaced = selectedPath
-			? await ctx.switchSession(selectedPath, { withSession })
-			: await ctx.newSession({
-					parentSession,
-					setup: async (manager) => {
-						manager.appendSessionInfo(sessionName(slug, phase));
-					},
-					withSession,
-				});
-		if (replaced.cancelled) {
-			await refresh(ctx, slug);
-			ctx.ui.notify(
-				`session switch cancelled — /rpi ${slug} did not enter ${phase}`,
-				"warning",
-			);
-		}
-	}
 
-	async function setupBranch(
-		ctx: ExtensionCommandContext,
-		slug: string,
-		state: TaskState,
-	): Promise<"here" | "elsewhere" | undefined> {
-		let repository: RepositoryEvidence;
-		try {
-			repository = await requireRepository(ctx.cwd, state);
-		} catch (error) {
-			ctx.ui.notify(
-				error instanceof Error ? error.message : String(error),
-				"error",
-			);
-			return undefined;
-		}
-		if (repository.branch === slug) {
-			try {
-				await requireRepository(ctx.cwd, state, slug);
-				return "here";
-			} catch (error) {
-				ctx.ui.notify(
-					error instanceof Error ? error.message : String(error),
-					"error",
+		let replaced: { cancelled: boolean };
+		if (selected) {
+			replaced = await ctx.switchSession(selected.path, {
+				withSession: withPhaseSession,
+			});
+		} else if (realpathSync(ctx.cwd) === worktree) {
+			replaced = await ctx.newSession({
+				parentSession: ctx.sessionManager.getSessionFile(),
+				setup: async (manager) => {
+					manager.appendSessionInfo(sessionName(slug, phase));
+				},
+				withSession: withPhaseSession,
+			});
+		} else {
+			const source = ctx.sessionManager.getSessionFile();
+			if (!source || !isAbsolute(source) || !regularFile(source))
+				throw new Error(
+					"cross-cwd RPI handoff requires a persisted source session",
 				);
-				return undefined;
-			}
+			const handoff = SessionManager.forkFrom(source, worktree);
+			const handoffPath = handoff.getSessionFile();
+			if (!handoffPath)
+				throw new Error("cross-cwd RPI handoff did not create a session file");
+			replaced = await ctx.switchSession(handoffPath, {
+				withSession: async (handoffContext) => {
+					await handoffContext.newSession({
+						parentSession: handoffContext.sessionManager.getSessionFile(),
+						setup: async (manager) => {
+							manager.appendSessionInfo(sessionName(slug, phase));
+						},
+						withSession: withPhaseSession,
+					});
+				},
+			});
 		}
-		const existing = await worktreeFor(slug, ctx.cwd);
-		if (existing) {
-			try {
-				await requireBranchDescends(slug, state, ctx.cwd);
-			} catch (error) {
-				ctx.ui.notify(
-					error instanceof Error ? error.message : String(error),
-					"error",
-				);
-				return undefined;
-			}
-			ctx.ui.notify(
-				`${slug} is already checked out at ${existing} — cd there && pi`,
-				"info",
-			);
-			return "elsewhere";
-		}
-		const reuse = await branchExists(slug, ctx.cwd);
-		if (reuse) {
-			try {
-				await requireBranchDescends(slug, state, ctx.cwd);
-			} catch (error) {
-				ctx.ui.notify(
-					error instanceof Error ? error.message : String(error),
-					"error",
-				);
-				return undefined;
-			}
-		}
-		const path = join(WORKTREES, slug);
-		const worktree = `Worktree at ${path}`;
-		const here = `Branch off in ${ctx.cwd}`;
-		const choice = await ctx.ui.select(
-			`Implementation for "${slug}" runs on its own branch.\n\n` +
-				`You are on "${repository.branch || "detached HEAD"}" in ${ctx.cwd}.` +
-				`${reuse ? `\n\nBranch "${slug}" already exists and will be reused.` : ""}`,
-			[worktree, here],
-		);
-		if (!choice) return undefined;
-		try {
-			await requireRepository(ctx.cwd, state);
-			const args =
-				choice === worktree
-					? reuse
-						? ["worktree", "add", path, slug]
-						: ["worktree", "add", "-b", slug, path, state.baseSha]
-					: reuse
-						? ["checkout", slug]
-						: ["checkout", "-b", slug, state.baseSha];
-			const result = await git(ctx.cwd, args, GIT_WRITE_MS);
-			if (result.code !== 0)
-				throw new Error(result.stderr.trim() || `git ${args[0]} failed`);
-			if (choice === worktree) {
-				ctx.ui.notify(`worktree ready — cd ${path} && pi`, "info");
-				return "elsewhere";
-			}
-			await requireRepository(ctx.cwd, state, slug);
-			return "here";
-		} catch (error) {
-			ctx.ui.notify(
-				error instanceof Error ? error.message : String(error),
-				"error",
-			);
-			return undefined;
-		}
+		if (replaced.cancelled)
+			ctx.ui.notify(`session switch cancelled — ${phase} unchanged`, "warning");
 	}
 
 	function sendCurrent(ctx: ExtensionContext, prompt: string): void {
@@ -1378,11 +1416,13 @@ export default function rpi(pi: ExtensionAPI): void {
 				? [`Authoritative build phase:\n${context.phaseLine}`]
 				: []),
 			...(context.baseSha
-				? [`Recorded task base SHA: ${context.baseSha}`]
+				? [
+						`Named base branch: ${context.baseBranch}\nTransient merge-base: ${context.baseSha}`,
+					]
 				: []),
 			...(context.head
 				? [
-						`Expected PR HEAD: ${context.head}\nAudit exactly ${context.baseSha}..${context.head}.`,
+						`Transient current HEAD: ${context.head}\nAudit ${context.baseSha}..${context.head}.`,
 					]
 				: []),
 		].join("\n\n");
@@ -1464,7 +1504,11 @@ export default function rpi(pi: ExtensionAPI): void {
 			const lines = body.split("\n");
 			const unchecked = lines.filter((line) => line === phaseLine).length;
 			const checked = lines.filter((line) => line === checkedLine).length;
-			if (unchecked === 0 && checked === 1 && section.includes(paragraph))
+			if (
+				unchecked === 0 &&
+				checked === 1 &&
+				section.split("\n").includes(paragraph)
+			)
 				return;
 			if (unchecked !== 1 || checked !== 0 || /^Resolution:/m.test(section)) {
 				throw new Error("the no-code phase is already settled or ambiguous");
@@ -1480,6 +1524,25 @@ export default function rpi(pi: ExtensionAPI): void {
 		});
 	}
 
+	async function recoverClosing(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: ClosingTaskState,
+	): Promise<void> {
+		const repository = await requireRepository(ctx.cwd, state, slug);
+		if (!(await repoClean(repository.root)))
+			throw invariantError(
+				"clean no-code phase worktree",
+				"worktree or index changes",
+			);
+		await closeNoCodePhase(slug, state.phaseLine, state.resolution);
+		const next = firstUncheckedPhase(documentIn(slug, "04-"));
+		if (next) saveState(slug, buildState(state, next.line));
+		else await enterPrState(ctx, slug, state);
+		ctx.ui.notify("no-code phase closure recovered", "info");
+		await refresh(ctx, slug, true);
+	}
+
 	type CommitInspection =
 		| { kind: "retry" }
 		| { kind: "cancelable" }
@@ -1489,25 +1552,23 @@ export default function rpi(pi: ExtensionAPI): void {
 	async function inspectCommit(
 		ctx: ExtensionContext,
 		slug: string,
-		state: BuildTaskState,
+		state: CommittingTaskState,
 	): Promise<CommitInspection> {
-		const commit = state.commit;
-		if (!commit)
-			return { kind: "blocked", reason: "no approved commit is pending" };
 		try {
 			const repository = await requireRepository(ctx.cwd, state, slug);
 			const { root, head } = repository;
-			if (head === commit.parent) {
-				const matches =
-					digest(await binaryDiff(root, commit.parent)) === commit.diff;
-				if (matches && (await unstagedAndUntrackedClean(root)))
-					return { kind: "retry" };
-				if (await indexClean(root)) return { kind: "cancelable" };
-				return {
-					kind: "blocked",
-					reason:
-						"the staged diff or worktree no longer matches the approved commit",
-				};
+			if (head === state.parent) {
+				const cleanIndex = await indexClean(root);
+				const cleanWorktree = await unstagedAndUntrackedClean(root);
+				if (!cleanWorktree)
+					return {
+						kind: "blocked",
+						reason: invariantError(
+							"no unstaged or untracked changes during commit recovery",
+							"unstaged or untracked changes",
+						).message,
+					};
+				return cleanIndex ? { kind: "cancelable" } : { kind: "retry" };
 			}
 			const parents = await git(root, [
 				"rev-list",
@@ -1517,26 +1578,26 @@ export default function rpi(pi: ExtensionAPI): void {
 				head,
 			]);
 			const fields = parents.stdout.trim().split(/\s+/);
-			const exactChild =
-				parents.code === 0 &&
-				fields.length === 2 &&
-				fields[0] === head &&
-				fields[1] === commit.parent;
-			const matches =
-				digest(await binaryDiff(root, commit.parent, head)) === commit.diff;
-			if (!exactChild || !matches || !(await repoClean(root))) {
+			if (
+				parents.code !== 0 ||
+				fields.length !== 2 ||
+				fields[0] !== head ||
+				fields[1] !== state.parent ||
+				!(await repoClean(root))
+			) {
 				return {
 					kind: "blocked",
-					reason:
-						"HEAD is not the one clean commit containing the exact approved diff",
+					reason: invariantError(
+						`one clean commit whose parent is ${state.parent}`,
+						`HEAD ${head} with unexpected parentage or repository changes`,
+					).message,
 				};
 			}
-			await checkOutlinePhase(slug, commit.phaseLine);
+			await checkOutlinePhase(slug, state.phaseLine);
 			const nextPhase = firstUncheckedPhase(documentIn(slug, "04-"));
-			if (nextPhase)
-				saveState(slug, buildState(state, nextPhase.line, state.build.session));
+			if (nextPhase) saveState(slug, buildState(state, nextPhase.line));
 			else await enterPrState(ctx, slug, state);
-			ctx.ui.notify("approved commit verified; outline phase checked", "info");
+			ctx.ui.notify("commit verified; outline phase checked", "info");
 			return { kind: "verified", next: nextPhase ? "build" : "pr" };
 		} catch (error) {
 			return {
@@ -1546,91 +1607,61 @@ export default function rpi(pi: ExtensionAPI): void {
 		}
 	}
 
+	async function recoverStaging(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: StagingTaskState,
+	): Promise<void> {
+		const repository = await requireRepository(ctx.cwd, state, slug);
+		if (repository.head !== state.parent)
+			throw invariantError(
+				`staging HEAD ${state.parent}`,
+				`HEAD ${repository.head}`,
+			);
+		if (!(await resetIndex(repository.root, state.parent)))
+			throw new Error("staging recovery could not reset the index");
+		if (
+			(await headOf(repository.root)) !== state.parent ||
+			!(await indexClean(repository.root))
+		)
+			throw new Error("staging recovery could not verify the mixed reset");
+		saveState(slug, activeBuildState(state, state.phaseLine, state.session));
+		ctx.ui.notify("interrupted staging reset; returned to build", "warning");
+		await refresh(ctx, slug, true);
+	}
+
 	async function handlePendingCommit(
 		ctx: ExtensionCommandContext,
 		slug: string,
+		state: CommittingTaskState,
+		send: (prompt: string) => void | Promise<void> = (prompt) =>
+			sendCurrent(ctx, prompt),
+		commitMessage?: string,
 	): Promise<void> {
-		const loaded = loadState(slug);
-		if (
-			loaded.kind !== "valid" ||
-			loaded.state.phase !== "build" ||
-			!loaded.state.commit
-		)
-			return;
-		const inspection = await inspectCommit(ctx, slug, loaded.state);
+		if (ctx.sessionManager.getSessionFile() !== state.session)
+			throw new Error(
+				"commit recovery requires the exact owning build session",
+			);
+		const inspection = await inspectCommit(ctx, slug, state);
 		if (inspection.kind === "verified") {
 			await refresh(ctx, slug, true);
 			return;
 		}
 		if (inspection.kind === "blocked") {
 			ctx.ui.notify(inspection.reason, "error");
-			await refresh(ctx, slug);
 			return;
 		}
-		if (inspection.kind === "cancelable") {
-			if (
-				await ctx.ui.confirm(
-					"Clear interrupted commit approval?",
-					"HEAD did not advance and the index is clean.",
-				)
-			) {
-				saveState(
-					slug,
-					buildState(
-						loaded.state,
-						loaded.state.build.phaseLine,
-						loaded.state.build.session,
-					),
-				);
-				await refresh(ctx, slug, true);
-			}
-			return;
-		}
-		const choice = await ctx.ui.select(
-			"Approved staged diff · commit not created",
-			["Retry /commit-message", "Cancel/revise"],
-		);
+		const choices =
+			inspection.kind === "retry"
+				? ["Retry /commit-message", "Cancel/revise"]
+				: ["Cancel/revise"];
+		const choice = await ctx.ui.select("Interrupted commit", choices);
 		if (!choice) return;
 		const current = loadState(slug);
-		if (
-			current.kind !== "valid" ||
-			current.state.phase !== "build" ||
-			!current.state.commit
-		) {
-			ctx.ui.notify("the approved commit state changed", "error");
-			return;
-		}
-		const rechecked = await inspectCommit(ctx, slug, current.state);
-		if (rechecked.kind !== "retry") {
-			ctx.ui.notify(
-				rechecked.kind === "blocked"
-					? rechecked.reason
-					: "the commit state changed while the menu was open",
-				"error",
-			);
-			return;
-		}
-		const currentSession = ctx.sessionManager.getSessionFile();
-		if (!currentSession || !isAbsolute(currentSession)) {
-			ctx.ui.notify(
-				"commit recovery requires a persisted current session",
-				"error",
-			);
-			return;
-		}
+		if (current.kind !== "valid" || !sameState(current.state, state))
+			throw new Error("commit state changed while recovery was open");
 		if (choice === "Retry /commit-message") {
-			try {
-				saveState(slug, {
-					...current.state,
-					build: { ...current.state.build, session: currentSession },
-				});
-				sendCurrent(ctx, commitPrompt());
-			} catch (error) {
-				ctx.ui.notify(
-					error instanceof Error ? error.message : String(error),
-					"error",
-				);
-			}
+			await send(commitMessage ?? commitPrompt());
 			return;
 		}
 		const edited = await ctx.ui.editor("What should the build revise?");
@@ -1640,33 +1671,23 @@ export default function rpi(pi: ExtensionAPI): void {
 			ctx.ui.notify("nonempty revision feedback is required", "warning");
 			return;
 		}
-		try {
-			const repository = await requireRepository(ctx.cwd, current.state, slug);
-			if (!(await resetIndex(repository.root, current.state.commit.parent))) {
-				throw new Error(
-					"could not reset the approved index; run git reset --mixed HEAD and retry",
-				);
-			}
-			const resumed = buildState(
-				current.state,
-				current.state.build.phaseLine,
-				currentSession,
+		const repository = await requireRepository(ctx.cwd, state, slug);
+		if (
+			repository.head !== state.parent ||
+			!(await resetIndex(repository.root, state.parent))
+		)
+			throw new Error(
+				"commit cancellation could not verify the persisted parent reset",
 			);
-			saveState(slug, resumed);
-			sendCurrent(
-				ctx,
-				continuationPrompt("build", {
-					extra: feedback,
-					phaseLine: resumed.build.phaseLine,
-				}),
-			);
-			await refresh(ctx, slug);
-		} catch (error) {
-			ctx.ui.notify(
-				error instanceof Error ? error.message : String(error),
-				"error",
-			);
-		}
+		const resumed = activeBuildState(state, state.phaseLine, state.session);
+		saveState(slug, resumed);
+		await send(
+			continuationPrompt("build", {
+				extra: feedback,
+				phaseLine: state.phaseLine,
+			}),
+		);
+		await refresh(ctx, slug);
 	}
 
 	async function captureBuildReview(
@@ -1682,27 +1703,25 @@ export default function rpi(pi: ExtensionAPI): void {
 		const repository = await requireRepository(ctx.cwd, state, slug);
 		const { root } = repository;
 		if (!(await indexClean(root))) {
-			throw new Error(
-				"build approval requires a clean index; use git reset to unstage while preserving the worktree",
-			);
+			throw new Error("build invariant failed: the index is not clean");
 		}
 		const current = firstUncheckedPhase(documentIn(slug, "04-"));
 		if (!current || current.line !== state.build.phaseLine) {
 			throw new Error(
-				`build-state invariant failed: state.json records "${state.build.phaseLine}" but that is not the first unchecked outline line; restore the outline or recreate state.json deliberately`,
+				`build-state invariant failed: recorded phase line "${state.build.phaseLine}" is not the first unchecked outline line`,
 			);
 		}
-		const base = repository.head;
+		const parent = repository.head;
 		const paths = await changedPaths(root);
 		if (!paths.every(safeRelativePath))
 			throw new Error("repository changes contain an unsafe path");
-		const snapshot = await workingSnapshot(root, paths);
+		const snapshot = await contentSnapshot(root, paths);
 		if (
-			(await headOf(root)) !== base ||
+			(await headOf(root)) !== parent ||
 			(await branchOf(root)) !== slug ||
 			!(await indexClean(root)) ||
 			!samePaths(paths, await changedPaths(root)) ||
-			(await workingSnapshot(root, paths)) !== snapshot
+			(await contentSnapshot(root, paths)) !== snapshot
 		) {
 			throw new Error(
 				"repository evidence changed while review was being captured",
@@ -1710,7 +1729,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		}
 		return {
 			root,
-			base,
+			parent,
 			paths,
 			snapshot,
 			phaseLine: current.line,
@@ -1726,7 +1745,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		await requireRepository(review.root, state, slug);
 		if (
 			(await branchOf(review.root)) !== slug ||
-			(await headOf(review.root)) !== review.base
+			(await headOf(review.root)) !== review.parent
 		) {
 			throw new Error("branch or HEAD changed while approval was open");
 		}
@@ -1736,7 +1755,7 @@ export default function rpi(pi: ExtensionAPI): void {
 			throw new Error("the changed path set changed while approval was open");
 		}
 		if (
-			(await workingSnapshot(review.root, review.paths)) !== review.snapshot
+			(await contentSnapshot(review.root, review.paths)) !== review.snapshot
 		) {
 			throw new Error("file contents changed while approval was open");
 		}
@@ -1750,52 +1769,60 @@ export default function rpi(pi: ExtensionAPI): void {
 		state: BuildTaskState,
 		review: BuildReview,
 	): Promise<void> {
+		const session = state.build.session;
+		if (!session) throw new Error("build approval requires an owning session");
+		const staged = stagingState(
+			state,
+			review.phaseLine,
+			session,
+			review.parent,
+			review.paths,
+		);
+		saveState(slug, staged);
 		const added = await git(
 			review.root,
-			["add", "--", ...review.paths],
+			["--literal-pathspecs", "add", "--", ...review.paths],
 			GIT_WRITE_MS,
 		);
-		try {
-			if (added.code !== 0)
-				throw new Error(added.stderr.trim() || "git add failed");
-			const cached = await git(review.root, [
-				"diff",
-				"--cached",
-				"--name-only",
-				"--no-renames",
-				"-z",
-				review.base,
-				"--",
-			]);
-			const cachedPaths = cached.stdout.split("\0").filter(Boolean).sort();
-			if (cached.code !== 0 || !samePaths(review.paths, cachedPaths)) {
-				throw new Error("cached paths do not exactly match the approved paths");
-			}
-			if (!(await unstagedAndUntrackedClean(review.root))) {
-				throw new Error("unstaged or untracked changes remain after staging");
-			}
-			if (
-				(await workingSnapshot(review.root, review.paths)) !== review.snapshot
-			) {
-				throw new Error("file contents changed during staging");
-			}
-			const diff = digest(await binaryDiff(review.root, review.base));
-			saveState(slug, {
-				...state,
-				commit: { parent: review.base, diff, phaseLine: review.phaseLine },
-			});
-		} catch (error) {
-			try {
-				await requireRepository(review.root, state, slug);
-				if (!(await resetIndex(review.root, review.base)))
-					throw new Error("git reset failed");
-			} catch {
-				throw new Error(
-					`approval failed and index reset was incomplete: ${error instanceof Error ? error.message : error}`,
-				);
-			}
-			throw error;
+		if (added.code !== 0)
+			throw new Error(added.stderr.trim() || "git add failed");
+		const cached = await git(review.root, [
+			"diff",
+			"--cached",
+			"--name-only",
+			"--no-renames",
+			"-z",
+			review.parent,
+			"--",
+		]);
+		const cachedPaths = cached.stdout.split("\0").filter(Boolean).sort();
+		if (cached.code !== 0 || !samePaths(review.paths, cachedPaths))
+			throw new Error("cached paths do not exactly match the approved paths");
+		if (!(await unstagedAndUntrackedClean(review.root)))
+			throw new Error("unstaged or untracked changes remain after staging");
+		if ((await contentSnapshot(review.root, review.paths)) !== review.snapshot)
+			throw new Error("file contents changed during staging");
+		const repository = await requireRepository(review.root, staged, slug);
+		const latest = await repositoryEvidence(review.root);
+		if (
+			!latest ||
+			!sameCheckout(repository, latest) ||
+			latest.root !== review.root ||
+			latest.branch !== slug ||
+			latest.head !== review.parent
+		) {
+			throw invariantError(
+				`branch ${slug} at ${review.root} with HEAD ${review.parent}`,
+				"checkout, branch, or HEAD changed during staging",
+			);
 		}
+		const current = loadState(slug);
+		if (current.kind !== "valid" || !sameState(current.state, staged))
+			throw new Error("staging state changed before committing");
+		saveState(
+			slug,
+			committingState(state, review.phaseLine, session, review.parent),
+		);
 	}
 
 	async function approveBuild(
@@ -1815,7 +1842,6 @@ export default function rpi(pi: ExtensionAPI): void {
 		try {
 			prompt = commitPrompt();
 			await revalidateReview(slug, state, review);
-			await requireRepository(review.root, state, slug);
 			await stageApprovedBuild(slug, state, review);
 		} catch (error) {
 			ctx.ui.notify(
@@ -1853,13 +1879,18 @@ export default function rpi(pi: ExtensionAPI): void {
 			await revalidateReview(slug, state, review);
 			if (!(await repoClean(review.root)))
 				throw new Error("the repository is not completely clean");
-			await closeNoCodePhase(slug, review.phaseLine, resolution);
-			const next = firstUncheckedPhase(documentIn(slug, "04-"));
-			if (next)
-				saveState(slug, buildState(state, next.line, state.build.session));
-			else await enterPrState(ctx, slug, state);
+			const session = state.build.session;
+			if (!session)
+				throw new Error("no-code closure requires an owning session");
+			const closing = closingState(
+				state,
+				review.phaseLine,
+				session,
+				resolution,
+			);
+			saveState(slug, closing);
+			await recoverClosing(ctx, slug, closing);
 			ctx.ui.notify(`phase ${review.phaseNumber} closed with no code`, "info");
-			await refresh(ctx, slug, true);
 		} catch (error) {
 			ctx.ui.notify(
 				`could not close phase: ${error instanceof Error ? error.message : error}`,
@@ -1889,13 +1920,10 @@ export default function rpi(pi: ExtensionAPI): void {
 		state: TaskState,
 	): Promise<PrTaskState> {
 		const repository = await requireRepository(ctx.cwd, state, slug);
-		if (!(await repoClean(repository.root))) {
-			throw new Error(
-				"PR transition requires a clean repository; commit or remove every worktree and index change, then retry",
-			);
-		}
+		if (!(await repoClean(repository.root)))
+			throw new Error("PR transition invariant failed: worktree is not clean");
 		invalidatePrDescription(slug);
-		const next = prState(state, repository.head);
+		const next = prState(state);
 		saveState(slug, next);
 		return next;
 	}
@@ -1906,15 +1934,22 @@ export default function rpi(pi: ExtensionAPI): void {
 		state: TaskState,
 		phase: Exclude<PhasePrompt, "build" | "pr">,
 		context: PromptContext = {},
+		reviewedDesign?: string,
 	): Promise<void> {
 		await enterPhase(ctx, slug, phase, context, () => {
-			const latest = loadState(slug);
-			if (latest.kind !== "valid" || !sameState(latest.state, state)) {
-				throw new Error(
-					"task state changed during the session switch; run /rpi again",
-				);
+			if (reviewedDesign !== undefined) {
+				const questions = designQuestionsIn(slug);
+				if (
+					questions.kind !== "valid" ||
+					questions.open.length !== 0 ||
+					questions.digest !== reviewedDesign
+				) {
+					throw new Error(
+						"design questions changed during the session switch; review them and run /rpi again",
+					);
+				}
 			}
-			saveState(slug, plainState(latest.state, phase));
+			saveState(slug, plainState(state, phase));
 			active = { slug };
 		});
 	}
@@ -1942,14 +1977,8 @@ export default function rpi(pi: ExtensionAPI): void {
 			return;
 		}
 		await enterPhase(ctx, slug, phase, { extra: feedback }, () => {
-			const latest = loadState(slug);
-			if (latest.kind !== "valid" || !sameState(latest.state, current.state)) {
-				throw new Error(
-					"task state changed during the session switch; run /rpi again",
-				);
-			}
-			if (latest.state.phase === "pr") invalidatePrDescription(slug);
-			saveState(slug, plainState(latest.state, phase));
+			if (current.state.phase === "pr") invalidatePrDescription(slug);
+			saveState(slug, plainState(current.state, phase));
 		});
 	}
 
@@ -1959,20 +1988,21 @@ export default function rpi(pi: ExtensionAPI): void {
 		state: TaskState,
 		phaseLine: string,
 	): Promise<void> {
-		const branchState = plainState(state, "branch");
-		saveState(slug, branchState);
-		const result = await setupBranch(ctx, slug, branchState);
-		if (!result) {
-			await refresh(ctx, slug, true);
-			return;
-		}
-		const next = buildState(branchState, phaseLine);
+		const repository = await requireRepository(
+			join(WORKTREES, slug),
+			state,
+			slug,
+		);
+		if (!(await repoClean(repository.root)))
+			throw new Error(
+				"build-start invariant failed: the task worktree is not clean",
+			);
+		const current = firstUncheckedPhase(documentIn(slug, "04-"));
+		if (!current || current.line !== phaseLine)
+			throw new Error("build-start invariant failed: outline phase changed");
+		const next = buildState(state, phaseLine);
 		saveState(slug, next);
-		if (result === "elsewhere") {
-			await refresh(ctx, slug, true);
-			return;
-		}
-		await startOrGatePersistedRun(ctx, slug, next);
+		await enterPersistedRun(ctx, slug, next);
 	}
 
 	async function handleBuild(
@@ -1994,14 +2024,18 @@ export default function rpi(pi: ExtensionAPI): void {
 			review.paths.length === 1
 				? "1 changed path"
 				: `${review.paths.length} changed paths`;
+		const choices = review.paths.length
+			? ["Approve & commit", "Continue working", "Revisit design"]
+			: ["Close with no code", "Continue working", "Revisit design"];
 		const choice = await ctx.ui.select(
-			`Phase ${review.phaseNumber} · ${paths} · review with git diff`,
-			["Approve & commit", "Close with no code", "Revisit design"],
+			`Phase ${review.phaseNumber} · ${review.paths.length ? paths : "no changes"} · review with git diff`,
+			choices,
 		);
 		if (choice === "Approve & commit")
 			return approveBuild(ctx, slug, state, review);
 		if (choice === "Close with no code")
 			return closeBuildNoCode(ctx, slug, state, review);
+		if (choice === "Continue working") return;
 		if (choice === "Revisit design") {
 			return revisit(
 				ctx,
@@ -2032,7 +2066,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		slug: string,
 		state: PrTaskState,
 	): Promise<void> {
-		if (!(await validatePrHead(ctx, slug, state, ctx.cwd))) return;
+		await validatePrHead(slug, state, ctx.cwd);
 		const choice = await ctx.ui.select(`${slug} · pr`, [
 			"Finish",
 			"Add repair phase",
@@ -2058,7 +2092,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		}
 		if (choice !== "Finish") return;
 		try {
-			if (!(await validatePrHead(ctx, slug, state, ctx.cwd))) return;
+			await validatePrHead(slug, state, ctx.cwd);
 			if (!validPrDescription(slug)) {
 				throw new Error(
 					`PR output invariant failed: ${join(TASKS, slug, "pr-description.md")} must be a nonempty regular non-symlink file; repair it or rerun the audit`,
@@ -2100,14 +2134,17 @@ export default function rpi(pi: ExtensionAPI): void {
 				);
 			}
 			case "design": {
-				const design = documentIn(slug, "03-");
-				const open = questionsIn(design);
-				if (open.length) {
-					const answers = await askQuestions(ctx, design);
+				const questions = designQuestionsIn(slug);
+				if (questions.kind !== "valid") {
+					designQuestionsError(ctx, questions);
+					return;
+				}
+				if (questions.open.length) {
+					const answers = await askQuestions(ctx, questions.open);
 					if (answers === CANCELLED) return;
 					if (!answers) {
 						ctx.ui.notify(
-							`${open.length} design question(s) remain; submit at least one answer to continue`,
+							`${questions.open.length} design question(s) remain; submit at least one answer to continue`,
 							"warning",
 						);
 						return;
@@ -2115,24 +2152,32 @@ export default function rpi(pi: ExtensionAPI): void {
 					sendCurrent(ctx, continuationPrompt("design", { extra: answers }));
 					return;
 				}
-				if (!design) {
-					ctx.ui.notify(
-						"cannot advance design: expected one 03- artifact",
-						"error",
-					);
-					return;
-				}
-				return advancePlainPhase(ctx, slug, state, "outline");
+				return advancePlainPhase(
+					ctx,
+					slug,
+					state,
+					"outline",
+					{},
+					questions.digest,
+				);
 			}
 			case "outline": {
-				const design = documentIn(slug, "03-");
-				const open = questionsIn(design);
-				if (open.length) {
-					const answers = await askQuestions(ctx, design);
+				const questions = designQuestionsIn(slug);
+				if (questions.kind !== "valid") {
+					ctx.ui.notify(
+						questions.kind === "missing"
+							? "returning to design: expected one 03- artifact"
+							: `returning to design: malformed design questions — ${questions.error}`,
+						"warning",
+					);
+					return advancePlainPhase(ctx, slug, state, "design");
+				}
+				if (questions.open.length) {
+					const answers = await askQuestions(ctx, questions.open);
 					if (answers === CANCELLED) return;
 					if (!answers) {
 						ctx.ui.notify(
-							`${open.length} design question(s) remain; submit at least one answer to continue`,
+							`${questions.open.length} design question(s) remain; submit at least one answer to continue`,
 							"warning",
 						);
 						return;
@@ -2175,7 +2220,11 @@ export default function rpi(pi: ExtensionAPI): void {
 				return handleBuild(ctx, slug, state);
 			case "pr":
 				return handlePr(ctx, slug, state);
-			case "branch":
+			case "creating":
+			case "closing":
+			case "staging":
+			case "committing":
+			case "deleting":
 			case "done":
 				return;
 		}
@@ -2185,12 +2234,24 @@ export default function rpi(pi: ExtensionAPI): void {
 		return activeBranchMessageCount(ctx.sessionManager.getBranch());
 	}
 
-	function persistedContext(
+	async function persistedContext(
 		state: BuildTaskState | PrTaskState,
-	): PromptContext {
-		return state.phase === "build"
-			? { phaseLine: state.build.phaseLine }
-			: { baseSha: state.baseSha, head: state.pr.head };
+		cwd: string,
+	): Promise<PromptContext> {
+		if (state.phase === "build") return { phaseLine: state.build.phaseLine };
+		const [baseSha, head] = await Promise.all([
+			git(cwd, ["merge-base", `refs/heads/${state.baseBranch}`, "HEAD"]),
+			git(cwd, ["rev-parse", "HEAD"]),
+		]);
+		if (baseSha.code !== 0 || head.code !== 0)
+			throw new Error(
+				"PR range could not be computed from the current checkout",
+			);
+		return {
+			baseBranch: state.baseBranch,
+			baseSha: baseSha.stdout.trim(),
+			head: head.stdout.trim(),
+		};
 	}
 
 	function runStatus(
@@ -2209,15 +2270,7 @@ export default function rpi(pi: ExtensionAPI): void {
 	): BuildTaskState | PrTaskState {
 		return state.phase === "build"
 			? activeBuildState(state, state.build.phaseLine, session)
-			: activePrState(state, state.pr.head, session);
-	}
-
-	function resetRun(
-		state: BuildTaskState | PrTaskState,
-	): BuildTaskState | PrTaskState {
-		return state.phase === "build"
-			? buildState(state, state.build.phaseLine)
-			: prState(state, state.pr.head);
+			: activePrState(state, session);
 	}
 
 	async function validatePersistedRun(
@@ -2227,178 +2280,79 @@ export default function rpi(pi: ExtensionAPI): void {
 	): Promise<RepositoryEvidence> {
 		const repository = await requireRepository(cwd, state, slug);
 		if (state.phase === "build") {
+			if (
+				state.build.status === "pending" &&
+				!(await repoClean(repository.root))
+			)
+				throw new Error(
+					"build-start invariant failed: the task worktree is not clean",
+				);
 			const current = firstUncheckedPhase(documentIn(slug, "04-"));
 			if (!current || current.line !== state.build.phaseLine) {
 				throw new Error(
-					`build-state invariant failed: state.json records "${state.build.phaseLine}" but that is not the first unchecked outline line; restore the outline or recreate state.json deliberately`,
+					`build-state invariant failed: recorded phase line "${state.build.phaseLine}" is not the first unchecked outline line`,
 				);
 			}
 		}
-		const latest = await repositoryEvidence(cwd);
-		if (!latest || !sameRepository(repository, latest)) {
-			throw new Error(
-				"repository HEAD or checkout changed during run validation; run /rpi again",
-			);
-		}
-		return latest;
-	}
-
-	function invalidatePrRun(
-		ctx: ExtensionContext,
-		slug: string,
-		state: PrTaskState,
-		head: string,
-	): undefined {
-		const loaded = loadState(slug);
-		if (loaded.kind !== "valid" || !sameState(loaded.state, state)) {
-			throw new Error(
-				"task state changed while PR HEAD was checked; run /rpi again",
-			);
-		}
-		invalidatePrDescription(slug);
-		saveState(slug, prState(state, head, state.pr.session));
-		ctx.ui.notify(
-			`PR HEAD changed from ${state.pr.head} to ${head}; the audit was invalidated — run /rpi ${slug} again`,
-			"warning",
-		);
-		return undefined;
+		return repository;
 	}
 
 	async function validatePrHead(
-		ctx: ExtensionContext,
 		slug: string,
 		state: BuildTaskState | PrTaskState,
 		cwd: string,
-	): Promise<RepositoryEvidence | undefined> {
+	): Promise<RepositoryEvidence> {
 		if (state.phase !== "pr") return validatePersistedRun(cwd, slug, state);
-		const repository = await repositoryEvidence(cwd);
-		if (!repository) {
-			throw new Error(
-				`repository invariant failed: ${cwd} is not a Git checkout with HEAD; reopen the task in its recorded repository`,
-			);
-		}
-		if (repository.gitCommonDir !== state.gitCommonDir) {
-			throw new Error(
-				`repository invariant failed: this checkout uses ${repository.gitCommonDir}, but the task records ${state.gitCommonDir}; cd to a linked worktree of the recorded repository`,
-			);
-		}
-		if (repository.branch !== slug) {
-			throw new Error(
-				`branch invariant failed: expected ${slug}, found ${repository.branch || "detached HEAD"}; check out ${slug}`,
-			);
-		}
-		if (prNeedsRestart(state, repository.head)) {
-			return invalidatePrRun(ctx, slug, state, repository.head);
-		}
-		const base = await git(repository.root, [
-			"cat-file",
-			"-e",
-			`${state.baseSha}^{commit}`,
-		]);
-		if (base.code !== 0) {
-			throw new Error(
-				`task base invariant failed: ${state.baseSha} is absent from ${state.gitCommonDir}; restore that object (for example with git fetch) before continuing`,
-			);
-		}
-		const ancestor = await git(repository.root, [
-			"merge-base",
-			"--is-ancestor",
-			state.baseSha,
-			repository.head,
-		]);
-		if (ancestor.code !== 0) {
-			throw new Error(
-				`task base invariant failed: ${slug} does not descend from recorded base ${state.baseSha}; repair or recreate the task branch from that SHA`,
-			);
-		}
-		const latest = await repositoryEvidence(cwd);
-		if (
-			!latest ||
-			latest.gitCommonDir !== state.gitCommonDir ||
-			latest.branch !== slug
-		) {
-			throw new Error(
-				"repository checkout changed during PR validation; run /rpi again",
-			);
-		}
-		if (prNeedsRestart(state, latest.head)) {
-			return invalidatePrRun(ctx, slug, state, latest.head);
-		}
-		return latest;
+		const repository = await requireRepository(cwd, state, slug);
+		if (!(await repoClean(repository.root)))
+			throw new Error("PR invariant failed: the task worktree is not clean");
+		return repository;
 	}
 
 	async function enterPersistedRun(
 		ctx: ExtensionCommandContext,
 		slug: string,
-		initialState: BuildTaskState | PrTaskState,
+		state: BuildTaskState | PrTaskState,
 	): Promise<void> {
-		let state = initialState;
-		let selected: SessionInfo | undefined;
 		const owner = runSession(state);
-		selected = owner
-			? (await SessionManager.listAll()).find(
-					(session) => session.path === owner,
-				)
-			: runStatus(state) === "active"
-				? undefined
-				: (await priorSessions(ctx, slug, state.phase)).find(
-						(session) => session.cwd && regularFile(session.path),
-					);
-		if (runStatus(state) === "active") {
-			if (!owner || !selected?.cwd || !regularFile(owner)) {
-				const rerun = await ctx.ui.confirm(
-					`Rerun ${state.phase} in a fresh session?`,
-					`The session bound to this active ${state.phase} run is missing. This resets the run to pending and reruns the same persisted range.`,
-				);
-				if (!rerun) return;
-				const loaded = loadState(slug);
-				if (loaded.kind !== "valid" || !sameState(loaded.state, state)) {
-					throw new Error(
-						"task run changed while rerun confirmation was open; run /rpi again",
-					);
-				}
-				state = resetRun(state);
-				saveState(slug, state);
-				selected = undefined;
-			}
+		const selected =
+			runStatus(state) === "active" && owner
+				? (await SessionManager.listAll()).find(
+						(session) => session.path === owner,
+					)
+				: undefined;
+		const worktree = join(WORKTREES, slug);
+		if (
+			selected &&
+			(selected.cwd !== worktree || !regularFile(selected.path))
+		) {
+			throw new Error(
+				`session invariant failed: ${selected.path} records cwd ${selected.cwd || "<missing>"}, expected ${worktree}`,
+			);
 		}
+		if (runStatus(state) === "active" && (!owner || !selected))
+			throw new Error(
+				`session invariant failed: active ${state.phase} owner ${owner || "<missing>"} is unavailable`,
+			);
 		const phase = state.phase;
-		const cwd = selected?.cwd || ctx.cwd;
-		const selectedRepository = await validatePrHead(ctx, slug, state, cwd);
-		if (!selectedRepository) return;
-		const context = persistedContext(state);
-		const fullPrompt = loadPhasePrompt(phase, slug, context);
-		const continuation = continuationPrompt(phase, context);
-		const parentSession = ctx.sessionManager.getSessionFile();
-
+		const cwd = selected?.cwd || worktree;
 		const loaded = loadState(slug);
 		if (loaded.kind !== "valid" || !sameState(loaded.state, state)) {
 			throw new Error(
 				"task run changed before its session switch; run /rpi again",
 			);
 		}
-		const repository = await validatePrHead(ctx, slug, state, cwd);
-		if (!repository) return;
-		if (!sameRepository(repository, selectedRepository)) {
-			throw new Error(
-				"repository HEAD or checkout changed before the session switch; run /rpi again",
-			);
-		}
-		const finalState = loadState(slug);
-		if (finalState.kind !== "valid" || !sameState(finalState.state, state)) {
-			throw new Error(
-				"task run changed immediately before its session switch; run /rpi again",
-			);
-		}
+		const repository = await validatePrHead(slug, state, cwd);
+		const context = await persistedContext(state, cwd);
+		const fullPrompt = loadPhasePrompt(phase, slug, context);
+		const parentSession = ctx.sessionManager.getSessionFile();
 
 		const withSession = async (replacement: ReplacementContext) => {
 			try {
-				const replacementRepository = await repositoryEvidenceDirect(
-					replacement.cwd,
-				);
+				const replacementRepository = await repositoryEvidence(replacement.cwd);
 				if (
 					!replacementRepository ||
-					!sameRepository(replacementRepository, repository)
+					!sameCheckout(replacementRepository, repository)
 				) {
 					replacement.ui.notify(
 						"repository or PR HEAD changed during the session switch; run /rpi again",
@@ -2417,20 +2371,17 @@ export default function rpi(pi: ExtensionAPI): void {
 					);
 					return;
 				}
-				show(replacement, slug, await placeFor(slug, replacement.cwd));
-				const decision = decidePersistedRun(
-					runStatus(state),
-					currentMessageCount(replacement),
-					"other",
-				);
-				if (decision === "full" || decision === "continuation") {
+				show(replacement, slug, await placeFor(slug));
+				const decision =
+					runStatus(state) === "pending"
+						? "full"
+						: decidePersistedRun(currentMessageCount(replacement), "other");
+				if (decision === "full") {
 					const session = replacement.sessionManager.getSessionFile();
 					if (!session || !isAbsolute(session))
 						throw new Error("RPI runs require a persisted session file");
 					saveState(slug, activateRun(state, session));
-					await replacement.sendUserMessage(
-						decision === "full" ? fullPrompt : continuation,
-					);
+					await replacement.sendUserMessage(fullPrompt);
 					return;
 				}
 				if (
@@ -2450,15 +2401,39 @@ export default function rpi(pi: ExtensionAPI): void {
 				);
 			}
 		};
-		const replaced = selected
-			? await ctx.switchSession(selected.path, { withSession })
-			: await ctx.newSession({
-					parentSession,
-					setup: async (manager) => {
-						manager.appendSessionInfo(sessionName(slug, phase));
-					},
-					withSession,
-				});
+		let replaced: { cancelled: boolean };
+		if (selected) {
+			replaced = await ctx.switchSession(selected.path, { withSession });
+		} else if (realpathSync(ctx.cwd) === worktree) {
+			replaced = await ctx.newSession({
+				parentSession,
+				setup: async (manager) => {
+					manager.appendSessionInfo(sessionName(slug, phase));
+				},
+				withSession,
+			});
+		} else {
+			const source = ctx.sessionManager.getSessionFile();
+			if (!source || !isAbsolute(source) || !regularFile(source))
+				throw new Error(
+					"cross-cwd RPI handoff requires a persisted source session",
+				);
+			const handoff = SessionManager.forkFrom(source, worktree);
+			const handoffPath = handoff.getSessionFile();
+			if (!handoffPath)
+				throw new Error("cross-cwd RPI handoff did not create a session file");
+			replaced = await ctx.switchSession(handoffPath, {
+				withSession: async (handoffContext) => {
+					await handoffContext.newSession({
+						parentSession: handoffContext.sessionManager.getSessionFile(),
+						setup: async (manager) => {
+							manager.appendSessionInfo(sessionName(slug, phase));
+						},
+						withSession,
+					});
+				},
+			});
+		}
 		if (replaced.cancelled)
 			ctx.ui.notify(
 				`session switch cancelled — ${phase} run unchanged`,
@@ -2466,13 +2441,69 @@ export default function rpi(pi: ExtensionAPI): void {
 			);
 	}
 
+	async function switchToOwnedSession(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: ClosingTaskState | StagingTaskState | CommittingTaskState,
+	): Promise<boolean> {
+		if (ctx.sessionManager.getSessionFile() === state.session) return false;
+		const info = (await SessionManager.listAll()).find(
+			(candidate) => candidate.path === state.session,
+		);
+		const worktree = join(WORKTREES, slug);
+		if (!info || !regularFile(state.session) || info.cwd !== worktree)
+			throw new Error(
+				`session invariant failed: owner ${state.session} must exist at cwd ${worktree}`,
+			);
+		const commitMessage =
+			state.phase === "committing" ? commitPrompt() : undefined;
+		const result = await ctx.switchSession(state.session, {
+			withSession: async (replacement) => {
+				try {
+					if (state.phase === "closing") {
+						await recoverClosing(replacement, slug, state);
+					} else if (state.phase === "staging") {
+						await recoverStaging(replacement, slug, state);
+					} else {
+						await handlePendingCommit(
+							replacement,
+							slug,
+							state,
+							(prompt) => replacement.sendUserMessage(prompt),
+							commitMessage,
+						);
+					}
+				} catch (error) {
+					replacement.ui.notify(
+						error instanceof Error ? error.message : String(error),
+						"error",
+					);
+				}
+			},
+		});
+		if (result.cancelled)
+			ctx.ui.notify("owning session switch cancelled", "warning");
+		return true;
+	}
+
 	async function startOrGatePersistedRun(
 		ctx: ExtensionCommandContext,
 		slug: string,
 		state: BuildTaskState | PrTaskState,
 	): Promise<void> {
-		if (!(await validatePrHead(ctx, slug, state, ctx.cwd))) return;
+		if (runStatus(state) === "pending") {
+			await enterPersistedRun(ctx, slug, state);
+			return;
+		}
 		const currentSession = ctx.sessionManager.getSessionFile();
+		if (
+			realpathSync(ctx.cwd) !== join(WORKTREES, slug) ||
+			(runSession(state) !== undefined && currentSession !== runSession(state))
+		) {
+			await enterPersistedRun(ctx, slug, state);
+			return;
+		}
+		await validatePrHead(slug, state, ctx.cwd);
 		const owner = runSession(state);
 		const inPhaseSession =
 			pi.getSessionName() === sessionName(slug, state.phase);
@@ -2480,24 +2511,19 @@ export default function rpi(pi: ExtensionAPI): void {
 			await enterPersistedRun(ctx, slug, state);
 			return;
 		}
-		const decision = decidePersistedRun(
-			runStatus(state),
-			currentMessageCount(ctx),
-			"current",
-		);
+		const decision = decidePersistedRun(currentMessageCount(ctx), "current");
 		if (decision === "gate") {
 			if (state.phase === "build") await handleBuild(ctx, slug, state);
 			else await handlePr(ctx, slug, state);
 			return;
 		}
-		if (decision === "resume") return;
 		const loaded = loadState(slug);
 		if (loaded.kind !== "valid" || !sameState(loaded.state, state)) {
 			throw new Error(
 				"task run changed before its prompt could be sent; run /rpi again",
 			);
 		}
-		if (!(await validatePrHead(ctx, slug, state, ctx.cwd))) return;
+		await validatePrHead(slug, state, ctx.cwd);
 		const finalState = loadState(slug);
 		if (finalState.kind !== "valid" || !sameState(finalState.state, state)) {
 			throw new Error(
@@ -2508,13 +2534,8 @@ export default function rpi(pi: ExtensionAPI): void {
 			throw new Error("RPI runs require a persisted session file");
 		const activeRun = activateRun(state, currentSession);
 		saveState(slug, activeRun);
-		const context = persistedContext(activeRun);
-		sendCurrent(
-			ctx,
-			decision === "full"
-				? loadPhasePrompt(state.phase, slug, context)
-				: continuationPrompt(state.phase, context),
-		);
+		const context = await persistedContext(activeRun, ctx.cwd);
+		sendCurrent(ctx, loadPhasePrompt(state.phase, slug, context));
 	}
 
 	pi.on("agent_settled", async (_event, ctx) => {
@@ -2538,11 +2559,7 @@ export default function rpi(pi: ExtensionAPI): void {
 			active = { slug };
 		}
 		const loaded = loadState(slug);
-		if (
-			loaded.kind === "valid" &&
-			loaded.state.phase === "build" &&
-			loaded.state.commit
-		) {
+		if (loaded.kind === "valid" && loaded.state.phase === "committing") {
 			await inspectCommit(ctx, slug, loaded.state);
 		}
 		await refresh(ctx, slug, true);
@@ -2609,15 +2626,9 @@ export default function rpi(pi: ExtensionAPI): void {
 				);
 			}
 			if (loaded.state.phase === "pr") {
-				if (!(await validatePrHead(ctx, slug, loaded.state, ctx.cwd))) {
-					return { action: "handled" as const };
-				}
+				await validatePrHead(slug, loaded.state, ctx.cwd);
 			} else {
-				await requireRepository(
-					ctx.cwd,
-					loaded.state,
-					sessionPhase === "build" ? slug : undefined,
-				);
+				await requireRepository(ctx.cwd, loaded.state, slug);
 			}
 			return { action: "continue" as const };
 		} catch (error) {
@@ -2640,7 +2651,7 @@ export default function rpi(pi: ExtensionAPI): void {
 			if (!matched.length) return null;
 			return Promise.all(
 				matched.map(async (slug) => {
-					const place = await placeFor(slug, process.cwd());
+					const place = await placeFor(slug);
 					return {
 						value: slug,
 						label: slug,
@@ -2659,11 +2670,20 @@ export default function rpi(pi: ExtensionAPI): void {
 			}
 			await ctx.waitForIdle();
 			const words = args.trim().split(/\s+/).filter(Boolean);
-			if (words.length > 1 || (words[0] && !SLUG.test(words[0]))) {
+			if (words.length > 1) {
 				ctx.ui.notify("usage: /rpi [slug]", "warning");
 				return;
 			}
 			let named = words[0] ?? "";
+			const explicit = named.length > 0;
+			if (named && !(await validTaskSlug(ctx.cwd, named))) {
+				ctx.ui.notify(`${named}: invalid Git branch name`, "error");
+				return;
+			}
+			if (named && !SLUG.test(named)) {
+				ctx.ui.notify("usage: /rpi [slug]", "warning");
+				return;
+			}
 			while (!named && slugs().length) {
 				const choice = await pickTask(ctx);
 				if (choice.action === "cancel") return;
@@ -2673,6 +2693,10 @@ export default function rpi(pi: ExtensionAPI): void {
 					break;
 				}
 				if (choice.action === "remove") await removeTask(ctx, choice.slug);
+			}
+			if (!explicit && named && !(await validTaskSlug(ctx.cwd, named))) {
+				ctx.ui.notify(`${named}: invalid Git branch name`, "error");
+				return;
 			}
 
 			let slug = named;
@@ -2736,8 +2760,20 @@ export default function rpi(pi: ExtensionAPI): void {
 					const typed = (
 						await ctx.ui.input("Task name — one word, e.g. largest-files")
 					)?.trim();
-					if (!typed || !SLUG.test(typed)) return;
+					if (!typed) return;
+					if (!(await validTaskSlug(ctx.cwd, typed))) {
+						ctx.ui.notify(`${typed}: invalid Git branch name`, "error");
+						return;
+					}
+					if (!SLUG.test(typed)) return;
 					slug = unique(typed);
+				}
+				if (
+					!named &&
+					(!SLUG.test(slug) || !(await validTaskSlug(ctx.cwd, slug)))
+				) {
+					ctx.ui.notify(`${slug}: invalid Git branch name`, "error");
+					return;
 				}
 				let prepared: RepositoryEvidence | typeof CANCELLED;
 				try {
@@ -2752,11 +2788,21 @@ export default function rpi(pi: ExtensionAPI): void {
 				if (prepared === CANCELLED) return;
 				const repository = prepared;
 				try {
+					const worktree = join(WORKTREES, slug);
+					if (
+						(await branchHead(slug, repository.root)) ||
+						existsSync(worktree) ||
+						(await worktreeFor(slug, repository.root))
+					) {
+						throw new Error(
+							`branch ${slug} or worktree ${worktree} already exists`,
+						);
+					}
 					createTask(
 						TASKS,
 						slug,
 						`# ${title ?? slug}\n\n${description.trim()}\n`,
-						identityState(repository.gitCommonDir, repository.head),
+						identityState(repository.branch, repository.root),
 					);
 					origin = "created";
 				} catch (error) {
@@ -2776,7 +2822,7 @@ export default function rpi(pi: ExtensionAPI): void {
 				);
 				return;
 			}
-			const state = loaded.state;
+			let state = loaded.state;
 			try {
 				const ticket = lstatSync(join(TASKS, slug, "ticket.md"));
 				if (!ticket.isFile() || ticket.isSymbolicLink()) {
@@ -2794,68 +2840,53 @@ export default function rpi(pi: ExtensionAPI): void {
 			active = { slug };
 			await refresh(ctx, slug);
 
-			if (state.phase === "build" && state.commit) {
-				try {
-					await requireRepository(ctx.cwd, state, slug);
-					await handlePendingCommit(ctx, slug);
-				} catch (error) {
-					ctx.ui.notify(
-						error instanceof Error ? error.message : String(error),
-						"error",
-					);
+			try {
+				if (state.phase === "creating") {
+					await recoverCreating(slug, state);
+					const recovered = loadState(slug);
+					if (
+						recovered.kind !== "valid" ||
+						recovered.state.phase !== "questions"
+					)
+						throw new Error("creating recovery did not enter questions");
+					state = recovered.state;
 				}
-				return;
-			}
-			if (state.phase === "done") {
-				ctx.ui.notify(`${slug}: finished — ${join(TASKS, slug)}`, "info");
-				return;
-			}
-			if (state.phase === "branch") {
-				const first = firstUncheckedPhase(documentIn(slug, "04-"));
-				if (!first) {
-					ctx.ui.notify(
-						"the outline has no unchecked phase; repair it and retry",
-						"error",
-					);
+				if (state.phase === "done") {
+					await requireRepository(join(WORKTREES, slug), state, slug);
+					ctx.ui.notify(`${slug}: finished — ${join(TASKS, slug)}`, "info");
 					return;
 				}
-				await beginBuild(ctx, slug, state, first.line);
-				return;
-			}
-			if (state.phase === "build") {
-				if ((await branchOf(ctx.cwd)) !== slug) {
-					const result = await setupBranch(ctx, slug, state);
-					if (result !== "here") return;
-				}
-				try {
-					await startOrGatePersistedRun(ctx, slug, state);
-				} catch (error) {
-					ctx.ui.notify(
-						error instanceof Error ? error.message : String(error),
-						"error",
+				if (state.phase === "deleting") {
+					throw new Error(
+						"task deletion is pending; remove it from the task picker",
 					);
 				}
-				return;
-			}
-			if (state.phase === "pr") {
-				try {
-					if (!(await validatePrHead(ctx, slug, state, ctx.cwd))) return;
-					await startOrGatePersistedRun(ctx, slug, state);
-				} catch (error) {
-					ctx.ui.notify(
-						error instanceof Error ? error.message : String(error),
-						"error",
-					);
+				if (state.phase === "closing") {
+					if (await switchToOwnedSession(ctx, slug, state)) return;
+					await recoverClosing(ctx, slug, state);
+					return;
 				}
-				return;
-			}
-			const phase = state.phase;
-			try {
-				await requireRepository(ctx.cwd, state);
+				if (state.phase === "staging") {
+					if (await switchToOwnedSession(ctx, slug, state)) return;
+					await recoverStaging(ctx, slug, state);
+					return;
+				}
+				if (state.phase === "committing") {
+					if (await switchToOwnedSession(ctx, slug, state)) return;
+					await handlePendingCommit(ctx, slug, state);
+					return;
+				}
+				if (state.phase === "build" || state.phase === "pr") {
+					await startOrGatePersistedRun(ctx, slug, state);
+					return;
+				}
+				const phase = state.phase;
 				if (
 					origin === "existing" &&
-					pi.getSessionName() === sessionName(slug, phase)
+					pi.getSessionName() === sessionName(slug, phase) &&
+					realpathSync(ctx.cwd) === join(WORKTREES, slug)
 				) {
+					await requireRepository(ctx.cwd, state, slug);
 					if (currentMessageCount(ctx) === 0) {
 						sendCurrent(ctx, loadPhasePrompt(phase, slug));
 						return;

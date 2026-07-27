@@ -6,57 +6,96 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, posix } from "node:path";
 
-export const STATE_VERSION = 3 as const;
+export const STATE_VERSION = 4 as const;
 export const CANCELLED = Symbol("cancelled");
 
 export const PHASES = [
+	"creating",
 	"questions",
 	"research",
 	"design",
 	"outline",
-	"branch",
 	"build",
+	"closing",
+	"staging",
+	"committing",
 	"pr",
 	"done",
+	"deleting",
 ] as const;
 export type Phase = (typeof PHASES)[number];
 
-type PlainPhase = Exclude<Phase, "build" | "pr">;
+type PlainPhase = Extract<
+	Phase,
+	"questions" | "research" | "design" | "outline" | "done"
+>;
 
 interface Identity {
 	version: typeof STATE_VERSION;
-	gitCommonDir: string;
-	baseSha: string;
+	baseBranch: string;
+}
+
+export interface CreatingTaskState extends Identity {
+	phase: "creating";
+	sourceRoot: string;
 }
 
 export interface PlainTaskState extends Identity {
 	phase: PlainPhase;
 }
 
-export interface CommitState {
-	parent: string;
-	diff: string;
-	phaseLine: string;
+export interface DeletingTaskState extends Identity {
+	phase: "deleting";
+	gitDirectory: string;
 }
 
 type RunOwnership =
-	| { status: "pending"; session?: string }
+	| { status: "pending"; session?: never }
 	| { status: "active"; session: string };
 
 export interface BuildTaskState extends Identity {
 	phase: "build";
 	build: RunOwnership & { phaseLine: string };
-	commit?: CommitState;
+}
+
+export interface ClosingTaskState extends Identity {
+	phase: "closing";
+	phaseLine: string;
+	session: string;
+	resolution: string;
+}
+
+export interface StagingTaskState extends Identity {
+	phase: "staging";
+	phaseLine: string;
+	session: string;
+	parent: string;
+	paths: string[];
+}
+
+export interface CommittingTaskState extends Identity {
+	phase: "committing";
+	phaseLine: string;
+	session: string;
+	parent: string;
 }
 
 export interface PrTaskState extends Identity {
 	phase: "pr";
-	pr: RunOwnership & { head: string };
+	pr: RunOwnership;
 }
 
-export type TaskState = PlainTaskState | BuildTaskState | PrTaskState;
+export type TaskState =
+	| CreatingTaskState
+	| PlainTaskState
+	| DeletingTaskState
+	| BuildTaskState
+	| ClosingTaskState
+	| StagingTaskState
+	| CommittingTaskState
+	| PrTaskState;
 export type LoadedState =
 	| { kind: "missing" }
 	| { kind: "malformed" }
@@ -78,83 +117,150 @@ function record(value: unknown): Record<string, unknown> | undefined {
 		: undefined;
 }
 
+export function safeRelativePath(path: string): boolean {
+	return (
+		path.length > 0 &&
+		!posix.isAbsolute(path) &&
+		!path.includes("\0") &&
+		path !== "." &&
+		path !== ".." &&
+		posix.normalize(path) === path &&
+		!path.startsWith("../")
+	);
+}
+
+export function invariantError(expected: string, found: string): Error {
+	return new Error(
+		`RPI invariant failed\n\nExpected: ${expected}\n\nFound: ${found}\n\nRPI stopped without attempting repair.`,
+	);
+}
+
+function safePaths(value: unknown): value is string[] {
+	return (
+		Array.isArray(value) &&
+		value.length > 0 &&
+		value.every(
+			(path, index) =>
+				typeof path === "string" &&
+				safeRelativePath(path) &&
+				(index === 0 || value[index - 1] < path),
+		)
+	);
+}
+
 export function parseTaskState(value: unknown): TaskState | undefined {
 	const state = record(value);
+	const identityKeys = ["version", "phase", "baseBranch"];
 	if (
 		!state ||
 		state.version !== STATE_VERSION ||
 		typeof state.phase !== "string" ||
 		!PHASES.includes(state.phase as Phase) ||
-		typeof state.gitCommonDir !== "string" ||
-		!state.gitCommonDir.startsWith("/") ||
-		typeof state.baseSha !== "string" ||
-		!SHA.test(state.baseSha)
+		typeof state.baseBranch !== "string" ||
+		state.baseBranch.length === 0
 	) {
 		return undefined;
 	}
 
+	if (state.phase === "creating" || state.phase === "deleting") {
+		const field = state.phase === "creating" ? "sourceRoot" : "gitDirectory";
+		if (
+			!exactKeys(state, [...identityKeys, field]) ||
+			typeof state[field] !== "string" ||
+			!isAbsolute(state[field])
+		)
+			return undefined;
+		return state as unknown as CreatingTaskState | DeletingTaskState;
+	}
+
 	if (state.phase === "build") {
-		const allowed =
-			state.commit === undefined
-				? ["version", "phase", "gitCommonDir", "baseSha", "build"]
-				: ["version", "phase", "gitCommonDir", "baseSha", "build", "commit"];
 		const build = record(state.build);
 		const buildKeys =
-			build?.session === undefined
-				? ["phaseLine", "status"]
-				: ["phaseLine", "status", "session"];
+			build?.status === "active"
+				? ["phaseLine", "status", "session"]
+				: ["phaseLine", "status"];
 		if (
-			!exactKeys(state, allowed) ||
+			!exactKeys(state, [...identityKeys, "build"]) ||
 			!build ||
 			!exactKeys(build, buildKeys) ||
 			typeof build.phaseLine !== "string" ||
 			!PHASE_LINE.test(build.phaseLine) ||
 			(build.status !== "pending" && build.status !== "active") ||
-			(build.status === "active" && build.session === undefined) ||
-			(build.session !== undefined &&
+			(build.status === "active" &&
 				(typeof build.session !== "string" || !isAbsolute(build.session)))
 		) {
 			return undefined;
 		}
-		if (state.commit !== undefined) {
-			const commit = record(state.commit);
-			if (
-				build.status !== "active" ||
-				!commit ||
-				!exactKeys(commit, ["parent", "diff", "phaseLine"]) ||
-				typeof commit.parent !== "string" ||
-				!SHA.test(commit.parent) ||
-				typeof commit.diff !== "string" ||
-				!/^[0-9a-f]{64}$/.test(commit.diff) ||
-				commit.phaseLine !== build.phaseLine
-			) {
-				return undefined;
-			}
-		}
 		return state as unknown as BuildTaskState;
+	}
+
+	if (state.phase === "closing") {
+		if (
+			!exactKeys(state, [
+				...identityKeys,
+				"phaseLine",
+				"session",
+				"resolution",
+			]) ||
+			typeof state.phaseLine !== "string" ||
+			!PHASE_LINE.test(state.phaseLine) ||
+			typeof state.session !== "string" ||
+			!isAbsolute(state.session) ||
+			typeof state.resolution !== "string" ||
+			state.resolution.length === 0 ||
+			state.resolution !== state.resolution.trim().replace(/\s+/g, " ")
+		) {
+			return undefined;
+		}
+		return state as unknown as ClosingTaskState;
+	}
+
+	if (state.phase === "staging") {
+		if (
+			!exactKeys(state, [
+				...identityKeys,
+				"phaseLine",
+				"session",
+				"parent",
+				"paths",
+			]) ||
+			typeof state.phaseLine !== "string" ||
+			!PHASE_LINE.test(state.phaseLine) ||
+			typeof state.session !== "string" ||
+			!isAbsolute(state.session) ||
+			typeof state.parent !== "string" ||
+			!SHA.test(state.parent) ||
+			!safePaths(state.paths)
+		) {
+			return undefined;
+		}
+		return state as unknown as StagingTaskState;
+	}
+
+	if (state.phase === "committing") {
+		if (
+			!exactKeys(state, [...identityKeys, "phaseLine", "session", "parent"]) ||
+			typeof state.phaseLine !== "string" ||
+			!PHASE_LINE.test(state.phaseLine) ||
+			typeof state.session !== "string" ||
+			!isAbsolute(state.session) ||
+			typeof state.parent !== "string" ||
+			!SHA.test(state.parent)
+		) {
+			return undefined;
+		}
+		return state as unknown as CommittingTaskState;
 	}
 
 	if (state.phase === "pr") {
 		const pr = record(state.pr);
-		const prKeys =
-			pr?.session === undefined
-				? ["head", "status"]
-				: ["head", "status", "session"];
+		const prKeys = pr?.status === "active" ? ["status", "session"] : ["status"];
 		if (
-			!exactKeys(state, [
-				"version",
-				"phase",
-				"gitCommonDir",
-				"baseSha",
-				"pr",
-			]) ||
+			!exactKeys(state, [...identityKeys, "pr"]) ||
 			!pr ||
 			!exactKeys(pr, prKeys) ||
-			typeof pr.head !== "string" ||
-			!SHA.test(pr.head) ||
 			(pr.status !== "pending" && pr.status !== "active") ||
-			(pr.status === "active" && pr.session === undefined) ||
-			(pr.session !== undefined &&
+			(pr.status === "active" &&
 				(typeof pr.session !== "string" || !isAbsolute(pr.session)))
 		) {
 			return undefined;
@@ -162,8 +268,7 @@ export function parseTaskState(value: unknown): TaskState | undefined {
 		return state as unknown as PrTaskState;
 	}
 
-	if (!exactKeys(state, ["version", "phase", "gitCommonDir", "baseSha"]))
-		return undefined;
+	if (!exactKeys(state, identityKeys)) return undefined;
 	return state as unknown as PlainTaskState;
 }
 
@@ -180,33 +285,31 @@ export function loadTaskState(path: string): LoadedState {
 }
 
 export function identityState(
-	gitCommonDir: string,
-	baseSha: string,
-	phase: PlainPhase = "questions",
-): PlainTaskState {
-	return { version: STATE_VERSION, phase, gitCommonDir, baseSha };
+	baseBranch: string,
+	sourceRoot: string,
+): CreatingTaskState {
+	return { version: STATE_VERSION, phase: "creating", baseBranch, sourceRoot };
+}
+
+function identityOf(state: TaskState): Identity {
+	return { version: STATE_VERSION, baseBranch: state.baseBranch };
 }
 
 export function plainState(
 	state: TaskState,
 	phase: PlainPhase,
 ): PlainTaskState {
-	return identityState(state.gitCommonDir, state.baseSha, phase);
+	return { ...identityOf(state), phase };
 }
 
 export function buildState(
 	state: TaskState,
 	phaseLine: string,
-	session?: string,
 ): BuildTaskState {
 	return {
-		version: STATE_VERSION,
+		...identityOf(state),
 		phase: "build",
-		gitCommonDir: state.gitCommonDir,
-		baseSha: state.baseSha,
-		build: session
-			? { phaseLine, status: "pending", session }
-			: { phaseLine, status: "pending" },
+		build: { phaseLine, status: "pending" },
 	};
 }
 
@@ -221,34 +324,72 @@ export function activeBuildState(
 	};
 }
 
-export function prState(
+export function closingState(
 	state: TaskState,
-	head: string,
-	session?: string,
-): PrTaskState {
-	return {
-		version: STATE_VERSION,
-		phase: "pr",
-		gitCommonDir: state.gitCommonDir,
-		baseSha: state.baseSha,
-		pr: session
-			? { head, status: "pending", session }
-			: { head, status: "pending" },
-	};
-}
-
-export function activePrState(
-	state: TaskState,
-	head: string,
+	phaseLine: string,
 	session: string,
-): PrTaskState {
+	resolution: string,
+): ClosingTaskState {
 	return {
-		...prState(state, head),
-		pr: { head, status: "active", session },
+		...identityOf(state),
+		phase: "closing",
+		phaseLine,
+		session,
+		resolution,
 	};
 }
 
-export type RunDecision = "full" | "continuation" | "resume" | "gate";
+export function stagingState(
+	state: TaskState,
+	phaseLine: string,
+	session: string,
+	parent: string,
+	paths: string[],
+): StagingTaskState {
+	return {
+		...identityOf(state),
+		phase: "staging",
+		phaseLine,
+		session,
+		parent,
+		paths,
+	};
+}
+
+export function committingState(
+	state: TaskState,
+	phaseLine: string,
+	session: string,
+	parent: string,
+): CommittingTaskState {
+	return {
+		...identityOf(state),
+		phase: "committing",
+		phaseLine,
+		session,
+		parent,
+	};
+}
+
+export function prState(state: TaskState): PrTaskState {
+	return { ...identityOf(state), phase: "pr", pr: { status: "pending" } };
+}
+
+export function activePrState(state: TaskState, session: string): PrTaskState {
+	return {
+		...prState(state),
+		pr: { status: "active", session },
+	};
+}
+
+export function deletingState(
+	state: TaskState,
+	gitDirectory: string,
+): DeletingTaskState {
+	return { ...identityOf(state), phase: "deleting", gitDirectory };
+}
+
+export type RunDecision = "full" | "resume" | "gate";
 
 export function activeBranchMessageCount(
 	entries: readonly { type: string }[],
@@ -257,12 +398,10 @@ export function activeBranchMessageCount(
 }
 
 export function decidePersistedRun(
-	status: "pending" | "active",
 	messageCount: number,
 	location: "current" | "other",
 ): RunDecision {
 	if (messageCount === 0) return "full";
-	if (status === "pending") return "continuation";
 	return location === "current" ? "gate" : "resume";
 }
 
@@ -272,31 +411,6 @@ export function decideSessionPrompt(
 ): "full" | "continuation" | "resume" {
 	if (messageCount === 0) return "full";
 	return feedback === "provided" ? "continuation" : "resume";
-}
-
-export function prNeedsRestart(state: PrTaskState, head: string): boolean {
-	return state.pr.head !== head;
-}
-
-export interface ObservedRepository {
-	gitCommonDir: string;
-	base: "present" | "missing";
-	branch?: string;
-	ancestry?: "valid" | "invalid";
-}
-
-export function repositoryProblem(
-	state: TaskState,
-	observed: ObservedRepository,
-	requiredBranch?: string,
-): string | undefined {
-	if (observed.gitCommonDir !== state.gitCommonDir) return "wrong-repository";
-	if (observed.base === "missing") return "missing-base";
-	if (requiredBranch && observed.branch !== requiredBranch)
-		return "wrong-branch";
-	if (requiredBranch && observed.ancestry !== "valid")
-		return "base-not-ancestor";
-	return undefined;
 }
 
 export function createTask(

@@ -3,10 +3,8 @@ description: RPI design — put the design decisions in front of the human, unre
 argument-hint: "<task-slug> [answers to open questions]"
 ---
 
-If a document names a `repo:`, compare repository identity rather than top-level paths: linked
-worktrees have different roots. Treat it as this repository only when that checkout's and this
-checkout's `git rev-parse --path-format=absolute --git-common-dir` resolve to the same path;
-otherwise stop and say the task belongs to a different repository.
+Treat any document `repo:` path as historical provenance only. The canonical task worktree named
+in the Run context is the repository for this phase; do not leave it.
 
 Read `ticket.md` and `02-research.md` in full. Do not read `01-research-questions.md`.
 
@@ -31,28 +29,37 @@ you are about to do, and ask each for the real snippet, not a description of it.
 
 **You may recommend. You may not resolve.**
 
-A question is a `####` heading, and it is open until that heading starts with `[x]`. `/rpi` counts
-the unmarked ones to decide whether the outline can start, so a heading you forget to mark stays
-open — the direction that stalls and asks rather than the one that proceeds without you.
+A question is a canonical `####` block inside `### Design Questions`, and it is open until that
+heading starts with `[x]`. `/rpi` validates every question block and refuses to start the outline
+while any parsed question remains open. Malformed questions also block advancement — the direction
+that stalls and asks rather than the one that proceeds without you.
 
-Because the count is document-wide, `####` belongs to questions alone. Use `-` or bold for
+The validator reserves `####` for questions inside `### Design Questions`. Use `-` or bold for
 sub-points anywhere else in this document.
 
-Every design question is written open, with options and your recommendation. None of them is
-resolved in the first pass — not when the answer looks obvious, not when the research all but
-settles it, not when the human says "do what you think". That is permission to recommend
-forcefully, not permission to close the question. Closing it yourself deletes the only gate in the
-chain where the human's judgement is what is being asked for.
+Every design question is written open, with options and your recommendation. Add every new
+question through `rpi_add_design_questions`; never hand-write a new `####` question block. The
+extension assigns the option labels and serializes the canonical Markdown. Write or update the
+rest of the design document first, leaving `### Design Questions` present, then call the tool once
+with the complete batch of new questions.
+
+None of them is resolved in the first pass — not when the answer looks obvious, not when the
+research all but settles it, not when the human says "do what you think". That is permission to
+recommend forcefully, not permission to close the question. Closing it yourself deletes the only
+gate in the chain where the human's judgement is what is being asked for.
 
 Every material user-visible fallback, degradation, or non-goal must be an unresolved design
 question with concrete options. Do not bury one as settled prose in error handling, compatibility,
 or `### What we're not doing`.
 
 When the human answers — this prompt run again with their feedback, or any clear indication of a
-decision, they do not have to say "resolve" — mark that heading `#### [x] ` and write the decision,
-the rationale, and the options discarded with why underneath it. The question stays where it is,
-so its options stay next to the decision that rejected them. Questions they did not answer keep
-their bare heading.
+decision, they do not have to say "resolve" — direct editing is allowed to resolve that existing
+question only. Mark its heading `#### [x] `, replace its `Recommendation` line with one nonempty
+`Decision:` line and one nonempty `Rationale:` line, including why the discarded options lost.
+Keep the original question and options unchanged. Questions they did not answer keep their bare
+heading and canonical `Recommendation` line. If `/rpi` reports that an existing block is malformed,
+repair that block to the canonical shape before doing anything else; this recovery rule does not
+permit adding a new block by hand.
 
 ## Every path is relative to the repository root
 
@@ -88,25 +95,6 @@ sha: [git rev-parse HEAD]
 Before / After, as mermaid where a diagram earns its place, plus a concise description.
 
 ### Design Questions
-
-#### Question title, open
-
-[the question]
-
-- Option A: ... [snippet, diagram, or pseudocode if it clarifies]
-- Option B: ...
-
-Recommendation: Option A — [why, grounded in the research]
-
-#### [x] Question title, once the human has decided
-
-[the question, unchanged]
-
-- Option A: ...
-- Option B: ...
-
-Decision: [what they chose]
-Rationale: [why, and why each discarded option was discarded]
 
 ### Patterns to follow
 

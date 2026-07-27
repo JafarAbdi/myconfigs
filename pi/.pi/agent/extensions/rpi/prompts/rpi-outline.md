@@ -6,10 +6,8 @@ argument-hint: "<task-slug> [instructions]"
 Treat a decision in the final Run context as settled, but check any claim about the code before
 acting on it — `delegate` to `scout`. A wrong fact accepted here becomes the plan and then the code.
 
-If a document names a `repo:`, compare repository identity rather than top-level paths: linked
-worktrees have different roots. Treat it as this repository only when that checkout's and this
-checkout's `git rev-parse --path-format=absolute --git-common-dir` resolve to the same path;
-otherwise stop and say the task belongs to a different repository.
+Treat any document `repo:` path as historical provenance only. The canonical task worktree named
+in the Run context is the repository for this phase; do not leave it.
 
 Read `ticket.md`, `02-research.md`, and `03-design-discussion.md` in full. Do not read
 `01-research-questions.md`.
@@ -20,8 +18,9 @@ the code you check below wins over all three.
 Feedback is an instruction to change this document, never to start implementing — even "just do
 it". Implementation is the next phase, in a session of its own.
 
-If `03-design-discussion.md` still has a `####` heading that does not start with `[x]`, that
-question is open: stop and say which. Do not answer them and do not write an outline around them.
+If `03-design-discussion.md` has any open canonical question in `### Design Questions`, stop and
+say which. Do not answer it and do not write an outline around it. Malformed question blocks are
+also blockers; report them and stop so the design phase can repair them.
 
 ## This phase is adversarial, not clerical
 
@@ -30,9 +29,10 @@ phase anything, take each decision in the design and check it against the code t
 now — `delegate` to `scout` in one message for the ones worth checking in parallel.
 
 When a decision does not survive contact with the code, change the plan and say plainly in the
-outline what you changed and why. When something is genuinely undecidable from the code, add it to
-`03-design-discussion.md` as a new `####` heading, unmarked, and stop — an outline may not carry
-an unsettled question into the build.
+outline what you changed and why. When something is genuinely undecidable from the code, call
+`rpi_add_design_questions` with every new question and stop. Never hand-write a new `####` block;
+the extension adds canonical questions to `03-design-discussion.md`. An outline may not carry an
+unsettled question into the build.
 
 ## Phases
 

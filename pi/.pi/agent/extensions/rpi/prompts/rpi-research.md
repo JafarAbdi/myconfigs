@@ -3,10 +3,9 @@ description: RPI research — answer the query plan and write the codebase expla
 argument-hint: "<task-slug> [instructions]"
 ---
 
-If a document names a `repo:`, compare repository identity rather than top-level paths: linked
-worktrees have different roots. Treat it as this repository only when that checkout's and this
-checkout's `git rev-parse --path-format=absolute --git-common-dir` resolve to the same path;
-otherwise stop and say the task belongs to a different repository.
+The current working directory must be the canonical task worktree named in the Run context. If a
+document's `repo:` names another checkout path, treat it as historical provenance; do not leave the
+canonical worktree.
 
 Read `01-research-questions.md` in full.
 
