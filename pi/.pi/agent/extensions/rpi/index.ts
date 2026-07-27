@@ -1799,6 +1799,27 @@ export default function rpi(pi: ExtensionAPI): void {
 		return expanded;
 	}
 
+	/**
+	 * The canonical /audit prompt with its scope placeholder bound to the branch range. Inlined
+	 * rather than read by the agent, which would see the unexpanded slash-command placeholder.
+	 */
+	function auditPrompt(scope: string): string {
+		const commands = pi
+			.getCommands()
+			.filter(
+				(command) => command.name === "audit" && command.source === "prompt",
+			);
+		if (commands.length !== 1)
+			throw new Error("the canonical /audit prompt is unavailable or ambiguous");
+		const body = stripFrontmatter(
+			readFileSync(commands[0].sourceInfo.path, "utf-8"),
+		)
+			.replace(/\$\{@(?::-[^}]*)?\}|\$@/g, scope)
+			.trim();
+		if (!body) throw new Error("the canonical /audit prompt is empty");
+		return body;
+	}
+
 	function requireStoredPhase(
 		store: OutlineStore,
 		snapshot: PendingPhase,
@@ -2637,10 +2658,12 @@ export default function rpi(pi: ExtensionAPI): void {
 			throw new Error(
 				"PR range could not be computed from the current checkout",
 			);
+		const range = `${baseSha.stdout.trim()}..${head.stdout.trim()}`;
 		return {
 			baseBranch: state.baseBranch,
 			baseSha: baseSha.stdout.trim(),
 			head: head.stdout.trim(),
+			audit: auditPrompt(`\`git diff ${range}\``),
 		};
 	}
 

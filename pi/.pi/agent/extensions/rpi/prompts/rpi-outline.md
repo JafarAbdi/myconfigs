@@ -3,9 +3,6 @@ description: RPI outline — mechanically translate the agreed design into struc
 argument-hint: "<task-slug> [instructions]"
 ---
 
-Treat document `repo:` paths as historical provenance only. Stay in the canonical task worktree named
-in the Run context and stop on a cwd or branch mismatch.
-
 Read `ticket.md`, `02-research.md`, and `03-design-discussion.md` in full. If
 `04-structure-outline.md` exists, read it as the generated view of completed history and current
 pending drafts. Never read `outline.json`, `01-research-questions.md`, or `questions.json`. The agreed

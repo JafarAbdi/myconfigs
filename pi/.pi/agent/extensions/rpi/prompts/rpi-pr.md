@@ -3,12 +3,10 @@ description: RPI pr — verify the branch and write its PR description
 argument-hint: "<task-slug> [instructions]"
 ---
 
+Stop as well on a missing named base ref or a dirty worktree.
+
 Treat a decision in the final Run context as settled, but check any claim about the code before
 acting on it — `delegate` to `scout`. A wrong fact accepted here dismisses a real finding.
-
-The current working directory must be the canonical task worktree named in the Run context. Treat
-document `repo:` paths as historical provenance only; never leave this worktree. Stop on any cwd,
-branch, missing named-base-ref, or dirty-worktree mismatch.
 
 Read `ticket.md` and the generated `04-structure-outline.md` projection in full; read
 `03-design-discussion.md` and `02-research.md` if the diff raises something they would answer.
@@ -25,9 +23,7 @@ there are uncommitted changes, say so and stop; do not commit them.
 
 ## Audit the branch
 
-Read `~/.pi/agent/extensions/subagent/prompts/audit.md` and follow it over the whole branch diff.
-It is a slash command, so its first line carries an unexpanded all-arguments-with-default
-placeholder — the scope is the branch diff, not whatever that line appears to say.
+Follow the audit instructions in the final Run context over the whole branch diff.
 
 On a blocking finding, report it in one clear line and stop. The human can use `/rpi <task-slug>`
 to continue the audit, add a repair phase, or revisit the design. Do not fix the code here, and do
@@ -79,3 +75,5 @@ Transient merge-base with the named base branch: `{{RPI_BASE_SHA}}`
 Transient current HEAD: `{{RPI_PR_HEAD}}`
 Audit the transient range: `git diff {{RPI_BASE_SHA}}..{{RPI_PR_HEAD}}`
 Substitute the Task slug and Task directory above for `<task-slug>` and `<task-directory>`.
+Audit instructions:
+{{RPI_AUDIT}}

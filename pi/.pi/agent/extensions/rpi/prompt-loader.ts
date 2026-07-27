@@ -17,11 +17,15 @@ export interface PromptContext {
 	baseBranch?: string;
 	baseSha?: string;
 	head?: string;
+	audit?: string;
 }
 
 const PROMPTS = join(dirname(fileURLToPath(import.meta.url)), "prompts");
 const CONTROL =
 	"Workflow state belongs to the RPI extension. Do not read or edit state.json in the task directory, and do not run /rpi yourself.";
+/** Said once here because five phases said it five ways, and the wordings had already drifted. */
+const WORKTREE =
+	"Treat any `repo:` path in a task document as historical provenance only; never leave this worktree.";
 
 export function stripFrontmatter(markdown: string): string {
 	return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
@@ -39,7 +43,7 @@ export function loadPhasePrompt(
 	const instructions = stripFrontmatter(
 		readFileSync(join(PROMPTS, `rpi-${phase}.md`), "utf-8"),
 	);
-	const body = `${CONTROL} The canonical repository root for this phase is ${worktree}; stop on any cwd or branch mismatch.\n\n${instructions}`;
+	const body = `${CONTROL} The canonical repository root for this phase is ${worktree}; stop on any cwd or branch mismatch. ${WORKTREE}\n\n${instructions}`;
 	const replacements: Record<string, string> = {
 		$1: slug,
 		"${@:2}": context.extra ?? "",
@@ -47,10 +51,11 @@ export function loadPhasePrompt(
 		"{{RPI_BASE_BRANCH}}": context.baseBranch ?? "",
 		"{{RPI_BASE_SHA}}": context.baseSha ?? "",
 		"{{RPI_PR_HEAD}}": context.head ?? "",
+		"{{RPI_AUDIT}}": context.audit ?? "",
 		"~/.pi/agent/tasks/$1/": taskDirectory,
 	};
 	return body.replace(
-		/~\/\.pi\/agent\/tasks\/\$1\/|\$\{@:2\}|\{\{RPI_(?:STRUCTURED_PHASE|BASE_BRANCH|BASE_SHA|PR_HEAD)\}\}|\$1/g,
+		/~\/\.pi\/agent\/tasks\/\$1\/|\$\{@:2\}|\{\{RPI_(?:STRUCTURED_PHASE|BASE_BRANCH|BASE_SHA|PR_HEAD|AUDIT)\}\}|\$1/g,
 		(placeholder) => replacements[placeholder],
 	);
 }

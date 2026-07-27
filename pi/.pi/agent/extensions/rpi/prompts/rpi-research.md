@@ -3,10 +3,6 @@ description: RPI research — answer the query plan and write the codebase expla
 argument-hint: "<task-slug> [instructions]"
 ---
 
-The current working directory must be the canonical task worktree named in the Run context. If a
-document's `repo:` names another checkout path, treat it as historical provenance; do not leave the
-canonical worktree.
-
 Read `01-research-questions.md` in full.
 
 **Do not read `ticket.md`.** Not now, not later in this session, not "just for context". The
