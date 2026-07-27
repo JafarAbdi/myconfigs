@@ -292,10 +292,16 @@ function formatStats(result: RunResult): string {
  * columns and at 200, and re-reads correctly when the pane is resized.
  */
 class Line implements Component {
-	constructor(private readonly text: string) {}
+	// The ellipsis carries its own styling because `truncateToWidth` closes every open code before
+	// appending it: an unstyled "…" lands in the terminal's default foreground, the one glyph on the
+	// line not dimmed like the text it stands in for.
+	constructor(
+		private readonly text: string,
+		private readonly ellipsis: string,
+	) {}
 	render(width: number): string[] {
 		// Padded, so a shorter line overwrites whatever the previous frame left on that row.
-		return [truncateToWidth(this.text, width, "…", true)];
+		return [truncateToWidth(this.text, width, this.ellipsis, true)];
 	}
 }
 
@@ -310,7 +316,7 @@ function stepLines(result: RunResult, theme: Theme): Component[] {
 				? theme.fg("error", "✗")
 				: theme.fg("success", "✓");
 		const detail = step.detail ? theme.fg("dim", ` ${step.detail}`) : "";
-		lines.push(new Line(`${glyph} ${theme.fg("toolTitle", step.tool)}${detail}`));
+		lines.push(new Line(`${glyph} ${theme.fg("toolTitle", step.tool)}${detail}`, theme.fg("dim", "…")));
 	}
 	return lines;
 }
