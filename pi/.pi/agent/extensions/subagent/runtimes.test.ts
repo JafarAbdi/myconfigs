@@ -10,7 +10,9 @@ import {
 	isEffortLevel,
 	modelLabel,
 	type RunResult,
+	createActivityTracker,
 	selectRuntime,
+	stepDetail,
 } from "./runtimes.ts";
 
 function agent(overrides: Partial<Agent> = {}): Agent {
@@ -29,6 +31,7 @@ function result(overrides: Partial<RunResult> = {}): RunResult {
 		agent: "reviewer",
 		task: "review it",
 		output: "",
+		steps: [],
 		turns: 0,
 		usage: emptyUsage(),
 		durationMs: 0,
@@ -36,32 +39,19 @@ function result(overrides: Partial<RunResult> = {}): RunResult {
 	};
 }
 
-/** Records what a run's progress line would show, without the rendering. */
-function tracker(): ActivityTracker & { live: () => string[] } {
-	const active = new Map<string, string>();
-	let unidentified: string | undefined;
-	return {
-		start(id, tool) {
-			if (id) active.set(id, tool);
-			else unidentified = tool;
-		},
-		end(id) {
-			if (id) {
-				active.delete(id);
-			} else {
-				active.clear();
-				unidentified = undefined;
-			}
-		},
-		live: () => [...active.values(), ...(unidentified ? [unidentified] : [])],
-	};
+function runClaude(events: Record<string, unknown>[], into = result()): { result: RunResult } {
+	const runtime = selectRuntime("claude-opus-5");
+	const activity = createActivityTracker(into);
+	for (const event of events) runtime.consume(event, into, activity);
+	return { result: into };
 }
 
-function runClaude(events: Record<string, unknown>[], into = result()): { result: RunResult; live: string[] } {
-	const runtime = selectRuntime("claude-opus-5");
-	const activity = tracker();
-	for (const event of events) runtime.consume(event, into, activity);
-	return { result: into, live: activity.live() };
+/** The step log as `expanded` prints it, glyph and all. */
+function steps(result: RunResult): string[] {
+	return result.steps.map(
+		(step) =>
+			`${!step.outcome ? "⋯" : step.outcome === "failed" ? "✗" : "✓"} ${step.tool}${step.detail ? ` ${step.detail}` : ""}`,
+	);
 }
 
 test("the model name selects the runtime", () => {
@@ -182,6 +172,22 @@ test("claude argv fences the child and carries one system prompt", () => {
 	assert.ok(!args.includes("Task: review it"));
 });
 
+test("an override moves an agent to whichever runtime its model names", () => {
+	// The reason `model` is not an enum of claude names: a claude-pinned agent has to be able to
+	// come back to this session's family, or the request has no representation and gets hand-rolled.
+	const reviewer = agent({ model: "claude-opus-5", tools: ["read", "bash"] });
+	const onPi = selectRuntime("openai-codex/gpt-5.6-luna");
+	assert.equal(onPi.name, "pi");
+	const { args } = onPi.invoke({ ...reviewer, model: "openai-codex/gpt-5.6-luna" }, "review", {});
+	assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.6-luna");
+	assert.equal(args[args.indexOf("--tools") + 1], "read,bash");
+
+	// ...and the same agent still reaches claude when named a claude model.
+	assert.equal(selectRuntime("claude-haiku-4-5-20251001").name, "claude");
+	// A typo is still caught, wherever the name came from.
+	assert.throws(() => selectRuntime("claude-opus-4"), /unknown claude model/);
+});
+
 test("a pi agent still inherits the session model", () => {
 	const scout = agent({ tools: ["read"] });
 	const { args, input } = selectRuntime(scout.model).invoke(scout, "look", { model: "openai-codex/gpt-5.6-luna" });
@@ -195,7 +201,7 @@ test("pi accumulates usage per message, where claude assigns a run total once", 
 	// The asymmetry a refactor gets wrong: pi reports each turn, claude reports the run.
 	const runtime = selectRuntime(undefined);
 	const run = result();
-	const activity = tracker();
+	const activity = createActivityTracker(run);
 	const turn = (input: number, cost: number) => ({
 		type: "message_end",
 		message: {
@@ -215,10 +221,11 @@ test("pi accumulates usage per message, where claude assigns a run total once", 
 		},
 	});
 
-	runtime.consume({ type: "tool_execution_start", toolName: "read", toolCallId: "1" }, run, activity);
-	assert.deepEqual(activity.live(), ["read"]);
+	runtime.consume({ type: "tool_execution_start", toolName: "read", toolCallId: "1", args: { path: "a.ts" } }, run, activity);
+	assert.equal(run.activity, "read(a.ts)");
 	runtime.consume({ type: "tool_execution_end", toolCallId: "1" }, run, activity);
-	assert.deepEqual(activity.live(), []);
+	assert.equal(run.activity, undefined);
+	assert.deepEqual(steps(run), ["✓ read a.ts"]);
 
 	runtime.consume(turn(10, 0.01), run, activity);
 	runtime.consume(turn(30, 0.02), run, activity);
@@ -235,11 +242,12 @@ test("pi accumulates usage per message, where claude assigns a run total once", 
 test("a pi tool event with no id still clears the line, because pi omits ids", () => {
 	const runtime = selectRuntime(undefined);
 	const run = result();
-	const activity = tracker();
+	const activity = createActivityTracker(run);
 	runtime.consume({ type: "tool_execution_start", toolName: "bash" }, run, activity);
-	assert.deepEqual(activity.live(), ["bash"]);
+	assert.equal(run.activity, "bash");
 	runtime.consume({ type: "tool_execution_end" }, run, activity);
-	assert.deepEqual(activity.live(), []);
+	assert.equal(run.activity, undefined);
+	assert.deepEqual(steps(run), ["✓ bash"]);
 });
 
 test("run usage comes from modelUsage, which is the only cumulative figure", () => {
@@ -349,46 +357,126 @@ test("an unknown model fails in-band, with exit code 0 and empty stderr", () => 
 	assert.equal(classifyResult(run).kind, "model-error");
 });
 
+test("a tool call carries the argument that identifies it", () => {
+	// `Bash` alone tells you an agent is busy; the command tells you what it is doing.
+	assert.equal(stepDetail({ command: "git show --stat HEAD", description: "inspect" }), "git show --stat HEAD");
+	assert.equal(stepDetail({ file_path: "/home/juruc/myconfigs/pi/index.ts" }), "/home/juruc/myconfigs/pi/index.ts");
+	assert.equal(stepDetail({ pattern: "selectRuntime" }), "selectRuntime");
+	// pi and claude name these fields identically, so one rule serves both lanes.
+	assert.equal(stepDetail({ path: "runtimes.ts" }), "runtimes.ts");
+	// grep and find take both, and the pattern is the question — the path is usually just the cwd.
+	assert.equal(stepDetail({ pattern: "selectRuntime", path: "." }), "selectRuntime");
+	assert.equal(stepDetail({ pattern: "**/*.ts", path: "packages", glob: "*.ts" }), "**/*.ts");
+	// Nothing recognisable beats a blob of JSON on the progress line.
+	assert.equal(stepDetail({ mystery: 3 }), undefined);
+	assert.equal(stepDetail(undefined), undefined);
+	// Newlines are flattened, because a step is one line by construction.
+	assert.equal(stepDetail({ command: "git log\n  --oneline" }), "git log --oneline");
+	// Not cut to fit a terminal — that is the renderer's job, against a width it can see. Only a
+	// pathological argument is capped, and only so it cannot sit in the parent's memory.
+	assert.equal(stepDetail({ command: `echo ${"x".repeat(200)}` })?.length, 205);
+	assert.equal(stepDetail({ command: "x".repeat(5000) })?.length, 2000);
+});
+
+test("both lanes report the same call the same way", () => {
+	const seen: string[] = [];
+	const activity: ActivityTracker = {
+		start: (_id, tool, detail) => seen.push(`start ${tool} ${detail}`),
+		end: (_id, failed) => seen.push(`end ${failed}`),
+	};
+	selectRuntime("claude-opus-5").consume(
+		{
+			type: "assistant",
+			message: { role: "assistant", content: [{ type: "tool_use", id: "a", name: "Bash", input: { command: "ls -la" } }] },
+		},
+		result(),
+		activity,
+	);
+	selectRuntime(undefined).consume(
+		{ type: "tool_execution_start", toolCallId: "a", toolName: "bash", args: { command: "ls -la" } },
+		result(),
+		activity,
+	);
+	assert.deepEqual(seen, ["start Bash ls -la", "start bash ls -la"]);
+
+	selectRuntime("claude-opus-5").consume(
+		{ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "a", is_error: true }] } },
+		result(),
+		activity,
+	);
+	selectRuntime(undefined).consume({ type: "tool_execution_end", toolCallId: "a", isError: true }, result(), activity);
+	assert.deepEqual(seen.slice(-2), ["end true", "end true"]);
+});
+
 test("tool activity tracks by id, and an unidentified result ends nothing", () => {
 	const runtime = selectRuntime("claude-opus-5");
 	const run = result();
-	const activity = tracker();
+	const activity = createActivityTracker(run);
 	const message = (role: string, content: unknown[]) => ({ type: role, message: { role, content } });
 
 	runtime.consume(message("assistant", [{ type: "tool_use", id: "a", name: "Read" }]), run, activity);
 	runtime.consume(message("assistant", [{ type: "tool_use", id: "b", name: "Grep" }]), run, activity);
-	assert.deepEqual(activity.live(), ["Read", "Grep"]);
+	assert.equal(run.activity, "Read, Grep");
 
 	// A block with no id must not clear the pair: that would drop a running sibling off the line.
 	runtime.consume(message("user", [{ type: "tool_result" }]), run, activity);
-	assert.deepEqual(activity.live(), ["Read", "Grep"]);
+	assert.equal(run.activity, "Read, Grep");
 
 	runtime.consume(message("user", [{ type: "tool_result", tool_use_id: "a" }]), run, activity);
-	assert.deepEqual(activity.live(), ["Grep"]);
+	assert.equal(run.activity, "Grep");
+	// The finished one is marked; the one still running keeps its ⋯ even after the run ends.
+	assert.deepEqual(steps(run), ["✓ Read", "⋯ Grep"]);
+});
+
+test("a think before any tool still shows on the line", () => {
+	// The long silence at the start of an opus run at high effort: no tool has started, so without
+	// this the line stays blank for exactly as long as the model is working hardest.
+	const { result: run } = runClaude([{ type: "system", subtype: "thinking_tokens", estimated_tokens: 50 }]);
+	assert.equal(run.activity, "thinking 50");
+
+	// A running tool outranks it, and the count returns when the tool finishes.
+	const message = (role: string, content: unknown[]) => ({ type: role, message: { role, content } });
+	const runtime = selectRuntime("claude-opus-5");
+	const activity = createActivityTracker(run);
+	runtime.consume(message("assistant", [{ type: "tool_use", id: "a", name: "Bash", input: { command: "ls" } }]), run, activity);
+	assert.equal(run.activity, "Bash(ls)");
+	runtime.consume(message("user", [{ type: "tool_result", tool_use_id: "a" }]), run, activity);
+	assert.equal(run.activity, "thinking 50");
 });
 
 test("bookkeeping events do not ask for a redraw", () => {
 	const runtime = selectRuntime("claude-opus-5");
 	const run = result();
-	const activity = tracker();
+	const activity = createActivityTracker(run);
 	const consume = (event: Record<string, unknown>) => runtime.consume(event, run, activity);
 
-	// claude emits this every few hundred milliseconds for the whole run.
-	assert.equal(consume({ type: "system", subtype: "thinking_tokens", estimated_tokens: 40 }), false);
 	assert.equal(consume({ type: "rate_limit_event" }), false);
 	assert.equal(consume({ type: "assistant" }), false);
+	// Thinking tokens are the exception: during a long think they are the only thing moving.
+	assert.equal(consume({ type: "system", subtype: "thinking_tokens", estimated_tokens: 40 }), true);
+	assert.equal(run.thinking, 40);
 
 	assert.equal(consume({ type: "system", subtype: "init", model: "claude-opus-5" }), true);
 	assert.equal(consume({ type: "assistant", message: { role: "assistant", content: [] } }), true);
 	assert.equal(consume({ type: "result", subtype: "success", result: "done" }), true);
 });
 
-test("assistant text is kept only as a diagnostic; the report comes from the result envelope", () => {
+test("a child killed before its envelope still shows the last thing it said", () => {
 	const { result: run } = runClaude([
 		{ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "thinking out loud" }] } },
 	]);
-	assert.equal(run.diagnosticOutput, "thinking out loud");
-	assert.equal(run.output, "");
-	// No result envelope arrived, so the run has no usable text — a truncated child, not a success.
+	assert.equal(run.output, "thinking out loud");
+	// Kept for reading, not mistaken for an answer: no envelope arrived, so this is not a success.
 	assert.equal(classifyResult(run).kind, "invalid-response");
+});
+
+test("the result envelope wins, and an empty one does not erase the text before it", () => {
+	const said = { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "midway" }] } };
+	const { result: finished } = runClaude([said, { type: "result", subtype: "success", stop_reason: "end_turn", result: "the report" }]);
+	assert.equal(finished.output, "the report");
+	assert.equal(classifyResult(finished).kind, "success");
+
+	// An empty final answer is not an answer, so the earlier text survives for reading.
+	const { result: blank } = runClaude([said, { type: "result", subtype: "success", stop_reason: "end_turn", result: "" }]);
+	assert.equal(blank.output, "midway");
 });

@@ -29,10 +29,8 @@ export interface Agent {
 export interface RunResult {
 	agent: string;
 	task: string;
-	/** Text from the final assistant turn only. */
+	/** The latest assistant text. The final turn's, once there is one; before that, the last thing said. */
 	output: string;
-	/** Last nonempty assistant text, retained only for incomplete diagnostics. */
-	diagnosticOutput?: string;
 	stopReason?: string;
 	errorMessage?: string;
 	provider?: string;
@@ -40,9 +38,48 @@ export interface RunResult {
 	termination?: "cancelled";
 	/** Tool the child is running right now. Progress only; absent once it has finished. */
 	activity?: string;
+	/** Thinking tokens so far, when the child reports them. The only sign of life during a long think. */
+	thinking?: number;
+	/** Every tool the child has run, in order. What `expanded` shows while the run is still going. */
+	steps: Step[];
 	turns: number;
 	usage: Usage;
 	durationMs: number;
+}
+
+export interface Step {
+	tool: string;
+	/** The salient argument — a command, a path, a pattern. Already flattened and truncated. */
+	detail?: string;
+	/** Absent while the tool is still running, which is also how a killed child's last step reads. */
+	outcome?: "ok" | "failed";
+}
+
+/** Steps kept, and so also steps shown: a tail is a tail, and a loop cannot grow the parent's memory. */
+export const STEP_LIMIT = 40;
+/**
+ * A memory bound, not a display one: a heredoc pasted into `bash` should not sit in the parent
+ * across every step. How much of this actually fits on a line is the renderer's business, decided
+ * against the terminal it can see.
+ */
+const DETAIL_STORED_MAX = 2000;
+
+/**
+ * The one argument worth showing, ordered by how specifically it identifies the call. `pattern`
+ * outranks `path` because grep and find take both, and the pattern is the question — the path is
+ * usually just the cwd. pi and claude agree on these names (`command`, `path`, `pattern`, `glob`;
+ * claude spells read's path `file_path`), so one list serves both. Anything unrecognised shows
+ * nothing rather than a blob of JSON.
+ */
+const DETAIL_KEYS = ["command", "pattern", "file_path", "path", "glob", "url", "query", "description"];
+
+export function stepDetail(input: unknown): string | undefined {
+	if (!isRecord(input)) return undefined;
+	for (const key of DETAIL_KEYS) {
+		const value = input[key];
+		if (typeof value === "string" && value.trim()) return preview(value, DETAIL_STORED_MAX);
+	}
+	return undefined;
 }
 
 /** What the parent session lends a child. A claude child never borrows the model — see `selectRuntime`. */
@@ -65,8 +102,66 @@ export interface Invocation {
  * sibling off the progress line.
  */
 export interface ActivityTracker {
-	start(id: string | undefined, tool: string): void;
-	end(id: string | undefined): void;
+	start(id: string | undefined, tool: string, detail?: string): void;
+	end(id: string | undefined, failed?: boolean): void;
+	/** Reported thinking so far. The line has to be recomputed here, or a think shows nothing at all. */
+	think(tokens: number): void;
+}
+
+/**
+ * The progress line and the step log, which are the same information at two depths: what is running
+ * now, and everything that ran. Both are written onto `result`, so a snapshot of it renders without
+ * consulting anything else.
+ */
+export function createActivityTracker(result: RunResult): ActivityTracker {
+	// Live calls point at their entry in `result.steps`, so finishing one marks the step that started
+	// it rather than appending a second line for the same call.
+	const live = new Map<string, Step>();
+	let unidentified: Step | undefined;
+
+	const refresh = () => {
+		const running = [...live.values(), ...(unidentified ? [unidentified] : [])];
+		// Nothing running is not nothing happening: a long think shows its token count instead.
+		result.activity = running.length
+			? running.map((step) => (step.detail ? `${step.tool}(${step.detail})` : step.tool)).join(", ")
+			: result.thinking
+				? `thinking ${result.thinking}`
+				: undefined;
+	};
+
+	return {
+		start(id, tool, detail) {
+			const step: Step = { tool, detail };
+			// Oldest first, because the tail is what you are watching.
+			if (result.steps.length >= STEP_LIMIT) result.steps.shift();
+			result.steps.push(step);
+			if (id) live.set(id, step);
+			else unidentified = step;
+			refresh();
+		},
+		think(tokens) {
+			result.thinking = tokens;
+			refresh();
+		},
+		end(id, failed) {
+			const finish = (step: Step) => {
+				step.outcome = failed ? "failed" : "ok";
+			};
+			if (id) {
+				const step = live.get(id);
+				if (step) finish(step);
+				live.delete(id);
+			} else {
+				// pi omits the id on some events; ending without one ends everything, which is only
+				// correct because pi never runs two of these concurrently.
+				for (const step of live.values()) finish(step);
+				live.clear();
+				if (unidentified) finish(unidentified);
+				unidentified = undefined;
+			}
+			refresh();
+		},
+	};
 }
 
 export interface Runtime {
@@ -141,7 +236,6 @@ function isUsage(value: unknown): value is Usage {
 export function isRunResult(value: unknown): value is RunResult {
 	if (!isRecord(value)) return false;
 	const optionalStrings = [
-		"diagnosticOutput",
 		"stopReason",
 		"errorMessage",
 		"provider",
@@ -155,6 +249,8 @@ export function isRunResult(value: unknown): value is RunResult {
 		typeof value.output === "string" &&
 		typeof value.turns === "number" &&
 		typeof value.durationMs === "number" &&
+		Array.isArray(value.steps) &&
+		(value.thinking === undefined || typeof value.thinking === "number") &&
 		isUsage(value.usage) &&
 		optionalStrings.every((key) => value[key] === undefined || typeof value[key] === "string") &&
 		(value.termination === undefined || value.termination === "cancelled")
@@ -318,6 +414,10 @@ const claudeRuntime: Runtime = {
 
 	consume(event, result, activity) {
 		if (event.type === "system") {
+			if (event.subtype === "thinking_tokens" && typeof event.estimated_tokens === "number") {
+				activity.think(event.estimated_tokens);
+				return true;
+			}
 			if (event.subtype !== "init" || typeof event.model !== "string") return false;
 			result.model = event.model;
 			return true;
@@ -328,20 +428,25 @@ const claudeRuntime: Runtime = {
 			for (const block of Array.isArray(message.content) ? message.content : []) {
 				if (!isRecord(block)) continue;
 				if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
-					activity.start(block.id, block.name);
+					activity.start(block.id, block.name, stepDetail(block.input));
 				} else if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
-					activity.end(block.tool_use_id);
+					activity.end(block.tool_use_id, block.is_error === true);
 				}
 			}
+			// Kept as it arrives, so a child killed before its final envelope still shows the last
+			// thing it said rather than nothing at all.
 			if (event.type === "assistant") {
 				const text = assistantText(message.content);
-				if (text.trim()) result.diagnosticOutput = text;
+				if (text.trim()) result.output = text;
 			}
 			return true;
 		}
 		if (event.type !== "result") return false;
 		if (typeof event.num_turns === "number") result.turns = event.num_turns;
-		if (typeof event.result === "string") result.output = event.result;
+		// The envelope is authoritative when it says anything. An empty one is not a final answer,
+		// so it does not get to erase the last real text — `classifyResult` already rejects a run
+		// that produced no text at all.
+		if (typeof event.result === "string" && event.result.trim()) result.output = event.result;
 		result.usage = claudeUsage(event);
 		const denials = Array.isArray(event.permission_denials) ? event.permission_denials : [];
 		// Worst news first, and the order is load-bearing. Hitting the output limit is not an error,
@@ -434,11 +539,15 @@ const piRuntime: Runtime = {
 
 	consume(event, result, activity) {
 		if (event.type === "tool_execution_start" && typeof event.toolName === "string") {
-			activity.start(typeof event.toolCallId === "string" ? event.toolCallId : undefined, event.toolName);
+			activity.start(
+				typeof event.toolCallId === "string" ? event.toolCallId : undefined,
+				event.toolName,
+				stepDetail(event.args),
+			);
 			return true;
 		}
 		if (event.type === "tool_execution_end") {
-			activity.end(typeof event.toolCallId === "string" ? event.toolCallId : undefined);
+			activity.end(typeof event.toolCallId === "string" ? event.toolCallId : undefined, event.isError === true);
 			return true;
 		}
 		if (event.type !== "message_end" || !isRecord(event.message)) return false;
@@ -450,9 +559,7 @@ const piRuntime: Runtime = {
 		result.stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
 		result.errorMessage = typeof message.errorMessage === "string" ? message.errorMessage : undefined;
 		if (isRecord(message.usage)) addUsage(result.usage, message.usage as Partial<Usage>);
-		const text = assistantText(message.content);
-		result.output = text;
-		if (text.trim()) result.diagnosticOutput = text;
+		result.output = assistantText(message.content);
 		return true;
 	},
 };

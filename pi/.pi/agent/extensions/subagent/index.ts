@@ -33,10 +33,9 @@ import {
 	type Theme,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Text } from "@earendil-works/pi-tui";
+import { type Component, Container, Markdown, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
-	type ActivityTracker,
 	type Agent,
 	CLAUDE_MODEL_NAMES,
 	EFFORT_HELP,
@@ -50,10 +49,13 @@ import {
 	modelLabel,
 	preview,
 	type RunResult,
+	createActivityTracker,
 	selectRuntime,
 } from "./runtimes.ts";
 
 const AGENTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "agents");
+/** `~/.pi/agent`, two levels up from `extensions/subagent/`. */
+const AGENT_DIR = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 // `/audit` ships beside the agents it runs. pi's automatic scan reads `~/.pi/agent/prompts` one
 // level deep and never descends into `extensions/`, so it is announced — see `resources_discover`.
 const PROMPTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "prompts");
@@ -66,8 +68,27 @@ function snapshot(result: RunResult, startedAtMs: number): RunResult {
 	return {
 		...result,
 		usage: { ...result.usage, cost: { ...result.usage.cost } },
+		// Copied per step, not just per array: a running step is mutated in place when it finishes,
+		// and a rendered snapshot must keep showing what was true when it was taken.
+		steps: result.steps.map((step) => ({ ...step })),
 		durationMs: Date.now() - startedAtMs,
 	};
+}
+
+/**
+ * The pi models this user actually runs — `enabledModels` from settings, the same list pi's own
+ * model picker cycles. Offering the whole catalogue instead would be hundreds of names the parent
+ * has no auth for, in a tool description it pays for every turn. Missing or malformed settings
+ * leave only the claude names, which is a shorter menu rather than a broken tool.
+ */
+function enabledModels(): string[] {
+	try {
+		const settings: unknown = JSON.parse(readFileSync(join(AGENT_DIR, "settings.json"), "utf-8"));
+		const enabled = isRecord(settings) ? settings.enabledModels : undefined;
+		return Array.isArray(enabled) ? enabled.filter((name): name is string => typeof name === "string") : [];
+	} catch {
+		return [];
+	}
 }
 
 /** `tools: read, grep` and `tools: [read, grep]` are both natural YAML. Accept whichever. */
@@ -158,6 +179,7 @@ function runAgent(
 		task,
 		output: "",
 		model: agent.model ?? inherited.model,
+		steps: [],
 		turns: 0,
 		usage: emptyUsage(),
 		durationMs: 0,
@@ -181,29 +203,7 @@ function runAgent(
 		LIVE.add(child);
 		let pending = "";
 		let stderr = "";
-		const activeTools = new Map<string, string>();
-		let unidentifiedActivity: string | undefined;
-
-		const refreshActivity = () => {
-			result.activity =
-				[...activeTools.values(), ...(unidentifiedActivity ? [unidentifiedActivity] : [])].join(", ") || undefined;
-		};
-		const activity: ActivityTracker = {
-			start(id, tool) {
-				if (id) activeTools.set(id, tool);
-				else unidentifiedActivity = tool;
-				refreshActivity();
-			},
-			end(id) {
-				if (id) {
-					activeTools.delete(id);
-				} else {
-					activeTools.clear();
-					unidentifiedActivity = undefined;
-				}
-				refreshActivity();
-			},
-		};
+		const activity = createActivityTracker(result);
 
 		const consume = (line: string) => {
 			if (!line.trim()) return;
@@ -247,8 +247,8 @@ function runAgent(
 			LIVE.delete(child);
 			signal?.removeEventListener("abort", kill);
 			consume(pending);
-			activeTools.clear();
-			unidentifiedActivity = undefined;
+			// A step still open here never finished, and keeps its running mark to say so rather
+			// than reading as the last thing that succeeded.
 			result.activity = undefined;
 			result.durationMs = Date.now() - startedAtMs;
 			if (!result.output.trim() && !result.errorMessage && stderr.trim()) {
@@ -285,6 +285,36 @@ function formatStats(result: RunResult): string {
 	return parts.join(" ");
 }
 
+/**
+ * One line, cut to the width the terminal actually has. `Text` wraps instead, which turns a long
+ * command into two or three rows and buries the next one; and a fixed character budget is a display
+ * decision made by someone who cannot see the pane. Truncating here means the same log reads at 60
+ * columns and at 200, and re-reads correctly when the pane is resized.
+ */
+class Line implements Component {
+	constructor(private readonly text: string) {}
+	render(width: number): string[] {
+		// Padded, so a shorter line overwrites whatever the previous frame left on that row.
+		return [truncateToWidth(this.text, width, "…", true)];
+	}
+}
+
+/** The run as it happened, one tool per line — the whole point of expanding a run still in flight. */
+function stepLines(result: RunResult, theme: Theme): Component[] {
+	if (!result.steps.length) return [];
+	const lines: Component[] = [new Text(theme.fg("muted", "── steps ──"), 0, 0)];
+	for (const step of result.steps) {
+		const glyph = !step.outcome
+			? theme.fg("accent", "⋯")
+			: step.outcome === "failed"
+				? theme.fg("error", "✗")
+				: theme.fg("success", "✓");
+		const detail = step.detail ? theme.fg("dim", ` ${step.detail}`) : "";
+		lines.push(new Line(`${glyph} ${theme.fg("toolTitle", step.tool)}${detail}`));
+	}
+	return lines;
+}
+
 function resultHeader(result: RunResult, isPartial: boolean, theme: Theme): string {
 	const outcome = classifyResult(result);
 	const glyph = isPartial
@@ -312,6 +342,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					`${agent.name} (${[...agent.tools, agent.model].filter(Boolean).join(", ")}): ${agent.description}`,
 			)
 			.join("; ") || "none";
+	// Both families, scoped to what this machine can actually reach.
+	const offeredModels = [...new Set([...CLAUDE_MODEL_NAMES, ...enabledModels()])];
 	let inheritedAppendSystemPrompt: string | undefined;
 
 	// The prompts that drive these agents travel with them, so the extension announces its own
@@ -363,18 +395,20 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				description: "The complete brief. The agent sees nothing else.",
 				minLength: 1,
 			}),
-			// Enumerated so "use claude" is answerable: the model cannot name a model it has never
-			// been shown. Overriding the brain is not overriding the fence — the tool list stays
-			// with the agent file whatever runs the agent.
+			// Any model, either runtime: `selectRuntime` already decides which CLI a name belongs to,
+			// and repeating that decision as an enum here would only make one of the two wrong later.
+			// The claude names are spelled out because the model cannot ask for one it has never been
+			// shown. Overriding the brain is not overriding the fence — the tool list stays with the
+			// agent file whatever runs the agent.
 			model: Type.Optional(
 				Type.Union(
-					CLAUDE_MODEL_NAMES.map((name) => Type.Literal(name)),
+					offeredModels.map((name) => Type.Literal(name)),
 					{
 						description:
-							`Run this agent on the claude CLI instead of its own model. Use when the task calls for a ` +
-							`second opinion from a different model family than this session — an independent review, or a ` +
-							`check on work this session produced. claude-haiku-4-5-20251001 is cheapest, claude-opus-5 ` +
-							`strongest. Omit to use the agent's configured model.`,
+							`Run this agent on a different model than its file names. The name picks the runtime: ` +
+							`claude-* run on the claude CLI, the rest on pi. Use a claude model for a second opinion ` +
+							`from a different family than this session, a pi model to bring a claude-pinned agent back ` +
+							`to this one. Omit to use the agent's own model.`,
 					},
 				),
 			),
@@ -401,15 +435,18 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 			container.addChild(header);
 			container.addChild(new Text(theme.fg("muted", "── task ──"), 0, 0));
 			container.addChild(new Text(theme.fg("dim", details.task), 0, 0));
+			for (const line of stepLines(details, theme)) container.addChild(line);
 			if (!isPartial && outcome.message) {
 				container.addChild(new Text(theme.fg("error", outcome.message), 0, 0));
 			}
-			const report = outcome.kind === "success" ? details.output : details.diagnosticOutput;
-			if (report?.trim()) {
-				const incomplete = isPartial || outcome.kind !== "success";
-				const label = incomplete ? "── diagnostic (incomplete) ──" : "── report ──";
-				container.addChild(new Text(theme.fg(incomplete ? "warning" : "muted", label), 0, 0));
-				container.addChild(new Markdown(report.trim(), 0, 0, getMarkdownTheme()));
+			if (details.output.trim()) {
+				// "The run finished and this is its report" and "this is the last thing it said" are
+				// different claims, and the label is the only thing that distinguishes them.
+				const finished = !isPartial && outcome.kind === "success";
+				container.addChild(
+					new Text(theme.fg(finished ? "muted" : "warning", finished ? "── report ──" : "── last output ──"), 0, 0),
+				);
+				container.addChild(new Markdown(details.output.trim(), 0, 0, getMarkdownTheme()));
 			}
 			return container;
 		},
@@ -420,10 +457,14 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 			if (!found) {
 				throw new Error(`unknown agent ${params.agent}; available: ${agents.map((a) => a.name).join(", ") || "none"}`);
 			}
-			// An agent that has never run on claude has never had its tools translated, so check here
-			// rather than handing the child a silently shortened allowlist.
-			const agent = params.model ? { ...found, model: params.model } : found;
-			if (params.model) claudeTools(agent);
+			// An override can move an agent to the other runtime, so both of the load-time checks are
+			// repeated here: the model name must be one this build knows, and the tools must translate
+			// rather than reaching the child as a silently shortened allowlist. `effort` is claude's
+			// word, so it goes when the agent lands on pi.
+			const overridden = params.model ? { ...found, model: params.model } : found;
+			const runtime = selectRuntime(overridden.model);
+			const agent = runtime.name === "claude" ? overridden : { ...overridden, effort: undefined };
+			if (runtime.name === "claude") claudeTools(agent);
 			const inherited: Inherited = {
 				appendSystemPrompt: inheritedAppendSystemPrompt,
 				model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
