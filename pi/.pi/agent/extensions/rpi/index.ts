@@ -2953,8 +2953,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		await refresh(ctx, slug, true);
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
-		if (!ctx.hasUI) return;
+	pi.on("session_start", async (event, ctx) => {
 		const [slug, phase] = (pi.getSessionName() ?? "").split(" · ");
 		if (
 			!slug ||
@@ -2962,12 +2961,52 @@ export default function rpi(pi: ExtensionAPI): void {
 			!SLUG.test(slug) ||
 			!existsSync(join(TASKS, slug))
 		) {
-			active = undefined;
-			ctx.ui.setWidget("rpi", undefined);
+			if (ctx.hasUI) {
+				active = undefined;
+				ctx.ui.setWidget("rpi", undefined);
+			}
 			return;
 		}
-		active = { slug };
-		await refresh(ctx, slug);
+
+		if (event.previousSessionFile) {
+			try {
+				const source = SessionManager.open(
+					event.previousSessionFile,
+				).buildSessionContext();
+				if (source.model) {
+					const model = ctx.modelRegistry.find(
+						source.model.provider,
+						source.model.modelId,
+					);
+					if (!model) {
+						throw new Error(
+							`model ${source.model.provider}/${source.model.modelId} is unavailable`,
+						);
+					}
+					const sameModel =
+						ctx.model?.provider === model.provider && ctx.model.id === model.id;
+					// TODO: Use session-local setters when Pi exposes them; these also update global defaults.
+					if (!sameModel && !(await pi.setModel(model))) {
+						throw new Error(`model ${model.provider}/${model.id} has no auth`);
+					}
+					const thinkingLevel =
+						source.thinkingLevel as ReturnType<typeof pi.getThinkingLevel>;
+					if (pi.getThinkingLevel() !== thinkingLevel)
+						pi.setThinkingLevel(thinkingLevel);
+				}
+			} catch (error) {
+				if (ctx.hasUI)
+					ctx.ui.notify(
+						`could not retain the previous session settings: ${error instanceof Error ? error.message : error}`,
+						"warning",
+					);
+			}
+		}
+
+		if (ctx.hasUI) {
+			active = { slug };
+			await refresh(ctx, slug);
+		}
 	});
 
 	pi.on("input", async (event, ctx) => {

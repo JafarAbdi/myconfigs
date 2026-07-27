@@ -71,14 +71,21 @@ interface SessionOptions {
 	withSession?: (ctx: MockContext) => Promise<void>;
 }
 
+interface MockModel {
+	provider: string;
+	id: string;
+}
+
 interface MockContext {
 	cwd: string;
 	mode: "rpc" | "tui";
 	hasUI: true;
 	sessionManager: SessionManagerInstance;
-	modelRegistry: { find(): undefined };
-	model: undefined;
-	thinkingLevel: undefined;
+	modelRegistry: {
+		find(provider: string, id: string): MockModel | undefined;
+	};
+	model: MockModel | undefined;
+	thinkingLevel: string;
 	signal: undefined;
 	ui: MockUI;
 	isIdle(): true;
@@ -391,9 +398,15 @@ async function main(): Promise<void> {
 			| ((args: string, ctx: MockContext) => Promise<void>)
 			| undefined;
 		private sessionStart:
-			| ((event: unknown, ctx: MockContext) => Promise<void>)
+			| ((
+					event: { previousSessionFile?: string },
+					ctx: MockContext,
+				) => Promise<void>)
 			| undefined;
 		private readonly registeredTools = new Map<string, RegisteredTool>();
+		private availableModel: MockModel | undefined;
+		private selectedModel: MockModel | undefined;
+		private thinkingLevel = "off";
 		private editorAnswers: string[] = [];
 		private confirmAnswers: boolean[] = [];
 		private selectAnswers: string[] = [];
@@ -414,7 +427,10 @@ async function main(): Promise<void> {
 			const api = {
 				on: (
 					event: string,
-					handler: (event: unknown, ctx: MockContext) => Promise<void>,
+					handler: (
+						event: { previousSessionFile?: string },
+						ctx: MockContext,
+					) => Promise<void>,
 				) => {
 					if (event === "session_start") this.sessionStart = handler;
 				},
@@ -432,6 +448,18 @@ async function main(): Promise<void> {
 				},
 				getSessionName: () => this.manager?.getSessionName(),
 				sendUserMessage: (text: string) => this.capturePrompt(text),
+				setModel: async (model: MockModel) => {
+					const sameModel =
+						this.selectedModel?.provider === model.provider &&
+						this.selectedModel.id === model.id;
+					if (!sameModel) this.thinkingLevel = "off";
+					this.selectedModel = model;
+					return true;
+				},
+				getThinkingLevel: () => this.thinkingLevel,
+				setThinkingLevel: (level: string) => {
+					this.thinkingLevel = level;
+				},
 				getCommands: () => [
 					{
 						name: "commit-message",
@@ -498,11 +526,37 @@ async function main(): Promise<void> {
 			await this.executeTool("rpi_set_outline", manager, params);
 		}
 
-		async startSession(manager: SessionManagerInstance): Promise<void> {
+		async startSession(
+			manager: SessionManagerInstance,
+			event: { previousSessionFile?: string } = {},
+		): Promise<void> {
 			assert.ok(this.sessionStart, "session_start was not registered");
 			await this.withManager(manager, () =>
-				this.sessionStart?.({}, this.context(manager)),
+				this.sessionStart?.(event, this.context(manager)),
 			);
+		}
+
+		configureModel(
+			available: MockModel,
+			selected: MockModel,
+			thinkingLevel: string,
+		): void {
+			this.availableModel = available;
+			this.selectedModel = selected;
+			this.thinkingLevel = thinkingLevel;
+		}
+
+		sessionSettings(): {
+			model: MockModel | undefined;
+			thinkingLevel: string;
+		} {
+			return { model: this.selectedModel, thinkingLevel: this.thinkingLevel };
+		}
+
+		resetModel(): void {
+			this.availableModel = undefined;
+			this.selectedModel = undefined;
+			this.thinkingLevel = "off";
 		}
 
 		async remove(slug: string, cwd: string): Promise<void> {
@@ -631,9 +685,15 @@ async function main(): Promise<void> {
 				mode,
 				hasUI: true,
 				sessionManager: manager,
-				modelRegistry: { find: () => undefined },
-				model: undefined,
-				thinkingLevel: undefined,
+				modelRegistry: {
+					find: (provider, id) =>
+						this.availableModel?.provider === provider &&
+						this.availableModel.id === id
+							? this.availableModel
+							: undefined,
+				},
+				model: this.selectedModel,
+				thinkingLevel: this.thinkingLevel,
 				signal: undefined,
 				ui,
 				isIdle: () => true,
@@ -943,6 +1003,28 @@ async function main(): Promise<void> {
 						notice.message === "session switch cancelled — design unchanged",
 				),
 			);
+		}
+
+		{
+			const slug = "inherit-session-settings";
+			mkdirSync(join(tasks, slug), { recursive: true });
+			const source = harness.createOwner(scratch, "source session");
+			source.appendModelChange("source-provider", "source-model");
+			source.appendThinkingLevelChange("high");
+			const target = harness.createOwner(scratch, `${slug} · research`);
+			harness.configureModel(
+				{ provider: "source-provider", id: "source-model" },
+				{ provider: "fallback-provider", id: "fallback-model" },
+				"medium",
+			);
+			await harness.startSession(target, {
+				previousSessionFile: source.getSessionFile(),
+			});
+			assert.deepEqual(harness.sessionSettings(), {
+				model: { provider: "source-provider", id: "source-model" },
+				thinkingLevel: "high",
+			});
+			harness.resetModel();
 		}
 
 		{
