@@ -13,6 +13,6 @@ pi/.pi/agent/git/
 pi/.pi/agent/run-history.jsonl
 pi/.pi/agent/models-store.json
 pi/.pi/agent/tasks
-pi/.pi/agent/writer-leases/
+pi/.pi/agent/worktrees/
 yo/pi/agent/models-store.json
 yo/pi/agent/sessions/
