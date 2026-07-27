@@ -33,6 +33,4 @@ Task slug: `$1`
 Task directory: `~/.pi/agent/tasks/$1/`
 Additional instruction supplied through `/rpi` controls: `${@:2}`
 Authoritative structured pending phase:
-```json
 {{RPI_STRUCTURED_PHASE}}
-```

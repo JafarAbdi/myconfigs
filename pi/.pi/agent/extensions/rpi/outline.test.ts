@@ -8,6 +8,7 @@ import {
 	parseOutlineStore,
 	pendingPhaseInputSchema,
 	phaseEquals,
+	renderBuildPhase,
 	renderOutline,
 	replacePendingOutline,
 	safeRepositoryPath,
@@ -247,5 +248,37 @@ assert.match(
 );
 assert.equal((rendered.match(/Resolution:/g) ?? []).length, 1);
 assert.match(rendered, /\*\*`src\/parser\.ts`\*\*: Add parse\(\)\./);
+
+const brief = renderBuildPhase(p1);
+assert.equal(brief, renderBuildPhase(p1), "build rendering is deterministic");
+assert.match(brief, /^```json\n/);
+assert.match(brief, /\n```$/);
+assert.deepEqual(
+	JSON.parse(brief.slice(brief.indexOf("\n") + 1, brief.lastIndexOf("\n"))),
+	{
+		id: "P1",
+		title: "Add parser",
+		summary: "Implement add parser.",
+		file_changes: [{ path: "src/parser.ts", change: "Add parse()." }],
+		verification: ["npm test"],
+	},
+	"lifecycle fields never reach the build agent",
+);
+assert.throws(
+	() => renderBuildPhase({ ...p1, status: "completed" } as unknown as typeof p1),
+	/valid pending outline phase/,
+);
+
+const fenced = renderBuildPhase({
+	...p1,
+	summary: "Show the phase in a ```json block.",
+});
+assert.match(fenced, /^````json\n/, "content can never close its own fence");
+assert.match(fenced, /\n````$/);
+assert.equal(
+	JSON.parse(fenced.slice(fenced.indexOf("\n") + 1, fenced.lastIndexOf("\n")))
+		.summary,
+	"Show the phase in a ```json block.",
+);
 
 console.log("rpi structured outline: ok");

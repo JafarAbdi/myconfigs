@@ -354,6 +354,29 @@ export function completePhase(
 	};
 }
 
+/** Build-facing view: identity and work only, fenced so its own content cannot escape. */
+export function renderBuildPhase(phase: PendingPhase): string {
+	if (!validPendingPhase(phase))
+		throw new Error("phase is not a valid pending outline phase");
+	const payload = JSON.stringify(
+		{
+			id: phase.id,
+			title: phase.title,
+			summary: phase.summary,
+			file_changes: phase.file_changes,
+			verification: phase.verification,
+		},
+		null,
+		2,
+	);
+	const longest = Math.max(
+		0,
+		...[...payload.matchAll(/`+/gu)].map((match) => match[0].length),
+	);
+	const fence = "`".repeat(Math.max(3, longest + 1));
+	return `${fence}json\n${payload}\n${fence}`;
+}
+
 export function renderOutline(
 	store: OutlineStore,
 	provenance: OutlineProvenance,

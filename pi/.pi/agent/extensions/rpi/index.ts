@@ -42,6 +42,7 @@ import {
 	firstPendingPhase,
 	parseOutlineStore,
 	phaseEquals,
+	renderBuildPhase,
 	renderOutline,
 	replacePendingOutline,
 	serializeOutlineStore,
@@ -2028,7 +2029,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		await send(
 			continuationPrompt("build", {
 				extra: feedback,
-				structuredPhase: JSON.stringify(state.phaseSnapshot, null, 2),
+				structuredPhase: renderBuildPhase(state.phaseSnapshot),
 			}),
 		);
 		await refresh(ctx, slug);
@@ -2626,7 +2627,7 @@ export default function rpi(pi: ExtensionAPI): void {
 	): Promise<PromptContext> {
 		if (state.phase === "build")
 			return {
-				structuredPhase: JSON.stringify(state.build.phaseSnapshot, null, 2),
+				structuredPhase: renderBuildPhase(state.build.phaseSnapshot),
 			};
 		const [baseSha, head] = await Promise.all([
 			git(cwd, ["merge-base", `refs/heads/${state.baseBranch}`, "HEAD"]),
