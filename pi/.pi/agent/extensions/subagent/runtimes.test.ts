@@ -17,7 +17,7 @@ function agent(overrides: Partial<Agent> = {}): Agent {
 	return {
 		name: "reviewer",
 		description: "reviews",
-		access: "read",
+		tools: ["read"],
 		skills: "none",
 		systemPrompt: "You are a reviewer.",
 		...overrides,
@@ -85,7 +85,7 @@ test("every name offered to the model actually selects claude", () => {
 	assert.ok(CLAUDE_MODEL_NAMES.length > 0);
 	for (const name of CLAUDE_MODEL_NAMES) assert.equal(selectRuntime(name).name, "claude", name);
 	// Overriding any agent onto claude must translate its tools, whatever the file asked for.
-	assert.deepEqual(claudeTools(agent({ access: "write", tools: ["read", "grep", "find", "ls", "bash", "edit", "write"] })), [
+	assert.deepEqual(claudeTools(agent({ tools: ["read", "grep", "find", "ls", "bash", "edit", "write"] })), [
 		"Bash",
 		"Edit",
 		"Glob",
@@ -93,7 +93,7 @@ test("every name offered to the model actually selects claude", () => {
 		"Read",
 		"Write",
 	]);
-	assert.deepEqual(claudeTools(agent({ access: "read", tools: ["web_search", "fetch_content", "read"] })), [
+	assert.deepEqual(claudeTools(agent({ tools: ["web_search", "fetch_content", "read"] })), [
 		"Read",
 		"WebFetch",
 		"WebSearch",
@@ -115,25 +115,25 @@ test("effort levels are validated because claude ignores a bad one", () => {
 	assert.ok(!isEffortLevel("HIGH"));
 });
 
-test("access: read filters the explicit tools list, not just the default", () => {
-	// The allowlist is claude's only fence — acceptEdits pre-approves whatever reaches it.
-	assert.deepEqual(claudeTools(agent({ access: "read", tools: ["read", "bash"] })), ["Read"]);
-	// ...and the fence must not simply delete the capability: the same list on a write agent keeps it.
-	assert.deepEqual(claudeTools(agent({ access: "write", tools: ["read", "bash"] })), ["Bash", "Read"]);
+test("the tools line is the capability, passed through unedited", () => {
+	// A file that asks for a shell gets one; nothing here may quietly hand the child less than the
+	// file describes.
+	assert.deepEqual(claudeTools(agent({ tools: ["read", "bash"] })), ["Bash", "Read"]);
+	assert.deepEqual(claudeTools(agent({ tools: ["read"] })), ["Read"]);
 });
 
 test("tool names translate, and find/ls collapse to one Glob", () => {
-	assert.deepEqual(claudeTools(agent({ access: "read", tools: ["read", "grep", "find", "ls"] })), [
-		"Glob",
-		"Grep",
-		"Read",
-	]);
-	assert.deepEqual(claudeTools(agent({ access: "read", tools: ["web_search", "fetch_content"] })), [
-		"WebFetch",
-		"WebSearch",
-	]);
-	// A read agent naming no tools gets the same default pi gives it.
-	assert.deepEqual(claudeTools(agent({ access: "read" })), ["Glob", "Grep", "Read"]);
+	assert.deepEqual(claudeTools(agent({ tools: ["read", "grep", "find", "ls"] })), ["Glob", "Grep", "Read"]);
+	assert.deepEqual(claudeTools(agent({ tools: ["web_search", "fetch_content"] })), ["WebFetch", "WebSearch"]);
+});
+
+test("a file that grants nothing gets nothing, not pi's default four", () => {
+	// Without an explicit flag the child falls back to read, bash, edit and write — the opposite of
+	// what an empty list asks for.
+	const { args } = selectRuntime(undefined).invoke(agent({ tools: ["delegate"] }), "look", {});
+	assert.ok(args.includes("--no-tools"));
+	assert.ok(!args.includes("--tools"));
+	assert.deepEqual(claudeTools(agent({ tools: ["delegate"] })), []);
 });
 
 test("skills: all grants Skill, skills: none is its absence", () => {
@@ -144,7 +144,7 @@ test("skills: all grants Skill, skills: none is its absence", () => {
 test("a tool with no claude equivalent is a load error, not a silent drop", () => {
 	assert.throws(() => claudeTools(agent({ tools: ["read", "telepathy"] })), /no claude equivalent/);
 	// `delegate` is dropped rather than translated: no child may delegate further.
-	assert.deepEqual(claudeTools(agent({ access: "write", tools: ["read", "delegate"] })), ["Read"]);
+	assert.deepEqual(claudeTools(agent({ tools: ["read", "delegate"] })), ["Read"]);
 });
 
 test("claude argv fences the child and carries one system prompt", () => {
@@ -183,7 +183,7 @@ test("claude argv fences the child and carries one system prompt", () => {
 });
 
 test("a pi agent still inherits the session model", () => {
-	const scout = agent({ access: "read", tools: ["read"] });
+	const scout = agent({ tools: ["read"] });
 	const { args, input } = selectRuntime(scout.model).invoke(scout, "look", { model: "openai-codex/gpt-5.6-luna" });
 	assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.6-luna");
 	// pi takes its prompt as an argument and is given no stdin at all.

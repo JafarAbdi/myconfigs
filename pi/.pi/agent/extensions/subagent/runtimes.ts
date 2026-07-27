@@ -17,11 +17,11 @@ import type { Usage } from "@earendil-works/pi-ai";
 export interface Agent {
 	name: string;
 	description: string;
-	tools?: string[];
+	/** Required. This list is the agent's capability — nothing else adds to it or takes from it. */
+	tools: string[];
 	model?: string;
 	/** claude only: `--effort`. pi spells this `--thinking` and inherits it from the session. */
 	effort?: string;
-	access: "read" | "write";
 	skills: "all" | "none";
 	systemPrompt: string;
 }
@@ -90,12 +90,10 @@ const CLAUDE_MODELS = new Set(["claude-opus-5", "claude-sonnet-5", "claude-fable
 /** The same list as a value the `delegate` schema can enumerate: how the model learns these names. */
 export const CLAUDE_MODEL_NAMES = [...CLAUDE_MODELS].sort();
 const EFFORT_LEVELS = new Set(["low", "medium", "high", "xhigh", "max"]);
-/** A read agent must be structurally unable to mutate the workspace, and no child may delegate further. */
-const MUTATING_TOOLS = ["edit", "write", "bash"];
-/** What a read agent gets when its file names no tools: look at things, and find them first. */
-const READ_TOOLS = ["read", "grep", "find", "ls"];
-/** pi's default active set, which a write agent naming no tools gets implicitly. claude has no such default. */
-const DEFAULT_WRITE_TOOLS = ["read", "bash", "edit", "write"];
+/**
+ * The one capability rule left. Depth is always exactly one: a child that could delegate would make
+ * the fan-out unbounded, and nothing in the parent is watching a grandchild's spend.
+ */
 const NEVER_IN_CHILD = ["delegate"];
 const CLAUDE_TOOLS: Record<string, string> = {
 	read: "Read",
@@ -254,21 +252,18 @@ export function classifyResult(result: RunResult): ResultOutcome {
 }
 
 /**
- * The claude tool allowlist for an agent, in pi's vocabulary in, claude's out — so switching an
- * agent between runtimes never means rewriting its `tools:`, and one reviewer prompt runs on
- * either family.
+ * The claude tool allowlist for an agent: pi's vocabulary in, claude's out — so switching an agent
+ * between runtimes never means rewriting its `tools:`, and one reviewer prompt runs on either
+ * family.
  *
- * `access: read` is applied to the explicit list, not merely to the default. On pi that comes free:
- * `--exclude-tools` carries the mutating three whatever `tools:` says. Here the allowlist is the
- * only fence — `--permission-mode acceptEdits` pre-approves anything that reaches it — so
- * `tools: read, bash` on a read agent has to come back as `Read` alone.
+ * The list is passed through, not edited: what `tools:` says is what the agent gets, a shell
+ * included. Anything that filtered it here would let a file state one capability while the child
+ * holds another.
  */
 export function claudeTools(agent: Agent): string[] {
-	const requested = agent.tools ?? (agent.access === "read" ? READ_TOOLS : DEFAULT_WRITE_TOOLS);
 	const allowed = new Set<string>();
-	for (const tool of requested) {
+	for (const tool of agent.tools) {
 		if (NEVER_IN_CHILD.includes(tool)) continue;
-		if (agent.access === "read" && MUTATING_TOOLS.includes(tool)) continue;
 		const mapped = CLAUDE_TOOLS[tool];
 		if (!mapped) throw new Error(`tool ${tool} has no claude equivalent`);
 		allowed.add(mapped);
@@ -285,8 +280,8 @@ const claudeRuntime: Runtime = {
 	name: "claude",
 
 	invoke(agent, task, inherited) {
-		// Repeating `--append-system-prompt` silently drops all but the last — verified — so the
-		// inherited text and the agent body travel as one argument.
+		// Repeating `--append-system-prompt` silently drops all but the last, so the inherited text
+		// and the agent body travel as one argument.
 		const systemPrompt = [inherited.appendSystemPrompt?.trim(), agent.systemPrompt]
 			.filter((part): part is string => Boolean(part))
 			.join("\n\n");
@@ -307,16 +302,14 @@ const claudeRuntime: Runtime = {
 		// Always set: naming a claude model is *how* an agent selected this runtime.
 		if (agent.model) args.push("--model", agent.model);
 		if (agent.effort) args.push("--effort", agent.effort);
-		// Pinned for read agents too. Without it the child inherits `~/.claude/settings.json`'s
-		// permission mode, which decides whether tools run at all — ambient config deciding
-		// subagent behaviour, the same thing `effort:` exists to avoid. A read agent's allowlist
-		// holds no mutating tool, so pinning costs it nothing.
+		// Pinned, or `~/.claude/settings.json` decides whether a subagent's tools run at all.
 		args.push("--permission-mode", "acceptEdits");
-		// Granting permission is separate from granting availability: without this, a write agent's
-		// Write is denied mid-run and the run still reports success.
+		// Availability and permission are separate grants: without this a tool is offered and then
+		// denied mid-run, and the run still reports success. So the agent file grants outright —
+		// `bash` in a file is a pre-approved shell.
 		args.push("--allowed-tools", tools);
-		// The real fence, and an exact allowlist — verified. No deny list beside it: it could only
-		// restate this one and then drift from it.
+		// An exact allowlist, extension- and MCP-contributed tools included. Empty is legal: claude
+		// reads `--tools ""` as "no tools at all".
 		args.push("--tools", tools);
 		// On stdin, because `--tools` and `--allowed-tools` are variadic and swallow a trailing
 		// positional prompt. Prefixed like pi's so both families read an identical brief.
@@ -367,8 +360,8 @@ const claudeRuntime: Runtime = {
 };
 
 /**
- * `modelUsage` is the run total; the envelope's own `usage` is the final turn only — on a 5-turn
- * probe it read 26 input tokens against a true 565. Assigned, never accumulated: one per run.
+ * `modelUsage` is the run total; the envelope's own `usage` counts the final turn only. Assigned,
+ * never accumulated: there is one of these per run.
  */
 function claudeUsage(event: Record<string, unknown>): Usage {
 	const usage = emptyUsage();
@@ -409,7 +402,6 @@ const piRuntime: Runtime = {
 	name: "pi",
 
 	invoke(agent, task, inherited) {
-		const excluded = [...NEVER_IN_CHILD, ...(agent.access === "read" ? MUTATING_TOOLS : [])];
 		// Prompts are literal arguments: pi reads one as a file only when the string names an existing
 		// path. Agent bodies are multi-line, so they cannot accidentally name a file.
 		const args = ["--mode", "json", "-p", "--no-session"];
@@ -417,14 +409,13 @@ const piRuntime: Runtime = {
 			args.push("--append-system-prompt", inherited.appendSystemPrompt);
 		}
 		args.push("--append-system-prompt", agent.systemPrompt);
-		args.push("--exclude-tools", excluded.join(","));
-		// A read agent that named no tools still gets an explicit allowlist. Without `--tools` the
-		// child starts from pi's default active set — read, bash, edit, write — so removing the
-		// mutating three leaves it holding `read` alone: no grep, no find, no ls, nothing to look for
-		// anything it was not handed the path to. The exclusions stay as the belt to this brace, since
-		// they also catch mutating tools contributed by extensions the child loads.
-		const tools = agent.tools ?? (agent.access === "read" ? READ_TOOLS : undefined);
-		if (tools) args.push("--tools", tools.join(","));
+		// No `--exclude-tools` beside this: pi's `isAllowedTool` (core/agent-session.js) applies the
+		// allowlist to extension- and SDK-registered tools alike, so a deny list could only restate
+		// it and then drift from it. `delegate` is excluded by not being granted.
+		const tools = agent.tools.filter((tool) => !NEVER_IN_CHILD.includes(tool));
+		// Explicit both ways: without `--tools` the child would fall back to pi's default active set
+		// (read, bash, edit, write) — a file that grants nothing must get nothing, not the default.
+		args.push(...(tools.length ? ["--tools", tools.join(",")] : ["--no-tools"]));
 		// A pi child with no `model:` follows this session rather than settings.json: otherwise raising
 		// the parent to a stronger model would leave every reviewer on whatever the default happens to
 		// be — the one setting that changes what a review is worth, decided somewhere you are not.

@@ -96,18 +96,19 @@ function loadAgents(): { agents: Agent[]; broken: string[] } {
 				readFileSync(join(AGENTS_DIR, entry.name), "utf-8"),
 			);
 			const description = frontmatter.description;
-			const access = frontmatter.access;
+			const tools = toolList(frontmatter.tools);
 			if (typeof description !== "string" || !description) throw new Error("missing a description");
-			if (access !== "read" && access !== "write") throw new Error("must declare access: read or write");
+			// Required: it is the only statement of what the agent can do, and a file that omits it
+			// is not asking for a default, it is failing to say.
+			if (!tools) throw new Error("must declare tools");
 			const model = frontmatter.model;
 			const effort = frontmatter.effort;
 			const agent: Agent = {
 				name,
 				description,
-				tools: toolList(frontmatter.tools),
+				tools,
 				model: typeof model === "string" ? model : undefined,
 				effort: typeof effort === "string" ? effort : undefined,
-				access,
 				skills: frontmatter.skills === "none" ? "none" : "all",
 				systemPrompt: body.trim(),
 			};
@@ -302,12 +303,14 @@ function resultHeader(result: RunResult, isPartial: boolean, theme: Theme): stri
 
 export default function subagentExtension(pi: ExtensionAPI): void {
 	const { agents: catalog, broken } = loadAgents();
-	// The model is part of the roster because picking a reviewer from a different family than the
-	// parent is the whole point of having two runtimes, and the parent cannot choose what it
-	// cannot see.
+	// Tools and model are both in the roster because both change what a delegation is worth: whether
+	// the agent can run anything, and whether it shares a model family with the parent asking.
 	const roster =
 		catalog
-			.map((agent) => `${agent.name} (${agent.access}${agent.model ? `, ${agent.model}` : ""}): ${agent.description}`)
+			.map(
+				(agent) =>
+					`${agent.name} (${[...agent.tools, agent.model].filter(Boolean).join(", ")}): ${agent.description}`,
+			)
 			.join("; ") || "none";
 	let inheritedAppendSystemPrompt: string | undefined;
 
@@ -361,7 +364,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				minLength: 1,
 			}),
 			// Enumerated so "use claude" is answerable: the model cannot name a model it has never
-			// been shown. Overriding the brain is not overriding the fence — tools and access stay
+			// been shown. Overriding the brain is not overriding the fence — the tool list stays
 			// with the agent file whatever runs the agent.
 			model: Type.Optional(
 				Type.Union(

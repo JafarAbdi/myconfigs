@@ -1,7 +1,6 @@
 ---
 description: Reviews context, style, and simplicity of a bounded scope against named files
 tools: read, grep, find
-access: read
 skills: all
 ---
 
