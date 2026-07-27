@@ -1,25 +1,28 @@
 /**
- * Subagent — run one bounded task in a fresh-context `pi` child process.
+ * Subagent — run one bounded task in a fresh-context child process.
  *
  * Agents are markdown files in ./agents/: frontmatter becomes CLI flags, the body is appended to
- * the child's default system prompt. The child gets `--no-session`, so it cannot see this conversation.
+ * the child's default system prompt. The child gets no session, so it cannot see this conversation.
  *
  * Why this is code and not a bash recipe: the child's tool allowlist comes from the agent file,
  * never from the model. If the model composed the command line, "this reviewer cannot edit code"
  * would be whatever it happened to type that turn.
  *
+ * An agent runs on `pi` unless its `model:` names a claude model, in which case it runs on the
+ * `claude` CLI — see `selectRuntime` in ./runtimes.ts, which also holds everything about a child
+ * that is pure enough to test. This file keeps the extension wiring and the process itself.
+ *
  * Parallelism is free — pi runs sibling tool calls from one assistant message concurrently, so
  * N `delegate` calls in one message is N concurrent agents. Hence no tasks[]/chain[] modes.
  *
- * Failure is read from `stopReason`, not the exit code: in `--mode json` a failed run still
- * exits 0 (the exit code is only set on the text-mode branch of print mode).
+ * Failure is read from `stopReason`, not the exit code: neither CLI sets one reliably. pi's json
+ * mode exits 0 on a failed run, and claude exits 0 with empty stderr even for an unknown model.
  */
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Usage } from "@earendil-works/pi-ai";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -32,49 +35,31 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import {
+	type ActivityTracker,
+	type Agent,
+	CLAUDE_MODEL_NAMES,
+	EFFORT_HELP,
+	claudeTools,
+	classifyResult,
+	emptyUsage,
+	type Inherited,
+	isEffortLevel,
+	isRecord,
+	isRunResult,
+	modelLabel,
+	preview,
+	type RunResult,
+	selectRuntime,
+} from "./runtimes.ts";
 
 const AGENTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "agents");
 // `/audit` ships beside the agents it runs. pi's automatic scan reads `~/.pi/agent/prompts` one
 // level deep and never descends into `extensions/`, so it is announced — see `resources_discover`.
 const PROMPTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "prompts");
-// A read-access agent must be structurally unable to mutate the workspace, and no child may
-// delegate further. Exclusions are applied after the allowlist, so these win either way.
-const MUTATING_TOOLS = ["edit", "write", "bash"];
-/** What a read agent gets when its file names no tools: look at things, and find them first. */
-const READ_TOOLS = ["read", "grep", "find", "ls"];
-const NEVER_IN_CHILD = ["delegate"];
 /** Children still running. The abort signal covers a cancelled call; this covers a dead session. */
 const LIVE = new Set<ReturnType<typeof spawn>>();
 const TASK_PREVIEW_MAX = 60;
-
-interface Agent {
-	name: string;
-	description: string;
-	tools?: string[];
-	model?: string;
-	access: "read" | "write";
-	skills: "all" | "none";
-	systemPrompt: string;
-}
-
-interface RunResult {
-	agent: string;
-	task: string;
-	/** Text from the final assistant turn only. */
-	output: string;
-	/** Last nonempty assistant text, retained only for incomplete diagnostics. */
-	diagnosticOutput?: string;
-	stopReason?: string;
-	errorMessage?: string;
-	provider?: string;
-	model?: string;
-	termination?: "cancelled";
-	/** Tool the child is running right now. Progress only; absent once it has finished. */
-	activity?: string;
-	turns: number;
-	usage: Usage;
-	durationMs: number;
-}
 
 /** Detached copy for a progress render: `result` keeps mutating, a rendered snapshot must not. */
 function snapshot(result: RunResult, startedAtMs: number): RunResult {
@@ -115,15 +100,30 @@ function loadAgents(): { agents: Agent[]; broken: string[] } {
 			if (typeof description !== "string" || !description) throw new Error("missing a description");
 			if (access !== "read" && access !== "write") throw new Error("must declare access: read or write");
 			const model = frontmatter.model;
-			agents.push({
+			const effort = frontmatter.effort;
+			const agent: Agent = {
 				name,
 				description,
 				tools: toolList(frontmatter.tools),
 				model: typeof model === "string" ? model : undefined,
+				effort: typeof effort === "string" ? effort : undefined,
 				access,
 				skills: frontmatter.skills === "none" ? "none" : "all",
 				systemPrompt: body.trim(),
-			});
+			};
+			// Throws on a claude model name this build does not know, so a typo cannot quietly
+			// demote the agent to pi.
+			const runtime = selectRuntime(agent.model);
+			if (effort !== undefined) {
+				// claude accepts a bad `--effort` without complaint and runs at its default, so the
+				// check has to happen here or not at all.
+				if (typeof effort !== "string" || !isEffortLevel(effort)) throw new Error(`effort must be one of ${EFFORT_HELP}`);
+				if (runtime.name !== "claude") throw new Error("effort applies to claude models only");
+			}
+			// Same reason: an untranslatable tool name is silently dropped from claude's allowlist,
+			// leaving an agent that quietly cannot do its job.
+			if (runtime.name === "claude") claudeTools(agent);
+			agents.push(agent);
 		} catch (error) {
 			broken.push(`${name}: ${error instanceof Error ? error.message : error}`);
 		}
@@ -132,189 +132,6 @@ function loadAgents(): { agents: Agent[]; broken: string[] } {
 		agents: agents.sort((left, right) => left.name.localeCompare(right.name)),
 		broken,
 	};
-}
-
-function buildArgs(
-	agent: Agent,
-	task: string,
-	inheritedAppendSystemPrompt: string | undefined,
-	inheritedModel: string | undefined,
-): string[] {
-	const excluded = [...NEVER_IN_CHILD, ...(agent.access === "read" ? MUTATING_TOOLS : [])];
-	// Prompts are literal arguments: pi reads one as a file only when the string names an existing
-	// path. Agent bodies are multi-line, so they cannot accidentally name a file.
-	const args = ["--mode", "json", "-p", "--no-session"];
-	if (inheritedAppendSystemPrompt?.trim()) {
-		args.push("--append-system-prompt", inheritedAppendSystemPrompt);
-	}
-	args.push("--append-system-prompt", agent.systemPrompt);
-	args.push("--exclude-tools", excluded.join(","));
-	// A read agent that named no tools still gets an explicit allowlist. Without `--tools` the
-	// child starts from pi's default active set — read, bash, edit, write — so removing the
-	// mutating three leaves it holding `read` alone: no grep, no find, no ls, nothing to look for
-	// anything it was not handed the path to. The exclusions stay as the belt to this brace, since
-	// they also catch mutating tools contributed by extensions the child loads.
-	const tools = agent.tools ?? (agent.access === "read" ? READ_TOOLS : undefined);
-	if (tools) args.push("--tools", tools.join(","));
-	// A child with no `model:` follows this session, not settings.json. Otherwise raising the parent
-	// to a stronger model leaves every reviewer silently on whatever the default happens to be —
-	// the one setting that would change what a review is worth, decided somewhere you are not.
-	const model = agent.model ?? inheritedModel;
-	if (model) args.push("--model", model);
-	if (agent.skills === "none") args.push("--no-skills");
-	// Last, and safe unquoted: spawn runs without a shell. Prefixed because pi has no `--` argument
-	// terminator, so position alone does not protect it: a task opening with `--` or `@` is read as
-	// a flag or a file and silently dropped, leaving a child with no prompt, and one opening with a
-	// single `-` is an unknown option, which exits 1 before the agent runs.
-	args.push(`Task: ${task}`);
-	return args;
-}
-
-function piInvocation(args: string[]): { command: string; args: string[] } {
-	const script = process.argv[1];
-	if (script && existsSync(script)) return { command: process.execPath, args: [script, ...args] };
-	const runtime = basename(process.execPath).toLowerCase();
-	if (!/^(node|bun)(\.exe)?$/.test(runtime)) return { command: process.execPath, args };
-	return { command: "pi", args };
-}
-
-const COUNT_KEYS = ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const;
-const COST_KEYS = ["input", "output", "cacheRead", "cacheWrite", "total"] as const;
-
-function emptyUsage(): Usage {
-	return {
-		input: 0,
-		output: 0,
-		cacheRead: 0,
-		cacheWrite: 0,
-		totalTokens: 0,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-	};
-}
-
-function addUsage(total: Usage, next: Partial<Usage>): void {
-	for (const key of COUNT_KEYS) total[key] += next[key] ?? 0;
-	for (const key of COST_KEYS) total.cost[key] += next.cost?.[key] ?? 0;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function isUsage(value: unknown): value is Usage {
-	if (!isRecord(value) || !isRecord(value.cost)) return false;
-	const cost = value.cost;
-	return (
-		COUNT_KEYS.every((key) => typeof value[key] === "number") && COST_KEYS.every((key) => typeof cost[key] === "number")
-	);
-}
-
-function isRunResult(value: unknown): value is RunResult {
-	if (!isRecord(value)) return false;
-	const optionalStrings = [
-		"diagnosticOutput",
-		"stopReason",
-		"errorMessage",
-		"provider",
-		"model",
-		"activity",
-		"termination",
-	];
-	return (
-		typeof value.agent === "string" &&
-		typeof value.task === "string" &&
-		typeof value.output === "string" &&
-		typeof value.turns === "number" &&
-		typeof value.durationMs === "number" &&
-		isUsage(value.usage) &&
-		optionalStrings.every((key) => value[key] === undefined || typeof value[key] === "string") &&
-		(value.termination === undefined || value.termination === "cancelled")
-	);
-}
-
-function assistantText(content: unknown): string {
-	if (!Array.isArray(content)) return "";
-	return content
-		.filter((part): part is { type: "text"; text: string } => isRecord(part) && part.type === "text")
-		.map((part) => part.text)
-		.join("\n");
-}
-
-type OutcomeKind = "success" | "cancelled" | "aborted" | "model-error" | "invalid-response" | "length";
-
-interface ResultOutcome {
-	kind: OutcomeKind;
-	label: string;
-	message?: string;
-}
-
-function modelLabel(result: RunResult): string | undefined {
-	if (result.provider && result.model) {
-		return result.model.startsWith(`${result.provider}/`) ? result.model : `${result.provider}/${result.model}`;
-	}
-	return result.model ?? result.provider;
-}
-
-function errorContext(result: RunResult): string {
-	const model = modelLabel(result);
-	return model ? ` (${preview(model, 100)})` : "";
-}
-
-function errorDetail(result: RunResult): string | undefined {
-	const detail = result.errorMessage?.replace(/\s+/g, " ").trim();
-	if (!detail) return undefined;
-	return detail.length > 300 ? `${detail.slice(0, 299)}…` : detail;
-}
-
-function classifyResult(result: RunResult): ResultOutcome {
-	const context = errorContext(result);
-	const detail = errorDetail(result);
-	const suffix = detail ? `: ${detail}` : ".";
-
-	if (detail && /\b(?:TimeoutError|ETIMEDOUT|timeout|time(?:d)?\s*out|deadline exceeded)\b/i.test(detail)) {
-		return {
-			kind: "aborted",
-			label: "timeout/abort",
-			message: `${result.agent} timed out or was aborted${context}${suffix}`,
-		};
-	}
-	if (result.termination === "cancelled") {
-		return {
-			kind: "cancelled",
-			label: "cancelled",
-			message: `${result.agent} was cancelled.`,
-		};
-	}
-	if (result.stopReason === "length") {
-		return {
-			kind: "length",
-			label: "output limit",
-			message: `${result.agent} exceeded its output limit${context}. Retry with a narrower task or request a shorter response.`,
-		};
-	}
-	if (result.stopReason === "aborted") {
-		return {
-			kind: "aborted",
-			label: "timeout/abort",
-			message: `${result.agent} timed out or was aborted${context}${suffix}`,
-		};
-	}
-	if (result.stopReason === "error") {
-		return {
-			kind: "model-error",
-			label: "model error",
-			message: `${result.agent} model error${context}${suffix}`,
-		};
-	}
-	if (result.stopReason !== "stop" || !result.output.trim()) {
-		const reason = detail ?? (result.stopReason ? `unexpected stop reason: ${result.stopReason}` : undefined);
-		return {
-			kind: "invalid-response",
-			label: "no usable text",
-			message: `${result.agent} returned no usable final text${context}${reason ? `: ${reason}` : "."} Retry; if this persists, check the model/provider.`,
-		};
-	}
-	return { kind: "success", label: "completed" };
 }
 
 async function terminateChild(child: ReturnType<typeof spawn>): Promise<void> {
@@ -328,18 +145,18 @@ function runAgent(
 	agent: Agent,
 	task: string,
 	cwd: string,
-	inheritedAppendSystemPrompt: string | undefined,
-	inheritedModel: string | undefined,
+	inherited: Inherited,
 	signal: AbortSignal | undefined,
 	onProgress?: (partial: RunResult) => void,
 ): Promise<RunResult> {
 	const startedAtMs = Date.now();
-	const invocation = piInvocation(buildArgs(agent, task, inheritedAppendSystemPrompt, inheritedModel));
+	const runtime = selectRuntime(agent.model);
+	const invocation = runtime.invoke(agent, task, inherited);
 	const result: RunResult = {
 		agent: agent.name,
 		task,
 		output: "",
-		model: agent.model ?? inheritedModel,
+		model: agent.model ?? inherited.model,
 		turns: 0,
 		usage: emptyUsage(),
 		durationMs: 0,
@@ -349,8 +166,15 @@ function runAgent(
 		const child = spawn(invocation.command, invocation.args, {
 			cwd,
 			shell: false,
-			stdio: ["ignore", "pipe", "pipe"],
+			stdio: [invocation.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
 		});
+		if (invocation.input !== undefined && child.stdin) {
+			// A child that dies before reading its prompt turns this write into an EPIPE, and an
+			// unhandled `error` on a stream takes the whole session down. The close handler below
+			// already reports the run as the failure it is.
+			child.stdin.on("error", () => {});
+			child.stdin.end(invocation.input);
+		}
 		// Tracked so session teardown can end it. A child outliving its session is not merely a
 		// stray process: it goes on spending tokens with nothing left to read what it produces.
 		LIVE.add(child);
@@ -359,10 +183,25 @@ function runAgent(
 		const activeTools = new Map<string, string>();
 		let unidentifiedActivity: string | undefined;
 
-		const updateActivity = () => {
+		const refreshActivity = () => {
 			result.activity =
 				[...activeTools.values(), ...(unidentifiedActivity ? [unidentifiedActivity] : [])].join(", ") || undefined;
-			onProgress?.(snapshot(result, startedAtMs));
+		};
+		const activity: ActivityTracker = {
+			start(id, tool) {
+				if (id) activeTools.set(id, tool);
+				else unidentifiedActivity = tool;
+				refreshActivity();
+			},
+			end(id) {
+				if (id) {
+					activeTools.delete(id);
+				} else {
+					activeTools.clear();
+					unidentifiedActivity = undefined;
+				}
+				refreshActivity();
+			},
 		};
 
 		const consume = (line: string) => {
@@ -374,35 +213,7 @@ function runAgent(
 				return; // A non-JSON line is diagnostic noise, not a protocol failure.
 			}
 			if (!isRecord(event)) return;
-			if (event.type === "tool_execution_start" && typeof event.toolName === "string") {
-				if (typeof event.toolCallId === "string") activeTools.set(event.toolCallId, event.toolName);
-				else unidentifiedActivity = event.toolName;
-				updateActivity();
-				return;
-			}
-			if (event.type === "tool_execution_end") {
-				if (typeof event.toolCallId === "string") {
-					activeTools.delete(event.toolCallId);
-				} else {
-					activeTools.clear();
-					unidentifiedActivity = undefined;
-				}
-				updateActivity();
-				return;
-			}
-			if (event.type !== "message_end" || !isRecord(event.message)) return;
-			if (event.message.role !== "assistant") return;
-			const message = event.message;
-			result.turns += 1;
-			if (typeof message.provider === "string") result.provider = message.provider;
-			if (typeof message.model === "string") result.model = message.model;
-			result.stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
-			result.errorMessage = typeof message.errorMessage === "string" ? message.errorMessage : undefined;
-			if (isRecord(message.usage)) addUsage(result.usage, message.usage as Partial<Usage>);
-			const text = assistantText(message.content);
-			result.output = text;
-			if (text.trim()) result.diagnosticOutput = text;
-			onProgress?.(snapshot(result, startedAtMs));
+			if (runtime.consume(event, result, activity)) onProgress?.(snapshot(result, startedAtMs));
 		};
 
 		child.stdout.setEncoding("utf-8");
@@ -445,11 +256,6 @@ function runAgent(
 			resolve(result);
 		});
 	});
-}
-
-function preview(text: string, max: number): string {
-	const flat = text.replace(/\s+/g, " ").trim();
-	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
 function formatTokens(count: number): string {
@@ -496,7 +302,13 @@ function resultHeader(result: RunResult, isPartial: boolean, theme: Theme): stri
 
 export default function subagentExtension(pi: ExtensionAPI): void {
 	const { agents: catalog, broken } = loadAgents();
-	const roster = catalog.map((agent) => `${agent.name} (${agent.access}): ${agent.description}`).join("; ") || "none";
+	// The model is part of the roster because picking a reviewer from a different family than the
+	// parent is the whole point of having two runtimes, and the parent cannot choose what it
+	// cannot see.
+	const roster =
+		catalog
+			.map((agent) => `${agent.name} (${agent.access}${agent.model ? `, ${agent.model}` : ""}): ${agent.description}`)
+			.join("; ") || "none";
 	let inheritedAppendSystemPrompt: string | undefined;
 
 	// The prompts that drive these agents travel with them, so the extension announces its own
@@ -530,10 +342,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 		name: "delegate",
 		label: "Delegate",
 		description:
-			`Run one bounded task as a configured agent in its own pi process with a fresh context. ` +
+			`Run one bounded task as a configured agent in its own process with a fresh context. ` +
 			`The agent cannot see this conversation, so the task must contain everything it needs — ` +
 			`prefer file paths over pasted contents, it can read them itself. Emit several delegate ` +
-			`calls in one message to run agents concurrently and mutually blind. Agents: ${roster}`,
+			`calls in one message to run agents concurrently and mutually blind. Pass \`model\` to run any ` +
+			`agent on claude when the point is a different model family than this session. Agents: ${roster}`,
 		promptSnippet: "Delegate a bounded task to a fresh-context agent in its own process",
 		promptGuidelines: [
 			"Use delegate for independent review, research, or a bounded implementation.",
@@ -547,6 +360,21 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				description: "The complete brief. The agent sees nothing else.",
 				minLength: 1,
 			}),
+			// Enumerated so "use claude" is answerable: the model cannot name a model it has never
+			// been shown. Overriding the brain is not overriding the fence — tools and access stay
+			// with the agent file whatever runs the agent.
+			model: Type.Optional(
+				Type.Union(
+					CLAUDE_MODEL_NAMES.map((name) => Type.Literal(name)),
+					{
+						description:
+							`Run this agent on the claude CLI instead of its own model. Use when the task calls for a ` +
+							`second opinion from a different model family than this session — an independent review, or a ` +
+							`check on work this session produced. claude-haiku-4-5-20251001 is cheapest, claude-opus-5 ` +
+							`strongest. Omit to use the agent's configured model.`,
+					},
+				),
+			),
 		}),
 
 		renderCall(args, theme) {
@@ -585,25 +413,24 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const { agents } = loadAgents();
-			const agent = agents.find((candidate) => candidate.name === params.agent);
-			if (!agent) {
+			const found = agents.find((candidate) => candidate.name === params.agent);
+			if (!found) {
 				throw new Error(`unknown agent ${params.agent}; available: ${agents.map((a) => a.name).join(", ") || "none"}`);
 			}
-			const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-			const result = await runAgent(
-				agent,
-				params.task,
-				ctx.cwd,
-				inheritedAppendSystemPrompt,
-				inheritedModel,
-				signal,
-				(partial) => {
-					onUpdate?.({
-						content: [{ type: "text", text: partial.activity ?? "thinking" }],
-						details: partial,
-					});
-				},
-			);
+			// An agent that has never run on claude has never had its tools translated, so check here
+			// rather than handing the child a silently shortened allowlist.
+			const agent = params.model ? { ...found, model: params.model } : found;
+			if (params.model) claudeTools(agent);
+			const inherited: Inherited = {
+				appendSystemPrompt: inheritedAppendSystemPrompt,
+				model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
+			};
+			const result = await runAgent(agent, params.task, ctx.cwd, inherited, signal, (partial) => {
+				onUpdate?.({
+					content: [{ type: "text", text: partial.activity ?? "thinking" }],
+					details: partial,
+				});
+			});
 			const outcome = classifyResult(result);
 			if (outcome.kind !== "success") {
 				const failure = truncateHead(outcome.message ?? `${agent.name} failed.`, { maxLines: 10, maxBytes: 1000 });
