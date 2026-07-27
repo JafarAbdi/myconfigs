@@ -23,6 +23,7 @@ import {
 	deletingState,
 	identityState,
 	invariantError,
+	outlineState,
 	PHASES,
 	parseTaskState,
 	plainState,
@@ -30,11 +31,28 @@ import {
 	safeRelativePath,
 	stagingState,
 } from "./state.ts";
+import type { PendingPhase } from "./outline.ts";
 
 const SHA_A = "a".repeat(40);
 const identity = identityState("main", "/repo");
-const phaseLine1 = "- [ ] Phase 1: First change";
-const phaseLine2 = "- [ ] Phase 2: Second change";
+const phase1 = {
+	id: "P1",
+	status: "pending",
+	title: "First change",
+	summary: "Implement the first change.",
+	file_changes: [{ path: "src/a.ts", change: "Change A." }],
+	verification: ["npm test"],
+	resolution: null,
+} satisfies PendingPhase;
+const phase2 = {
+	id: "P2",
+	status: "pending",
+	title: "Second change",
+	summary: "Implement the second change.",
+	file_changes: [],
+	verification: [],
+	resolution: null,
+} satisfies PendingPhase;
 
 assert.deepEqual(PHASES, [
 	"creating",
@@ -67,6 +85,11 @@ assert.equal(
 	"schema-v3 states must fail",
 );
 assert.equal(
+	parseTaskState({ ...identity, version: 4 }),
+	undefined,
+	"schema-v4 states must fail without migration",
+);
+assert.equal(
 	parseTaskState({ ...identity, sourceRoot: "relative" }),
 	undefined,
 	"creating requires an absolute sourceRoot",
@@ -94,13 +117,7 @@ assert.equal(
 assert.deepEqual(parseTaskState(identity), identity);
 const { sourceRoot: _sourceRoot, ...creatingWithoutSource } = identity;
 assert.equal(parseTaskState(creatingWithoutSource), undefined);
-for (const phase of [
-	"questions",
-	"research",
-	"design",
-	"outline",
-	"done",
-] as const) {
+for (const phase of ["questions", "research", "design", "done"] as const) {
 	const plain = plainState(identity, phase);
 	assert.deepEqual(parseTaskState(plain), plain);
 	assert.equal(plain.baseBranch, "main");
@@ -117,6 +134,31 @@ for (const phase of [
 		);
 	}
 }
+const outlineSession = "/sessions/outline.jsonl";
+const outline = outlineState(identity, outlineSession);
+assert.deepEqual(outline, {
+	version: 5,
+	phase: "outline",
+	baseBranch: "main",
+	submitted: false,
+	session: outlineSession,
+});
+assert.deepEqual(parseTaskState(outline), outline);
+assert.deepEqual(outlineState(outline, outlineSession, true), {
+	...outline,
+	submitted: true,
+});
+assert.equal(parseTaskState({ ...outline, submitted: 0 }), undefined);
+assert.equal(
+	parseTaskState({ ...outline, session: "relative.jsonl" }),
+	undefined,
+);
+assert.equal(parseTaskState({ ...outline, extra: true }), undefined);
+assert.equal(
+	parseTaskState({ version: 5, phase: "outline", baseBranch: "main" }),
+	undefined,
+	"outline requires an exact submitted boolean and owner session",
+);
 const deleting = deletingState(identity, "/repo/.git");
 assert.deepEqual(parseTaskState(deleting), deleting);
 const { gitDirectory: _gitDirectory, ...deletingWithoutDirectory } = deleting;
@@ -127,13 +169,13 @@ assert.equal(
 );
 assert.equal(parseTaskState({ ...deleting, sourceRoot: "/repo" }), undefined);
 
-const firstBuild = buildState(identity, phaseLine1);
+const firstBuild = buildState(identity, phase1);
 assert.equal(firstBuild.build.status, "pending");
 assert.equal(firstBuild.build.session, undefined);
 assert.equal(decidePersistedRun(0, "other"), "full");
 const activeBuild = activeBuildState(
 	firstBuild,
-	phaseLine1,
+	phase1,
 	"/sessions/build.jsonl",
 );
 assert.equal(activeBuild.build.status, "active");
@@ -142,13 +184,16 @@ assert.deepEqual(parseTaskState(activeBuild), activeBuild);
 assert.equal(
 	parseTaskState({
 		...firstBuild,
-		build: { phaseLine: phaseLine1, status: "active" },
+		build: {
+			phaseSnapshot: phase1,
+			status: "active",
+		},
 	}),
 	undefined,
 	"active builds require an absolute owner session",
 );
-const nextBuild = buildState(activeBuild, phaseLine2);
-assert.equal(nextBuild.build.phaseLine, phaseLine2);
+const nextBuild = buildState(activeBuild, phase2);
+assert.deepEqual(nextBuild.build.phaseSnapshot, phase2);
 assert.equal(
 	nextBuild.build.status,
 	"pending",
@@ -180,6 +225,50 @@ assert.equal(
 assert.equal(
 	parseTaskState({
 		...firstBuild,
+		build: {
+			...firstBuild.build,
+			phaseSnapshot: {
+				...firstBuild.build.phaseSnapshot,
+				file_changes: [{ path: "../escape", change: "Escape." }],
+			},
+		},
+	}),
+	undefined,
+	"build state must reject semantically invalid phase snapshots",
+);
+assert.equal(
+	parseTaskState({
+		...firstBuild,
+		build: { ...firstBuild.build, phaseId: "P2" },
+	}),
+	undefined,
+	"duplicated phase IDs are not persisted alongside the snapshot",
+);
+assert.equal(
+	parseTaskState({
+		...firstBuild,
+		build: {
+			...firstBuild.build,
+			phaseSnapshot: { ...phase1, status: "completed" },
+		},
+	}),
+	undefined,
+	"phase snapshots must remain pending",
+);
+assert.equal(
+	parseTaskState({
+		...firstBuild,
+		build: {
+			...firstBuild.build,
+			phaseSnapshot: { ...phase1, unknown: true },
+		},
+	}),
+	undefined,
+	"phase snapshots use the exact outline-domain schema",
+);
+assert.equal(
+	parseTaskState({
+		...firstBuild,
 		build: { ...firstBuild.build, extra: true },
 	}),
 	undefined,
@@ -188,7 +277,7 @@ assert.equal(
 
 const closing = closingState(
 	activeBuild,
-	phaseLine1,
+	phase1,
 	"/sessions/build.jsonl",
 	"No implementation was needed.",
 );
@@ -207,7 +296,7 @@ for (const invalid of [
 
 const staging = stagingState(
 	activeBuild,
-	phaseLine1,
+	phase1,
 	"/sessions/build.jsonl",
 	SHA_A,
 	["src/a.ts", "src/b.ts"],
@@ -247,7 +336,7 @@ assert.equal(
 
 const committing = committingState(
 	staging,
-	phaseLine1,
+	phase1,
 	"/sessions/build.jsonl",
 	SHA_A,
 );
@@ -433,7 +522,7 @@ try {
 	assert.equal(
 		existsSync(tasks) &&
 			readFileSync(join(tasks, "new-task", "state.json"), "utf-8").includes(
-				'"version": 4',
+				'"version": 5',
 			),
 		true,
 	);

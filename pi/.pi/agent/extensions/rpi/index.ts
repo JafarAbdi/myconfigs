@@ -37,6 +37,19 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import {
+	completePhase,
+	EMPTY_OUTLINE_STORE,
+	firstPendingPhase,
+	parseOutlineStore,
+	phaseEquals,
+	renderOutline,
+	replacePendingOutline,
+	serializeOutlineStore,
+	setOutlineSchema,
+	type OutlineStore,
+	type PendingPhase,
+} from "./outline.ts";
+import {
 	loadPhasePrompt,
 	type PhasePrompt,
 	type PromptContext,
@@ -73,6 +86,7 @@ import {
 	PHASES,
 	type Phase,
 	type PrTaskState,
+	outlineState,
 	plainState,
 	prState,
 	STATE_VERSION,
@@ -95,6 +109,8 @@ const SESSION_PHASES = [
 ] as const;
 const STATE_FILE = "state.json";
 const QUESTIONS_FILE = "questions.json";
+const OUTLINE_FILE = "outline.json";
+const OUTLINE_DOCUMENT = "04-structure-outline.md";
 const SLUG = /^[a-z0-9][a-z0-9._-]*$/i;
 const SLUG_WORDS = 5;
 const GIT_QUERY_MS = 5_000;
@@ -156,7 +172,7 @@ interface BuildReview {
 	parent: string;
 	paths: string[];
 	snapshot: string;
-	phaseLine: string;
+	phase: PendingPhase;
 	phaseNumber: number;
 }
 
@@ -196,20 +212,23 @@ function loadState(slug: string) {
 	return loadTaskState(statePath(slug));
 }
 
-function questionStorePath(slug: string): string {
+function fixedTaskFile(slug: string, name: string): string {
 	const expectedDirectory = join(TASKS, slug);
 	const directory = realpathSync(expectedDirectory);
 	if (directory !== expectedDirectory)
 		throw new Error(`${expectedDirectory} is not the exact task directory`);
-	const candidate = join(directory, QUESTIONS_FILE);
-	if (!existsSync(candidate)) return candidate;
-	const stat = lstatSync(candidate);
+	const path = join(directory, name);
+	if (!existsSync(path)) return path;
+	const stat = lstatSync(path);
 	if (!stat.isFile() || stat.isSymbolicLink())
-		throw new Error(`${QUESTIONS_FILE} is not a regular non-symlink file`);
-	const path = realpathSync(candidate);
-	if (dirname(path) !== directory)
-		throw new Error(`${QUESTIONS_FILE} resolves outside the task directory`);
+		throw new Error(`${name} is not a regular non-symlink file`);
+	if (realpathSync(path) !== path)
+		throw new Error(`${name} is not the exact task file`);
 	return path;
+}
+
+function questionStorePath(slug: string): string {
+	return fixedTaskFile(slug, QUESTIONS_FILE);
 }
 
 function loadQuestionStore(slug: string): QuestionStore {
@@ -217,6 +236,21 @@ function loadQuestionStore(slug: string): QuestionStore {
 	return existsSync(path)
 		? parseQuestionStore(readFileSync(path, "utf-8"))
 		: { ...EMPTY_QUESTION_STORE, questions: [] };
+}
+
+function outlineStorePath(slug: string): string {
+	return fixedTaskFile(slug, OUTLINE_FILE);
+}
+
+function outlineDocumentPath(slug: string): string {
+	return fixedTaskFile(slug, OUTLINE_DOCUMENT);
+}
+
+function loadOutlineStore(slug: string): OutlineStore {
+	const path = outlineStorePath(slug);
+	return existsSync(path)
+		? parseOutlineStore(readFileSync(path, "utf-8"))
+		: { ...EMPTY_OUTLINE_STORE, phases: [] };
 }
 
 function atomicWrite(path: string, content: string, mode = 0o600): void {
@@ -292,13 +326,6 @@ function taskDocumentPath(slug: string, prefix: string): string {
 	if (dirname(path) !== directory)
 		throw new Error(`${names[0]} resolves outside the task directory`);
 	return path;
-}
-
-function firstUncheckedPhase(
-	outline: string,
-): { number: number; line: string } | undefined {
-	const match = /^- \[ \] Phase (\d+): .+$/m.exec(outline);
-	return match ? { number: Number(match[1]), line: match[0] } : undefined;
 }
 
 function slugify(text: string): string {
@@ -622,6 +649,56 @@ export default function rpi(pi: ExtensionAPI): void {
 		return repository;
 	}
 
+	function saveOutline(
+		slug: string,
+		store: OutlineStore,
+		repository: RepositoryEvidence,
+	): void {
+		const storePath = outlineStorePath(slug);
+		const documentPath = outlineDocumentPath(slug);
+		atomicWrite(
+			storePath,
+			serializeOutlineStore(store),
+			existsSync(storePath) ? lstatSync(storePath).mode & 0o777 : 0o600,
+		);
+		atomicWrite(
+			documentPath,
+			renderOutline(store, {
+				repo: repository.root,
+				branch: repository.branch,
+				sha: repository.head,
+			}),
+			existsSync(documentPath) ? lstatSync(documentPath).mode & 0o777 : 0o600,
+		);
+	}
+
+	async function ensureOutlineProjection(
+		slug: string,
+		state: TaskState,
+		cwd: string,
+	): Promise<OutlineStore> {
+		const repository = await requireRepository(cwd, state, slug);
+		const storePath = outlineStorePath(slug);
+		let store: OutlineStore | undefined;
+		await withFileMutationQueue(storePath, async () => {
+			store = loadOutlineStore(slug);
+			const expected = renderOutline(store, {
+				repo: repository.root,
+				branch: repository.branch,
+				sha: repository.head,
+			});
+			const path = outlineDocumentPath(slug);
+			if (!existsSync(path) || readFileSync(path, "utf-8") !== expected)
+				atomicWrite(
+					path,
+					expected,
+					existsSync(path) ? lstatSync(path).mode & 0o777 : 0o600,
+				);
+		});
+		if (!store) throw new Error("outline projection did not finish");
+		return store;
+	}
+
 	async function branchHead(
 		slug: string,
 		cwd: string,
@@ -882,9 +959,10 @@ export default function rpi(pi: ExtensionAPI): void {
 		});
 	}
 
-	function questionToolState(
-		slug: string,
-	): { phase: "design" | "outline"; state: TaskState } {
+	function questionToolState(slug: string): {
+		phase: "design" | "outline";
+		state: TaskState;
+	} {
 		if (!SLUG.test(slug) || active?.slug !== slug)
 			throw new Error(`${slug}: this is not the active RPI task`);
 		const name = pi.getSessionName();
@@ -909,6 +987,60 @@ export default function rpi(pi: ExtensionAPI): void {
 	}
 
 	pi.registerTool({
+		name: "rpi_set_outline",
+		label: "Set RPI Outline",
+		description:
+			"Atomically replace the active task's complete pending phase snapshot.",
+		promptSnippet: "Submit the active RPI task's structured pending outline",
+		parameters: setOutlineSchema,
+		constrainedSampling: { type: "json_schema", strict: "prefer" },
+		executionMode: "sequential",
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const slug = params.task_slug;
+			if (!SLUG.test(slug) || active?.slug !== slug)
+				throw new Error(`${slug}: this is not the active RPI task`);
+			if (pi.getSessionName() !== sessionName(slug, "outline"))
+				throw new Error(
+					`${slug}: outlines may only be submitted from its Outline session`,
+				);
+			const loaded = loadState(slug);
+			if (loaded.kind !== "valid" || loaded.state.phase !== "outline")
+				throw new Error(`${slug}: task is not in Outline`);
+			if (ctx.sessionManager.getSessionFile() !== loaded.state.session)
+				throw new Error(`${slug}: this session does not own the Outline phase`);
+			const repository = await requireRepository(ctx.cwd, loaded.state, slug);
+			const path = outlineStorePath(slug);
+			let updated: OutlineStore | undefined;
+			await withFileMutationQueue(path, async () => {
+				const current = loadState(slug);
+				if (
+					current.kind !== "valid" ||
+					current.state.phase !== "outline" ||
+					!sameState(current.state, loaded.state)
+				)
+					throw new Error("task state changed before outline submission");
+				updated = replacePendingOutline(loadOutlineStore(slug), params);
+				saveOutline(slug, updated, repository);
+				saveState(
+					slug,
+					outlineState(current.state, current.state.session, true),
+				);
+			});
+			if (!updated) throw new Error("outline submission did not complete");
+			await refresh(ctx, slug);
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: `Submitted ${updated.phases.filter((phase) => phase.status === "pending").length} pending phases`,
+					},
+				],
+				details: { path, count: updated.phases.length },
+			};
+		},
+	});
+
+	pi.registerTool({
 		name: "rpi_update_design_questions",
 		label: "Update RPI Design Questions",
 		description:
@@ -922,7 +1054,9 @@ export default function rpi(pi: ExtensionAPI): void {
 			const slug = params.task_slug;
 			const { phase, state } = questionToolState(slug);
 			if (phase === "outline" && params.incorporated_question_ids.length)
-				throw new Error("Outline may add questions but may not incorporate answers");
+				throw new Error(
+					"Outline may add questions but may not incorporate answers",
+				);
 			await requireRepository(ctx.cwd, state, slug);
 			const path = questionStorePath(slug);
 			let updated: QuestionStore | undefined;
@@ -965,9 +1099,7 @@ export default function rpi(pi: ExtensionAPI): void {
 				return { phase, detail: `blocked · invalid ${QUESTIONS_FILE}` };
 			if (questions.kind === "valid") {
 				const details = [
-					questions.open.length
-						? `${questions.open.length} unanswered`
-						: "",
+					questions.open.length ? `${questions.open.length} unanswered` : "",
 					questions.answered.length
 						? `${questions.answered.length} awaiting incorporation`
 						: "",
@@ -978,17 +1110,32 @@ export default function rpi(pi: ExtensionAPI): void {
 				};
 			}
 		}
+		if (phase === "outline") {
+			if (!loaded.state.submitted)
+				return { phase, detail: "awaiting structured submission" };
+			try {
+				const outline = loadOutlineStore(slug);
+				const pending = outline.phases.filter(
+					(item) => item.status === "pending",
+				).length;
+				return { phase, detail: `${pending} pending · submitted` };
+			} catch {
+				return { phase, detail: "blocked · invalid outline.json" };
+			}
+		}
 		if (phase === "build") {
 			try {
-				const outline = documentIn(slug, "04-");
-				const done = outline.match(/^- \[[xX]\] Phase /gm)?.length ?? 0;
-				const open = outline.match(/^- \[ \] Phase /gm)?.length ?? 0;
-				if (done + open) {
-					const status = loaded.state.build.status;
-					return { phase, detail: `${done} of ${done + open} · ${status}` };
-				}
+				const outline = loadOutlineStore(slug);
+				const done = outline.phases.filter(
+					(item) => item.status === "completed",
+				).length;
+				const status = loaded.state.build.status;
+				return {
+					phase,
+					detail: `${done} of ${outline.phases.length} · ${status}`,
+				};
 			} catch {
-				return { phase, detail: "blocked · invalid outline artifact" };
+				return { phase, detail: "blocked · invalid outline.json" };
 			}
 		}
 		if (phase === "pr")
@@ -1250,7 +1397,10 @@ export default function rpi(pi: ExtensionAPI): void {
 		try {
 			canonicalRoot = realpathSync(worktree);
 		} catch {
-			throw invariantError(`exact worktree root ${worktree}`, "unreadable path");
+			throw invariantError(
+				`exact worktree root ${worktree}`,
+				"unreadable path",
+			);
 		}
 		const repository = await repositoryEvidence(worktree);
 		if (!repository)
@@ -1460,7 +1610,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		slug: string,
 		phase: PhasePrompt,
 		context: PromptContext = {},
-		activate?: () => void,
+		activate?: (replacement: ReplacementContext) => void,
 		fresh = false,
 	): Promise<void> {
 		await ctx.waitForIdle();
@@ -1488,7 +1638,7 @@ export default function rpi(pi: ExtensionAPI): void {
 				const current = loadState(slug);
 				if (current.kind !== "valid" || !sameState(current.state, expected))
 					throw new Error("task state changed during the session switch");
-				activate?.();
+				activate?.(replacement);
 				show(replacement, slug, await placeFor(slug));
 				const decision = decideSessionPrompt(
 					currentMessageCount(replacement),
@@ -1529,7 +1679,9 @@ export default function rpi(pi: ExtensionAPI): void {
 			createdTarget = createTargetSession(
 				worktree,
 				sessionName(slug, phase),
-				source && isAbsolute(source) && regularFile(source) ? source : undefined,
+				source && isAbsolute(source) && regularFile(source)
+					? source
+					: undefined,
 			);
 			replaced = await ctx.switchSession(createdTarget, {
 				withSession: withPhaseSession,
@@ -1555,8 +1707,8 @@ export default function rpi(pi: ExtensionAPI): void {
 			...(context.extra?.trim()
 				? [`Human feedback or decisions:\n${context.extra.trim()}`]
 				: []),
-			...(context.phaseLine
-				? [`Authoritative build phase:\n${context.phaseLine}`]
+			...(context.structuredPhase
+				? [`Authoritative structured build phase:\n${context.structuredPhase}`]
 				: []),
 			...(context.baseSha
 				? [
@@ -1602,69 +1754,45 @@ export default function rpi(pi: ExtensionAPI): void {
 		return expanded;
 	}
 
-	async function checkOutlinePhase(
-		slug: string,
-		phaseLine: string,
-	): Promise<void> {
-		const path = taskDocumentPath(slug, "04-");
-		await withFileMutationQueue(path, async () => {
-			const body = readFileSync(path, "utf-8");
-			const checkedLine = phaseLine.replace("[ ]", "[x]");
-			const lines = body.split("\n");
-			const unchecked = lines.filter((line) => line === phaseLine).length;
-			const checked = lines.filter((line) => line === checkedLine).length;
-			if (unchecked === 0 && checked === 1) return;
-			if (unchecked !== 1 || checked !== 0)
+	function requireStoredPhase(
+		store: OutlineStore,
+		snapshot: PendingPhase,
+		allowCompleted = false,
+	): void {
+		const phase = store.phases.find(
+			(candidate) => candidate.id === snapshot.id,
+		);
+		if (phase?.status === "pending") {
+			if (!phaseEquals(firstPendingPhase(store)!, snapshot))
 				throw new Error(
-					"the approved outline phase line is missing or ambiguous",
+					"recorded phase is not the unchanged first pending phase",
 				);
-			atomicWrite(
-				path,
-				lines
-					.map((line) => (line === phaseLine ? checkedLine : line))
-					.join("\n"),
-				lstatSync(path).mode & 0o777,
-			);
-		});
+			return;
+		}
+		if (
+			allowCompleted &&
+			phase?.status === "completed" &&
+			phase.resolution === null &&
+			phaseEquals({ ...phase, status: "pending", resolution: null }, snapshot)
+		)
+			return;
+		throw new Error("recorded phase does not match outline.json");
 	}
 
-	async function closeNoCodePhase(
+	async function settleOutlinePhase(
 		slug: string,
-		phaseLine: string,
-		resolution: string,
-	): Promise<void> {
-		const path = taskDocumentPath(slug, "04-");
+		snapshot: PendingPhase,
+		resolution: string | null,
+		repository: RepositoryEvidence,
+	): Promise<OutlineStore> {
+		const path = outlineStorePath(slug);
+		let updated: OutlineStore | undefined;
 		await withFileMutationQueue(path, async () => {
-			const body = readFileSync(path, "utf-8");
-			const checkedLine = phaseLine.replace("[ ]", "[x]");
-			const heading = `## ${phaseLine.replace(/^- \[ \] /, "")}`;
-			if (body.split(heading).length !== 2)
-				throw new Error("the no-code phase heading is missing or ambiguous");
-			const start = body.indexOf(heading);
-			const next = body.indexOf("\n## Phase ", start + heading.length);
-			const section = body.slice(start, next < 0 ? body.length : next);
-			const paragraph = `Resolution: ${resolution}`;
-			const lines = body.split("\n");
-			const unchecked = lines.filter((line) => line === phaseLine).length;
-			const checked = lines.filter((line) => line === checkedLine).length;
-			if (
-				unchecked === 0 &&
-				checked === 1 &&
-				section.split("\n").includes(paragraph)
-			)
-				return;
-			if (unchecked !== 1 || checked !== 0 || /^Resolution:/m.test(section)) {
-				throw new Error("the no-code phase is already settled or ambiguous");
-			}
-			const settled = lines
-				.map((line) => (line === phaseLine ? checkedLine : line))
-				.join("\n");
-			atomicWrite(
-				path,
-				settled.replace(heading, `${heading}\n\n${paragraph}`),
-				lstatSync(path).mode & 0o777,
-			);
+			updated = completePhase(loadOutlineStore(slug), snapshot, resolution);
+			saveOutline(slug, updated, repository);
 		});
+		if (!updated) throw new Error("outline completion did not finish");
+		return updated;
 	}
 
 	async function recoverClosing(
@@ -1678,9 +1806,14 @@ export default function rpi(pi: ExtensionAPI): void {
 				"clean no-code phase worktree",
 				"worktree or index changes",
 			);
-		await closeNoCodePhase(slug, state.phaseLine, state.resolution);
-		const next = firstUncheckedPhase(documentIn(slug, "04-"));
-		if (next) saveState(slug, buildState(state, next.line));
+		const outline = await settleOutlinePhase(
+			slug,
+			state.phaseSnapshot,
+			state.resolution,
+			repository,
+		);
+		const next = firstPendingPhase(outline);
+		if (next) saveState(slug, buildState(state, next));
 		else await enterPrState(ctx, slug, state);
 		ctx.ui.notify("no-code phase closure recovered", "info");
 		await refresh(ctx, slug, true);
@@ -1699,6 +1832,12 @@ export default function rpi(pi: ExtensionAPI): void {
 	): Promise<CommitInspection> {
 		try {
 			const repository = await requireRepository(ctx.cwd, state, slug);
+			const currentOutline = await ensureOutlineProjection(
+				slug,
+				state,
+				ctx.cwd,
+			);
+			requireStoredPhase(currentOutline, state.phaseSnapshot, true);
 			const { root, head } = repository;
 			if (head === state.parent) {
 				const cleanIndex = await indexClean(root);
@@ -1736,9 +1875,14 @@ export default function rpi(pi: ExtensionAPI): void {
 					).message,
 				};
 			}
-			await checkOutlinePhase(slug, state.phaseLine);
-			const nextPhase = firstUncheckedPhase(documentIn(slug, "04-"));
-			if (nextPhase) saveState(slug, buildState(state, nextPhase.line));
+			const outline = await settleOutlinePhase(
+				slug,
+				state.phaseSnapshot,
+				null,
+				repository,
+			);
+			const nextPhase = firstPendingPhase(outline);
+			if (nextPhase) saveState(slug, buildState(state, nextPhase));
 			else await enterPrState(ctx, slug, state);
 			ctx.ui.notify("commit verified; outline phase checked", "info");
 			return { kind: "verified", next: nextPhase ? "build" : "pr" };
@@ -1768,7 +1912,14 @@ export default function rpi(pi: ExtensionAPI): void {
 			!(await indexClean(repository.root))
 		)
 			throw new Error("staging recovery could not verify the mixed reset");
-		saveState(slug, activeBuildState(state, state.phaseLine, state.session));
+		const outline = await ensureOutlineProjection(slug, state, ctx.cwd);
+		const current = firstPendingPhase(outline);
+		if (!current || !phaseEquals(current, state.phaseSnapshot))
+			throw new Error("staging recovery phase no longer matches outline.json");
+		saveState(
+			slug,
+			activeBuildState(state, state.phaseSnapshot, state.session),
+		);
 		ctx.ui.notify("interrupted staging reset; returned to build", "warning");
 		await refresh(ctx, slug, true);
 	}
@@ -1822,12 +1973,18 @@ export default function rpi(pi: ExtensionAPI): void {
 			throw new Error(
 				"commit cancellation could not verify the persisted parent reset",
 			);
-		const resumed = activeBuildState(state, state.phaseLine, state.session);
+		const outline = await ensureOutlineProjection(slug, state, ctx.cwd);
+		const phase = firstPendingPhase(outline);
+		if (!phase || !phaseEquals(phase, state.phaseSnapshot))
+			throw new Error(
+				"commit cancellation phase no longer matches outline.json",
+			);
+		const resumed = activeBuildState(state, state.phaseSnapshot, state.session);
 		saveState(slug, resumed);
 		await send(
 			continuationPrompt("build", {
 				extra: feedback,
-				phaseLine: state.phaseLine,
+				structuredPhase: JSON.stringify(state.phaseSnapshot, null, 2),
 			}),
 		);
 		await refresh(ctx, slug);
@@ -1848,12 +2005,12 @@ export default function rpi(pi: ExtensionAPI): void {
 		if (!(await indexClean(root))) {
 			throw new Error("build invariant failed: the index is not clean");
 		}
-		const current = firstUncheckedPhase(documentIn(slug, "04-"));
-		if (!current || current.line !== state.build.phaseLine) {
+		const outline = await ensureOutlineProjection(slug, state, ctx.cwd);
+		const current = firstPendingPhase(outline);
+		if (!current || !phaseEquals(current, state.build.phaseSnapshot))
 			throw new Error(
-				`build-state invariant failed: recorded phase line "${state.build.phaseLine}" is not the first unchecked outline line`,
+				"build-state invariant failed: recorded phase is not the unchanged first pending outline phase",
 			);
-		}
 		const parent = repository.head;
 		const paths = await changedPaths(root);
 		if (!paths.every(safeRelativePath))
@@ -1875,8 +2032,9 @@ export default function rpi(pi: ExtensionAPI): void {
 			parent,
 			paths,
 			snapshot,
-			phaseLine: current.line,
-			phaseNumber: current.number,
+			phase: current,
+			phaseNumber:
+				outline.phases.findIndex((phase) => phase.id === current.id) + 1,
 		};
 	}
 
@@ -1902,9 +2060,10 @@ export default function rpi(pi: ExtensionAPI): void {
 		) {
 			throw new Error("file contents changed while approval was open");
 		}
-		const current = firstUncheckedPhase(documentIn(slug, "04-"));
-		if (!current || current.line !== review.phaseLine)
-			throw new Error("the first unchecked outline phase changed");
+		const outline = await ensureOutlineProjection(slug, state, review.root);
+		const current = firstPendingPhase(outline);
+		if (!current || !phaseEquals(current, review.phase))
+			throw new Error("the first pending outline phase changed");
 	}
 
 	async function stageApprovedBuild(
@@ -1916,7 +2075,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		if (!session) throw new Error("build approval requires an owning session");
 		const staged = stagingState(
 			state,
-			review.phaseLine,
+			review.phase,
 			session,
 			review.parent,
 			review.paths,
@@ -1964,7 +2123,7 @@ export default function rpi(pi: ExtensionAPI): void {
 			throw new Error("staging state changed before committing");
 		saveState(
 			slug,
-			committingState(state, review.phaseLine, session, review.parent),
+			committingState(state, review.phase, session, review.parent),
 		);
 	}
 
@@ -2025,12 +2184,7 @@ export default function rpi(pi: ExtensionAPI): void {
 			const session = state.build.session;
 			if (!session)
 				throw new Error("no-code closure requires an owning session");
-			const closing = closingState(
-				state,
-				review.phaseLine,
-				session,
-				resolution,
-			);
+			const closing = closingState(state, review.phase, session, resolution);
 			saveState(slug, closing);
 			await recoverClosing(ctx, slug, closing);
 			ctx.ui.notify(`phase ${review.phaseNumber} closed with no code`, "info");
@@ -2063,6 +2217,11 @@ export default function rpi(pi: ExtensionAPI): void {
 		state: TaskState,
 	): Promise<PrTaskState> {
 		const repository = await requireRepository(ctx.cwd, state, slug);
+		const outline = await ensureOutlineProjection(slug, state, ctx.cwd);
+		if (firstPendingPhase(outline))
+			throw new Error(
+				"PR transition invariant failed: outline.json still has pending work",
+			);
 		if (!(await repoClean(repository.root)))
 			throw new Error("PR transition invariant failed: worktree is not clean");
 		invalidatePrDescription(slug);
@@ -2084,8 +2243,16 @@ export default function rpi(pi: ExtensionAPI): void {
 			slug,
 			phase,
 			context,
-			() => {
-				saveState(slug, plainState(state, phase));
+			(replacement) => {
+				const session = replacement.sessionManager.getSessionFile();
+				if (phase === "outline" && !session)
+					throw new Error("Outline requires a persisted owner session");
+				saveState(
+					slug,
+					phase === "outline"
+						? outlineState(state, session!)
+						: plainState(state, phase),
+				);
 				active = { slug };
 			},
 			fresh,
@@ -2114,17 +2281,32 @@ export default function rpi(pi: ExtensionAPI): void {
 			);
 			return;
 		}
-		await enterPhase(ctx, slug, phase, { extra: feedback }, () => {
-			if (current.state.phase === "pr") invalidatePrDescription(slug);
-			saveState(slug, plainState(current.state, phase));
-		});
+		await enterPhase(
+			ctx,
+			slug,
+			phase,
+			{ extra: feedback },
+			(replacement) => {
+				if (current.state.phase === "pr") invalidatePrDescription(slug);
+				const session = replacement.sessionManager.getSessionFile();
+				if (phase === "outline" && !session)
+					throw new Error("Outline requires a persisted owner session");
+				saveState(
+					slug,
+					phase === "outline"
+						? outlineState(current.state, session!)
+						: plainState(current.state, phase),
+				);
+			},
+			phase === "outline",
+		);
 	}
 
 	async function beginBuild(
 		ctx: ExtensionCommandContext,
 		slug: string,
 		state: TaskState,
-		phaseLine: string,
+		phase: PendingPhase,
 	): Promise<void> {
 		const repository = await requireRepository(
 			join(WORKTREES, slug),
@@ -2135,10 +2317,11 @@ export default function rpi(pi: ExtensionAPI): void {
 			throw new Error(
 				"build-start invariant failed: the task worktree is not clean",
 			);
-		const current = firstUncheckedPhase(documentIn(slug, "04-"));
-		if (!current || current.line !== phaseLine)
+		const outline = await ensureOutlineProjection(slug, state, repository.root);
+		const current = firstPendingPhase(outline);
+		if (!current || !phaseEquals(current, phase))
 			throw new Error("build-start invariant failed: outline phase changed");
-		const next = buildState(state, phaseLine);
+		const next = buildState(state, phase);
 		saveState(slug, next);
 		await enterPersistedRun(ctx, slug, next);
 	}
@@ -2343,22 +2526,24 @@ export default function rpi(pi: ExtensionAPI): void {
 				if (questions.open.length || questions.answered.length) {
 					return advancePlainPhase(ctx, slug, state, "design");
 				}
-				const outline = documentIn(slug, "04-");
-				if (!outline) {
+				if (!state.submitted) {
 					ctx.ui.notify(
-						"outline work is not finished — continue in chat, then run /rpi again",
+						"outline work is not submitted — call rpi_set_outline, then run /rpi again",
 						"warning",
 					);
 					return;
 				}
-				if (!/^- \[(?: |[xX])\] Phase \d+: .+$/m.test(outline)) {
+				let outline: OutlineStore;
+				try {
+					outline = await ensureOutlineProjection(slug, state, ctx.cwd);
+				} catch (error) {
 					ctx.ui.notify(
-						"cannot advance outline: no implementation phases found",
+						`cannot advance outline: ${error instanceof Error ? error.message : error}`,
 						"error",
 					);
 					return;
 				}
-				const first = firstUncheckedPhase(outline);
+				const first = firstPendingPhase(outline);
 				if (!first) {
 					try {
 						const next = await enterPrState(ctx, slug, state);
@@ -2371,7 +2556,7 @@ export default function rpi(pi: ExtensionAPI): void {
 						return;
 					}
 				}
-				return beginBuild(ctx, slug, state, first.line);
+				return beginBuild(ctx, slug, state, first);
 			}
 			case "build":
 				return handleBuild(ctx, slug, state);
@@ -2395,7 +2580,10 @@ export default function rpi(pi: ExtensionAPI): void {
 		state: BuildTaskState | PrTaskState,
 		cwd: string,
 	): Promise<PromptContext> {
-		if (state.phase === "build") return { phaseLine: state.build.phaseLine };
+		if (state.phase === "build")
+			return {
+				structuredPhase: JSON.stringify(state.build.phaseSnapshot, null, 2),
+			};
 		const [baseSha, head] = await Promise.all([
 			git(cwd, ["merge-base", `refs/heads/${state.baseBranch}`, "HEAD"]),
 			git(cwd, ["rev-parse", "HEAD"]),
@@ -2426,7 +2614,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		session: string,
 	): BuildTaskState | PrTaskState {
 		return state.phase === "build"
-			? activeBuildState(state, state.build.phaseLine, session)
+			? activeBuildState(state, state.build.phaseSnapshot, session)
 			: activePrState(state, session);
 	}
 
@@ -2444,12 +2632,12 @@ export default function rpi(pi: ExtensionAPI): void {
 				throw new Error(
 					"build-start invariant failed: the task worktree is not clean",
 				);
-			const current = firstUncheckedPhase(documentIn(slug, "04-"));
-			if (!current || current.line !== state.build.phaseLine) {
+			const outline = await ensureOutlineProjection(slug, state, cwd);
+			const current = firstPendingPhase(outline);
+			if (!current || !phaseEquals(current, state.build.phaseSnapshot))
 				throw new Error(
-					`build-state invariant failed: recorded phase line "${state.build.phaseLine}" is not the first unchecked outline line`,
+					"build-state invariant failed: recorded phase is not the unchanged first pending outline phase",
 				);
-			}
 		}
 		return repository;
 	}
@@ -2575,7 +2763,9 @@ export default function rpi(pi: ExtensionAPI): void {
 			createdTarget = createTargetSession(
 				worktree,
 				sessionName(slug, phase),
-				source && isAbsolute(source) && regularFile(source) ? source : undefined,
+				source && isAbsolute(source) && regularFile(source)
+					? source
+					: undefined,
 			);
 			replaced = await ctx.switchSession(createdTarget, { withSession });
 		}

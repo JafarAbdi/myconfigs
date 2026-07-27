@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionManager as SessionManagerInstance } from "@earendil-works/pi-coding-agent";
+import type { OutlineStore, PendingPhase, SetOutlineInput } from "./outline.ts";
 
 interface ExecResult {
 	code: number;
@@ -51,11 +52,13 @@ interface QuestionUpdateParams {
 	}>;
 }
 
+type ToolParams = QuestionUpdateParams | SetOutlineInput;
+
 interface RegisteredTool {
 	name: string;
 	execute(
 		toolCallId: string,
-		params: QuestionUpdateParams,
+		params: ToolParams,
 		signal: AbortSignal,
 		onUpdate: (update: unknown) => void,
 		ctx: MockContext,
@@ -232,8 +235,47 @@ async function main(): Promise<void> {
 
 	const tasks = join(agentDir, "tasks");
 	const worktrees = join(agentDir, "worktrees");
-	const phaseLine = "- [ ] Phase 1: Implement the focused change";
-	const emptyDesign = "# Design\n\n### Proposed architecture\n\nUse the existing adapter.\n";
+	const phaseInput = {
+		title: "Implement the focused change",
+		summary: "Implement the agreed focused behavior.",
+		file_changes: [
+			{ path: "tracked.txt", change: "Apply the focused change." },
+		],
+		verification: ["git diff --check"],
+	};
+	const outlineInput = (
+		slug: string,
+		pending_phases = [phaseInput],
+	): SetOutlineInput => ({
+		task_slug: slug,
+		title: "Focused implementation",
+		summary: "Implement the agreed design in focused phases.",
+		desired_end_state: "The focused behavior is implemented and verified.",
+		pending_phases,
+	});
+	const pendingPhase = (id = "P1", input = phaseInput): PendingPhase => ({
+		id,
+		status: "pending",
+		...input,
+		file_changes: input.file_changes.map((change) => ({ ...change })),
+		verification: [...input.verification],
+		resolution: null,
+	});
+	const outlineStore = (
+		phases: OutlineStore["phases"] = [pendingPhase()],
+		next_phase_id = phases.length + 1,
+	): OutlineStore => ({
+		version: 1,
+		next_phase_id,
+		title: "Focused implementation",
+		summary: "Implement the agreed design in focused phases.",
+		desired_end_state: "The focused behavior is implemented and verified.",
+		phases,
+	});
+	const serializeOutlineStore = (store: OutlineStore): string =>
+		`${JSON.stringify(store, null, 2)}\n`;
+	const emptyDesign =
+		"# Design\n\n### Proposed architecture\n\nUse the existing adapter.\n";
 	const cacheInput = {
 		title: "Cache ownership",
 		question: "Which layer should own the cache?",
@@ -268,7 +310,7 @@ async function main(): Promise<void> {
 		extra: Record<string, unknown> = {},
 	): Record<string, unknown> {
 		return {
-			version: 4,
+			version: 5,
 			phase,
 			baseBranch: "main",
 			...(phase === "creating" ? { sourceRoot: gitLocation } : {}),
@@ -280,7 +322,7 @@ async function main(): Promise<void> {
 	function persistTask(
 		slug: string,
 		taskState: Record<string, unknown>,
-		outline?: string,
+		outline?: OutlineStore,
 	): void {
 		const directory = join(tasks, slug);
 		mkdirSync(directory, { recursive: true });
@@ -290,13 +332,31 @@ async function main(): Promise<void> {
 			`${JSON.stringify(taskState, null, 2)}\n`,
 		);
 		if (outline !== undefined)
-			writeFileSync(join(directory, "04-outline.md"), outline);
+			writeFileSync(
+				join(directory, "outline.json"),
+				serializeOutlineStore(outline),
+			);
+	}
+
+	function loadOutline(slug: string): OutlineStore {
+		return JSON.parse(
+			readFileSync(join(tasks, slug, "outline.json"), "utf8"),
+		) as OutlineStore;
 	}
 
 	function loadState(slug: string): Record<string, unknown> {
 		return JSON.parse(
 			readFileSync(join(tasks, slug, "state.json"), "utf8"),
 		) as Record<string, unknown>;
+	}
+
+	function setOutlineOwner(slug: string, owner: SessionManagerInstance): void {
+		const session = owner.getSessionFile();
+		assert.ok(session);
+		writeFileSync(
+			join(tasks, slug, "state.json"),
+			`${JSON.stringify({ ...loadState(slug), session }, null, 2)}\n`,
+		);
 	}
 
 	function persistQuestions(slug: string, questions: unknown[]): void {
@@ -333,7 +393,7 @@ async function main(): Promise<void> {
 		private sessionStart:
 			| ((event: unknown, ctx: MockContext) => Promise<void>)
 			| undefined;
-		private questionTool: RegisteredTool | undefined;
+		private readonly registeredTools = new Map<string, RegisteredTool>();
 		private editorAnswers: string[] = [];
 		private confirmAnswers: boolean[] = [];
 		private selectAnswers: string[] = [];
@@ -355,8 +415,7 @@ async function main(): Promise<void> {
 				},
 				registerTool: (tool: RegisteredTool) => {
 					this.tools.push(tool.name);
-					if (tool.name === "rpi_update_design_questions")
-						this.questionTool = tool;
+					this.registeredTools.set(tool.name, tool);
 				},
 				registerCommand: (
 					name: string,
@@ -397,13 +456,15 @@ async function main(): Promise<void> {
 			);
 		}
 
-		async updateQuestions(
+		async executeTool(
+			name: "rpi_set_outline" | "rpi_update_design_questions",
 			manager: SessionManagerInstance,
-			params: QuestionUpdateParams,
+			params: ToolParams,
 		): Promise<void> {
-			assert.ok(this.questionTool, "question lifecycle tool was not registered");
+			const tool = this.registeredTools.get(name);
+			assert.ok(tool, `${name} was not registered`);
 			await this.withManager(manager, () =>
-				this.questionTool?.execute(
+				tool.execute(
 					"test-tool-call",
 					params,
 					new AbortController().signal,
@@ -411,6 +472,20 @@ async function main(): Promise<void> {
 					this.context(manager),
 				),
 			);
+		}
+
+		async updateQuestions(
+			manager: SessionManagerInstance,
+			params: QuestionUpdateParams,
+		): Promise<void> {
+			await this.executeTool("rpi_update_design_questions", manager, params);
+		}
+
+		async setOutline(
+			manager: SessionManagerInstance,
+			params: SetOutlineInput,
+		): Promise<void> {
+			await this.executeTool("rpi_set_outline", manager, params);
 		}
 
 		async startSession(manager: SessionManagerInstance): Promise<void> {
@@ -423,10 +498,7 @@ async function main(): Promise<void> {
 		async remove(slug: string, cwd: string): Promise<void> {
 			assert.ok(this.command, "RPI command was not registered");
 			this.confirmAnswers = [true];
-			this.customAnswers = [
-				{ action: "remove", slug },
-				{ action: "cancel" },
-			];
+			this.customAnswers = [{ action: "remove", slug }, { action: "cancel" }];
 			const source = SessionManager.create(cwd);
 			this.persistSession(source, `remove · ${slug}`);
 			await this.withManager(source, () =>
@@ -615,14 +687,57 @@ async function main(): Promise<void> {
 			worktree,
 			repository.head,
 		);
-		persistTask(slug, state(repository.common, repository.head, phase));
+		persistTask(
+			slug,
+			state(
+				repository.common,
+				repository.head,
+				phase,
+				phase === "outline"
+					? { submitted: false, session: "/unowned-outline-session" }
+					: {},
+			),
+		);
 		writeFileSync(join(tasks, slug, "03-design.md"), design);
 		if (questions.length) persistQuestions(slug, questions);
 		return worktree;
 	}
 
+	async function prepareStructuredTask(
+		slug: string,
+		phase: string,
+		extra: Record<string, unknown>,
+		store = outlineStore(),
+	): Promise<{
+		repository: Awaited<ReturnType<typeof initRepository>>;
+		worktree: string;
+	}> {
+		const repository = await initRepository(slug);
+		const worktree = join(worktrees, slug);
+		mkdirSync(worktrees, { recursive: true });
+		await git(
+			repository.root,
+			"worktree",
+			"add",
+			"-b",
+			slug,
+			worktree,
+			repository.head,
+		);
+		persistTask(
+			slug,
+			state(repository.common, repository.head, phase, extra),
+			store,
+		);
+		writeFileSync(join(tasks, slug, "03-design.md"), emptyDesign);
+		return { repository, worktree };
+	}
+
 	const harness = new Harness();
-	assert.deepEqual(harness.tools, ["rpi_update_design_questions"]);
+	assert.deepEqual(harness.tools, [
+		"rpi_set_outline",
+		"rpi_update_design_questions",
+	]);
 
 	try {
 		for (const slug of ["foo.", "foo..bar", "foo.lock"]) {
@@ -815,8 +930,7 @@ async function main(): Promise<void> {
 			assert.ok(
 				harness.notices.some(
 					(notice) =>
-						notice.message ===
-						"session switch cancelled — design unchanged",
+						notice.message === "session switch cancelled — design unchanged",
 				),
 			);
 		}
@@ -911,7 +1025,11 @@ async function main(): Promise<void> {
 			assert.deepEqual(
 				stored.map(({ id, status, answer }) => ({ id, status, answer })),
 				[
-					{ id: "Q1", status: "answered", answer: { kind: "option", option: 1 } },
+					{
+						id: "Q1",
+						status: "answered",
+						answer: { kind: "option", option: 1 },
+					},
 					{
 						id: "Q2",
 						status: "answered",
@@ -940,7 +1058,10 @@ async function main(): Promise<void> {
 			await harness.invokeInSession(slug, owner, "A — The adapter");
 			assert.equal(harness.prompts.length, promptCount + 1);
 			assert.match(harness.prompts.at(-1)?.text ?? "", /Q1 · Cache ownership/);
-			assert.doesNotMatch(harness.prompts.at(-1)?.text ?? "", /Q2 · Eviction timing/);
+			assert.doesNotMatch(
+				harness.prompts.at(-1)?.text ?? "",
+				/Q2 · Eviction timing/,
+			);
 			assert.deepEqual(
 				loadQuestions(slug).questions.map(({ id, status }) => ({ id, status })),
 				[
@@ -963,7 +1084,10 @@ async function main(): Promise<void> {
 				"Agree & continue to outline",
 				"Continue designing",
 			]);
-			assert.match(JSON.stringify(harness.widgets.at(-1)), /awaiting agreement/);
+			assert.match(
+				JSON.stringify(harness.widgets.at(-1)),
+				/awaiting agreement/,
+			);
 
 			await harness.invokeInSession(
 				slug,
@@ -1059,7 +1183,19 @@ async function main(): Promise<void> {
 			assert.equal(loadState(slug).phase, "outline");
 			assert.equal(outlinePrompt?.name, `${slug} · outline`);
 			assert.notEqual(outlinePrompt?.session, staleOutlinePath);
-			assert.match(outlinePrompt?.text ?? "", /## Mechanical translation only/);
+			assert.match(
+				outlinePrompt?.text ?? "",
+				/call `rpi_set_outline` exactly once/,
+			);
+			assert.ok(
+				outlinePrompt?.text.includes(worktree),
+				"phase prompts must use the canonical worktree path",
+			);
+			assert.equal(
+				outlinePrompt?.text.includes(configuredAgentDir),
+				false,
+				"phase prompts must not expose the configured agent-directory symlink",
+			);
 			assert.equal(
 				harness.switches.slice(switchCount).includes(staleOutlinePath),
 				false,
@@ -1078,6 +1214,7 @@ async function main(): Promise<void> {
 				answered,
 			]);
 			const owner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, owner);
 			await harness.startSession(owner);
 			await assert.rejects(
 				harness.updateQuestions(owner, {
@@ -1098,6 +1235,7 @@ async function main(): Promise<void> {
 			const designPath = designOwner.getSessionFile();
 			assert.ok(designPath);
 			const outlineOwner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, outlineOwner);
 			const promptCount = harness.prompts.length;
 			const selectionCount = harness.selections.length;
 
@@ -1109,6 +1247,207 @@ async function main(): Promise<void> {
 				harness.selections.length,
 				selectionCount,
 				"Outline must return to Design without answering the question",
+			);
+		}
+
+		{
+			const slug = "outline-submit-gate";
+			const worktree = await preparePlainTask(slug, "outline", emptyDesign);
+			const owner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, owner);
+			await harness.startSession(owner);
+			await harness.invokeInSession(slug, owner);
+			assert.equal(loadState(slug).submitted, false);
+			assert.ok(
+				harness.notices.some((notice) =>
+					notice.message.includes("outline work is not submitted"),
+				),
+			);
+			const imposter = harness.createOwner(worktree, `${slug} · outline`);
+			await assert.rejects(
+				harness.setOutline(imposter, outlineInput(slug)),
+				/does not own the Outline phase/,
+			);
+			await harness.setOutline(owner, outlineInput(slug));
+			const first = loadOutline(slug);
+			assert.equal(loadState(slug).submitted, true);
+			assert.equal(first.phases[0]?.id, "P1");
+			await harness.setOutline(owner, outlineInput(slug));
+			assert.deepEqual(
+				loadOutline(slug),
+				first,
+				"exact retry must preserve IDs and allocation",
+			);
+			writeFileSync(
+				join(tasks, slug, "04-structure-outline.md"),
+				"stale projection\n",
+			);
+			await harness.invokeInSession(slug, owner);
+			assert.equal(loadState(slug).phase, "build");
+			assert.match(
+				readFileSync(join(tasks, slug, "04-structure-outline.md"), "utf8"),
+				/Phase 1: Implement the focused change/,
+			);
+			assert.equal(
+				(
+					(loadState(slug).build as Record<string, unknown>)
+						.phaseSnapshot as PendingPhase
+				).id,
+				"P1",
+			);
+			assert.match(harness.prompts.at(-1)?.text ?? "", /"id": "P1"/);
+		}
+
+		{
+			const slug = "empty-outline-to-pr";
+			const worktree = await preparePlainTask(slug, "outline", emptyDesign);
+			const owner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, owner);
+			await harness.startSession(owner);
+			await harness.setOutline(owner, outlineInput(slug, []));
+			await harness.invokeInSession(slug, owner);
+			assert.equal(loadState(slug).phase, "pr");
+			assert.match(
+				harness.prompts.at(-1)?.text ?? "",
+				/Audit the transient range/,
+			);
+		}
+
+		for (const kind of ["malformed", "directory", "symlink"] as const) {
+			const slug = `${kind}-outline-json`;
+			const { repository } = await prepareStructuredTask(slug, "build", {
+				build: { phaseSnapshot: pendingPhase(), status: "pending" },
+			});
+			const path = join(tasks, slug, "outline.json");
+			rmSync(path);
+			if (kind === "malformed") writeFileSync(path, '{"version":1');
+			else if (kind === "directory") mkdirSync(path);
+			else {
+				const external = join(scratch, `${slug}.json`);
+				writeFileSync(external, serializeOutlineStore(outlineStore()));
+				symlinkSync(external, path);
+			}
+			const promptCount = harness.prompts.length;
+			await harness.invoke(slug, repository.root);
+			assert.equal(harness.prompts.length, promptCount);
+			assert.ok(harness.notices.at(-1)?.level === "error");
+		}
+
+		{
+			const slug = "three-completed-repair";
+			const completed = [1, 2, 3].map((number) => ({
+				...pendingPhase(`P${number}`),
+				status: "completed" as const,
+				resolution: null,
+			}));
+			const { worktree } = await prepareStructuredTask(
+				slug,
+				"pr",
+				{ pr: { status: "pending" } },
+				outlineStore(completed, 4),
+			);
+			const prOwner = harness.createOwner(worktree, `${slug} · pr`);
+			const prPath = prOwner.getSessionFile();
+			assert.ok(prPath);
+			writeFileSync(
+				join(tasks, slug, "state.json"),
+				`${JSON.stringify(state("unused", "", "pr", { pr: { status: "active", session: prPath } }), null, 2)}\n`,
+			);
+			await harness.startSession(prOwner);
+			await harness.invokeInSession(
+				slug,
+				prOwner,
+				"Add repair phase",
+				"Repair retry behavior.",
+			);
+			const designOwner = harness.createOwner(worktree, `${slug} · design`);
+			await harness.startSession(designOwner);
+			await harness.invokeInSession(
+				slug,
+				designOwner,
+				"Agree & continue to outline",
+			);
+			const outlineOwner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, outlineOwner);
+			await harness.startSession(outlineOwner);
+			await harness.setOutline(outlineOwner, outlineInput(slug));
+			assert.deepEqual(
+				loadOutline(slug).phases.map(({ id, status }) => ({ id, status })),
+				[
+					{ id: "P1", status: "completed" },
+					{ id: "P2", status: "completed" },
+					{ id: "P3", status: "completed" },
+					{ id: "P4", status: "pending" },
+				],
+			);
+			await harness.invokeInSession(slug, outlineOwner);
+			assert.equal(
+				(
+					(loadState(slug).build as Record<string, unknown>)
+						.phaseSnapshot as PendingPhase
+				).id,
+				"P4",
+			);
+		}
+
+		{
+			const slug = "mid-build-replan";
+			const completed = {
+				...pendingPhase("P1"),
+				status: "completed" as const,
+				resolution: null,
+			};
+			const oldPending = pendingPhase("P2", {
+				...phaseInput,
+				title: "Old pending work",
+			});
+			const { worktree } = await prepareStructuredTask(
+				slug,
+				"build",
+				{ build: { phaseSnapshot: oldPending, status: "pending" } },
+				outlineStore([completed, oldPending], 3),
+			);
+			const buildOwner = harness.createOwner(worktree, `${slug} · build`);
+			const buildPath = buildOwner.getSessionFile();
+			assert.ok(buildPath);
+			writeFileSync(
+				join(tasks, slug, "state.json"),
+				`${JSON.stringify(
+					state("unused", "", "build", {
+						build: {
+							phaseSnapshot: oldPending,
+							status: "active",
+							session: buildPath,
+						},
+					}),
+					null,
+					2,
+				)}\n`,
+			);
+			await harness.startSession(buildOwner);
+			await harness.invokeInSession(
+				slug,
+				buildOwner,
+				"Revisit design",
+				"Replace pending work.",
+			);
+			const designOwner = harness.createOwner(worktree, `${slug} · design`);
+			await harness.startSession(designOwner);
+			await harness.invokeInSession(
+				slug,
+				designOwner,
+				"Agree & continue to outline",
+			);
+			const outlineOwner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, outlineOwner);
+			await harness.startSession(outlineOwner);
+			await harness.setOutline(outlineOwner, outlineInput(slug));
+			assert.deepEqual(
+				loadOutline(slug).phases.map(({ id, status }) => ({ id, status })),
+				[
+					{ id: "P1", status: "completed" },
+					{ id: "P3", status: "pending" },
+				],
 			);
 		}
 
@@ -1169,12 +1508,12 @@ async function main(): Promise<void> {
 			persistTask(
 				slug,
 				state(repository.common, repository.head, "build", {
-					build: { phaseLine, status: "pending" },
+					build: { phaseSnapshot: pendingPhase(), status: "pending" },
 				}),
 			);
-			const externalOutline = join(scratch, `${slug}-outline.md`);
-			writeFileSync(externalOutline, `${phaseLine}\n`);
-			symlinkSync(externalOutline, join(tasks, slug, "04-outline.md"));
+			const externalOutline = join(scratch, `${slug}-outline.json`);
+			writeFileSync(externalOutline, serializeOutlineStore(outlineStore()));
+			symlinkSync(externalOutline, join(tasks, slug, "outline.json"));
 			const promptCount = harness.prompts.length;
 			await harness.invoke(slug, repository.root);
 			assert.equal(harness.prompts.length, promptCount);
@@ -1202,9 +1541,9 @@ async function main(): Promise<void> {
 			persistTask(
 				slug,
 				state(repository.common, repository.head, "build", {
-					build: { phaseLine, status: "pending" },
+					build: { phaseSnapshot: pendingPhase(), status: "pending" },
 				}),
-				`${phaseLine}\n`,
+				outlineStore(),
 			);
 			const source = SessionManager.create(repository.root);
 			harness.cancelNextSwitch = true;
@@ -1215,14 +1554,13 @@ async function main(): Promise<void> {
 			assert.deepEqual(
 				loadState(slug),
 				state(repository.common, repository.head, "build", {
-					build: { phaseLine, status: "pending" },
+					build: { phaseSnapshot: pendingPhase(), status: "pending" },
 				}),
 			);
 			assert.ok(
 				harness.notices.some(
 					(notice) =>
-						notice.message ===
-						"session switch cancelled — build run unchanged",
+						notice.message === "session switch cancelled — build run unchanged",
 				),
 			);
 		}
@@ -1251,11 +1589,12 @@ async function main(): Promise<void> {
 			persistTask(
 				slug,
 				state(repository.common, repository.head, "staging", {
-					phaseLine,
+					phaseSnapshot: pendingPhase(),
 					session: ownerPath,
 					parent: repository.head,
 					paths: ["new.txt", "tracked.txt"],
 				}),
+				outlineStore(),
 			);
 			const elsewhere = join(scratch, `${slug}-elsewhere`);
 			mkdirSync(elsewhere);
@@ -1275,7 +1614,7 @@ async function main(): Promise<void> {
 				loadState(slug),
 				state(repository.common, repository.head, "build", {
 					build: {
-						phaseLine,
+						phaseSnapshot: pendingPhase(),
 						status: "active",
 						session: ownerPath,
 					},
@@ -1303,11 +1642,11 @@ async function main(): Promise<void> {
 			persistTask(
 				slug,
 				state(repository.common, repository.head, "closing", {
-					phaseLine,
+					phaseSnapshot: pendingPhase(),
 					session: ownerPath,
 					resolution,
 				}),
-				`# Outline\n\n${phaseLine.replace("[ ]", "[x]")}\n\n## Phase 1: Implement the focused change\n\nResolution: ${resolution}\n`,
+				outlineStore(),
 			);
 			const elsewhere = join(scratch, `${slug}-elsewhere`);
 			mkdirSync(elsewhere);
@@ -1321,6 +1660,11 @@ async function main(): Promise<void> {
 				}),
 			);
 			assert.equal(await git(worktree, "status", "--porcelain"), "");
+			assert.deepEqual(loadOutline(slug).phases[0], {
+				...pendingPhase(),
+				status: "completed",
+				resolution,
+			});
 			assert.ok(
 				harness.notices.some(
 					(notice) =>
@@ -1352,11 +1696,11 @@ async function main(): Promise<void> {
 			persistTask(
 				slug,
 				state(repository.common, repository.head, "committing", {
-					phaseLine,
+					phaseSnapshot: pendingPhase(),
 					session: ownerPath,
 					parent: repository.head,
 				}),
-				`# Outline\n\n${phaseLine}\n\n## Phase 1: Implement the focused change\n`,
+				outlineStore(),
 			);
 			const elsewhere = join(scratch, `${slug}-elsewhere`);
 			mkdirSync(elsewhere);
@@ -1369,8 +1713,13 @@ async function main(): Promise<void> {
 					pr: { status: "pending" },
 				}),
 			);
+			assert.deepEqual(loadOutline(slug).phases[0], {
+				...pendingPhase(),
+				status: "completed",
+				resolution: null,
+			});
 			assert.match(
-				readFileSync(join(tasks, slug, "04-outline.md"), "utf8"),
+				readFileSync(join(tasks, slug, "04-structure-outline.md"), "utf8"),
 				/^- \[x\] Phase 1: Implement the focused change$/m,
 			);
 			assert.ok(
@@ -1415,9 +1764,13 @@ async function main(): Promise<void> {
 			persistTask(
 				slug,
 				state(repository.common, repository.head, "build", {
-					build: { phaseLine, status: "active", session: ownerPath },
+					build: {
+						phaseSnapshot: pendingPhase(),
+						status: "active",
+						session: ownerPath,
+					},
 				}),
-				`# Outline\n\n${phaseLine}\n\n## Phase 1: Implement the focused change\n`,
+				outlineStore(),
 			);
 			writeFileSync(join(worktree, literalName), "literal edited\n");
 

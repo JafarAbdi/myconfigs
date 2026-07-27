@@ -10,8 +10,10 @@ The current working directory must be the canonical task worktree named in the R
 document `repo:` paths as historical provenance only; never leave this worktree. Stop on any cwd,
 branch, missing named-base-ref, or dirty-worktree mismatch.
 
-Read `ticket.md` and `04-structure-outline.md` in full; read `03-design-discussion.md` and
-`02-research.md` if the diff raises something they would answer.
+Read `ticket.md` and the generated `04-structure-outline.md` projection in full; read
+`03-design-discussion.md` and `02-research.md` if the diff raises something they would answer.
+Never edit Outline artifacts or treat Markdown as writable progress state; repairs route through
+Design and a fresh Outline submission.
 
 Run every phase's `### Verification` commands, not just the last phase's. Stop on a failure.
 

@@ -1,69 +1,38 @@
 ---
-description: RPI build — implement the next unchecked phase of the outline
+description: RPI build — implement one structured pending phase
 argument-hint: "<task-slug> [instructions]"
 ---
 
-Treat a decision in the final Run context as settled, but check any claim about the code before
-acting on it — `delegate` to `scout`. A wrong fact accepted here becomes the plan and then the code.
-
 The current working directory must be the canonical task worktree named in the Run context. Treat
-document `repo:` paths as historical provenance only; never leave this worktree. Stop on any cwd
-or branch mismatch.
+document `repo:` paths as historical provenance only; never leave this worktree. Stop on any cwd or
+branch mismatch.
 
-Read `04-structure-outline.md` in full.
+Read `04-structure-outline.md` in full as generated context. Implement only the authoritative
+structured phase in the final Run context. Its ID and exact fields define this run; never infer work
+or progress from Markdown checkboxes, parse `outline.json`, or edit either Outline artifact.
 
-Implement the authoritative unchecked phase line in the final Run context. Confirm it is the first
-unchecked `- [ ]` in the Implementation Overview; if it is not, stop with the mismatch. That line
-is the whole run. Do not look for other markers. One phase per run.
+Resolve every file path relative to the repository root. Delegate implementation to `implementer`,
+giving it the structured phase and paths to the generated outline, design discussion, and research.
+The phase wins over design, research, and ticket. Stop after its verification commands pass.
 
-**The repository is the current working directory.** Resolve every file path relative to it and
-ignore absolute repository paths in the documents, verification commands included — those point at
-the checkout the outline was planned in. An absolute path outside the cwd is a defect in the
-outline: say so rather than following it, and pass this rule to the implementer.
+Run those verification commands yourself. Delegate `correctness-reviewer` with changed paths and
+the generated outline as requirement context. Fix blocking findings through `implementer`, rerun
+verification, and review again. Stop when no blocking finding remains or a round changes no files.
+Never fix non-blocking findings.
 
-## Implement it
+Report changes, exact checks and results, findings and fixes, remaining issues, and manual checks.
+If Git shows unrelated pre-existing changes, stop and report them. If the phase is impossible or
+unnecessary, explain why it can close with no code.
 
-`delegate` to `implementer`. Give it the phase number and the **paths** to the outline, the design
-discussion, and the research — never their contents. It has a read tool.
-
-Tell it: the outline is intent and signatures, it writes the implementation; outline wins over
-design discussion wins over research wins over ticket; this phase only; stop after the phase's
-Verification commands pass; do not touch the outline document.
-
-Then run that phase's Verification commands yourself. The implementer's report is a claim, not
-evidence.
-
-If the implementer reports that the outline does not match the code, stop and put the mismatch in
-front of the human. Do not improvise around it.
-
-## Review and fix
-
-`delegate` to `correctness-reviewer` with the paths this phase changed and the outline as the
-requirement file. It has no `bash`, so name the files — it cannot work out a diff itself.
-
-Fix the blocking findings: `delegate` to `implementer` with the finding text, re-run the phase's
-Verification commands, then review again. Stop when the reviewer returns nothing blocking, or when
-a round changes no files. Never fix non-blocking findings; report them.
-
-If the implementer escalates instead of fixing, the rule above applies: stop and ask the human.
-
-## Report and stop
-
-Report normally: what changed, the exact verification commands and results, the reviewer's findings
-and fixes, anything left, and any manual check. Name the repository-relative paths changed by this
-phase, including tests and deletions. If Git shows unrelated pre-existing changes, stop and put them
-before the human instead of including them.
-
-If the phase is impossible or unnecessary, explain why it can close with no code.
-
-Do not stage or commit anything. Do not edit any outline checkbox or add a `Resolution:` paragraph.
-Do not start another phase or claim the task transitioned. The extension presents the report and
-repository state to the human, who reviews with `git diff` and decides what happens next.
+Do not stage, commit, edit Outline artifacts, start another phase, or claim a transition. The
+extension owns progress and completion.
 
 ## Run context
 
 Task slug: `$1`
 Task directory: `~/.pi/agent/tasks/$1/`
-Additional instruction supplied through the `/rpi` controls: `${@:2}`
-Authoritative unchecked phase line: `{{RPI_PHASE_LINE}}`
-Use the Task directory above for all task-document paths.
+Additional instruction supplied through `/rpi` controls: `${@:2}`
+Authoritative structured pending phase:
+```json
+{{RPI_STRUCTURED_PHASE}}
+```

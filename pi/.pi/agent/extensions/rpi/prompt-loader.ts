@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -13,7 +13,7 @@ export type PhasePrompt =
 
 export interface PromptContext {
 	extra?: string;
-	phaseLine?: string;
+	structuredPhase?: string;
 	baseBranch?: string;
 	baseSha?: string;
 	head?: string;
@@ -33,8 +33,9 @@ export function loadPhasePrompt(
 	slug: string,
 	context: PromptContext = {},
 ): string {
-	const taskDirectory = `${join(getAgentDir(), "tasks", slug)}/`;
-	const worktree = join(getAgentDir(), "worktrees", slug);
+	const agentDirectory = realpathSync(getAgentDir());
+	const taskDirectory = `${join(agentDirectory, "tasks", slug)}/`;
+	const worktree = join(agentDirectory, "worktrees", slug);
 	const instructions = stripFrontmatter(
 		readFileSync(join(PROMPTS, `rpi-${phase}.md`), "utf-8"),
 	);
@@ -42,14 +43,14 @@ export function loadPhasePrompt(
 	const replacements: Record<string, string> = {
 		$1: slug,
 		"${@:2}": context.extra ?? "",
-		"{{RPI_PHASE_LINE}}": context.phaseLine ?? "",
+		"{{RPI_STRUCTURED_PHASE}}": context.structuredPhase ?? "",
 		"{{RPI_BASE_BRANCH}}": context.baseBranch ?? "",
 		"{{RPI_BASE_SHA}}": context.baseSha ?? "",
 		"{{RPI_PR_HEAD}}": context.head ?? "",
 		"~/.pi/agent/tasks/$1/": taskDirectory,
 	};
 	return body.replace(
-		/~\/\.pi\/agent\/tasks\/\$1\/|\$\{@:2\}|\{\{RPI_(?:PHASE_LINE|BASE_BRANCH|BASE_SHA|PR_HEAD)\}\}|\$1/g,
+		/~\/\.pi\/agent\/tasks\/\$1\/|\$\{@:2\}|\{\{RPI_(?:STRUCTURED_PHASE|BASE_BRANCH|BASE_SHA|PR_HEAD)\}\}|\$1/g,
 		(placeholder) => replacements[placeholder],
 	);
 }

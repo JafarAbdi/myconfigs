@@ -7,8 +7,9 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { isAbsolute, join, posix } from "node:path";
+import { type PendingPhase, validPendingPhase } from "./outline.ts";
 
-export const STATE_VERSION = 4 as const;
+export const STATE_VERSION = 5 as const;
 export const CANCELLED = Symbol("cancelled");
 
 export const PHASES = [
@@ -27,10 +28,7 @@ export const PHASES = [
 ] as const;
 export type Phase = (typeof PHASES)[number];
 
-type PlainPhase = Extract<
-	Phase,
-	"questions" | "research" | "design" | "outline" | "done"
->;
+type PlainPhase = Extract<Phase, "questions" | "research" | "design" | "done">;
 
 interface Identity {
 	version: typeof STATE_VERSION;
@@ -46,6 +44,12 @@ export interface PlainTaskState extends Identity {
 	phase: PlainPhase;
 }
 
+export interface OutlineTaskState extends Identity {
+	phase: "outline";
+	submitted: boolean;
+	session: string;
+}
+
 export interface DeletingTaskState extends Identity {
 	phase: "deleting";
 	gitDirectory: string;
@@ -55,29 +59,30 @@ type RunOwnership =
 	| { status: "pending"; session?: never }
 	| { status: "active"; session: string };
 
-export interface BuildTaskState extends Identity {
-	phase: "build";
-	build: RunOwnership & { phaseLine: string };
+interface PhaseSnapshot {
+	phaseSnapshot: PendingPhase;
 }
 
-export interface ClosingTaskState extends Identity {
+export interface BuildTaskState extends Identity {
+	phase: "build";
+	build: RunOwnership & PhaseSnapshot;
+}
+
+export interface ClosingTaskState extends Identity, PhaseSnapshot {
 	phase: "closing";
-	phaseLine: string;
 	session: string;
 	resolution: string;
 }
 
-export interface StagingTaskState extends Identity {
+export interface StagingTaskState extends Identity, PhaseSnapshot {
 	phase: "staging";
-	phaseLine: string;
 	session: string;
 	parent: string;
 	paths: string[];
 }
 
-export interface CommittingTaskState extends Identity {
+export interface CommittingTaskState extends Identity, PhaseSnapshot {
 	phase: "committing";
-	phaseLine: string;
 	session: string;
 	parent: string;
 }
@@ -90,6 +95,7 @@ export interface PrTaskState extends Identity {
 export type TaskState =
 	| CreatingTaskState
 	| PlainTaskState
+	| OutlineTaskState
 	| DeletingTaskState
 	| BuildTaskState
 	| ClosingTaskState
@@ -102,7 +108,6 @@ export type LoadedState =
 	| { kind: "valid"; state: TaskState };
 
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
-const PHASE_LINE = /^- \[ \] Phase \d+: [^\r\n]+$/;
 
 function exactKeys(value: Record<string, unknown>, allowed: string[]): boolean {
 	const keys = Object.keys(value);
@@ -133,6 +138,10 @@ export function invariantError(expected: string, found: string): Error {
 	return new Error(
 		`RPI invariant failed\n\nExpected: ${expected}\n\nFound: ${found}\n\nRPI stopped without attempting repair.`,
 	);
+}
+
+function validPhaseSnapshot(value: Record<string, unknown>): boolean {
+	return validPendingPhase(value.phaseSnapshot);
 }
 
 function safePaths(value: unknown): value is string[] {
@@ -177,14 +186,13 @@ export function parseTaskState(value: unknown): TaskState | undefined {
 		const build = record(state.build);
 		const buildKeys =
 			build?.status === "active"
-				? ["phaseLine", "status", "session"]
-				: ["phaseLine", "status"];
+				? ["phaseSnapshot", "status", "session"]
+				: ["phaseSnapshot", "status"];
 		if (
 			!exactKeys(state, [...identityKeys, "build"]) ||
 			!build ||
 			!exactKeys(build, buildKeys) ||
-			typeof build.phaseLine !== "string" ||
-			!PHASE_LINE.test(build.phaseLine) ||
+			!validPhaseSnapshot(build) ||
 			(build.status !== "pending" && build.status !== "active") ||
 			(build.status === "active" &&
 				(typeof build.session !== "string" || !isAbsolute(build.session)))
@@ -198,12 +206,11 @@ export function parseTaskState(value: unknown): TaskState | undefined {
 		if (
 			!exactKeys(state, [
 				...identityKeys,
-				"phaseLine",
+				"phaseSnapshot",
 				"session",
 				"resolution",
 			]) ||
-			typeof state.phaseLine !== "string" ||
-			!PHASE_LINE.test(state.phaseLine) ||
+			!validPhaseSnapshot(state) ||
 			typeof state.session !== "string" ||
 			!isAbsolute(state.session) ||
 			typeof state.resolution !== "string" ||
@@ -219,13 +226,12 @@ export function parseTaskState(value: unknown): TaskState | undefined {
 		if (
 			!exactKeys(state, [
 				...identityKeys,
-				"phaseLine",
+				"phaseSnapshot",
 				"session",
 				"parent",
 				"paths",
 			]) ||
-			typeof state.phaseLine !== "string" ||
-			!PHASE_LINE.test(state.phaseLine) ||
+			!validPhaseSnapshot(state) ||
 			typeof state.session !== "string" ||
 			!isAbsolute(state.session) ||
 			typeof state.parent !== "string" ||
@@ -239,9 +245,13 @@ export function parseTaskState(value: unknown): TaskState | undefined {
 
 	if (state.phase === "committing") {
 		if (
-			!exactKeys(state, [...identityKeys, "phaseLine", "session", "parent"]) ||
-			typeof state.phaseLine !== "string" ||
-			!PHASE_LINE.test(state.phaseLine) ||
+			!exactKeys(state, [
+				...identityKeys,
+				"phaseSnapshot",
+				"session",
+				"parent",
+			]) ||
+			!validPhaseSnapshot(state) ||
 			typeof state.session !== "string" ||
 			!isAbsolute(state.session) ||
 			typeof state.parent !== "string" ||
@@ -250,6 +260,17 @@ export function parseTaskState(value: unknown): TaskState | undefined {
 			return undefined;
 		}
 		return state as unknown as CommittingTaskState;
+	}
+
+	if (state.phase === "outline") {
+		if (
+			!exactKeys(state, [...identityKeys, "submitted", "session"]) ||
+			typeof state.submitted !== "boolean" ||
+			typeof state.session !== "string" ||
+			!isAbsolute(state.session)
+		)
+			return undefined;
+		return state as unknown as OutlineTaskState;
 	}
 
 	if (state.phase === "pr") {
@@ -302,38 +323,50 @@ export function plainState(
 	return { ...identityOf(state), phase };
 }
 
+export function outlineState(
+	state: TaskState,
+	session: string,
+	submitted = false,
+): OutlineTaskState {
+	return { ...identityOf(state), phase: "outline", submitted, session };
+}
+
+function phaseSnapshot(phase: PendingPhase): PhaseSnapshot {
+	return { phaseSnapshot: phase };
+}
+
 export function buildState(
 	state: TaskState,
-	phaseLine: string,
+	phase: PendingPhase,
 ): BuildTaskState {
 	return {
 		...identityOf(state),
 		phase: "build",
-		build: { phaseLine, status: "pending" },
+		build: { ...phaseSnapshot(phase), status: "pending" },
 	};
 }
 
 export function activeBuildState(
 	state: TaskState,
-	phaseLine: string,
+	phase: PendingPhase,
 	session: string,
 ): BuildTaskState {
 	return {
-		...buildState(state, phaseLine),
-		build: { phaseLine, status: "active", session },
+		...buildState(state, phase),
+		build: { ...phaseSnapshot(phase), status: "active", session },
 	};
 }
 
 export function closingState(
 	state: TaskState,
-	phaseLine: string,
+	phase: PendingPhase,
 	session: string,
 	resolution: string,
 ): ClosingTaskState {
 	return {
 		...identityOf(state),
 		phase: "closing",
-		phaseLine,
+		...phaseSnapshot(phase),
 		session,
 		resolution,
 	};
@@ -341,7 +374,7 @@ export function closingState(
 
 export function stagingState(
 	state: TaskState,
-	phaseLine: string,
+	phase: PendingPhase,
 	session: string,
 	parent: string,
 	paths: string[],
@@ -349,7 +382,7 @@ export function stagingState(
 	return {
 		...identityOf(state),
 		phase: "staging",
-		phaseLine,
+		...phaseSnapshot(phase),
 		session,
 		parent,
 		paths,
@@ -358,14 +391,14 @@ export function stagingState(
 
 export function committingState(
 	state: TaskState,
-	phaseLine: string,
+	phase: PendingPhase,
 	session: string,
 	parent: string,
 ): CommittingTaskState {
 	return {
 		...identityOf(state),
 		phase: "committing",
-		phaseLine,
+		...phaseSnapshot(phase),
 		session,
 		parent,
 	};
