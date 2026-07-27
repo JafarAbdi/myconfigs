@@ -83,7 +83,6 @@ import {
 	identityState,
 	invariantError,
 	loadTaskState,
-	PHASES,
 	type Phase,
 	type PrTaskState,
 	outlineState,
@@ -108,6 +107,7 @@ const SESSION_PHASES = [
 	"pr",
 ] as const;
 const STATE_FILE = "state.json";
+type VisiblePhase = (typeof SESSION_PHASES)[number];
 const QUESTIONS_FILE = "questions.json";
 const OUTLINE_FILE = "outline.json";
 const OUTLINE_DOCUMENT = "04-structure-outline.md";
@@ -1090,8 +1090,10 @@ export default function rpi(pi: ExtensionAPI): void {
 		if (loaded.kind === "missing")
 			return { phase: "questions", detail: "blocked · missing state.json" };
 		const { phase } = loaded.state;
-		if (phase === "closing") return { phase, detail: "no-code recovery" };
-		if (phase === "staging") return { phase, detail: "staging recovery" };
+		if (phase === "creating") return { phase, detail: "setting up" };
+		if (phase === "closing") return { phase, detail: "closing with no code" };
+		if (phase === "staging")
+			return { phase, detail: "staging approved changes" };
 		if (phase === "committing") return { phase, detail: "commit recovery" };
 		if (phase === "design") {
 			const questions = designQuestionsIn(slug);
@@ -1146,30 +1148,66 @@ export default function rpi(pi: ExtensionAPI): void {
 		return { phase, detail: "" };
 	}
 
+	type VisibleStep = {
+		phase: VisiblePhase;
+		status: "complete" | "active" | "pending";
+	};
+
+	function visiblePhase(phase: Phase): VisiblePhase | undefined {
+		if (phase === "creating") return "questions";
+		if (phase === "closing" || phase === "staging" || phase === "committing")
+			return "build";
+		if (phase === "done" || phase === "deleting") return undefined;
+		return phase;
+	}
+
+	function visibleSteps(place: Place): VisibleStep[] {
+		if (place.phase === "deleting") return [];
+		const activePhase = visiblePhase(place.phase);
+		const activeIndex = activePhase
+			? SESSION_PHASES.indexOf(activePhase)
+			: SESSION_PHASES.length;
+		return SESSION_PHASES.map((phase, index) => ({
+			phase,
+			status:
+				index < activeIndex
+					? "complete"
+					: index === activeIndex
+						? "active"
+						: "pending",
+		}));
+	}
+
+	function widgetHead(slug: string, phase: Phase): string {
+		if (phase === "done") return `rpi ${slug}  done`;
+		if (phase === "deleting") return `rpi ${slug}  removing`;
+		return `rpi ${slug}  /rpi ${slug}`;
+	}
+
 	function show(ctx: ExtensionContext, slug: string, place: Place): void {
-		const at = PHASES.indexOf(place.phase);
+		const steps = visibleSteps(place);
 		if (ctx.mode !== "tui") {
-			const dots = PHASES.slice(0, -1)
-				.map((phase, index) => {
-					if (place.phase === "done" || index < at) return `✓ ${phase}`;
-					if (index === at)
+			const dots = steps
+				.map(({ phase, status }) => {
+					if (status === "complete") return `✓ ${phase}`;
+					if (status === "active")
 						return `● ${phase}${place.detail ? ` · ${place.detail}` : ""}`;
 					return `○ ${phase}`;
 				})
 				.join("  ");
 			ctx.ui.setWidget("rpi", [
-				`rpi ${slug}  ${place.phase === "done" ? "done" : `/rpi ${slug}`}`,
-				dots,
+				widgetHead(slug, place.phase),
+				...(dots ? [dots] : []),
 			]);
 			return;
 		}
 		ctx.ui.setWidget("rpi", (_tui, theme) => {
 			const compose = () => {
-				const dots = PHASES.slice(0, -1)
-					.map((phase, index) => {
-						if (place.phase === "done" || index < at)
+				const dots = steps
+					.map(({ phase, status }) => {
+						if (status === "complete")
 							return theme.fg("success", `✓ ${phase}`);
-						if (index === at) {
+						if (status === "active") {
 							return theme.fg(
 								"accent",
 								`● ${phase}${place.detail ? ` · ${place.detail}` : ""}`,
@@ -1178,11 +1216,17 @@ export default function rpi(pi: ExtensionAPI): void {
 						return theme.fg("dim", `○ ${phase}`);
 					})
 					.join("  ");
+				const suffix =
+					place.phase === "done"
+						? "  done"
+						: place.phase === "deleting"
+							? "  removing"
+							: `  /rpi ${slug}`;
 				const head =
 					theme.fg("muted", "rpi ") +
 					theme.fg("toolTitle", theme.bold(slug)) +
-					theme.fg("dim", place.phase === "done" ? "  done" : `  /rpi ${slug}`);
-				return `${head}\n${dots}`;
+					theme.fg("dim", suffix);
+				return dots ? `${head}\n${dots}` : head;
 			};
 			const text = new Text(compose(), 1, 0);
 			return {

@@ -1596,6 +1596,13 @@ async function main(): Promise<void> {
 				}),
 				outlineStore(),
 			);
+			await harness.startSession(owner);
+			const stagingWidget = JSON.stringify(harness.widgets.at(-1));
+			assert.match(stagingWidget, /● build · staging approved changes/);
+			assert.doesNotMatch(
+				stagingWidget,
+				/[✓●○] (?:creating|closing|staging|committing|done|deleting)/,
+			);
 			const elsewhere = join(scratch, `${slug}-elsewhere`);
 			mkdirSync(elsewhere);
 			await harness.invoke(slug, elsewhere);
