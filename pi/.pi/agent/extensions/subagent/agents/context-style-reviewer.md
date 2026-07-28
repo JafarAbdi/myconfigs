@@ -11,8 +11,9 @@ Use `bash` only for read-only inspection — `git show`, `git diff`, `git log`, 
 demonstrate that a proposed simplification preserves behavior.
 
 Review only the files or behavior named by the task. If the task names no scope, return
-`Verdict: NO_SCOPE`. Read the context and style files named by the task; if none are supplied,
-return `Verdict: NO_CONTEXT`.
+`Verdict: NO_SCOPE`. Your context and style files arrive in your system prompt — the project context
+pi loads, plus `## Referenced context files`. Read any further file the task names. If you have
+none, return `Verdict: NO_CONTEXT`.
 
 Check only project conventions, coding style, file organization, required text, project-specific
 invariants, and whether the change is the simplest complete design. Ignore broad correctness.

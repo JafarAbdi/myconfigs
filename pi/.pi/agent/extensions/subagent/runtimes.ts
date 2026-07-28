@@ -564,7 +564,7 @@ const piRuntime: Runtime = {
 	},
 };
 
-function piInvocation(args: string[]): Invocation {
+export function piInvocation(args: string[]): Invocation {
 	const script = process.argv[1];
 	if (script && existsSync(script)) return { command: process.execPath, args: [script, ...args] };
 	const runtime = basename(process.execPath).toLowerCase();
