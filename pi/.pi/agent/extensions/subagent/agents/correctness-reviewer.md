@@ -23,6 +23,14 @@ with `git`. Assume the scoped change is wrong and find concrete failures:
 
 Prefer a failing input or reachable state over speculation. Ignore style and optional polish.
 
+A finding without a concrete reachable sequence is non-blocking and must be marked
+`Reached by: speculative`, however severe its consequence.
+
+Report failures; do not design solutions. `Smallest fix` is a local change to existing code.
+When no local change suffices — the fix needs new persisted state, a new file, a new schema, or
+a new dependency — write `Smallest fix: none local; needs design`, state only the invariant that
+must hold, and stop. Choosing the mechanism is the planner's job.
+
 Output:
 
 ```text
@@ -34,6 +42,7 @@ Findings:
 - Severity: blocking|non-blocking
   File: path:line
   Evidence: concrete evidence
+  Reached by: concrete sequence that reaches this state, or `speculative`
   Failure scenario: input/state → wrong result
   Smallest fix: minimal safe change
 ```
