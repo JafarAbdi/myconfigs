@@ -34,6 +34,7 @@ import {
 import type { PendingPhase } from "./outline.ts";
 
 const SHA_A = "a".repeat(40);
+const SHA_B = "b".repeat(64);
 const identity = identityState("main", "/repo");
 const phase1 = {
 	id: "P1",
@@ -339,9 +340,33 @@ const committing = committingState(
 	phase1,
 	"/sessions/build.jsonl",
 	SHA_A,
+	SHA_B,
 );
 assert.deepEqual(parseTaskState(committing), committing);
 assert.equal(committing.baseBranch, "main");
+assert.equal(committing.tree, SHA_B);
+assert.deepEqual(parseTaskState({ ...committing, tree: SHA_A }), {
+	...committing,
+	tree: SHA_A,
+});
+const { tree: _tree, ...legacyCommitting } = committing;
+assert.deepEqual(
+	parseTaskState(legacyCommitting),
+	legacyCommitting,
+	"legacy version-5 committing state without a tree remains parseable",
+);
+for (const tree of ["", "a".repeat(39), "g".repeat(40), "a".repeat(65), 42]) {
+	assert.equal(
+		parseTaskState({ ...committing, tree }),
+		undefined,
+		"committing rejects malformed tree object IDs",
+	);
+}
+assert.equal(
+	parseTaskState({ ...committing, tree: undefined }),
+	undefined,
+	"an explicitly present undefined tree is not a legacy state",
+);
 assert.equal(
 	parseTaskState({ ...committing, session: "sessions/build.jsonl" }),
 	undefined,

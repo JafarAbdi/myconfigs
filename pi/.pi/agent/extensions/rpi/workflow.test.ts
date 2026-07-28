@@ -65,6 +65,12 @@ interface RegisteredTool {
 	): Promise<unknown>;
 }
 
+interface MockEvent {
+	previousSessionFile?: string;
+	text?: string;
+	source?: string;
+}
+
 interface SessionOptions {
 	parentSession?: string;
 	setup?: (manager: SessionManagerInstance) => Promise<void>;
@@ -173,10 +179,12 @@ symlinkSync(
 );
 
 async function main(): Promise<void> {
-	const [{ default: registerRpi }, { SessionManager }] = await Promise.all([
-		import("./index.ts"),
-		import("@earendil-works/pi-coding-agent"),
-	]);
+	const [{ default: registerRpi }, { SessionManager }, { renderBuildPhase }] =
+		await Promise.all([
+			import("./index.ts"),
+			import("@earendil-works/pi-coding-agent"),
+			import("./outline.ts"),
+		]);
 
 	function run(
 		command: string,
@@ -393,15 +401,19 @@ async function main(): Promise<void> {
 		readonly widgets: unknown[] = [];
 		cancelNextSwitch = false;
 		beforeNextConfirm: (() => Promise<void> | void) | undefined;
+		beforeNextSelect: (() => Promise<void> | void) | undefined;
 		private manager: SessionManagerInstance | undefined;
 		private command:
 			| ((args: string, ctx: MockContext) => Promise<void>)
 			| undefined;
 		private sessionStart:
-			| ((
-					event: { previousSessionFile?: string },
-					ctx: MockContext,
-				) => Promise<void>)
+			| ((event: MockEvent, ctx: MockContext) => Promise<unknown>)
+			| undefined;
+		private agentSettled:
+			| ((event: MockEvent, ctx: MockContext) => Promise<unknown>)
+			| undefined;
+		private inputHandler:
+			| ((event: MockEvent, ctx: MockContext) => Promise<unknown>)
 			| undefined;
 		private readonly registeredTools = new Map<string, RegisteredTool>();
 		private availableModel: MockModel | undefined;
@@ -427,12 +439,11 @@ async function main(): Promise<void> {
 			const api = {
 				on: (
 					event: string,
-					handler: (
-						event: { previousSessionFile?: string },
-						ctx: MockContext,
-					) => Promise<void>,
+					handler: (event: MockEvent, ctx: MockContext) => Promise<unknown>,
 				) => {
 					if (event === "session_start") this.sessionStart = handler;
+					if (event === "agent_settled") this.agentSettled = handler;
+					if (event === "input") this.inputHandler = handler;
 				},
 				registerTool: (tool: RegisteredTool) => {
 					this.tools.push(tool.name);
@@ -533,6 +544,23 @@ async function main(): Promise<void> {
 			assert.ok(this.sessionStart, "session_start was not registered");
 			await this.withManager(manager, () =>
 				this.sessionStart?.(event, this.context(manager)),
+			);
+		}
+
+		async settle(manager: SessionManagerInstance): Promise<void> {
+			assert.ok(this.agentSettled, "agent_settled was not registered");
+			await this.withManager(manager, () =>
+				this.agentSettled?.({}, this.context(manager)),
+			);
+		}
+
+		async input(
+			manager: SessionManagerInstance,
+			text = "inspect recovery",
+		): Promise<unknown> {
+			assert.ok(this.inputHandler, "input was not registered");
+			return this.withManager(manager, () =>
+				this.inputHandler?.({ text, source: "user" }, this.context(manager)),
 			);
 		}
 
@@ -667,6 +695,9 @@ async function main(): Promise<void> {
 				},
 				select: async (question, options) => {
 					this.selections.push({ question, options });
+					const before = this.beforeNextSelect;
+					this.beforeNextSelect = undefined;
+					await before?.();
 					return this.selectAnswers.shift();
 				},
 				input: async () => this.inputAnswers.shift(),
@@ -801,6 +832,45 @@ async function main(): Promise<void> {
 		);
 		writeFileSync(join(tasks, slug, "03-design.md"), emptyDesign);
 		return { repository, worktree };
+	}
+
+	async function prepareCommitRecovery(
+		slug: string,
+		options: { legacy?: boolean; completed?: boolean } = {},
+	): Promise<{
+		repository: Awaited<ReturnType<typeof initRepository>>;
+		worktree: string;
+		owner: SessionManagerInstance;
+		ownerPath: string;
+		tree: string;
+	}> {
+		const phase = pendingPhase();
+		const storedPhase = options.completed
+			? { ...phase, status: "completed" as const }
+			: phase;
+		const { repository, worktree } = await prepareStructuredTask(
+			slug,
+			"committing",
+			{},
+			outlineStore([storedPhase]),
+		);
+		const owner = harness.createOwner(worktree, `${slug} · build`);
+		const ownerPath = owner.getSessionFile();
+		assert.ok(ownerPath);
+		writeFileSync(join(worktree, "tracked.txt"), "approved tracked\n");
+		await git(worktree, "add", "tracked.txt");
+		const tree = await git(worktree, "write-tree");
+		persistTask(
+			slug,
+			state(repository.common, repository.head, "committing", {
+				phaseSnapshot: phase,
+				session: ownerPath,
+				parent: repository.head,
+				...(options.legacy ? {} : { tree }),
+			}),
+			outlineStore([storedPhase]),
+		);
+		return { repository, worktree, owner, ownerPath, tree };
 	}
 
 	const harness = new Harness();
@@ -966,6 +1036,25 @@ async function main(): Promise<void> {
 			);
 			assert.equal(loadState(slug).phase, "questions");
 			assert.equal(harness.prompts.at(-1)?.name, `${slug} · questions`);
+		}
+
+		{
+			const slug = "creating-is-not-questions-input";
+			const repository = await initRepository(slug);
+			persistTask(slug, state(repository.root, repository.head, "creating"));
+			const questionsSession = harness.createOwner(
+				repository.root,
+				`${slug} · questions`,
+			);
+
+			assert.deepEqual(await harness.input(questionsSession), {
+				action: "handled",
+			});
+			assert.match(
+				harness.notices.at(-1)?.message ?? "",
+				/creating, not this questions session/,
+			);
+			assert.equal(loadState(slug).phase, "creating");
 		}
 
 		{
@@ -1619,6 +1708,53 @@ async function main(): Promise<void> {
 			);
 		}
 
+		for (const changed of [true, false]) {
+			const slug = `continue-build-${changed ? "changed" : "clean"}`;
+			const { repository, worktree } = await prepareStructuredTask(
+				slug,
+				"build",
+				{ build: { phaseSnapshot: pendingPhase(), status: "pending" } },
+			);
+			const owner = harness.createOwner(worktree, `${slug} · build`);
+			const ownerPath = owner.getSessionFile();
+			assert.ok(ownerPath);
+			const expectedState = state(repository.common, repository.head, "build", {
+				build: {
+					phaseSnapshot: pendingPhase(),
+					status: "active",
+					session: ownerPath,
+				},
+			});
+			persistTask(slug, expectedState, outlineStore());
+			if (changed)
+				writeFileSync(join(worktree, "tracked.txt"), "work in progress\n");
+			const promptCount = harness.prompts.length;
+
+			await harness.invokeInSession(slug, owner, "Continue working");
+
+			assert.deepEqual(harness.selections.at(-1), {
+				question: `Phase 1 · ${changed ? "1 changed path" : "no changes"} · review with git diff`,
+				options: changed
+					? ["Continue working", "Approve & commit", "Revisit design"]
+					: ["Continue working", "Close with no code", "Revisit design"],
+			});
+			assert.equal(harness.prompts.length, promptCount + 1);
+			assert.equal(
+				harness.prompts.at(-1)?.text,
+				[
+					"Continue the current RPI build phase in this initialized session. Do not start another phase.",
+					`Authoritative structured build phase:\n${renderBuildPhase(pendingPhase())}`,
+				].join("\n\n"),
+			);
+			assert.deepEqual(loadState(slug), expectedState);
+			assert.equal(await git(worktree, "diff", "--cached", "--name-only"), "");
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), repository.head);
+			assert.equal(
+				await git(worktree, "status", "--porcelain"),
+				changed ? "M tracked.txt" : "",
+			);
+		}
+
 		{
 			const slug = "cancel-build-target";
 			const repository = await initRepository(slug);
@@ -1793,6 +1929,7 @@ async function main(): Promise<void> {
 			assert.ok(ownerPath);
 			writeFileSync(join(worktree, "tracked.txt"), "completed child\n");
 			await git(worktree, "add", "tracked.txt");
+			const approvedTree = await git(worktree, "write-tree");
 			await git(worktree, "commit", "-m", "Complete phase");
 			persistTask(
 				slug,
@@ -1800,6 +1937,7 @@ async function main(): Promise<void> {
 					phaseSnapshot: pendingPhase(),
 					session: ownerPath,
 					parent: repository.head,
+					tree: approvedTree,
 				}),
 				outlineStore(),
 			);
@@ -1883,6 +2021,11 @@ async function main(): Promise<void> {
 				[literalName],
 			);
 			assert.equal(loadState(slug).phase, "committing");
+			assert.equal(loadState(slug).tree, await git(worktree, "write-tree"));
+			assert.match(
+				harness.prompts.at(-1)?.text ?? "",
+				/^Commit the staged index exactly as-is\. Do not modify the index or worktree\./,
+			);
 
 			await git(worktree, "commit", "-m", "Edit literal pathspec filename");
 			assert.deepEqual(
@@ -1907,6 +2050,377 @@ async function main(): Promise<void> {
 				readFileSync(join(worktree, "foo"), "utf8"),
 				"ordinary baseline\n",
 			);
+		}
+
+		{
+			const slug = "commit-wrong-tree-clean";
+			const { repository, worktree, owner } = await prepareCommitRecovery(slug);
+			await git(worktree, "reset", "--mixed", repository.head);
+			writeFileSync(join(worktree, "tracked.txt"), "committed\n");
+			await git(worktree, "commit", "--allow-empty", "-m", "Subset commit");
+			const head = await git(worktree, "rev-parse", "HEAD");
+			await harness.invokeInSession(slug, owner, "Leave unchanged");
+			assert.deepEqual(harness.selections.at(-1), {
+				question: "Commit recovery",
+				options: ["Invalidate approval & return to Build", "Leave unchanged"],
+			});
+			assert.equal(await git(worktree, "status", "--porcelain"), "");
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), head);
+			assert.equal(loadState(slug).phase, "committing");
+		}
+
+		{
+			const slug = "commit-reset-preserves-present-files";
+			const { repository, worktree, owner, ownerPath, tree } =
+				await prepareCommitRecovery(slug);
+			await git(worktree, "reset", "--mixed", repository.head);
+			writeFileSync(join(worktree, "tracked.txt"), "wrong committed tree\n");
+			await git(worktree, "add", "tracked.txt");
+			await git(worktree, "commit", "-m", "Wrong commit");
+			const dropped = await git(worktree, "rev-parse", "HEAD");
+			writeFileSync(join(worktree, "tracked.txt"), "present tracked work\n");
+			writeFileSync(join(worktree, "present-untracked.txt"), "present untracked\n");
+			await harness.invokeInSession(
+				slug,
+				owner,
+				"Invalidate approval & return to Build",
+			);
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), repository.head);
+			assert.equal(await git(worktree, "diff", "--cached", "--name-only"), "");
+			assert.equal(
+				readFileSync(join(worktree, "tracked.txt"), "utf8"),
+				"present tracked work\n",
+			);
+			assert.equal(
+				readFileSync(join(worktree, "present-untracked.txt"), "utf8"),
+				"present untracked\n",
+			);
+			assert.deepEqual(loadState(slug), {
+				version: 5,
+				phase: "build",
+				baseBranch: "main",
+				build: {
+					phaseSnapshot: pendingPhase(),
+					status: "active",
+					session: ownerPath,
+				},
+			});
+			assert.match(harness.prompts.at(-1)?.text ?? "", /Approval was invalidated/);
+			assert.match(
+				harness.prompts.at(-1)?.text ?? "",
+				new RegExp(`Dropped child ${dropped} with approved tree ${tree}`),
+			);
+		}
+
+		for (const committed of [false, true]) {
+			const slug = `commit-missing-approved-new-file-${committed ? "child" : "parent"}`;
+			const { worktree, owner } = await prepareCommitRecovery(slug);
+			const approved = join(worktree, "approved-new.txt");
+			writeFileSync(approved, "approved new file\n");
+			await git(worktree, "add", "approved-new.txt");
+			const tree = await git(worktree, "write-tree");
+			persistTask(slug, { ...loadState(slug), tree });
+			if (committed)
+				await git(worktree, "commit", "-m", "Commit approved files");
+			rmSync(approved);
+			const head = await git(worktree, "rev-parse", "HEAD");
+			const status = await git(worktree, "status", "--porcelain=v1", "-z");
+
+			await harness.invokeInSession(slug, owner, "Leave unchanged");
+
+			assert.deepEqual(harness.selections.at(-1), {
+				question: "Commit recovery",
+				options: ["Ask agent to inspect", "Leave unchanged"],
+			});
+			assert.match(harness.notices.at(-1)?.message ?? "", new RegExp(tree));
+			assert.match(
+				harness.notices.at(-1)?.message ?? "",
+				/approved-new\.txt/,
+			);
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), head);
+			assert.equal(await git(worktree, "status", "--porcelain=v1", "-z"), status);
+			assert.equal(loadState(slug).phase, "committing");
+		}
+
+		{
+			const slug = "commit-reset-revalidation";
+			const { repository, worktree, owner } = await prepareCommitRecovery(slug);
+			await git(worktree, "reset", "--mixed", repository.head);
+			writeFileSync(join(worktree, "tracked.txt"), "wrong commit\n");
+			await git(worktree, "add", "tracked.txt");
+			await git(worktree, "commit", "-m", "Wrong commit");
+			const head = await git(worktree, "rev-parse", "HEAD");
+			harness.beforeNextSelect = () => {
+				writeFileSync(
+					join(tasks, slug, "state.json"),
+					`${JSON.stringify({ ...loadState(slug), tree: repository.head }, null, 2)}\n`,
+				);
+			};
+			await harness.invokeInSession(
+				slug,
+				owner,
+				"Invalidate approval & return to Build",
+			);
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), head);
+			assert.equal(loadState(slug).phase, "committing");
+			assert.ok(
+				harness.notices.some((notice) =>
+					notice.message.includes("commit state changed while recovery was open"),
+				),
+			);
+		}
+
+		{
+			const slug = "commit-reset-content-revalidation";
+			const { repository, worktree, owner } = await prepareCommitRecovery(slug);
+			await git(worktree, "reset", "--mixed", repository.head);
+			writeFileSync(join(worktree, "tracked.txt"), "wrong commit\n");
+			await git(worktree, "add", "tracked.txt");
+			await git(worktree, "commit", "-m", "Wrong commit");
+			const head = await git(worktree, "rev-parse", "HEAD");
+			harness.beforeNextSelect = () =>
+				writeFileSync(join(worktree, "tracked.txt"), "changed while open\n");
+
+			await harness.invokeInSession(
+				slug,
+				owner,
+				"Invalidate approval & return to Build",
+			);
+
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), head);
+			assert.equal(
+				readFileSync(join(worktree, "tracked.txt"), "utf8"),
+				"changed while open\n",
+			);
+			assert.equal(loadState(slug).phase, "committing");
+			assert.match(
+				harness.notices.at(-1)?.message ?? "",
+				/worktree or index evidence changed while recovery was open/,
+			);
+		}
+
+		{
+			const slug = "commit-retry-revalidation";
+			const { repository, worktree, owner } = await prepareCommitRecovery(slug);
+			const promptCount = harness.prompts.length;
+			harness.beforeNextSelect = async () => {
+				await git(worktree, "reset", "--mixed", repository.head);
+			};
+			await harness.invokeInSession(slug, owner, "Retry commit");
+			assert.equal(harness.prompts.length, promptCount);
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), repository.head);
+			assert.equal(loadState(slug).phase, "committing");
+		}
+
+		{
+			const slug = "commit-exact-tree-residue";
+			const { worktree, owner } = await prepareCommitRecovery(slug);
+			await git(worktree, "commit", "-m", "Exact commit");
+			const head = await git(worktree, "rev-parse", "HEAD");
+			writeFileSync(join(worktree, "residue.txt"), "keep residue\n");
+			await harness.invokeInSession(slug, owner, "Leave unchanged");
+			assert.deepEqual(harness.selections.at(-1), {
+				question: "Commit recovery",
+				options: [
+					"Ask agent to clean remaining files",
+					"Undo commit & return to Build",
+					"Leave unchanged",
+				],
+			});
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), head);
+			assert.equal(loadState(slug).phase, "committing");
+			assert.equal(loadOutline(slug).phases[0].status, "pending");
+		}
+
+		{
+			const slug = "commit-parent-retry";
+			const { worktree, owner } = await prepareCommitRecovery(slug);
+			await harness.invokeInSession(slug, owner, "Leave unchanged");
+			assert.deepEqual(harness.selections.at(-1), {
+				question: "Commit recovery",
+				options: [
+					"Retry commit",
+					"Invalidate approval & return to Build",
+					"Leave unchanged",
+				],
+			});
+			assert.notEqual(await git(worktree, "diff", "--cached", "--name-only"), "");
+		}
+
+		for (const indexState of ["wrong", "partially-unstaged"] as const) {
+			const slug = `commit-parent-${indexState}`;
+			const { worktree, owner } = await prepareCommitRecovery(slug);
+			if (indexState === "wrong") {
+				writeFileSync(join(worktree, "tracked.txt"), "wrong staged content\n");
+				await git(worktree, "add", "tracked.txt");
+			} else await git(worktree, "reset", "HEAD", "--", "tracked.txt");
+			const head = await git(worktree, "rev-parse", "HEAD");
+			const status = await git(worktree, "status", "--porcelain=v1", "-z");
+
+			await harness.invokeInSession(slug, owner, "Leave unchanged");
+
+			assert.deepEqual(harness.selections.at(-1), {
+				question: "Commit recovery",
+				options: ["Invalidate approval & return to Build", "Leave unchanged"],
+			});
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), head);
+			assert.equal(await git(worktree, "status", "--porcelain=v1", "-z"), status);
+		}
+
+		{
+			const slug = "commit-legacy-recovery";
+			const { worktree, owner } = await prepareCommitRecovery(slug, {
+				legacy: true,
+			});
+			await harness.invokeInSession(slug, owner, "Leave unchanged");
+			assert.deepEqual(harness.selections.at(-1), {
+				question: "Commit recovery",
+				options: ["Invalidate approval & return to Build", "Leave unchanged"],
+			});
+			assert.ok(
+				harness.notices.some((notice) =>
+					notice.message.includes("approved tree was not recorded"),
+				),
+			);
+			assert.notEqual(await git(worktree, "diff", "--cached", "--name-only"), "");
+		}
+
+		{
+			const slug = "commit-legacy-completed-outline";
+			const { worktree, owner } = await prepareCommitRecovery(slug, {
+				legacy: true,
+				completed: true,
+			});
+			await git(worktree, "commit", "-m", "Legacy completed commit");
+			writeFileSync(join(worktree, "residue.txt"), "cleanup required\n");
+			await harness.invokeInSession(slug, owner, "Leave unchanged");
+			assert.deepEqual(harness.selections.at(-1), {
+				question: "Commit recovery",
+				options: ["Ask agent to clean remaining files", "Leave unchanged"],
+			});
+			assert.equal(loadState(slug).phase, "committing");
+			rmSync(join(worktree, "residue.txt"));
+			const noticeCount = harness.notices.length;
+
+			await harness.invokeInSession(slug, owner);
+
+			assert.equal(loadState(slug).phase, "pr");
+			assert.ok(
+				harness.notices
+					.slice(noticeCount)
+					.some((notice) =>
+						notice.message.includes("legacy commit recovery resumed state advancement"),
+					),
+			);
+			assert.ok(
+				harness.notices
+					.slice(noticeCount)
+					.every((notice) => !notice.message.includes("commit verified")),
+			);
+		}
+
+		{
+			const slug = "commit-owner-events";
+			const { worktree, owner } = await prepareCommitRecovery(slug);
+			const other = harness.createOwner(worktree, `${slug} · build`);
+			await harness.startSession(other);
+			await harness.settle(other);
+			assert.equal(loadState(slug).phase, "committing");
+			assert.deepEqual(await harness.input(other), { action: "handled" });
+			assert.deepEqual(await harness.input(owner), { action: "continue" });
+			await git(worktree, "commit", "-m", "Exact owner commit");
+			await harness.settle(other);
+			assert.equal(loadState(slug).phase, "committing");
+			await harness.settle(owner);
+			assert.equal(loadState(slug).phase, "pr");
+		}
+
+		for (const kind of ["detached", "branch"] as const) {
+			const slug = `commit-ambiguous-${kind}`;
+			const { worktree, owner } = await prepareCommitRecovery(slug);
+			if (kind === "detached") await git(worktree, "checkout", "--detach");
+			else await git(worktree, "checkout", "-b", `${slug}-other`);
+			const head = await git(worktree, "rev-parse", "HEAD");
+			const status = await git(worktree, "status", "--porcelain=v1", "-z");
+
+			await harness.invokeInSession(slug, owner, "Leave unchanged");
+
+			assert.deepEqual(harness.selections.at(-1), {
+				question: "Commit recovery",
+				options: ["Ask agent to inspect", "Leave unchanged"],
+			});
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), head);
+			assert.equal(await git(worktree, "status", "--porcelain=v1", "-z"), status);
+			assert.equal(loadState(slug).phase, "committing");
+		}
+
+		for (const kind of ["extra", "merge"] as const) {
+			const slug = `commit-ambiguous-${kind}`;
+			const { repository, worktree, owner } = await prepareCommitRecovery(slug);
+			if (kind === "merge") {
+				const side = join(scratch, `${slug}-side`);
+				await git(repository.root, "worktree", "add", "-b", `${slug}-side`, side, repository.head);
+				writeFileSync(join(side, "side.txt"), "side\n");
+				await git(side, "add", "side.txt");
+				await git(side, "commit", "-m", "Side commit");
+				await git(worktree, "commit", "-m", "Exact commit");
+				await git(worktree, "merge", "--no-ff", `${slug}-side`, "-m", "Merge side");
+			} else {
+				await git(worktree, "commit", "-m", "Exact commit");
+				await git(worktree, "commit", "--allow-empty", "-m", "Extra commit");
+			}
+			const head = await git(worktree, "rev-parse", "HEAD");
+			await harness.invokeInSession(slug, owner, "Leave unchanged");
+			assert.deepEqual(harness.selections.at(-1), {
+				question: "Commit recovery",
+				options: ["Ask agent to inspect", "Leave unchanged"],
+			});
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), head);
+			assert.equal(loadState(slug).phase, "committing");
+		}
+
+		{
+			const slug = "commit-completed-outline";
+			const { worktree, owner } = await prepareCommitRecovery(slug, {
+				completed: true,
+			});
+			await git(worktree, "commit", "-m", "Exact completed commit");
+			const head = await git(worktree, "rev-parse", "HEAD");
+			writeFileSync(join(worktree, "residue.txt"), "residue\n");
+			await harness.invokeInSession(slug, owner, "Leave unchanged");
+			assert.deepEqual(harness.selections.at(-1), {
+				question: "Commit recovery",
+				options: ["Ask agent to clean remaining files", "Leave unchanged"],
+			});
+			assert.equal(await git(worktree, "rev-parse", "HEAD"), head);
+			assert.equal(loadOutline(slug).phases[0].status, "completed");
+			rmSync(join(worktree, "residue.txt"));
+			await harness.invokeInSession(slug, owner);
+			assert.equal(loadState(slug).phase, "pr");
+			assert.equal(loadOutline(slug).phases[0].status, "completed");
+		}
+
+		for (const changedTree of [false, true]) {
+			const slug = `commit-amend-${changedTree ? "content" : "message"}`;
+			const { worktree, owner } = await prepareCommitRecovery(slug);
+			await git(worktree, "commit", "-m", "Initial commit");
+			if (changedTree) {
+				writeFileSync(join(worktree, "tracked.txt"), "amended content\n");
+				await git(worktree, "add", "tracked.txt");
+			}
+			await git(worktree, "commit", "--amend", "-m", "Amended commit");
+			await harness.invokeInSession(
+				slug,
+				owner,
+				changedTree ? "Leave unchanged" : undefined,
+			);
+			if (changedTree) {
+				assert.deepEqual(harness.selections.at(-1), {
+					question: "Commit recovery",
+					options: ["Invalidate approval & return to Build", "Leave unchanged"],
+				});
+				assert.equal(loadState(slug).phase, "committing");
+			} else assert.equal(loadState(slug).phase, "pr");
 		}
 
 		{

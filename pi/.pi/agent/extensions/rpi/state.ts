@@ -85,6 +85,7 @@ export interface CommittingTaskState extends Identity, PhaseSnapshot {
 	phase: "committing";
 	session: string;
 	parent: string;
+	tree?: string;
 }
 
 export interface PrTaskState extends Identity {
@@ -244,18 +245,21 @@ export function parseTaskState(value: unknown): TaskState | undefined {
 	}
 
 	if (state.phase === "committing") {
+		const keys = [
+			...identityKeys,
+			"phaseSnapshot",
+			"session",
+			"parent",
+		];
 		if (
-			!exactKeys(state, [
-				...identityKeys,
-				"phaseSnapshot",
-				"session",
-				"parent",
-			]) ||
+			(!exactKeys(state, keys) && !exactKeys(state, [...keys, "tree"])) ||
 			!validPhaseSnapshot(state) ||
 			typeof state.session !== "string" ||
 			!isAbsolute(state.session) ||
 			typeof state.parent !== "string" ||
-			!SHA.test(state.parent)
+			!SHA.test(state.parent) ||
+			(Object.hasOwn(state, "tree") &&
+				(typeof state.tree !== "string" || !SHA.test(state.tree)))
 		) {
 			return undefined;
 		}
@@ -394,6 +398,7 @@ export function committingState(
 	phase: PendingPhase,
 	session: string,
 	parent: string,
+	tree: string,
 ): CommittingTaskState {
 	return {
 		...identityOf(state),
@@ -401,6 +406,7 @@ export function committingState(
 		...phaseSnapshot(phase),
 		session,
 		parent,
+		tree,
 	};
 }
 

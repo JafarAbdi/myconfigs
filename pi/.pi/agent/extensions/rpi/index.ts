@@ -116,6 +116,7 @@ const SLUG = /^[a-z0-9][a-z0-9._-]*$/i;
 const SLUG_WORDS = 5;
 const GIT_QUERY_MS = 5_000;
 const GIT_WRITE_MS = 120_000;
+const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const execFileAsync = promisify(execFile);
 
 interface GitResult {
@@ -1779,7 +1780,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		const expanded = expandNoArguments(body);
 		if (!expanded.trim())
 			throw new Error("the canonical /commit-message prompt is empty");
-		return expanded;
+		return `Commit the staged index exactly as-is. Do not modify the index or worktree.\n\n${expanded}`;
 	}
 
 	/**
@@ -1806,7 +1807,6 @@ export default function rpi(pi: ExtensionAPI): void {
 	function requireStoredPhase(
 		store: OutlineStore,
 		snapshot: PendingPhase,
-		allowCompleted = false,
 	): void {
 		const phase = store.phases.find(
 			(candidate) => candidate.id === snapshot.id,
@@ -1818,13 +1818,6 @@ export default function rpi(pi: ExtensionAPI): void {
 				);
 			return;
 		}
-		if (
-			allowCompleted &&
-			phase?.status === "completed" &&
-			phase.resolution === null &&
-			phaseEquals({ ...phase, status: "pending", resolution: null }, snapshot)
-		)
-			return;
 		throw new Error("recorded phase does not match outline.json");
 	}
 
@@ -1868,11 +1861,127 @@ export default function rpi(pi: ExtensionAPI): void {
 		await refresh(ctx, slug, true);
 	}
 
+	interface CommitEvidence {
+		stagedPaths: string[];
+		unstagedPaths: string[];
+		untrackedPaths: string[];
+		content: string;
+		cachedDiffHash: string;
+		missingApprovedPaths: string[];
+	}
+
 	type CommitInspection =
-		| { kind: "retry" }
-		| { kind: "cancelable" }
-		| { kind: "verified"; next: Phase }
-		| { kind: "blocked"; reason: string };
+		| { kind: "retry"; reason: string; evidence: CommitEvidence }
+		| { kind: "repair"; reason: string; evidence: CommitEvidence }
+		| {
+				kind: "residue";
+				reason: string;
+				canUndo: boolean;
+				evidence: CommitEvidence;
+		  }
+		| { kind: "ambiguous"; reason: string }
+		| { kind: "advanced" }
+		| { kind: "verified" };
+
+	async function directParent(
+		root: string,
+		head: string,
+	): Promise<string | undefined> {
+		const result = await git(root, [
+			"rev-list",
+			"--parents",
+			"-n",
+			"1",
+			head,
+		]);
+		const fields = result.stdout.trim().split(/\s+/);
+		return result.code === 0 && fields.length === 2 && fields[0] === head
+			? fields[1]
+			: undefined;
+	}
+
+	async function treeOf(
+		root: string,
+		revision: string,
+	): Promise<string | undefined> {
+		const result = await git(root, ["rev-parse", `${revision}^{tree}`]);
+		const tree = result.stdout.trim();
+		return result.code === 0 && OBJECT_ID.test(tree) ? tree : undefined;
+	}
+
+	async function indexMatchesTree(root: string, tree: string): Promise<boolean> {
+		const result = await git(root, [
+			"diff-index",
+			"--cached",
+			"--quiet",
+			tree,
+			"--",
+		]);
+		if (result.code > 1)
+			throw new Error("could not compare the index with the approved tree");
+		return result.code === 0;
+	}
+
+	async function commitEvidence(
+		root: string,
+		parent: string,
+		approvedTree?: string,
+	): Promise<CommitEvidence> {
+		const [staged, unstaged, untracked, cached, approved] = await Promise.all([
+			git(root, ["diff", "--cached", "--name-only", "--no-renames", "-z", "--"]),
+			git(root, ["diff", "--name-only", "--no-renames", "-z", "--"]),
+			git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
+			git(root, ["diff", "--cached", "--binary", "--no-ext-diff", "--"]),
+			approvedTree
+				? git(root, [
+						"diff",
+						"--name-only",
+						"--no-renames",
+						"--diff-filter=ACMRTUXB",
+						"-z",
+						parent,
+						approvedTree,
+						"--",
+					])
+				: Promise.resolve({ code: 0, stdout: "", stderr: "" }),
+		]);
+		if (
+			staged.code !== 0 ||
+			unstaged.code !== 0 ||
+			untracked.code !== 0 ||
+			cached.code !== 0 ||
+			approved.code !== 0
+		)
+			throw new Error("could not capture commit recovery evidence");
+		const paths = (output: string) =>
+			output.split("\0").filter(Boolean).sort();
+		const stagedPaths = paths(staged.stdout);
+		const unstagedPaths = paths(unstaged.stdout);
+		const untrackedPaths = paths(untracked.stdout);
+		const approvedPaths = paths(approved.stdout);
+		if (!approvedPaths.every(safeRelativePath))
+			throw new Error("the approved tree contains an unsafe path");
+		const missingApprovedPaths = approvedPaths.filter((path) => {
+			try {
+				lstatSync(join(root, path));
+				return false;
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+				throw error;
+			}
+		});
+		const changedPaths = [
+			...new Set([...stagedPaths, ...unstagedPaths, ...untrackedPaths]),
+		].sort();
+		return {
+			stagedPaths,
+			unstagedPaths,
+			untrackedPaths,
+			content: await contentSnapshot(root, changedPaths),
+			cachedDiffHash: createHash("sha256").update(cached.stdout).digest("hex"),
+			missingApprovedPaths,
+		};
+	}
 
 	async function inspectCommit(
 		ctx: ExtensionContext,
@@ -1881,64 +1990,133 @@ export default function rpi(pi: ExtensionAPI): void {
 	): Promise<CommitInspection> {
 		try {
 			const repository = await requireRepository(ctx.cwd, state, slug);
-			const currentOutline = await ensureOutlineProjection(
-				slug,
-				state,
-				ctx.cwd,
+			const outline = await ensureOutlineProjection(slug, state, ctx.cwd);
+			const stored = outline.phases.find(
+				(phase) => phase.id === state.phaseSnapshot.id,
 			);
-			requireStoredPhase(currentOutline, state.phaseSnapshot, true);
-			const { root, head } = repository;
-			if (head === state.parent) {
-				const cleanIndex = await indexClean(root);
-				const cleanWorktree = await unstagedAndUntrackedClean(root);
-				if (!cleanWorktree)
-					return {
-						kind: "blocked",
-						reason: invariantError(
-							"no unstaged or untracked changes during commit recovery",
-							"unstaged or untracked changes",
-						).message,
-					};
-				return cleanIndex ? { kind: "cancelable" } : { kind: "retry" };
-			}
-			const parents = await git(root, [
-				"rev-list",
-				"--parents",
-				"-n",
-				"1",
-				head,
-			]);
-			const fields = parents.stdout.trim().split(/\s+/);
-			if (
-				parents.code !== 0 ||
-				fields.length !== 2 ||
-				fields[0] !== head ||
-				fields[1] !== state.parent ||
-				!(await repoClean(root))
-			) {
+			const pending =
+				stored?.status === "pending" &&
+				phaseEquals(firstPendingPhase(outline)!, state.phaseSnapshot);
+			const completed =
+				stored?.status === "completed" &&
+				stored.resolution === null &&
+				phaseEquals(
+					{ ...stored, status: "pending", resolution: null },
+					state.phaseSnapshot,
+				);
+			if (!pending && !completed)
 				return {
-					kind: "blocked",
-					reason: invariantError(
-						`one clean commit whose parent is ${state.parent}`,
-						`HEAD ${head} with unexpected parentage or repository changes`,
-					).message,
+					kind: "ambiguous",
+					reason: "The stored commit phase no longer matches the outline.",
+				};
+
+			const { root, head } = repository;
+			const parent =
+				head === state.parent ? undefined : await directParent(root, head);
+			if (head !== state.parent && parent !== state.parent)
+				return {
+					kind: "ambiguous",
+					reason: `HEAD ${head} is not the stored parent or one non-merge direct child of it.`,
+				};
+			const evidence = await commitEvidence(root, state.parent, state.tree);
+			const diagnostics = ` Staged paths: ${JSON.stringify(evidence.stagedPaths)}; unstaged paths: ${JSON.stringify(evidence.unstagedPaths)}; untracked paths: ${JSON.stringify(evidence.untrackedPaths)}.`;
+			if (state.tree && evidence.missingApprovedPaths.length)
+				return {
+					kind: "ambiguous",
+					reason: `Reset is withheld because approved tree ${state.tree} contains paths missing from the worktree: ${JSON.stringify(evidence.missingApprovedPaths)}.${head === state.parent ? "" : ` Inspect direct child ${head} using the approved tree and commit evidence.`}${diagnostics}`,
+				};
+			if (!state.tree) {
+				if (completed && head !== state.parent) {
+					if (
+						evidence.stagedPaths.length ||
+						evidence.unstagedPaths.length ||
+						evidence.untrackedPaths.length
+					)
+						return {
+							kind: "residue",
+							reason: `The legacy commit cannot be tree-verified, but its outline phase is already completed and repository cleanup is required.${diagnostics}`,
+							canUndo: false,
+							evidence,
+						};
+					const nextPhase = firstPendingPhase(outline);
+					if (nextPhase) saveState(slug, buildState(state, nextPhase));
+					else await enterPrState(ctx, slug, state);
+					ctx.ui.notify(
+						"legacy commit recovery resumed state advancement; outline phase was already completed",
+						"info",
+					);
+					return { kind: "advanced" };
+				}
+				return pending
+					? {
+							kind: "repair",
+							reason: `Commit approval cannot be verified because its approved tree was not recorded.${diagnostics}`,
+							evidence,
+						}
+					: {
+							kind: "ambiguous",
+							reason: "The completed phase has no recorded approved tree and HEAD is not a recoverable direct child.",
+						};
+			}
+
+			if (head === state.parent) {
+				if (!pending)
+					return {
+						kind: "ambiguous",
+						reason: "The outline phase is completed but HEAD is still the stored parent.",
+					};
+				const exactIndex = await indexMatchesTree(root, state.tree);
+				const cleanWorktree = await unstagedAndUntrackedClean(root);
+				if (exactIndex && cleanWorktree)
+					return {
+						kind: "retry",
+						reason: "HEAD is still at the parent and the approved index is intact.",
+						evidence,
+					};
+				return {
+					kind: "repair",
+					reason: `${exactIndex ? "HEAD is still at the parent, but unstaged or untracked residue remains." : "The current index no longer matches the approved tree."}${diagnostics}`,
+					evidence,
 				};
 			}
-			const outline = await settleOutlinePhase(
-				slug,
-				state.phaseSnapshot,
-				null,
-				repository,
-			);
-			const nextPhase = firstPendingPhase(outline);
+
+			const observedTree = await treeOf(root, head);
+			if (observedTree !== state.tree)
+				return pending
+					? {
+							kind: "repair",
+							reason: `Committed tree ${observedTree ?? "<unreadable>"} does not match approved tree ${state.tree}.${diagnostics}`,
+							evidence,
+						}
+					: {
+							kind: "ambiguous",
+							reason: "The completed outline phase points at a commit with the wrong tree.",
+						};
+			if (!(await repoClean(root)))
+				return {
+					kind: "residue",
+					reason: `The approved commit is exact, but repository residue remains.${diagnostics}`,
+					canUndo: pending,
+					evidence,
+				};
+
+			const settled = completed
+				? outline
+				: await settleOutlinePhase(
+						slug,
+						state.phaseSnapshot,
+						null,
+						repository,
+					);
+			const nextPhase = firstPendingPhase(settled);
 			if (nextPhase) saveState(slug, buildState(state, nextPhase));
 			else await enterPrState(ctx, slug, state);
 			ctx.ui.notify("commit verified; outline phase checked", "info");
-			return { kind: "verified", next: nextPhase ? "build" : "pr" };
+			return { kind: "verified" };
 		} catch (error) {
 			return {
-				kind: "blocked",
-				reason: `commit verification could not finish: ${error instanceof Error ? error.message : error}`,
+				kind: "ambiguous",
+				reason: `Commit inspection could not establish safe recovery: ${error instanceof Error ? error.message : error}`,
 			};
 		}
 	}
@@ -1973,6 +2151,71 @@ export default function rpi(pi: ExtensionAPI): void {
 		await refresh(ctx, slug, true);
 	}
 
+	async function resetPendingCommit(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: CommittingTaskState,
+		reason: string,
+		evidence: CommitEvidence,
+		send: (prompt: string) => void | Promise<void>,
+	): Promise<void> {
+		const current = loadState(slug);
+		if (current.kind !== "valid" || !sameState(current.state, state))
+			throw new Error("commit state changed while recovery was open");
+		if (ctx.sessionManager.getSessionFile() !== state.session)
+			throw new Error("commit recovery requires the exact owning build session");
+		const repository = await requireRepository(ctx.cwd, state, slug);
+		if (
+			repository.head !== state.parent &&
+			(await directParent(repository.root, repository.head)) !== state.parent
+		)
+			throw new Error("commit history changed before recovery reset");
+		const outline = await ensureOutlineProjection(slug, state, ctx.cwd);
+		requireStoredPhase(outline, state.phaseSnapshot);
+		const latest = loadState(slug);
+		if (latest.kind !== "valid" || !sameState(latest.state, state))
+			throw new Error("commit state changed before recovery reset");
+		const latestRepository = await requireRepository(ctx.cwd, state, slug);
+		if (
+			latestRepository.head !== state.parent &&
+			(await directParent(latestRepository.root, latestRepository.head)) !==
+				state.parent
+		)
+			throw new Error("commit history changed before recovery reset");
+		const latestEvidence = await commitEvidence(
+			latestRepository.root,
+			state.parent,
+			state.tree,
+		);
+		if (JSON.stringify(latestEvidence) !== JSON.stringify(evidence))
+			throw new Error("worktree or index evidence changed while recovery was open");
+		if (state.tree && latestEvidence.missingApprovedPaths.length)
+			throw new Error(
+				`reset is withheld because approved paths are missing: ${JSON.stringify(latestEvidence.missingApprovedPaths)}`,
+			);
+		const dropped =
+			latestRepository.head === state.parent
+				? ""
+				: ` Dropped child ${latestRepository.head}${state.tree ? ` with approved tree ${state.tree}` : ""}.`;
+		if (!(await resetIndex(latestRepository.root, state.parent)))
+			throw new Error(
+				"commit recovery could not reset the index to the stored parent",
+			);
+		if (
+			(await headOf(latestRepository.root)) !== state.parent ||
+			!(await indexClean(latestRepository.root))
+		)
+			throw new Error("commit recovery could not verify the mixed reset");
+		saveState(slug, activeBuildState(state, state.phaseSnapshot, state.session));
+		await send(
+			continuationPrompt("build", {
+				extra: `${reason}${dropped} Approval was invalidated. Verify the files that are present, remove any unwanted residue, rerun verification, and request review again.`,
+				structuredPhase: renderBuildPhase(state.phaseSnapshot),
+			}),
+		);
+		await refresh(ctx, slug);
+	}
+
 	async function handlePendingCommit(
 		ctx: ExtensionCommandContext,
 		slug: string,
@@ -1982,61 +2225,81 @@ export default function rpi(pi: ExtensionAPI): void {
 		commitMessage?: string,
 	): Promise<void> {
 		if (ctx.sessionManager.getSessionFile() !== state.session)
-			throw new Error(
-				"commit recovery requires the exact owning build session",
-			);
+			throw new Error("commit recovery requires the exact owning build session");
 		const inspection = await inspectCommit(ctx, slug, state);
-		if (inspection.kind === "verified") {
+		if (inspection.kind === "verified" || inspection.kind === "advanced") {
 			await refresh(ctx, slug, true);
 			return;
 		}
-		if (inspection.kind === "blocked") {
-			ctx.ui.notify(inspection.reason, "error");
-			return;
-		}
+		ctx.ui.notify(
+			inspection.reason,
+			inspection.kind === "ambiguous" ? "error" : "warning",
+		);
 		const choices =
 			inspection.kind === "retry"
-				? ["Retry /commit-message", "Cancel/revise"]
-				: ["Cancel/revise"];
-		const choice = await ctx.ui.select("Interrupted commit", choices);
-		if (!choice) return;
+				? [
+						"Retry commit",
+						"Invalidate approval & return to Build",
+						"Leave unchanged",
+					]
+				: inspection.kind === "repair"
+					? ["Invalidate approval & return to Build", "Leave unchanged"]
+					: inspection.kind === "residue"
+						? [
+								"Ask agent to clean remaining files",
+								...(inspection.canUndo
+									? ["Undo commit & return to Build"]
+									: []),
+								"Leave unchanged",
+							]
+						: ["Ask agent to inspect", "Leave unchanged"];
+		const choice = await ctx.ui.select("Commit recovery", choices);
+		if (!choice || choice === "Leave unchanged") return;
 		const current = loadState(slug);
 		if (current.kind !== "valid" || !sameState(current.state, state))
 			throw new Error("commit state changed while recovery was open");
-		if (choice === "Retry /commit-message") {
+		if (choice === "Retry commit") {
+			if (!state.tree) throw new Error("the approved tree is unavailable");
+			const repository = await requireRepository(ctx.cwd, state, slug);
+			const outline = await ensureOutlineProjection(slug, state, ctx.cwd);
+			requireStoredPhase(outline, state.phaseSnapshot);
+			if (
+				repository.head !== state.parent ||
+				!(await indexMatchesTree(repository.root, state.tree)) ||
+				!(await unstagedAndUntrackedClean(repository.root))
+			)
+				throw new Error("commit evidence changed before retry");
+			const latest = loadState(slug);
+			if (
+				latest.kind !== "valid" ||
+				!sameState(latest.state, state) ||
+				(await headOf(repository.root)) !== state.parent
+			)
+				throw new Error("commit evidence changed immediately before retry");
 			await send(commitMessage ?? commitPrompt());
 			return;
 		}
-		const edited = await ctx.ui.editor("What should the build revise?");
-		if (edited === undefined) return;
-		const feedback = edited.trim();
-		if (!feedback) {
-			ctx.ui.notify("nonempty revision feedback is required", "warning");
+		if (
+			choice === "Invalidate approval & return to Build" ||
+			choice === "Undo commit & return to Build"
+		) {
+			if (!("evidence" in inspection))
+				throw new Error("the selected reset is not valid for this recovery state");
+			await resetPendingCommit(
+				ctx,
+				slug,
+				state,
+				inspection.reason,
+				inspection.evidence,
+				send,
+			);
 			return;
 		}
-		const repository = await requireRepository(ctx.cwd, state, slug);
-		if (
-			repository.head !== state.parent ||
-			!(await resetIndex(repository.root, state.parent))
-		)
-			throw new Error(
-				"commit cancellation could not verify the persisted parent reset",
-			);
-		const outline = await ensureOutlineProjection(slug, state, ctx.cwd);
-		const phase = firstPendingPhase(outline);
-		if (!phase || !phaseEquals(phase, state.phaseSnapshot))
-			throw new Error(
-				"commit cancellation phase no longer matches outline.json",
-			);
-		const resumed = activeBuildState(state, state.phaseSnapshot, state.session);
-		saveState(slug, resumed);
 		await send(
-			continuationPrompt("build", {
-				extra: feedback,
-				structuredPhase: renderBuildPhase(state.phaseSnapshot),
-			}),
+			choice === "Ask agent to clean remaining files"
+				? `RPI found commit recovery residue. ${inspection.reason} Inspect and clean only the remaining staged, unstaged, or untracked residue. Do not amend or create commits, rewrite history, or change the persisted RPI state.`
+				: `RPI commit recovery requires manual inspection. ${inspection.reason} Inspect the repository without assuming the phase is complete. Do not commit or rewrite history; leave the persisted RPI state unchanged.`,
 		);
-		await refresh(ctx, slug);
 	}
 
 	async function captureBuildReview(
@@ -2170,9 +2433,18 @@ export default function rpi(pi: ExtensionAPI): void {
 		const current = loadState(slug);
 		if (current.kind !== "valid" || !sameState(current.state, staged))
 			throw new Error("staging state changed before committing");
+		const written = await git(review.root, ["write-tree"], GIT_WRITE_MS);
+		const tree = written.stdout.trim();
+		if (written.code !== 0 || !OBJECT_ID.test(tree))
+			throw new Error(
+				written.stderr.trim() || "git write-tree returned an invalid tree",
+			);
+		const afterTree = loadState(slug);
+		if (afterTree.kind !== "valid" || !sameState(afterTree.state, staged))
+			throw new Error("staging state changed while recording the approved tree");
 		saveState(
 			slug,
-			committingState(state, review.phase, session, review.parent),
+			committingState(state, review.phase, session, review.parent, tree),
 		);
 	}
 
@@ -2395,8 +2667,8 @@ export default function rpi(pi: ExtensionAPI): void {
 				? "1 changed path"
 				: `${review.paths.length} changed paths`;
 		const choices = review.paths.length
-			? ["Approve & commit", "Continue working", "Revisit design"]
-			: ["Close with no code", "Continue working", "Revisit design"];
+			? ["Continue working", "Approve & commit", "Revisit design"]
+			: ["Continue working", "Close with no code", "Revisit design"];
 		const choice = await ctx.ui.select(
 			`Phase ${review.phaseNumber} · ${review.paths.length ? paths : "no changes"} · review with git diff`,
 			choices,
@@ -2405,7 +2677,15 @@ export default function rpi(pi: ExtensionAPI): void {
 			return approveBuild(ctx, slug, state, review);
 		if (choice === "Close with no code")
 			return closeBuildNoCode(ctx, slug, state, review);
-		if (choice === "Continue working") return;
+		if (choice === "Continue working") {
+			sendCurrent(
+				ctx,
+				continuationPrompt("build", {
+					structuredPhase: renderBuildPhase(review.phase),
+				}),
+			);
+			return;
+		}
 		if (choice === "Revisit design") {
 			return revisit(
 				ctx,
@@ -2947,8 +3227,20 @@ export default function rpi(pi: ExtensionAPI): void {
 			active = { slug };
 		}
 		const loaded = loadState(slug);
-		if (loaded.kind === "valid" && loaded.state.phase === "committing") {
-			await inspectCommit(ctx, slug, loaded.state);
+		if (
+			loaded.kind === "valid" &&
+			loaded.state.phase === "committing" &&
+			ctx.sessionManager.getSessionFile() === loaded.state.session
+		) {
+			const inspection = await inspectCommit(ctx, slug, loaded.state);
+			if (
+				inspection.kind !== "verified" &&
+				inspection.kind !== "advanced"
+			) {
+				ctx.ui.notify(inspection.reason, "warning");
+				if (ctx.mode === "tui" && !ctx.ui.getEditorText().trim())
+					ctx.ui.setEditorText(`/rpi ${slug}`);
+			}
 		}
 		await refresh(ctx, slug, true);
 	});
@@ -3036,7 +3328,13 @@ export default function rpi(pi: ExtensionAPI): void {
 				);
 			return { action: "handled" as const };
 		}
-		if (loaded.state.phase !== sessionPhase) {
+		const inputPhase =
+			loaded.state.phase === "closing" ||
+			loaded.state.phase === "staging" ||
+			loaded.state.phase === "committing"
+				? "build"
+				: loaded.state.phase;
+		if (inputPhase !== sessionPhase) {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					`${slug} is in ${loaded.state.phase}, not this ${sessionPhase} session; use /rpi ${slug} to switch safely`,
@@ -3047,6 +3345,16 @@ export default function rpi(pi: ExtensionAPI): void {
 		}
 		try {
 			if (
+				(loaded.state.phase === "closing" ||
+					loaded.state.phase === "staging" ||
+					loaded.state.phase === "committing") &&
+				ctx.sessionManager.getSessionFile() !== loaded.state.session
+			) {
+				throw new Error(
+					`this session does not own the active build transaction; use /rpi ${slug}`,
+				);
+			}
+			if (
 				(loaded.state.phase === "build" || loaded.state.phase === "pr") &&
 				ctx.sessionManager.getSessionFile() !== runSession(loaded.state)
 			) {
@@ -3054,11 +3362,9 @@ export default function rpi(pi: ExtensionAPI): void {
 					`this session does not own the active ${loaded.state.phase} run; use /rpi ${slug}`,
 				);
 			}
-			if (loaded.state.phase === "pr") {
+			if (loaded.state.phase === "pr")
 				await validatePrHead(slug, loaded.state, ctx.cwd);
-			} else {
-				await requireRepository(ctx.cwd, loaded.state, slug);
-			}
+			else await requireRepository(ctx.cwd, loaded.state, slug);
 			return { action: "continue" as const };
 		} catch (error) {
 			if (ctx.hasUI)
