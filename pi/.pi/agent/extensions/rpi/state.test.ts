@@ -141,6 +141,7 @@ assert.deepEqual(outline, {
 	version: 5,
 	phase: "outline",
 	baseBranch: "main",
+	basis: "design",
 	submitted: false,
 	session: outlineSession,
 });
@@ -149,6 +150,15 @@ assert.deepEqual(outlineState(outline, outlineSession, true), {
 	...outline,
 	submitted: true,
 });
+assert.deepEqual(
+	outlineState(identity, outlineSession, false, "approved-outline"),
+	{
+		...outline,
+		basis: "approved-outline",
+	},
+);
+const { basis: _basis, ...legacyOutline } = outline;
+assert.deepEqual(parseTaskState(legacyOutline), outline);
 assert.equal(parseTaskState({ ...outline, submitted: 0 }), undefined);
 assert.equal(
 	parseTaskState({ ...outline, session: "relative.jsonl" }),

@@ -37,16 +37,21 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import {
+	applyOutlineRevision,
 	completePhase,
 	EMPTY_OUTLINE_STORE,
 	firstPendingPhase,
+	parseOutlineRevision,
 	parseOutlineStore,
 	phaseEquals,
 	renderBuildPhase,
 	renderOutline,
-	replacePendingOutline,
+	serializeOutlineRevision,
 	serializeOutlineStore,
 	setOutlineSchema,
+	type AppliedOutlineRevision,
+	type OutlineChanges,
+	type OutlineRevision,
 	type OutlineStore,
 	type PendingPhase,
 } from "./outline.ts";
@@ -111,6 +116,7 @@ const STATE_FILE = "state.json";
 type VisiblePhase = (typeof SESSION_PHASES)[number];
 const QUESTIONS_FILE = "questions.json";
 const OUTLINE_FILE = "outline.json";
+const OUTLINE_CANDIDATE_FILE = "outline-candidate.json";
 const OUTLINE_DOCUMENT = "04-structure-outline.md";
 const SLUG = /^[a-z0-9][a-z0-9._-]*$/i;
 const SLUG_WORDS = 5;
@@ -244,6 +250,10 @@ function outlineStorePath(slug: string): string {
 	return fixedTaskFile(slug, OUTLINE_FILE);
 }
 
+function outlineCandidatePath(slug: string): string {
+	return join(TASKS, slug, OUTLINE_CANDIDATE_FILE);
+}
+
 function outlineDocumentPath(slug: string): string {
 	return fixedTaskFile(slug, OUTLINE_DOCUMENT);
 }
@@ -253,6 +263,41 @@ function loadOutlineStore(slug: string): OutlineStore {
 	return existsSync(path)
 		? parseOutlineStore(readFileSync(path, "utf-8"))
 		: { ...EMPTY_OUTLINE_STORE, phases: [] };
+}
+
+type CandidateStatus =
+	| { kind: "missing" }
+	| { kind: "malformed"; error: string }
+	| { kind: "valid"; revision: OutlineRevision; bytes: string };
+
+function candidateStatus(slug: string): CandidateStatus {
+	const path = outlineCandidatePath(slug);
+	try {
+		const stat = lstatSync(path);
+		if (!stat.isFile() || stat.isSymbolicLink())
+			return { kind: "malformed", error: "candidate is not a regular file" };
+		const bytes = readFileSync(path, "utf-8");
+		return { kind: "valid", revision: parseOutlineRevision(bytes), bytes };
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT")
+			return { kind: "missing" };
+		return {
+			kind: "malformed",
+			error: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
+function removeCandidate(slug: string): void {
+	const path = outlineCandidatePath(slug);
+	try {
+		const stat = lstatSync(path);
+		if (!stat.isFile() && !stat.isSymbolicLink())
+			throw new Error(`${OUTLINE_CANDIDATE_FILE} is not removable file data`);
+		unlinkSync(path);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	}
 }
 
 function atomicWrite(path: string, content: string, mode = 0o600): void {
@@ -651,27 +696,40 @@ export default function rpi(pi: ExtensionAPI): void {
 		return repository;
 	}
 
+	function saveProjection(
+		slug: string,
+		store: OutlineStore,
+		repository: RepositoryEvidence,
+		mode: "approved" | "candidate" = "approved",
+	): void {
+		const path = outlineDocumentPath(slug);
+		atomicWrite(
+			path,
+			renderOutline(
+				store,
+				{
+					repo: repository.root,
+					branch: repository.branch,
+					sha: repository.head,
+				},
+				mode,
+			),
+			existsSync(path) ? lstatSync(path).mode & 0o777 : 0o600,
+		);
+	}
+
 	function saveOutline(
 		slug: string,
 		store: OutlineStore,
 		repository: RepositoryEvidence,
 	): void {
 		const storePath = outlineStorePath(slug);
-		const documentPath = outlineDocumentPath(slug);
 		atomicWrite(
 			storePath,
 			serializeOutlineStore(store),
 			existsSync(storePath) ? lstatSync(storePath).mode & 0o777 : 0o600,
 		);
-		atomicWrite(
-			documentPath,
-			renderOutline(store, {
-				repo: repository.root,
-				branch: repository.branch,
-				sha: repository.head,
-			}),
-			existsSync(documentPath) ? lstatSync(documentPath).mode & 0o777 : 0o600,
-		);
+		saveProjection(slug, store, repository);
 	}
 
 	async function ensureOutlineProjection(
@@ -751,6 +809,19 @@ export default function rpi(pi: ExtensionAPI): void {
 
 	async function repoClean(root: string): Promise<boolean> {
 		return (await indexClean(root)) && (await unstagedAndUntrackedClean(root));
+	}
+
+	function loadDesignText(slug: string): string {
+		return readFileSync(taskDocumentPath(slug, "03-"), "utf-8");
+	}
+
+	function designStartsWithExpectedFrontmatter(
+		text: string,
+		repository: RepositoryEvidence,
+	): boolean {
+		return text.startsWith(
+			`---\nrepo: ${repository.root}\nbranch: ${repository.branch}\nsha: ${repository.head}\n---\n`,
+		);
 	}
 
 	async function recoverCreating(
@@ -992,8 +1063,8 @@ export default function rpi(pi: ExtensionAPI): void {
 		name: "rpi_set_outline",
 		label: "Set RPI Outline",
 		description:
-			"Atomically replace the active task's complete pending phase snapshot.",
-		promptSnippet: "Submit the active RPI task's structured pending outline",
+			"Submit a revision candidate without changing the approved outline.",
+		promptSnippet: "Submit the active RPI task's structured outline candidate",
 		parameters: setOutlineSchema,
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		executionMode: "sequential",
@@ -1011,9 +1082,11 @@ export default function rpi(pi: ExtensionAPI): void {
 			if (ctx.sessionManager.getSessionFile() !== loaded.state.session)
 				throw new Error(`${slug}: this session does not own the Outline phase`);
 			const repository = await requireRepository(ctx.cwd, loaded.state, slug);
-			const path = outlineStorePath(slug);
-			let updated: OutlineStore | undefined;
-			await withFileMutationQueue(path, async () => {
+			if (!(await repoClean(repository.root)))
+				throw new Error("outline submission requires a clean worktree");
+			const path = outlineCandidatePath(slug);
+			let applied: AppliedOutlineRevision | undefined;
+			await withFileMutationQueue(statePath(slug), async () => {
 				const current = loadState(slug);
 				if (
 					current.kind !== "valid" ||
@@ -1021,23 +1094,28 @@ export default function rpi(pi: ExtensionAPI): void {
 					!sameState(current.state, loaded.state)
 				)
 					throw new Error("task state changed before outline submission");
-				updated = replacePendingOutline(loadOutlineStore(slug), params);
-				saveOutline(slug, updated, repository);
+				const { task_slug: _taskSlug, ...revision } = params;
+				applied = applyOutlineRevision(loadOutlineStore(slug), revision);
+				atomicWrite(path, serializeOutlineRevision(revision));
+				saveProjection(slug, applied.outline, repository, "candidate");
 				saveState(
 					slug,
 					outlineState(current.state, current.state.session, true),
 				);
 			});
-			if (!updated) throw new Error("outline submission did not complete");
+			if (!applied) throw new Error("outline submission did not complete");
 			await refresh(ctx, slug);
+			const count = applied.outline.phases.filter(
+				(phase) => phase.status === "pending",
+			).length;
 			return {
 				content: [
 					{
 						type: "text" as const,
-						text: `Submitted ${updated.phases.filter((phase) => phase.status === "pending").length} pending phases`,
+						text: `Submitted ${count} pending phases for approval`,
 					},
 				],
-				details: { path, count: updated.phases.length },
+				details: { path, count },
 			};
 		},
 	});
@@ -1117,15 +1195,10 @@ export default function rpi(pi: ExtensionAPI): void {
 		if (phase === "outline") {
 			if (!loaded.state.submitted)
 				return { phase, detail: "awaiting structured submission" };
-			try {
-				const outline = loadOutlineStore(slug);
-				const pending = outline.phases.filter(
-					(item) => item.status === "pending",
-				).length;
-				return { phase, detail: `${pending} pending · submitted` };
-			} catch {
-				return { phase, detail: "blocked · invalid outline.json" };
-			}
+			const status = candidateStatus(slug);
+			if (status.kind !== "valid")
+				return { phase, detail: `recovering · candidate ${status.kind}` };
+			return { phase, detail: "awaiting approval" };
 		}
 		if (phase === "build") {
 			try {
@@ -1639,7 +1712,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		slug: string,
 		phase: PhasePrompt,
 		context: PromptContext = {},
-		activate?: (replacement: ReplacementContext) => void,
+		activate?: (replacement: ReplacementContext) => Promise<void> | void,
 		fresh = false,
 	): Promise<void> {
 		await ctx.waitForIdle();
@@ -1667,7 +1740,7 @@ export default function rpi(pi: ExtensionAPI): void {
 				const current = loadState(slug);
 				if (current.kind !== "valid" || !sameState(current.state, expected))
 					throw new Error("task state changed during the session switch");
-				activate?.(replacement);
+				await activate?.(replacement);
 				show(replacement, await placeFor(slug));
 				const decision = decideSessionPrompt(
 					currentMessageCount(replacement),
@@ -2559,24 +2632,82 @@ export default function rpi(pi: ExtensionAPI): void {
 		context: PromptContext = {},
 		fresh = false,
 	): Promise<void> {
+		if (phase === "outline") {
+			const repository = await requireRepository(ctx.cwd, state, slug);
+			if (!(await repoClean(repository.root)))
+				throw new Error("Outline requires a clean worktree");
+			removeCandidate(slug);
+			await ensureOutlineProjection(slug, state, ctx.cwd);
+		}
 		await enterPhase(
 			ctx,
 			slug,
 			phase,
 			context,
-			(replacement) => {
+			async (replacement) => {
+				const current = loadState(slug);
+				if (current.kind !== "valid" || !sameState(current.state, state))
+					throw new Error("task state changed before phase activation");
 				const session = replacement.sessionManager.getSessionFile();
-				if (phase === "outline" && !session)
-					throw new Error("Outline requires a persisted owner session");
+				if (phase === "outline") {
+					if (!session)
+						throw new Error("Outline requires a persisted owner session");
+					if (!(await repoClean(replacement.cwd)))
+						throw new Error("worktree changed before Outline started");
+				} else if (state.phase === "outline") {
+					removeCandidate(slug);
+					await ensureOutlineProjection(slug, current.state, replacement.cwd);
+				}
 				saveState(
 					slug,
 					phase === "outline"
-						? outlineState(state, session!)
-						: plainState(state, phase),
+						? outlineState(current.state, session!)
+						: plainState(current.state, phase),
 				);
 				active = { slug };
 			},
 			fresh,
+		);
+	}
+
+	async function replanPendingWork(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: BuildTaskState | PrTaskState,
+		root: string,
+	): Promise<void> {
+		if (!(await repoClean(root))) {
+			ctx.ui.notify(
+				"replanning requires a clean worktree; commit or revert current changes first",
+				"warning",
+			);
+			return;
+		}
+		await ensureOutlineProjection(slug, state, root);
+		removeCandidate(slug);
+		await enterPhase(
+			ctx,
+			slug,
+			"outline",
+			{
+				extra:
+					"Re-evaluate the approved pending suffix against settled history, verified code, and the agreed Design. Keep, revise, remove, or add only where current facts require it.",
+			},
+			async (replacement) => {
+				const current = loadState(slug);
+				if (current.kind !== "valid" || !sameState(current.state, state))
+					throw new Error("task state changed before replanning started");
+				if (!(await repoClean(root)))
+					throw new Error("worktree changed before replanning started");
+				const session = replacement.sessionManager.getSessionFile();
+				if (!session)
+					throw new Error("Outline requires a persisted owner session");
+				saveState(
+					slug,
+					outlineState(current.state, session, false, "approved-outline"),
+				);
+			},
+			true,
 		);
 	}
 
@@ -2607,8 +2738,12 @@ export default function rpi(pi: ExtensionAPI): void {
 			slug,
 			phase,
 			{ extra: feedback },
-			(replacement) => {
+			async (replacement) => {
 				if (current.state.phase === "pr") invalidatePrDescription(slug);
+				if (current.state.phase === "outline" && phase === "design") {
+					removeCandidate(slug);
+					await ensureOutlineProjection(slug, current.state, replacement.cwd);
+				}
 				const session = replacement.sessionManager.getSessionFile();
 				if (phase === "outline" && !session)
 					throw new Error("Outline requires a persisted owner session");
@@ -2667,8 +2802,18 @@ export default function rpi(pi: ExtensionAPI): void {
 				? "1 changed path"
 				: `${review.paths.length} changed paths`;
 		const choices = review.paths.length
-			? ["Continue working", "Approve & commit", "Revisit design"]
-			: ["Continue working", "Close with no code", "Revisit design"];
+			? [
+					"Continue working",
+					"Approve & commit",
+					"Replan pending work",
+					"Revisit design",
+				]
+			: [
+					"Continue working",
+					"Close with no code",
+					"Replan pending work",
+					"Revisit design",
+				];
 		const choice = await ctx.ui.select(
 			`Phase ${review.phaseNumber} · ${review.paths.length ? paths : "no changes"} · review with git diff`,
 			choices,
@@ -2677,6 +2822,8 @@ export default function rpi(pi: ExtensionAPI): void {
 			return approveBuild(ctx, slug, state, review);
 		if (choice === "Close with no code")
 			return closeBuildNoCode(ctx, slug, state, review);
+		if (choice === "Replan pending work")
+			return replanPendingWork(ctx, slug, state, review.root);
 		if (choice === "Continue working") {
 			sendCurrent(
 				ctx,
@@ -2719,9 +2866,12 @@ export default function rpi(pi: ExtensionAPI): void {
 		await validatePrHead(slug, state, ctx.cwd);
 		const choice = await ctx.ui.select(`${slug} · pr`, [
 			"Finish",
+			"Replan pending work",
 			"Add repair phase",
 			"Revisit design",
 		]);
+		if (choice === "Replan pending work")
+			return replanPendingWork(ctx, slug, state, ctx.cwd);
 		if (choice === "Add repair phase") {
 			return revisit(
 				ctx,
@@ -2757,6 +2907,51 @@ export default function rpi(pi: ExtensionAPI): void {
 				"error",
 			);
 		}
+	}
+
+	function candidateSummary(completed: number, changes: OutlineChanges): string {
+		return [
+			`Completed unchanged: ${completed}`,
+			`Pending kept: ${changes.kept}`,
+			`Pending revised: ${changes.revised}`,
+			`Pending removed: ${changes.removed}`,
+			`Pending added: ${changes.added}`,
+			`Pending reordered: ${changes.reordered ? "yes" : "no"}`,
+		].join("\n");
+	}
+
+	async function promoteOutlineCandidate(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		state: Extract<TaskState, { phase: "outline" }>,
+		applied: AppliedOutlineRevision,
+		candidateBytes: string,
+	): Promise<void> {
+		const repository = await requireRepository(ctx.cwd, state, slug);
+		if (!(await repoClean(repository.root)))
+			throw new Error("state, candidate, or worktree changed during review");
+		const status = candidateStatus(slug);
+		const current = loadState(slug);
+		if (
+			current.kind !== "valid" ||
+			!sameState(current.state, state) ||
+			status.kind !== "valid" ||
+			status.bytes !== candidateBytes
+		)
+			throw new Error("state, candidate, or worktree changed during review");
+		removeCandidate(slug);
+		saveOutline(slug, applied.outline, repository);
+		const first = firstPendingPhase(applied.outline);
+		if (first) {
+			const next = buildState(state, first);
+			saveState(slug, next);
+			await enterPersistedRun(ctx, slug, next);
+			return;
+		}
+		invalidatePrDescription(slug);
+		const next = prState(state);
+		saveState(slug, next);
+		await startOrGatePersistedRun(ctx, slug, next);
 	}
 
 	async function handleCurrentPhase(
@@ -2824,6 +3019,25 @@ export default function rpi(pi: ExtensionAPI): void {
 					);
 					return;
 				}
+				try {
+					const repository = await requireRepository(ctx.cwd, state, slug);
+					const design = loadDesignText(slug);
+					if (!designStartsWithExpectedFrontmatter(design, repository)) {
+						sendCurrent(
+							ctx,
+							continuationPrompt("design", {
+								extra: `Design repository evidence is stale. Inspect current behavior, rewrite ### Current State, and use this exact frontmatter:\n---\nrepo: ${repository.root}\nbranch: ${repository.branch}\nsha: ${repository.head}\n---`,
+							}),
+						);
+						return;
+					}
+				} catch (error) {
+					ctx.ui.notify(
+						error instanceof Error ? error.message : String(error),
+						"error",
+					);
+					return;
+				}
 				const choice = await ctx.ui.select(`${slug} · design`, [
 					"Agree & continue to outline",
 					"Continue designing",
@@ -2856,27 +3070,88 @@ export default function rpi(pi: ExtensionAPI): void {
 					return advancePlainPhase(ctx, slug, state, "design");
 				}
 				if (!state.submitted) {
+					const orphan = candidateStatus(slug);
+					if (orphan.kind !== "missing") {
+						try {
+							removeCandidate(slug);
+							const repository = await requireRepository(ctx.cwd, state, slug);
+							saveProjection(slug, loadOutlineStore(slug), repository);
+						} catch (error) {
+							ctx.ui.notify(
+								error instanceof Error ? error.message : String(error),
+								"error",
+							);
+							return;
+						}
+					}
 					ctx.ui.notify(
 						"outline work is not submitted — call rpi_set_outline, then run /rpi again",
 						"warning",
 					);
 					return;
 				}
-				let outline: OutlineStore;
+				const status = candidateStatus(slug);
+				if (status.kind !== "valid") {
+					try {
+						if (status.kind === "malformed") removeCandidate(slug);
+						const repository = await requireRepository(ctx.cwd, state, slug);
+						saveProjection(slug, loadOutlineStore(slug), repository);
+						saveState(
+							slug,
+							outlineState(state, state.session, false),
+						);
+						sendCurrent(
+							ctx,
+							continuationPrompt("outline", {
+								extra: `The submitted candidate was ${status.kind}; submit it again. The approved outline was not changed.`,
+							}),
+						);
+					} catch (error) {
+						ctx.ui.notify(
+							error instanceof Error ? error.message : String(error),
+							"error",
+						);
+					}
+					return;
+				}
+				const canonical = loadOutlineStore(slug);
+				let applied: AppliedOutlineRevision;
 				try {
-					outline = await ensureOutlineProjection(slug, state, ctx.cwd);
+					applied = applyOutlineRevision(canonical, status.revision);
 				} catch (error) {
 					ctx.ui.notify(
-						`cannot advance outline: ${error instanceof Error ? error.message : error}`,
-						"error",
+						`candidate no longer applies: ${error instanceof Error ? error.message : String(error)}`,
+						"warning",
+					);
+					removeCandidate(slug);
+					const repository = await requireRepository(ctx.cwd, state, slug);
+					saveProjection(slug, canonical, repository);
+					saveState(slug, outlineState(state, state.session, false));
+					sendCurrent(
+						ctx,
+						continuationPrompt("outline", {
+							extra: "The submitted revision no longer applies; submit it again from the approved outline.",
+						}),
 					);
 					return;
 				}
-				const first = firstPendingPhase(outline);
-				if (!first) {
+				const repository = await requireRepository(ctx.cwd, state, slug);
+				saveProjection(slug, applied.outline, repository, "candidate");
+				const noChange =
+					!applied.changes.overview &&
+					applied.changes.revised === 0 &&
+					applied.changes.removed === 0 &&
+					applied.changes.added === 0 &&
+					!applied.changes.reordered;
+				if (state.basis === "approved-outline" && noChange) {
 					try {
-						const next = await enterPrState(ctx, slug, state);
-						return startOrGatePersistedRun(ctx, slug, next);
+						return await promoteOutlineCandidate(
+							ctx,
+							slug,
+							state,
+							applied,
+							status.bytes,
+						);
 					} catch (error) {
 						ctx.ui.notify(
 							error instanceof Error ? error.message : String(error),
@@ -2885,7 +3160,76 @@ export default function rpi(pi: ExtensionAPI): void {
 						return;
 					}
 				}
-				return beginBuild(ctx, slug, state, first);
+				const completed = canonical.phases.filter(
+					(phase) => phase.status === "completed",
+				).length;
+				const summary = candidateSummary(completed, applied.changes);
+				const proposed = firstPendingPhase(applied.outline);
+				const approval = proposed
+					? canonical.phases.length
+						? "Approve changed plan"
+						: "Approve plan & start Build"
+					: "Approve plan & continue to PR";
+				const choice = await ctx.ui.select(summary, [
+					"Continue outlining",
+					approval,
+					"Revisit design",
+				]);
+				if (!choice) return;
+				if (choice === "Continue outlining") {
+					const feedback = await ctx.ui.editor("Optional planning feedback");
+					if (feedback === undefined) return;
+					const current = loadState(slug);
+					const latest = candidateStatus(slug);
+					if (
+						current.kind !== "valid" ||
+						!sameState(current.state, state) ||
+						latest.kind !== "valid" ||
+						latest.bytes !== status.bytes
+					) {
+						ctx.ui.notify(
+							"outline changed while feedback was open; run /rpi again",
+							"error",
+						);
+						return;
+					}
+					const repository = await requireRepository(ctx.cwd, state, slug);
+					removeCandidate(slug);
+					saveProjection(slug, canonical, repository);
+					saveState(slug, outlineState(state, state.session, false));
+					sendCurrent(
+						ctx,
+						continuationPrompt("outline", {
+							extra: `${summary}${feedback.trim() ? `\n\nHuman feedback:\n${feedback.trim()}` : ""}`,
+						}),
+					);
+					return;
+				}
+				if (choice === "Revisit design") {
+					await revisit(
+						ctx,
+						slug,
+						state,
+						"design",
+						"Why revisit the design, and what should change?",
+					);
+					return;
+				}
+				try {
+					return await promoteOutlineCandidate(
+						ctx,
+						slug,
+						state,
+						applied,
+						status.bytes,
+					);
+				} catch (error) {
+					ctx.ui.notify(
+						error instanceof Error ? error.message : String(error),
+						"error",
+					);
+					return;
+				}
 			}
 			case "build":
 				return handleBuild(ctx, slug, state);

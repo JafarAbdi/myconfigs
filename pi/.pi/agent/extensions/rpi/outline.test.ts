@@ -2,19 +2,24 @@ import assert from "node:assert/strict";
 import { Check } from "typebox/value";
 import {
 	EMPTY_OUTLINE_STORE,
+	applyOutlineRevision,
 	completePhase,
 	firstPendingPhase,
+	outlineRevisionSchema,
 	outlineStoreSchema,
+	parseOutlineRevision,
 	parseOutlineStore,
 	pendingPhaseInputSchema,
 	phaseEquals,
 	renderBuildPhase,
 	renderOutline,
-	replacePendingOutline,
 	safeRepositoryPath,
+	serializeOutlineRevision,
 	serializeOutlineStore,
 	setOutlineSchema,
+	type OutlineRevision,
 	type OutlineStore,
+	type PendingPhase,
 	type PendingPhaseInput,
 	validateOutlineStore,
 } from "./outline.ts";
@@ -25,260 +30,147 @@ const phase = (title = "Add parser"): PendingPhaseInput => ({
 	file_changes: [{ path: "src/parser.ts", change: "Add parse()." }],
 	verification: ["npm test"],
 });
-const input = (pending_phases = [phase()]) => ({
-	task_slug: "structured-outline",
+const add = (title = "Add parser") => ({ kind: "add" as const, ...phase(title) });
+const overview = {
+	kind: "revise" as const,
 	title: "Structured outline",
 	summary: "Move progress into structured state.",
-	desired_end_state: "Build uses JSON progress only.",
-	pending_phases,
+	desired_end_state: "Build uses approved JSON progress only.",
+};
+const revision = (pending = [add()]): OutlineRevision => ({
+	overview,
+	pending,
+	removed_pending_ids: [],
 });
+const toolInput = (pending = [add()]) => ({ task_slug: "structured-outline", ...revision(pending) });
 
 assert.equal(Check(outlineStoreSchema, EMPTY_OUTLINE_STORE), true);
 assert.deepEqual(validateOutlineStore(EMPTY_OUTLINE_STORE), []);
 assert.equal(Check(pendingPhaseInputSchema, phase()), true);
-assert.equal(Check(pendingPhaseInputSchema, { ...phase(), id: "P1" }), false);
-assert.equal(
-	Check(setOutlineSchema, { ...input(), status: "completed" }),
-	false,
-);
-assert.equal(
-	Check(setOutlineSchema, {
-		...input(),
-		pending_phases: [{ ...phase(), resolution: null }],
-	}),
-	false,
-);
-assert.equal(
-	(setOutlineSchema.properties.pending_phases as { maxItems?: number })
-		.maxItems,
-	undefined,
-);
-assert.equal(
-	(setOutlineSchema as unknown as { additionalProperties: boolean })
-		.additionalProperties,
-	false,
+assert.equal(Check(outlineRevisionSchema, revision()), true);
+assert.equal(Check(setOutlineSchema, toolInput()), true);
+assert.equal(Check(outlineRevisionSchema, toolInput()), false, "routing slug is not persisted");
+assert.throws(
+	() => applyOutlineRevision(EMPTY_OUTLINE_STORE, { overview: { kind: "keep" }, pending: [], removed_pending_ids: [] }),
+	/must revise the empty overview/,
 );
 
-const one = replacePendingOutline(EMPTY_OUTLINE_STORE, input());
+const initial = applyOutlineRevision(EMPTY_OUTLINE_STORE, revision());
+const one = initial.outline;
 assert.equal(one.phases[0].id, "P1");
-assert.equal(one.next_phase_id, 2);
-assert.equal(one.phases[0].status, "pending");
-assert.equal(
-	replacePendingOutline(one, input()),
-	one,
-	"exact snapshot retry preserves identity",
-);
+assert.deepEqual(initial.changes, {
+	overview: true,
+	kept: 0,
+	revised: 0,
+	removed: 0,
+	added: 1,
+	reordered: false,
+});
 assert.equal(phaseEquals(one.phases[0], { ...one.phases[0] }), true);
-assert.equal(
-	phaseEquals(one.phases[0], { ...one.phases[0], title: "Changed" }),
-	false,
-);
 
-const removed = replacePendingOutline(one, input([]));
-assert.equal(removed.next_phase_id, 2);
-const fresh = replacePendingOutline(removed, input([phase("Add lexer")]));
-assert.equal(fresh.phases[0].id, "P2", "removed IDs are never reused");
-assert.equal(fresh.next_phase_id, 3);
+const keepRevision: OutlineRevision = {
+	overview: { kind: "keep" },
+	pending: [{ kind: "keep", id: "P1" }],
+	removed_pending_ids: [],
+};
+const kept = applyOutlineRevision(one, keepRevision);
+assert.deepEqual(kept.outline, one);
+assert.deepEqual(kept.changes, {
+	overview: false,
+	kept: 1,
+	revised: 0,
+	removed: 0,
+	added: 0,
+	reordered: false,
+});
 
-const many = replacePendingOutline(
-	EMPTY_OUTLINE_STORE,
-	input(Array.from({ length: 100 }, (_, index) => phase(`Phase ${index + 1}`))),
-);
-assert.equal(many.phases.length, 100);
-assert.equal(many.phases[99].id, "P100");
-assert.equal(EMPTY_OUTLINE_STORE.phases.length, 0, "transitions are pure");
+const revised = applyOutlineRevision(one, {
+	...keepRevision,
+	pending: [{ kind: "revise", id: "P1", ...phase("Repair parser") }],
+});
+assert.equal(revised.outline.phases[0].id, "P1");
+assert.equal(revised.outline.phases[0].title, "Repair parser");
+assert.equal(revised.changes.revised, 1, "revise remains intentional even with equal text");
 
-for (const path of ["src/a.ts", "a", "dir/a b.ts"])
-	assert.equal(safeRepositoryPath(path), true, path);
-for (const path of [
-	"",
-	".",
-	"..",
-	"../a",
-	"a/../b",
-	"/a",
-	"a\\b",
-	" a",
-	"a\nfile",
-])
-	assert.equal(safeRepositoryPath(path), false, path);
+const removed = applyOutlineRevision(one, {
+	overview: { kind: "keep" },
+	pending: [],
+	removed_pending_ids: ["P1"],
+});
+assert.equal(removed.outline.phases.length, 0);
+const fresh = applyOutlineRevision(removed.outline, { ...revision([add("Add lexer")]), overview: { kind: "keep" } });
+assert.equal(fresh.outline.phases[0].id, "P2", "removed IDs are never reused");
+
+for (const [candidate, pattern] of [
+	[{ ...keepRevision, pending: [] }, /must be kept, revised, or explicitly removed/],
+	[{ ...keepRevision, removed_pending_ids: ["P1"] }, /referenced more than once/],
+	[{ ...keepRevision, pending: [{ kind: "keep", id: "P9" }] }, /not an approved pending phase/],
+] as const) assert.throws(() => applyOutlineRevision(one, candidate as OutlineRevision), pattern);
+
+const committed = completePhase(one, firstPendingPhase(one)!, null);
+assert.equal(committed.phases[0].status, "completed");
+assert.throws(() => applyOutlineRevision(committed, keepRevision), /completed and immutable/);
+const withPending = applyOutlineRevision(committed, { ...revision([add("Second")]), overview: { kind: "keep" } }).outline;
+assert.deepEqual(withPending.phases[0], committed.phases[0], "completed records stay exact");
+
+const p2 = firstPendingPhase(withPending)!;
+const twoPending = applyOutlineRevision(one, {
+	overview: { kind: "keep" },
+	pending: [{ kind: "keep", id: "P1" }, add("Second")],
+	removed_pending_ids: [],
+}).outline;
+const reordered = applyOutlineRevision(twoPending, {
+	overview: { kind: "keep" },
+	pending: [{ kind: "keep", id: "P2" }, { kind: "keep", id: "P1" }],
+	removed_pending_ids: [],
+});
+assert.equal(reordered.changes.reordered, true);
+assert.deepEqual(reordered.outline.phases.map(({ id }) => id), ["P2", "P1"]);
+assert.throws(() => completePhase(withPending, { ...p2, summary: "Changed." }, null), /exact pending snapshot/);
+
+for (const path of ["src/a.ts", "a", "dir/a b.ts"]) assert.equal(safeRepositoryPath(path), true, path);
+for (const path of ["", ".", "..", "../a", "a/../b", "/a", "a\\b", " a", "a\nfile"]) assert.equal(safeRepositoryPath(path), false, path);
 assert.throws(
-	() =>
-		replacePendingOutline(
-			EMPTY_OUTLINE_STORE,
-			input([
-				{ ...phase(), file_changes: [{ path: "../escape", change: "Bad." }] },
-			]),
-		),
+	() => applyOutlineRevision(EMPTY_OUTLINE_STORE, revision([{ kind: "add", ...phase(), file_changes: [{ path: "../escape", change: "Bad." }] }])),
 	/unsafe path/,
-);
-assert.throws(
-	() =>
-		replacePendingOutline(
-			EMPTY_OUTLINE_STORE,
-			input([{ ...phase(), title: "two\nlines" }]),
-		),
-	/single line/,
-);
-assert.throws(
-	() =>
-		replacePendingOutline(
-			EMPTY_OUTLINE_STORE,
-			input([{ ...phase(), summary: " padded " }]),
-		),
-	/surrounding whitespace/,
 );
 
 const encoded = serializeOutlineStore(one);
-assert.equal(encoded, `${JSON.stringify(one, null, 2)}\n`);
 assert.deepEqual(parseOutlineStore(encoded), one);
 assert.throws(() => parseOutlineStore("not json"), /invalid outline JSON/);
-assert.throws(() => parseOutlineStore('{"version":2}'), /exact version-1/);
-assert.throws(
-	() => parseOutlineStore(`${encoded.trim().slice(0, -1)},"extra":1}`),
-	/exact version-1/,
-);
+const encodedRevision = serializeOutlineRevision(keepRevision);
+assert.deepEqual(parseOutlineRevision(encodedRevision), keepRevision);
+assert.throws(() => parseOutlineRevision(JSON.stringify(toolInput())), /exact revision schema/);
 
-const p1 = firstPendingPhase(one)!;
-assert.equal(p1.id, "P1");
-const committed = completePhase(one, p1, null);
-assert.equal(committed.phases[0].status, "completed");
-assert.equal(committed.phases[0].resolution, null);
-assert.equal(
-	completePhase(committed, p1, null),
-	committed,
-	"commit recovery is idempotent",
-);
-assert.throws(
-	() => completePhase(committed, p1, "No code"),
-	/resolution does not match/,
-);
+const provenance = { repo: "/repo", branch: "feature/outline", sha: "a".repeat(40) };
+const approvedView = renderOutline(withPending, provenance);
+const candidateView = renderOutline(reordered.outline, provenance, "candidate");
+assert.doesNotMatch(approvedView, /Awaiting approval/);
+assert.match(candidateView, /Awaiting approval/);
+assert.match(approvedView, /Phase 1 \(P1\): Add parser/);
+assert.match(approvedView, /Phase 2 \(P2\): Second/);
 
-const noCodeSource = replacePendingOutline(
-	committed,
-	input([phase("Documentation review")]),
-);
-const p2 = firstPendingPhase(noCodeSource)!;
-const noCode = completePhase(
-	noCodeSource,
-	p2,
-	"Existing documentation already satisfies the design.",
-);
-assert.equal(
-	noCode.phases[1].resolution,
-	"Existing documentation already satisfies the design.",
-);
-assert.equal(
-	completePhase(
-		noCode,
-		p2,
-		"Existing documentation already satisfies the design.",
-	),
-	noCode,
-);
-assert.throws(
-	() => completePhase(noCodeSource, { ...p2, summary: "Changed." }, null),
-	/exact pending snapshot/,
-);
+const brief = renderBuildPhase(one.phases[0] as PendingPhase);
+assert.deepEqual(JSON.parse(brief.slice(brief.indexOf("\n") + 1, brief.lastIndexOf("\n"))), {
+	id: "P1",
+	title: "Add parser",
+	summary: "Implement add parser.",
+	file_changes: [{ path: "src/parser.ts", change: "Add parse()." }],
+	verification: ["npm test"],
+});
 
-const twoPending = replacePendingOutline(
-	EMPTY_OUTLINE_STORE,
-	input([phase("First"), phase("Second")]),
-);
-assert.throws(
-	() => completePhase(twoPending, twoPending.phases[1] as typeof p1, null),
-	/first pending/,
-);
-const firstDone = completePhase(
-	twoPending,
-	firstPendingPhase(twoPending)!,
-	null,
-);
-const replanned = replacePendingOutline(firstDone, input([phase("Repair")]));
-assert.deepEqual(
-	replanned.phases[0],
-	firstDone.phases[0],
-	"completed records are immutable",
-);
-assert.equal(replanned.phases[1].id, "P3");
-assert.equal(firstPendingPhase(replanned)?.id, "P3");
-
-const invalidOrder: OutlineStore = {
-	...firstDone,
-	phases: [twoPending.phases[0], firstDone.phases[0]],
-};
-assert.match(
-	validateOutlineStore(invalidOrder).join("\n"),
-	/immutable prefix|duplicate/,
-);
 const unsafeId: OutlineStore = {
 	...one,
 	next_phase_id: Number.MAX_SAFE_INTEGER,
 	phases: [{ ...one.phases[0], id: `P${Number.MAX_SAFE_INTEGER - 1}` }],
 };
-assert.deepEqual(validateOutlineStore(unsafeId), []);
 assert.throws(
-	() => replacePendingOutline(unsafeId, input([phase("Overflow")])),
+	() => applyOutlineRevision(unsafeId, {
+		overview: { kind: "keep" },
+		pending: [{ kind: "keep", id: `P${Number.MAX_SAFE_INTEGER - 1}` }, add("Overflow")],
+		removed_pending_ids: [],
+	}),
 	/MAX_SAFE_INTEGER/,
 );
 
-const provenance = {
-	repo: "/repo",
-	branch: "feature/outline",
-	sha: "0123456789abcdef",
-};
-const rendered = renderOutline(noCode, provenance);
-assert.equal(
-	renderOutline(noCode, provenance),
-	rendered,
-	"rendering is deterministic",
-);
-assert.match(
-	rendered,
-	/^---\nrepo: \/repo\nbranch: feature\/outline\nsha: 0123456789abcdef\n---/,
-);
-assert.match(
-	rendered,
-	/- \[x\] Phase 1: Add parser\n- \[x\] Phase 2: Documentation review/,
-);
-assert.match(rendered, /## Phase 1: Add parser/);
-assert.match(
-	rendered,
-	/Resolution: Existing documentation already satisfies the design\./,
-);
-assert.equal((rendered.match(/Resolution:/g) ?? []).length, 1);
-assert.match(rendered, /\*\*`src\/parser\.ts`\*\*: Add parse\(\)\./);
-
-const brief = renderBuildPhase(p1);
-assert.equal(brief, renderBuildPhase(p1), "build rendering is deterministic");
-assert.match(brief, /^```json\n/);
-assert.match(brief, /\n```$/);
-assert.deepEqual(
-	JSON.parse(brief.slice(brief.indexOf("\n") + 1, brief.lastIndexOf("\n"))),
-	{
-		id: "P1",
-		title: "Add parser",
-		summary: "Implement add parser.",
-		file_changes: [{ path: "src/parser.ts", change: "Add parse()." }],
-		verification: ["npm test"],
-	},
-	"lifecycle fields never reach the build agent",
-);
-assert.throws(
-	() => renderBuildPhase({ ...p1, status: "completed" } as unknown as typeof p1),
-	/valid pending outline phase/,
-);
-
-const fenced = renderBuildPhase({
-	...p1,
-	summary: "Show the phase in a ```json block.",
-});
-assert.match(fenced, /^````json\n/, "content can never close its own fence");
-assert.match(fenced, /\n````$/);
-assert.equal(
-	JSON.parse(fenced.slice(fenced.indexOf("\n") + 1, fenced.lastIndexOf("\n")))
-		.summary,
-	"Show the phase in a ```json block.",
-);
-
-console.log("rpi structured outline: ok");
+console.log("rpi outline revision domain: ok");

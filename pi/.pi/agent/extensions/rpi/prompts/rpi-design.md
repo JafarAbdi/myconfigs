@@ -3,11 +3,15 @@ description: RPI design — put every material design decision in front of the h
 argument-hint: "<task-slug> [ID-addressed human answers or design feedback]"
 ---
 
-Read `ticket.md` and `02-research.md` in full. Read `03-design-discussion.md` and `questions.json`
-when they exist. Do not read `01-research-questions.md`. `03-design-discussion.md` is the
-authoritative design; `questions.json` is machine-owned decision provenance.
+Read `ticket.md` and `02-research.md` in full. Read `03-design-discussion.md`, `questions.json`, and
+`04-structure-outline.md` when they exist. Do not read `01-research-questions.md` or machine-owned
+outline JSON. `03-design-discussion.md` is the authoritative desired design; `questions.json` is
+machine-owned decision provenance. The outline is settled planning history, not proof that code was
+written: read each `Resolution` and verify actual current behavior in code.
 
 Where the documents disagree about current facts, verify the relevant code and follow the code.
+Rewrite `### Current State` whenever it is stale, and keep the leading repo, branch, and sha
+frontmatter at the exact checkout used for that verification.
 Record consequential disagreements and their effect on the design. Feedback continues design; it
 never authorizes implementation, repository edits, implementation artifacts, or Outline.
 

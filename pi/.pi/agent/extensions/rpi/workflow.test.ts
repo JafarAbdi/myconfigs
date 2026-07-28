@@ -14,7 +14,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionManager as SessionManagerInstance } from "@earendil-works/pi-coding-agent";
-import type { OutlineStore, PendingPhase, SetOutlineInput } from "./outline.ts";
+import type {
+	OutlineRevision,
+	OutlineStore,
+	PendingPhase,
+	SetOutlineInput,
+} from "./outline.ts";
 
 interface ExecResult {
 	code: number;
@@ -260,13 +265,17 @@ async function main(): Promise<void> {
 	};
 	const outlineInput = (
 		slug: string,
-		pending_phases = [phaseInput],
+		phases = [phaseInput],
 	): SetOutlineInput => ({
 		task_slug: slug,
-		title: "Focused implementation",
-		summary: "Implement the agreed design in focused phases.",
-		desired_end_state: "The focused behavior is implemented and verified.",
-		pending_phases,
+		overview: {
+			kind: "revise",
+			title: "Focused implementation",
+			summary: "Implement the agreed design in focused phases.",
+			desired_end_state: "The focused behavior is implemented and verified.",
+		},
+		pending: phases.map((phase) => ({ kind: "add", ...phase })),
+		removed_pending_ids: [],
 	});
 	const pendingPhase = (id = "P1", input = phaseInput): PendingPhase => ({
 		id,
@@ -357,6 +366,12 @@ async function main(): Promise<void> {
 		return JSON.parse(
 			readFileSync(join(tasks, slug, "outline.json"), "utf8"),
 		) as OutlineStore;
+	}
+
+	function loadCandidate(slug: string): OutlineRevision {
+		return JSON.parse(
+			readFileSync(join(tasks, slug, "outline-candidate.json"), "utf8"),
+		) as OutlineRevision;
 	}
 
 	function loadState(slug: string): Record<string, unknown> {
@@ -799,7 +814,12 @@ async function main(): Promise<void> {
 					: {},
 			),
 		);
-		writeFileSync(join(tasks, slug, "03-design.md"), design);
+		writeFileSync(
+			join(tasks, slug, "03-design.md"),
+			design.startsWith("---\n")
+				? design
+				: `---\nrepo: ${worktree}\nbranch: ${slug}\nsha: ${repository.head}\n---\n\n${design}`,
+		);
 		if (questions.length) persistQuestions(slug, questions);
 		return worktree;
 	}
@@ -830,7 +850,10 @@ async function main(): Promise<void> {
 			state(repository.common, repository.head, phase, extra),
 			store,
 		);
-		writeFileSync(join(tasks, slug, "03-design.md"), emptyDesign);
+		writeFileSync(
+			join(tasks, slug, "03-design.md"),
+			`---\nrepo: ${worktree}\nbranch: ${slug}\nsha: ${repository.head}\n---\n\n${emptyDesign}`,
+		);
 		return { repository, worktree };
 	}
 
@@ -1286,6 +1309,24 @@ async function main(): Promise<void> {
 		}
 
 		{
+			const slug = "stale-design-evidence";
+			const worktree = await preparePlainTask(slug, "design", emptyDesign);
+			const owner = harness.createOwner(worktree, `${slug} · design`);
+			const path = join(tasks, slug, "03-design.md");
+			writeFileSync(
+				path,
+				readFileSync(path, "utf8").replace(/sha: [0-9a-f]{40}/, `sha: ${"b".repeat(40)}`),
+			);
+			const selections = harness.selections.length;
+			const prompts = harness.prompts.length;
+			await harness.invokeInSession(slug, owner);
+			assert.equal(loadState(slug).phase, "design");
+			assert.equal(harness.selections.length, selections);
+			assert.equal(harness.prompts.length, prompts + 1);
+			assert.match(harness.prompts.at(-1)?.text ?? "", /Design repository evidence is stale/);
+		}
+
+		{
 			const slug = "symlinked-question-store";
 			const worktree = await preparePlainTask(slug, "design", emptyDesign);
 			const external = join(scratch, `${slug}.json`);
@@ -1409,20 +1450,35 @@ async function main(): Promise<void> {
 
 		{
 			const slug = "outline-question-backtrack";
-			const worktree = await preparePlainTask(slug, "outline", emptyDesign, [
-				cacheQuestion,
-			]);
+			const worktree = await preparePlainTask(slug, "outline", emptyDesign);
 			const designOwner = harness.createOwner(worktree, `${slug} · design`);
 			const designPath = designOwner.getSessionFile();
 			assert.ok(designPath);
 			const outlineOwner = harness.createOwner(worktree, `${slug} · outline`);
 			setOutlineOwner(slug, outlineOwner);
+			await harness.startSession(outlineOwner);
+			await harness.setOutline(outlineOwner, outlineInput(slug));
+			await harness.updateQuestions(outlineOwner, {
+				task_slug: slug,
+				incorporated_question_ids: [],
+				questions: [cacheInput],
+			});
+			assert.equal(existsSync(join(tasks, slug, "outline-candidate.json")), true);
+			assert.match(
+				readFileSync(join(tasks, slug, "04-structure-outline.md"), "utf8"),
+				/Awaiting approval/,
+			);
 			const promptCount = harness.prompts.length;
 			const selectionCount = harness.selections.length;
 
 			await harness.invokeInSession(slug, outlineOwner);
 			assert.equal(loadState(slug).phase, "design");
 			assert.equal(harness.switches.at(-1), designPath);
+			assert.equal(existsSync(join(tasks, slug, "outline-candidate.json")), false);
+			assert.doesNotMatch(
+				readFileSync(join(tasks, slug, "04-structure-outline.md"), "utf8"),
+				/Awaiting approval/,
+			);
 			assert.equal(harness.prompts.length, promptCount);
 			assert.equal(
 				harness.selections.length,
@@ -1450,24 +1506,26 @@ async function main(): Promise<void> {
 				/does not own the Outline phase/,
 			);
 			await harness.setOutline(owner, outlineInput(slug));
-			const first = loadOutline(slug);
+			const first = loadCandidate(slug);
 			assert.equal(loadState(slug).submitted, true);
-			assert.equal(first.phases[0]?.id, "P1");
+			assert.deepEqual(Object.keys(first).sort(), [
+				"overview",
+				"pending",
+				"removed_pending_ids",
+			]);
+			assert.equal("task_slug" in first, false);
+			assert.equal(
+				existsSync(join(tasks, slug, "outline.json")),
+				false,
+				"submission must not create the approved outline",
+			);
 			await harness.setOutline(owner, outlineInput(slug));
-			assert.deepEqual(
-				loadOutline(slug),
-				first,
-				"exact retry must preserve IDs and allocation",
-			);
-			writeFileSync(
-				join(tasks, slug, "04-structure-outline.md"),
-				"stale projection\n",
-			);
-			await harness.invokeInSession(slug, owner);
+			assert.deepEqual(loadCandidate(slug), first);
+			await harness.invokeInSession(slug, owner, "Approve plan & start Build");
 			assert.equal(loadState(slug).phase, "build");
 			assert.match(
 				readFileSync(join(tasks, slug, "04-structure-outline.md"), "utf8"),
-				/Phase 1: Implement the focused change/,
+				/Phase 1 \(P1\): Implement the focused change/,
 			);
 			assert.equal(
 				(
@@ -1486,7 +1544,11 @@ async function main(): Promise<void> {
 			setOutlineOwner(slug, owner);
 			await harness.startSession(owner);
 			await harness.setOutline(owner, outlineInput(slug, []));
-			await harness.invokeInSession(slug, owner);
+			await harness.invokeInSession(
+				slug,
+				owner,
+				"Approve plan & continue to PR",
+			);
 			assert.equal(loadState(slug).phase, "pr");
 			const prPrompt = harness.prompts.at(-1)?.text ?? "";
 			assert.match(prPrompt, /Audit the transient range/);
@@ -1494,6 +1556,189 @@ async function main(): Promise<void> {
 			// and then discount an unexpanded slash-command placeholder.
 			assert.match(prPrompt, /Review this scope: `git diff [0-9a-f]{40}\.\.[0-9a-f]{40}`/);
 			assert.equal(prPrompt.includes("${@"), false);
+		}
+
+		{
+			const slug = "outline-continue-keeps-approved";
+			const worktree = await preparePlainTask(slug, "outline", emptyDesign);
+			const owner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, owner);
+			await harness.startSession(owner);
+			await harness.setOutline(owner, outlineInput(slug));
+			await harness.invokeInSession(
+				slug,
+				owner,
+				"Continue outlining",
+				"Keep only work that remains after settled phases.",
+			);
+			assert.equal(loadState(slug).submitted, false);
+			assert.equal(existsSync(join(tasks, slug, "outline-candidate.json")), false);
+			assert.equal(existsSync(join(tasks, slug, "outline.json")), false);
+			assert.doesNotMatch(
+				readFileSync(join(tasks, slug, "04-structure-outline.md"), "utf8"),
+				/Awaiting approval/,
+			);
+		}
+
+		{
+			const slug = "outline-revisit-restores-approved";
+			const worktree = await preparePlainTask(slug, "outline", emptyDesign);
+			const designOwner = harness.createOwner(worktree, `${slug} · design`);
+			const outlineOwner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, outlineOwner);
+			await harness.startSession(outlineOwner);
+			await harness.setOutline(outlineOwner, outlineInput(slug));
+			await harness.invokeInSession(
+				slug,
+				outlineOwner,
+				"Revisit design",
+				"The behavior needs another decision.",
+			);
+			assert.equal(loadState(slug).phase, "design");
+			assert.equal(harness.switches.at(-1), designOwner.getSessionFile());
+			assert.equal(existsSync(join(tasks, slug, "outline-candidate.json")), false);
+			assert.doesNotMatch(
+				readFileSync(join(tasks, slug, "04-structure-outline.md"), "utf8"),
+				/Awaiting approval/,
+			);
+		}
+
+		{
+			const slug = "outline-design-race";
+			const worktree = await preparePlainTask(slug, "outline", emptyDesign);
+			const owner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, owner);
+			await harness.startSession(owner);
+			await harness.setOutline(owner, outlineInput(slug));
+			harness.beforeNextSelect = () => {
+				writeFileSync(
+					join(tasks, slug, "outline-candidate.json"),
+					`${JSON.stringify({ ...loadCandidate(slug), pending: [] }, null, 2)}\n`,
+				);
+			};
+			await harness.invokeInSession(slug, owner, "Approve plan & start Build");
+			assert.equal(loadState(slug).phase, "outline");
+			assert.ok(harness.notices.at(-1)?.message.includes("changed during review"));
+		}
+
+		{
+			const slug = "direct-replan-no-op";
+			const { worktree } = await prepareStructuredTask(
+				slug,
+				"build",
+				{ build: { phaseSnapshot: pendingPhase(), status: "pending" } },
+			);
+			const buildOwner = harness.createOwner(worktree, `${slug} · build`);
+			const buildPath = buildOwner.getSessionFile();
+			assert.ok(buildPath);
+			writeFileSync(
+				join(tasks, slug, "state.json"),
+				`${JSON.stringify(
+					state("unused", "", "build", {
+						build: {
+							phaseSnapshot: pendingPhase(),
+							status: "active",
+							session: buildPath,
+						},
+					}),
+					null,
+					2,
+				)}\n`,
+			);
+			await harness.startSession(buildOwner);
+			await harness.invokeInSession(slug, buildOwner, "Replan pending work");
+			assert.equal(loadState(slug).phase, "outline");
+			assert.equal(loadState(slug).basis, "approved-outline");
+			const outlineOwner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, outlineOwner);
+			await harness.startSession(outlineOwner);
+			const selectionCount = harness.selections.length;
+			await harness.setOutline(outlineOwner, {
+				...outlineInput(slug, []),
+				overview: { kind: "keep" },
+				pending: [{ kind: "keep", id: "P1" }],
+			});
+			await harness.invokeInSession(slug, outlineOwner);
+			assert.equal(loadState(slug).phase, "build");
+			assert.equal(
+				harness.selections.length,
+				selectionCount,
+				"an exact planning-only no-op needs no approval input",
+			);
+		}
+
+		{
+			const slug = "pr-replan-invalidates-description";
+			const completed = {
+				...pendingPhase("P1"),
+				status: "completed" as const,
+				resolution: null,
+			};
+			const { worktree } = await prepareStructuredTask(
+				slug,
+				"pr",
+				{ pr: { status: "pending" } },
+				outlineStore([completed], 2),
+			);
+			const prOwner = harness.createOwner(worktree, `${slug} · pr`);
+			const prPath = prOwner.getSessionFile();
+			assert.ok(prPath);
+			writeFileSync(
+				join(tasks, slug, "state.json"),
+				`${JSON.stringify(state("unused", "", "pr", { pr: { status: "active", session: prPath } }), null, 2)}\n`,
+			);
+			writeFileSync(join(tasks, slug, "pr-description.md"), "Stale PR\n");
+			await harness.startSession(prOwner);
+			await harness.invokeInSession(slug, prOwner, "Replan pending work");
+			const outlineOwner = harness.createOwner(worktree, `${slug} · outline`);
+			setOutlineOwner(slug, outlineOwner);
+			await harness.startSession(outlineOwner);
+			await harness.setOutline(outlineOwner, outlineInput(slug, []));
+			await harness.invokeInSession(
+				slug,
+				outlineOwner,
+				"Approve plan & continue to PR",
+			);
+			assert.equal(loadState(slug).phase, "pr");
+			assert.equal(existsSync(join(tasks, slug, "pr-description.md")), false);
+			assert.doesNotMatch(
+				readFileSync(join(tasks, slug, "04-structure-outline.md"), "utf8"),
+				/Awaiting approval/,
+			);
+		}
+
+		{
+			const slug = "dirty-build-replan";
+			const { worktree } = await prepareStructuredTask(
+				slug,
+				"build",
+				{ build: { phaseSnapshot: pendingPhase(), status: "pending" } },
+			);
+			const owner = harness.createOwner(worktree, `${slug} · build`);
+			const ownerPath = owner.getSessionFile();
+			assert.ok(ownerPath);
+			writeFileSync(
+				join(tasks, slug, "state.json"),
+				`${JSON.stringify(
+					state("unused", "", "build", {
+						build: {
+							phaseSnapshot: pendingPhase(),
+							status: "active",
+							session: ownerPath,
+						},
+					}),
+					null,
+					2,
+				)}\n`,
+			);
+			writeFileSync(join(worktree, "tracked.txt"), "dirty\n");
+			await harness.invokeInSession(slug, owner, "Replan pending work");
+			assert.equal(loadState(slug).phase, "build");
+			assert.ok(
+				harness.notices.some((notice) =>
+					notice.message.includes("replanning requires a clean worktree"),
+				),
+			);
 		}
 
 		for (const kind of ["malformed", "directory", "symlink"] as const) {
@@ -1554,16 +1799,9 @@ async function main(): Promise<void> {
 			setOutlineOwner(slug, outlineOwner);
 			await harness.startSession(outlineOwner);
 			await harness.setOutline(outlineOwner, outlineInput(slug));
-			assert.deepEqual(
-				loadOutline(slug).phases.map(({ id, status }) => ({ id, status })),
-				[
-					{ id: "P1", status: "completed" },
-					{ id: "P2", status: "completed" },
-					{ id: "P3", status: "completed" },
-					{ id: "P4", status: "pending" },
-				],
-			);
-			await harness.invokeInSession(slug, outlineOwner);
+			assert.equal(loadOutline(slug).phases.length, 3);
+			assert.deepEqual(loadCandidate(slug).pending.map(({ kind }) => kind), ["add"]);
+			await harness.invokeInSession(slug, outlineOwner, "Approve changed plan");
 			assert.equal(
 				(
 					(loadState(slug).build as Record<string, unknown>)
@@ -1624,7 +1862,19 @@ async function main(): Promise<void> {
 			const outlineOwner = harness.createOwner(worktree, `${slug} · outline`);
 			setOutlineOwner(slug, outlineOwner);
 			await harness.startSession(outlineOwner);
-			await harness.setOutline(outlineOwner, outlineInput(slug));
+			await harness.setOutline(outlineOwner, {
+				...outlineInput(slug),
+				removed_pending_ids: ["P2"],
+			});
+			assert.deepEqual(
+				loadOutline(slug).phases.map(({ id, status }) => ({ id, status })),
+				[
+					{ id: "P1", status: "completed" },
+					{ id: "P2", status: "pending" },
+				],
+				"approved outline remains unchanged before review",
+			);
+			await harness.invokeInSession(slug, outlineOwner, "Approve changed plan");
 			assert.deepEqual(
 				loadOutline(slug).phases.map(({ id, status }) => ({ id, status })),
 				[
@@ -1735,8 +1985,18 @@ async function main(): Promise<void> {
 			assert.deepEqual(harness.selections.at(-1), {
 				question: `Phase 1 · ${changed ? "1 changed path" : "no changes"} · review with git diff`,
 				options: changed
-					? ["Continue working", "Approve & commit", "Revisit design"]
-					: ["Continue working", "Close with no code", "Revisit design"],
+					? [
+							"Continue working",
+							"Approve & commit",
+							"Replan pending work",
+							"Revisit design",
+						]
+					: [
+							"Continue working",
+							"Close with no code",
+							"Replan pending work",
+							"Revisit design",
+						],
 			});
 			assert.equal(harness.prompts.length, promptCount + 1);
 			assert.equal(
@@ -1959,7 +2219,7 @@ async function main(): Promise<void> {
 			});
 			assert.match(
 				readFileSync(join(tasks, slug, "04-structure-outline.md"), "utf8"),
-				/^- \[x\] Phase 1: Implement the focused change$/m,
+				/^- \[x\] Phase 1 \(P1\): Implement the focused change$/m,
 			);
 			assert.ok(
 				harness.notices.some(

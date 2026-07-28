@@ -44,8 +44,11 @@ export interface PlainTaskState extends Identity {
 	phase: PlainPhase;
 }
 
+export type OutlineBasis = "design" | "approved-outline";
+
 export interface OutlineTaskState extends Identity {
 	phase: "outline";
+	basis: OutlineBasis;
 	submitted: boolean;
 	session: string;
 }
@@ -267,14 +270,27 @@ export function parseTaskState(value: unknown): TaskState | undefined {
 	}
 
 	if (state.phase === "outline") {
+		const legacy = exactKeys(state, [...identityKeys, "submitted", "session"]);
+		const current = exactKeys(state, [
+			...identityKeys,
+			"basis",
+			"submitted",
+			"session",
+		]);
 		if (
-			!exactKeys(state, [...identityKeys, "submitted", "session"]) ||
+			(!legacy && !current) ||
+			(current &&
+				state.basis !== "design" &&
+				state.basis !== "approved-outline") ||
 			typeof state.submitted !== "boolean" ||
 			typeof state.session !== "string" ||
 			!isAbsolute(state.session)
 		)
 			return undefined;
-		return state as unknown as OutlineTaskState;
+		return {
+			...state,
+			basis: legacy ? "design" : state.basis,
+		} as unknown as OutlineTaskState;
 	}
 
 	if (state.phase === "pr") {
@@ -331,8 +347,9 @@ export function outlineState(
 	state: TaskState,
 	session: string,
 	submitted = false,
+	basis: OutlineBasis = state.phase === "outline" ? state.basis : "design",
 ): OutlineTaskState {
-	return { ...identityOf(state), phase: "outline", submitted, session };
+	return { ...identityOf(state), phase: "outline", basis, submitted, session };
 }
 
 function phaseSnapshot(phase: PendingPhase): PhaseSnapshot {
