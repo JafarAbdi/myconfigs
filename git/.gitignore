@@ -25,6 +25,10 @@ perf.data*
 ### heaptrack ###
 heaptrack.*.gz
 
+### MuJoCo ###
+# dropped wherever a script runs
+MUJOCO_LOG.TXT
+
 ### Misc ###
 *.diff
 build/
