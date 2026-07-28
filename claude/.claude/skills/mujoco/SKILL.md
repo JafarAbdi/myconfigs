@@ -23,6 +23,7 @@ Extracted from mink, mjlab, mujoco, and mujoco\_mpc. Use these patterns and util
 12. Runtime Model Modification (mjModel field edit vs MjSpec)
 13. Reducing a Model to a Gravity-Only Model (inertials only)
 14. MJCF Asset, Geometry, and Mesh Extraction Patterns
+15. Versions
 
 ---
 
@@ -760,3 +761,260 @@ intrinsic, uppercase axes are extrinsic. URDF RPY corresponds to MJCF `XYZ`.
 
 Copy MuJoCo arrays when buffering a trajectory; fields such as `data.xpos` and
 `data.xquat` are mutable views updated by later steps.
+
+---
+
+## 15. Versions
+
+Changelog: https://mujoco.readthedocs.io/en/stable/changelog.html
+
+Worked examples of each release's features, pinned to the newest release and runnable:
+`uv run --no-project ~/.claude/skills/mujoco/versions/<version>.py`. Every example runs
+against the current MuJoCo, so anything a later release removed is already gone from here.
+
+### 3.11.0 (July 27, 2026) — `versions/3.11.0.py`
+
+- `surfacevel_conveyor` — Move a geom's surface without moving the geom: conveyors, treadmills and turntables.
+- `adhesion_contacts` — Make contacts pull as well as push: tape, gecko feet, and -- combined with gap -- magnets.
+- `implicitfast_gyroscopic` — Pick an integrator for free-flying bodies now that implicitfast handles gyroscopic terms.
+- `body_simple_off` — Opt a body out of the simple-body mass matrix optimization to randomize its inertia.
+- `setconst_sameframe` — Make a runtime site-pose edit actually take effect by recomputing site_sameframe.
+- `gravcomp_fast_path_flags` — Toggle the gravcomp and surfacevel fast paths directly, instead of through ngravcomp.
+- `mass_matrix_csr` — Read and use the joint-space inertia matrix now that only the CSR mjData.M remains.
+- `inverse_fd_mass_jacobian` — Finite-difference the mass matrix alongside the inverse-dynamics Jacobians, in CSR.
+- `orientation_servo` — Servo a ball joint or refsite to a full target orientation with one geodesic PD actuator.
+- `actuator_control_blocks` — Slice mjData.ctrl and mjData.actuator_force per actuator now that the two can differ.
+- `reset_ctrl` — Clear controls to neutral mid-episode without resetting the simulation state.
+- `intvelocity_unclamped` — Let an intvelocity servo integrate past half a turn on a rotational transmission.
+- `warmstart_zero_iterations` — Skip the constraint solve entirely on scenes that have settled.
+- `self_attach` — Repeat a subtree inside one model with <attach>, no second file and no MjSpec code.
+- `encode_model` — Serialize a spec or compiled model to any of MuJoCo's file formats through one call.
+
+### 3.10.0 (June 22, 2026) — `versions/3.10.0.py`
+
+- `threadpool` — Spread collision detection and per-island constraint solving over worker threads.
+- `log_config` — Retarget MuJoCo's own error/warning/info stream and switch on per-topic tracing.
+- `compile_warnings` — Inspect what the model compiler objected to, and fail a build on it if you want.
+- `attach_conflict` — Decide what happens to clashing global options when a child spec is attached.
+- `make_flex` — Build a deformable body procedurally, without emitting a <flexcomp> XML string.
+- `make_flex_from_obj` — Load a 1D flex (rope, cable, suture) straight from OBJ line segments.
+- `dense_inertia` — Get the joint-space inertia matrix as a dense array for your own linear algebra.
+
+### 3.9.0 (May 27, 2026) — `versions/3.9.0.py`
+
+- `exact_constraint_diagonal` — Fix soft or diverging constraints on models with anisotropic inertia or long chains.
+- `compiler_timings` — Find out which asset is making model compilation slow.
+- `margin_and_gap` — Detect near-contacts before they generate force, for adhesion or custom controllers.
+
+### 3.8.1 (May 11, 2026) — `versions/3.8.1.py`
+
+- `vfs_assets` — Feed in-memory assets to the compiler through a virtual file system.
+- `spec_encode` — Serialize a spec through a registered encoder plugin, chosen by file extension.
+- `dense_inertia_matrix` — Expand mjData.M (sparse CSR) into a dense inertia matrix for linear algebra.
+
+### 3.8.0 (April 24, 2026) — `versions/3.8.0.py`
+
+- `max_contacts_per_pair` — Ask the collider how many contacts a geom pair can ever produce, without simulating.
+- `multiccd_by_default` — Recover the pre-3.8.0 single-point convex collisions by disabling multiccd.
+
+### 3.7.0 (April 14, 2026) — `versions/3.7.0.py`
+
+- `dcmotor_actuator` — Drive a joint from motor datasheet numbers instead of a hand-tuned torque source.
+- `reflected_armature_and_damping` — Declare rotor inertia and viscous damping on the actuator and let gear^2 do the scaling.
+- `polynomial_stiffness_and_damping` — Model progressive springs and quadratic (fluid) damping without a custom force callback.
+
+### 3.6.0 (March 10, 2026) — `versions/3.6.0.py`
+
+- `element_compiler_settings` — Resolve the compiler settings (meshdir, angle units, ...) that a spec element was authored under.
+- `sparse_tendon_jacobian` — Map a tendon tension to joint torques through ten_J, which is now sparse with index arrays in mjModel.
+- `flex_strain_equality` — Keep a fast trilinear/quadratic flex from stretching by constraining edge strain instead of edge length.
+- `flex_sdf_collision` — Drape a flex over an analytic signed-distance geom instead of a mesh approximation of it.
+
+### 3.5.0 (February 12, 2026) — `versions/3.5.0.py`
+
+- `actuator_and_sensor_delays` — Give actuators command latency and sensors a slow sampling rate without hand-rolling ring buffers.
+- `rangefinder_camera_scan` — Get a full range image out of the physics engine by attaching a rangefinder to a camera.
+- `raycast_with_normals` — Sweep a planar lidar and get surface normals back from the same ray cast.
+- `cloth_flexvert_equality` — Simulate cloth on a coarse mesh by constraining vertex positions rather than every edge length.
+- `system_identification` — Fit physical parameters of a model to recorded sensor data with the sysid toolbox.
+- `mjx_smooth_dynamics_fields` — Read transmission lengths and com-based motion axes straight off mjx.Data instead of recomputing them.
+
+### 3.4.0 (December 5, 2025) — `versions/3.4.0.py`
+
+- `sleeping_islands` — Let settled free bodies drop out of the pipeline so a scene full of passive props stays cheap.
+- `kinematics_only_pipeline` — Refresh site poses and Jacobians for an IK iteration without paying for dynamics.
+- `extract_state_components` — Pull a sub-state out of a serialized state vector without round-tripping it through mjData.
+- `copy_state_between_data` — Checkpoint and restore an mjData for rollout-style planning without allocating state vectors.
+- `tendon_path_wraps` — Walk a tendon's routing from Python to audit which sites, geoms and pulleys it passes through.
+- `quadratic_flex_dof` — Simulate a deformable solid with curved deformation modes at a fraction of a full flex's dof count.
+
+### 3.3.7 (October 13, 2025) — `versions/3.3.7.py`
+
+- `spec_compiler_asset_dirs` — Give each spec its own mesh/texture search path so attached models keep resolving.
+- `xml_dependencies` — List every asset file an MJCF pulls in, to package or preflight a model.
+
+### 3.3.6 (September 15, 2025) — `versions/3.3.6.py`
+
+- `constraint_islands` — Find which degrees of freedom are currently coupled by constraints.
+- `disable_spring_and_damper` — Switch off joint/tendon springs and dampers independently to isolate passive forces.
+- `forward_idempotence` — Warm-start the constraint solver explicitly now that mj_forward leaves state alone.
+- `contact_sensor_subtree` — Report contacts between a whole kinematic subtree and an object as a fixed-size array.
+- `mesh_default_material` — Give a mesh asset a fallback material instead of repeating it on every geom.
+- `mjx_tendon_length` — Read tendon lengths straight off mjx.Data, without reaching into the private impl.
+
+### 3.3.5 (August 8, 2025) — `versions/3.3.5.py`
+
+- `contact_sensor` — Read contacts as a fixed-size array, so they can feed a policy or an env rule.
+- `insidesite_sensor` — Trigger environment logic when an object enters a region of space.
+- `tactile_sensor` — Measure per-taxel penetration depth and slip where a pad presses on an SDF geom.
+- `builtin_meshes` — Generate mesh assets from parameters instead of shipping OBJ files with the model.
+
+### 3.3.4 (July 8, 2025) — `versions/3.3.4.py`
+
+- `spec_delete` — Remove a subtree from an MjSpec together with everything that references it.
+- `spec_name_collisions` — Reject a duplicate element name where it is assigned, not at compile time.
+
+### 3.3.3 (June 10, 2025) — `versions/3.3.3.py`
+
+- `light_type` — Pick a light's kind from an enum instead of a boolean, in MJCF or on an MjSpec.
+- `texture_colorspace` — Declare whether a texture's values are linear or sRGB so shading is not silently wrong.
+- `mass_matrix` — Build the joint-space inertia matrix including tendon armature, and read its CSR layout.
+- `fuse_static_bodies` — Collapse static bodies into their parent even in models that reference other elements.
+- `flex_2d_elasticity` — Give a 2D flex membrane stretching and bending stiffness, without the old shell plugin.
+- `mjx_tendon_armature` — Carry leadscrew/hydraulic inertia through a tendon on the MJX backend.
+
+### 3.3.2 (April 28, 2025) — `versions/3.3.2.py`
+
+- `mjx_inverse_dynamics` — Get the feedforward torque for a reference trajectory, batched on the MJX backend.
+- `mjx_tendon_actuator_force_sensor` — Read the clamped total actuator force on a tendon from inside a jitted MJX rollout.
+
+### 3.3.1 (Apr 9, 2025) — `versions/3.3.1.py`
+
+- `spec_attach` — Graft a child MjSpec onto a parent at a frame or a site, with one call for both.
+- `tendon_armature` — Model the reflected inertia of a leadscrew or hydraulic ram without extra dofs.
+- `tendon_actuator_force_limits` — Clamp the total actuator force pulling on a tendon and read it back from a sensor.
+- `save_inertial` — Bake compiled inertias into saved XML so a consumer reproduces them without the meshes.
+- `composite_orientation` — Lay out a composite cable along an arbitrary direction, or inside a frame.
+- `bind_unnamed_elements` — Read compiled model/data values for spec elements you never bothered to name.
+
+### 3.3.0 (Feb 26, 2025) — `versions/3.3.0.py`
+
+- `flexcomp_trilinear` — Simulate a deformable pad far cheaper by reducing it to 24 bounding-box dofs.
+- `native_ccd` — A/B a model against both convex-collision pipelines when contacts change under 3.3.0.
+- `energy_sensors` — Measure integrator energy drift without wiring up mjData.energy by hand.
+- `spec_shallow_attach` — Keep editing a child spec through its own handle after attaching it to a parent.
+- `mjx_tendon_wrapping` — Run spatial tendons that wrap around sphere and cylinder geoms on the MJX backend.
+
+### 3.2.7 (Jan 14, 2025) — `versions/3.2.7.py`
+
+- `rollout_threaded` — Score a batch of candidate control sequences on a reusable pool of worker threads.
+- `inverse_inertia_at_site` — Get the 3x3 inverse inertia felt at a point, the half-solve the dual solvers use.
+
+### 3.2.6 (Dec 2, 2024) — `versions/3.2.6.py`
+
+- `bind_spec_to_model` — Reach mjModel/mjData fields through the MjSpec handle that created the element.
+- `rollout_randomized_models` — Roll out one control sequence against a batch of perturbed models, one model per roll.
+- `mjx_muscle_actuator` — Drive an MJX model with muscles: activation dynamics plus the force-length-velocity curve.
+
+### 3.2.5 (Nov 4, 2024) — `versions/3.2.5.py`
+
+- `mesh_inertia_modes` — Pick per mesh how mass properties are derived from geometry, instead of a global flag.
+- `flexcomp_shell_types` — Build a deformable shell body from a primitive shape, the replacement for composite.
+- `mjx_apply_cartesian_force` — Turn Cartesian forces at points on a body into generalized forces, inside a jitted step.
+- `mjx_release_equality` — Switch a weld on and off during a jitted rollout, without recompiling the model.
+- `mjx_ray_ellipsoid` — Cast a rangefinder ray in MJX and get the hit distance and geom, ellipsoids included.
+
+### 3.2.4 (Oct 15, 2024) — `versions/3.2.4.py`
+
+- `flex_elasticity` — Give a flex continuum stiffness with the engine's own elasticity, no plugin needed.
+- `activate_plugin` — Enable an engine plugin for a spec assembled in Python, with no <extension> in the XML.
+- `mjx_spatial_tendon` — Route a tendon over a wrapping geom and through a pulley, and run it in MJX.
+- `mjx_tendon_sensors` — Measure tendon length and velocity in MJX with TENDONPOS / TENDONVEL sensors.
+- `mjx_mocap_paddle` — Drive a mocap body along a scripted path inside a jitted MJX rollout.
+
+### 3.2.3 (Sep 16, 2024) — `versions/3.2.3.py`
+
+- `native_ccd_options` — Tune the native convex-collision solver — nativeccd plus ccd_tolerance / ccd_iterations.
+- `equality_between_sites` — Connect two bodies through a pair of sites, retargetable at runtime via site_pos.
+- `freejoint_alignment` — Align a free body's frame with its inertial frame to diagonalise its 6x6 inertia.
+- `sameframe_shortcuts` — See why mj_kinematics can skip work for a child — the compiler's mjtSameFrame flags.
+- `shell_inertia_for_any_geom` — Model thin-walled parts: shellinertia now works for every geom type, not just meshes.
+- `jacobian_time_derivative` — Get the bias acceleration J-dot @ v for operational-space control, exactly.
+- `spec_texture_from_buffer` — Ship a procedurally generated texture inside an MjSpec, with no PNG file anywhere.
+- `keyframe_merge_on_attach` — Attach a sub-model and keep its keyframes, re-indexed into the parent's qpos layout.
+- `mjx_sensors` — Read sensors straight off mjx.Data — position, velocity and force sensors run in MJX now.
+- `mjx_tendon_site_wrapping` — Route a spatial tendon through intermediate sites and simulate it in MJX.
+
+### 3.2.1 (Aug 5, 2024) — `versions/3.2.1.py`
+
+- `autoreset_disable` — Keep a diverged state for post-mortem inspection instead of silently resetting to qpos0.
+- `texture_data_repaint` — Rewrite a texture's pixels on a live model — mjModel.tex_data, once called tex_rgb.
+- `material_texture_layers` — Attach several role-tagged textures to one material for a PBR-capable external renderer.
+- `mjx_tendon_support` — Drive coupled joints with a fixed tendon in MJX — transmission, limits, equality.
+
+### 3.2.0 (Jul 15, 2024) — `versions/3.2.0.py`
+
+- `spec_build_model` — Build a model in Python instead of emitting MJCF text — mjSpec, the model editing API.
+- `orthographic_camera` — Use an orthographic camera: parallel rays, and a scale that does not fall off with depth.
+- `mesh_maxhullvert` — Cap the convex hull of a dense mesh so collision stays cheap — mesh maxhullvert.
+- `set_keyframe` — Snapshot the live state into a model keyframe — mj_setKeyframe, not six array copies.
+- `urdf_ball_joint` — Import a URDF that uses a spherical joint — mapped to a MuJoCo ball joint since 3.2.0.
+- `quaternion_normalization` — Know when mjData.qpos quaternions get normalized: at use, not in place by mj_kinematics.
+- `rotate_vector_by_matrix` — Re-express a vector between frames with mju_mulMatVec3 / mju_mulMatTVec3.
+- `mjx_elliptic_cone` — Simulate with an elliptic friction cone in MJX — the physically correct cone.
+
+### 3.1.6 (Jun 3, 2024) — `versions/3.1.6.py`
+
+- `geom_clearance` — Shortest signed distance between two geoms and the segment realizing it.
+- `collision_sensors` — Declare geom-geom clearance, contact normal and witness segment as sensors in the model.
+- `position_actuator_shaping` — Tune a position actuator's damping in natural units and low-pass its setpoint.
+
+### 3.1.5 (May 7, 2024) — `versions/3.1.5.py`
+
+- `replicate_subtree` — Stamp out a repeated kinematic module without duplicating the MJCF by hand.
+- `mesh_asset_scale` — Recover the compile-time scale that was applied to a mesh asset's vertices.
+- `pbr_material_hints` — Carry PBR material and light-bulb parameters through mjModel for external renderers.
+- `mjx_constraint_layout` — Read MJX's constraint block sizes and per-contact efc addresses back on device.
+- `mjx_name_lookup` — Resolve MuJoCo names to ids directly against an mjx.Model, on either model type.
+
+### 3.1.4 (April 10th, 2024) — `versions/3.1.4.py`
+
+- `actuator_gravity_compensation` — Charge a joint's gravity compensation to the actuator so force clamps account for it.
+- `euler_to_quat` — Convert an Euler-angle triple to a MuJoCo quaternion with an explicit rotation sequence.
+- `least_squares_ik` — Solve a bounded nonlinear least-squares problem, here inverse kinematics.
+
+### 3.1.3 (March 5th, 2024) — `versions/3.1.3.py`
+
+- `inheritrange_actuators` — Derive a servo's ctrlrange (or actrange) from its transmission target's range.
+- `angular_momentum_matrix` — Map generalized velocities to a subtree's angular momentum with the 3 x nv matrix H(q).
+
+### 3.1.2 (February 05, 2024) — `versions/3.1.2.py`
+
+- `hfield_elevation_in_xml` — Define height-field terrain inline in MJCF instead of shipping a PNG alongside it.
+- `discard_visual_assets` — Strip render-only geoms and their assets at compile time without changing the dynamics.
+- `rollout_batch` — Roll out a batch of open-loop trajectories on a thread pool and detect divergence.
+- `mjx_ray_cast` — Cast a ray against MJX geoms on device, the way a lidar or a click-to-select would.
+- `mjx_mass_matrix` — Get a dense mass matrix out of MJX whichever sparse/dense layout the model selected.
+
+### 3.1.0 (December 12, 2023) — `versions/3.1.0.py`
+
+- `frame_transform` — Apply a pose to a group of children without paying for an extra body.
+- `pid_actuator_plugin` — Drive a joint with a true PID controller, including the integral term.
+- `mjx_device_roundtrip` — Move a model and a full mjData to device, step there, and read the result back.
+
+### 3.0.1 (November 15, 2023) — `versions/3.0.1.py`
+
+- `passive_force_breakdown` — Attribute mjData.qfrc_passive to its individual sub-term sources.
+- `disable_actuator_groups` — Switch whole sets of actuators on and off at runtime by their group id.
+- `model_from_data` — Write helpers that take only mjData, using the mjData.model back-reference.
+- `mjx_joint_equality` — Run a joint-coupling equality constraint under the MJX Newton solver, batched over worlds.
+
+### 3.0.0 (October 18, 2023) — `versions/3.0.0.py`
+
+- `mjx_batched_rollout` — Simulate many worlds at once on an accelerator with MJX and jax.vmap.
+- `runtime_equality_toggle` — Grab and release a payload by flipping mjData.eq_active during a rollout.
+- `exact_filter_actuator` — Model actuator lag without integration error using dyntype='filterexact' and actearly.
+- `camera_projection_sensor` — Get the pixel coordinates of a tracked site from a calibrated camera, with no renderer.
+- `discrete_inverse_dynamics` — Recover exactly the torques that produced a recorded trajectory, using the invdiscrete flag.
+- `solver_statistics` — Read per-island solver convergence out of mjData and tune the linesearch with it.
+- `joint_actuator_force_limits` — Cap the total actuator force reaching a joint with actuatorfrcrange.
