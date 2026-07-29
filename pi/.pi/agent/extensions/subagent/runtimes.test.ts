@@ -3,11 +3,13 @@ import { test } from "node:test";
 import {
 	type ActivityTracker,
 	type Agent,
+	agentFromFrontmatter,
+	childEnvironment,
 	claudeTools,
 	classifyResult,
+	delegateModelNames,
 	emptyUsage,
 	CLAUDE_MODEL_NAMES,
-	isEffortLevel,
 	modelLabel,
 	type RunResult,
 	createActivityTracker,
@@ -54,6 +56,47 @@ function steps(result: RunResult): string[] {
 	);
 }
 
+test("agent frontmatter reads only role and capability fields", () => {
+	assert.deepEqual(
+		agentFromFrontmatter(
+			"reviewer",
+			{
+				description: "reviews",
+				tools: "read, grep",
+				skills: "none",
+				model: "claude-opus-5",
+				effort: "high",
+				unknown: true,
+			},
+			"Review it.",
+		),
+		{
+			name: "reviewer",
+			description: "reviews",
+			tools: ["read", "grep"],
+			skills: "none",
+			systemPrompt: "Review it.",
+		},
+	);
+});
+
+test("delegate model choices add native claude only outside SSH", () => {
+	const piModels = ["openai-codex/gpt-5.6-luna", "llama.cpp/qwen36"];
+	assert.deepEqual(delegateModelNames(piModels, false), piModels);
+	assert.deepEqual(delegateModelNames(piModels, true), [...piModels, ...CLAUDE_MODEL_NAMES]);
+});
+
+test("Pi SSH children inherit the descriptor and receive the delegate marker", () => {
+	const parent = { PI_SSH_DESCRIPTOR: "{}" };
+	assert.deepEqual(childEnvironment("pi", parent), {
+		...parent,
+		PI_DELEGATE_CHILD: "1",
+	});
+	assert.equal(childEnvironment("claude", parent), parent);
+	const local = {};
+	assert.equal(childEnvironment("pi", local), local);
+});
+
 test("the model name selects the runtime", () => {
 	assert.equal(selectRuntime("claude-opus-5").name, "claude");
 	assert.equal(selectRuntime("claude-haiku-4-5-20251001").name, "claude");
@@ -98,13 +141,6 @@ test("a bare claude-* name we do not know is broken, never quietly demoted to pi
 	assert.throws(() => selectRuntime("claude-opus-6"), /unknown claude model/);
 });
 
-test("effort levels are validated because claude ignores a bad one", () => {
-	assert.ok(isEffortLevel("high"));
-	assert.ok(isEffortLevel("max"));
-	assert.ok(!isEffortLevel("minimal"));
-	assert.ok(!isEffortLevel("HIGH"));
-});
-
 test("the tools line is the capability, passed through unedited", () => {
 	// A file that asks for a shell gets one; nothing here may quietly hand the child less than the
 	// file describes.
@@ -138,11 +174,17 @@ test("a tool with no claude equivalent is a load error, not a silent drop", () =
 });
 
 test("claude argv fences the child and carries one system prompt", () => {
-	const reviewer = agent({ model: "claude-opus-5", effort: "high", tools: ["read", "grep"] });
-	const { command, args, input } = selectRuntime(reviewer.model).invoke(reviewer, "review it", {
-		appendSystemPrompt: "inherited discipline",
-		model: "openai-codex/gpt-5.6-luna",
-	});
+	const reviewer = agent({ tools: ["read", "grep"] });
+	const model = "claude-opus-5";
+	const { command, args, input } = selectRuntime(model).invoke(
+		reviewer,
+		"review it",
+		{
+			appendSystemPrompt: "inherited discipline",
+			model: "openai-codex/gpt-5.6-luna",
+		},
+		model,
+	);
 
 	assert.equal(command, "claude");
 	// Repeating the flag silently drops all but the last, so both prompts travel as one argument.
@@ -153,7 +195,7 @@ test("claude argv fences the child and carries one system prompt", () => {
 	assert.match(systemPrompt, /You are a reviewer\./);
 
 	assert.deepEqual(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2), ["--model", "claude-opus-5"]);
-	assert.deepEqual(args.slice(args.indexOf("--effort"), args.indexOf("--effort") + 2), ["--effort", "high"]);
+	assert.ok(!args.includes("--effort"));
 	// The parent's model never crosses the runtime boundary.
 	assert.ok(!args.includes("openai-codex/gpt-5.6-luna"));
 
@@ -172,25 +214,19 @@ test("claude argv fences the child and carries one system prompt", () => {
 	assert.ok(!args.includes("Task: review it"));
 });
 
-test("an override moves an agent to whichever runtime its model names", () => {
-	// The reason `model` is not an enum of claude names: a claude-pinned agent has to be able to
-	// come back to this session's family, or the request has no representation and gets hand-rolled.
-	const reviewer = agent({ model: "claude-opus-5", tools: ["read", "bash"] });
-	const onPi = selectRuntime("openai-codex/gpt-5.6-luna");
-	assert.equal(onPi.name, "pi");
-	const { args } = onPi.invoke({ ...reviewer, model: "openai-codex/gpt-5.6-luna" }, "review", {});
-	assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.6-luna");
+test("a provider-qualified delegate model launches pi", () => {
+	const reviewer = agent({ tools: ["read", "bash"] });
+	const model = "openai-codex/gpt-5.6-luna";
+	const runtime = selectRuntime(model);
+	assert.equal(runtime.name, "pi");
+	const { args } = runtime.invoke(reviewer, "review", {}, model);
+	assert.equal(args[args.indexOf("--model") + 1], model);
 	assert.equal(args[args.indexOf("--tools") + 1], "read,bash");
-
-	// ...and the same agent still reaches claude when named a claude model.
-	assert.equal(selectRuntime("claude-haiku-4-5-20251001").name, "claude");
-	// A typo is still caught, wherever the name came from.
-	assert.throws(() => selectRuntime("claude-opus-4"), /unknown claude model/);
 });
 
-test("a pi agent still inherits the session model", () => {
+test("an omitted delegate model launches pi and inherits the session model", () => {
 	const scout = agent({ tools: ["read"] });
-	const { args, input } = selectRuntime(scout.model).invoke(scout, "look", { model: "openai-codex/gpt-5.6-luna" });
+	const { args, input } = selectRuntime(undefined).invoke(scout, "look", { model: "openai-codex/gpt-5.6-luna" });
 	assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.6-luna");
 	// pi takes its prompt as an argument and is given no stdin at all.
 	assert.equal(input, undefined);
@@ -429,8 +465,7 @@ test("tool activity tracks by id, and an unidentified result ends nothing", () =
 });
 
 test("a think before any tool still shows on the line", () => {
-	// The long silence at the start of an opus run at high effort: no tool has started, so without
-	// this the line stays blank for exactly as long as the model is working hardest.
+	// During a long initial think no tool has started, so this is the only visible activity.
 	const { result: run } = runClaude([{ type: "system", subtype: "thinking_tokens", estimated_tokens: 50 }]);
 	assert.equal(run.activity, "thinking 50");
 

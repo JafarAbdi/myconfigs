@@ -1,16 +1,17 @@
 /**
  * Subagent — run one bounded task in a fresh-context child process.
  *
- * Agents are markdown files in ./agents/: frontmatter becomes CLI flags, the body is appended to
- * the child's default system prompt. The child gets no session, so it cannot see this conversation.
+ * Agents are markdown files in ./agents/: frontmatter defines role metadata and capabilities, and
+ * the body is appended to the child's default system prompt. The child gets no session, so it
+ * cannot see this conversation.
  *
  * Why this is code and not a bash recipe: the child's tool allowlist comes from the agent file,
  * never from the model. If the model composed the command line, "this reviewer cannot edit code"
  * would be whatever it happened to type that turn.
  *
- * An agent runs on `pi` unless its `model:` names a claude model, in which case it runs on the
- * `claude` CLI — see `selectRuntime` in ./runtimes.ts, which also holds everything about a child
- * that is pure enough to test. This file keeps the extension wiring and the process itself.
+ * A delegation runs on `pi` unless its requested model names a supported native claude model —
+ * see `selectRuntime` in ./runtimes.ts, which also holds everything about a child that is pure
+ * enough to test. This file keeps the extension wiring and the process itself.
  *
  * Parallelism is free — pi runs sibling tool calls from one assistant message concurrently, so
  * N `delegate` calls in one message is N concurrent agents. Hence no tasks[]/chain[] modes.
@@ -37,13 +38,13 @@ import { type Component, Container, Markdown, Text, truncateToWidth } from "@ear
 import { Type } from "typebox";
 import {
 	type Agent,
-	CLAUDE_MODEL_NAMES,
-	EFFORT_HELP,
+	agentFromFrontmatter,
+	childEnvironment,
 	claudeTools,
 	classifyResult,
+	delegateModelNames,
 	emptyUsage,
 	type Inherited,
-	isEffortLevel,
 	isRecord,
 	isRunResult,
 	modelLabel,
@@ -91,13 +92,6 @@ function enabledModels(): string[] {
 	}
 }
 
-/** `tools: read, grep` and `tools: [read, grep]` are both natural YAML. Accept whichever. */
-function toolList(value: unknown): string[] | undefined {
-	const parts = typeof value === "string" ? value.split(",") : Array.isArray(value) ? value.map(String) : [];
-	const tools = parts.map((tool) => tool.trim()).filter(Boolean);
-	return tools.length ? tools : undefined;
-}
-
 /**
  * Every readable agent, and the reason each unreadable one was skipped. One malformed file used to
  * throw out of here — which happens inside the extension factory, so a stray typo in an agent's
@@ -116,36 +110,7 @@ function loadAgents(): { agents: Agent[]; broken: string[] } {
 			const { frontmatter, body } = parseFrontmatter<Record<string, unknown>>(
 				readFileSync(join(AGENTS_DIR, entry.name), "utf-8"),
 			);
-			const description = frontmatter.description;
-			const tools = toolList(frontmatter.tools);
-			if (typeof description !== "string" || !description) throw new Error("missing a description");
-			// Required: it is the only statement of what the agent can do, and a file that omits it
-			// is not asking for a default, it is failing to say.
-			if (!tools) throw new Error("must declare tools");
-			const model = frontmatter.model;
-			const effort = frontmatter.effort;
-			const agent: Agent = {
-				name,
-				description,
-				tools,
-				model: typeof model === "string" ? model : undefined,
-				effort: typeof effort === "string" ? effort : undefined,
-				skills: frontmatter.skills === "none" ? "none" : "all",
-				systemPrompt: body.trim(),
-			};
-			// Throws on a claude model name this build does not know, so a typo cannot quietly
-			// demote the agent to pi.
-			const runtime = selectRuntime(agent.model);
-			if (effort !== undefined) {
-				// claude accepts a bad `--effort` without complaint and runs at its default, so the
-				// check has to happen here or not at all.
-				if (typeof effort !== "string" || !isEffortLevel(effort)) throw new Error(`effort must be one of ${EFFORT_HELP}`);
-				if (runtime.name !== "claude") throw new Error("effort applies to claude models only");
-			}
-			// Same reason: an untranslatable tool name is silently dropped from claude's allowlist,
-			// leaving an agent that quietly cannot do its job.
-			if (runtime.name === "claude") claudeTools(agent);
-			agents.push(agent);
+			agents.push(agentFromFrontmatter(name, frontmatter, body.trim()));
 		} catch (error) {
 			broken.push(`${name}: ${error instanceof Error ? error.message : error}`);
 		}
@@ -168,17 +133,18 @@ function runAgent(
 	task: string,
 	cwd: string,
 	inherited: Inherited,
+	model: string | undefined,
 	signal: AbortSignal | undefined,
 	onProgress?: (partial: RunResult) => void,
 ): Promise<RunResult> {
 	const startedAtMs = Date.now();
-	const runtime = selectRuntime(agent.model);
-	const invocation = runtime.invoke(agent, task, inherited);
+	const runtime = selectRuntime(model);
+	const invocation = runtime.invoke(agent, task, inherited, model);
 	const result: RunResult = {
 		agent: agent.name,
 		task,
 		output: "",
-		model: agent.model ?? inherited.model,
+		model: model ?? inherited.model,
 		steps: [],
 		turns: 0,
 		usage: emptyUsage(),
@@ -188,6 +154,7 @@ function runAgent(
 	return new Promise((resolve, reject) => {
 		const child = spawn(invocation.command, invocation.args, {
 			cwd,
+			env: childEnvironment(runtime.name),
 			shell: false,
 			stdio: [invocation.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
 		});
@@ -339,17 +306,9 @@ function resultHeader(result: RunResult, isPartial: boolean, theme: Theme): stri
 
 export default function subagentExtension(pi: ExtensionAPI): void {
 	const { agents: catalog, broken } = loadAgents();
-	// Tools and model are both in the roster because both change what a delegation is worth: whether
-	// the agent can run anything, and whether it shares a model family with the parent asking.
 	const roster =
-		catalog
-			.map(
-				(agent) =>
-					`${agent.name} (${[...agent.tools, agent.model].filter(Boolean).join(", ")}): ${agent.description}`,
-			)
-			.join("; ") || "none";
-	// Both families, scoped to what this machine can actually reach.
-	const offeredModels = [...new Set([...CLAUDE_MODEL_NAMES, ...enabledModels()])];
+		catalog.map((agent) => `${agent.name} (${agent.tools.join(", ")}): ${agent.description}`).join("; ") || "none";
+	const piModels = enabledModels();
 	let inheritedAppendSystemPrompt: string | undefined;
 
 	// The prompts that drive these agents travel with them, so the extension announces its own
@@ -379,135 +338,132 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 		if (classifyResult(event.details).kind !== "success") return { isError: true };
 	});
 
-	pi.registerTool({
-		name: "delegate",
-		label: "Delegate",
-		description:
-			`Run one bounded task as a configured agent in its own process with a fresh context. ` +
-			`The agent cannot see this conversation, so the task must contain everything it needs — ` +
-			`prefer file paths over pasted contents, it can read them itself. Emit several delegate ` +
-			`calls in one message to run agents concurrently and mutually blind. Pass \`model\` to run any ` +
-			`agent on claude when the point is a different model family than this session. Agents: ${roster}`,
-		promptSnippet: "Delegate a bounded task to a fresh-context agent in its own process",
-		promptGuidelines: [
-			"Use delegate for independent review, research, or a bounded implementation.",
-			"Emit two or more delegate calls in a single message when the results must be independent; write every task before issuing any of them.",
-		],
-		parameters: Type.Object({
-			agent: Type.String({
-				description: `One of: ${catalog.map((agent) => agent.name).join(", ")}`,
-			}),
-			task: Type.String({
-				description: "The complete brief. The agent sees nothing else.",
-				minLength: 1,
-			}),
-			// Any model, either runtime: `selectRuntime` already decides which CLI a name belongs to,
-			// and repeating that decision as an enum here would only make one of the two wrong later.
-			// The claude names are spelled out because the model cannot ask for one it has never been
-			// shown. Overriding the brain is not overriding the fence — the tool list stays with the
-			// agent file whatever runs the agent.
-			model: Type.Optional(
-				Type.Union(
-					offeredModels.map((name) => Type.Literal(name)),
-					{
-						description:
-							`Run this agent on a different model than its file names. The name picks the runtime: ` +
-							`claude-* run on the claude CLI, the rest on pi. Use a claude model for a second opinion ` +
-							`from a different family than this session, a pi model to bring a claude-pinned agent back ` +
-							`to this one. Omit to use the agent's own model.`,
-					},
+	const registerDelegate = (includeNativeClaude: boolean): void => {
+		const offeredModels = delegateModelNames(piModels, includeNativeClaude);
+		pi.registerTool({
+			name: "delegate",
+			label: "Delegate",
+			description:
+				`Run one bounded task as a configured agent in its own process with a fresh context. ` +
+				`The agent cannot see this conversation, so the task must contain everything it needs — ` +
+				`prefer file paths over pasted contents, it can read them itself. Emit several delegate ` +
+				`calls in one message to run agents concurrently and mutually blind. Omit \`model\` to use ` +
+				`the current Pi model; pass it to select an enabled Pi model` +
+				(includeNativeClaude ? ` or a native local Claude model. ` : `. `) +
+				`Agents: ${roster}`,
+			promptSnippet: "Delegate a bounded task to a fresh-context agent in its own process",
+			promptGuidelines: [
+				"Use delegate for independent review, research, or a bounded implementation.",
+				"Emit two or more delegate calls in a single message when the results must be independent; write every task before issuing any of them.",
+			],
+			parameters: Type.Object({
+				agent: Type.String({
+					description: `One of: ${catalog.map((agent) => agent.name).join(", ")}`,
+				}),
+				task: Type.String({
+					description: "The complete brief. The agent sees nothing else.",
+					minLength: 1,
+				}),
+				model: Type.Optional(
+					Type.Union(
+						offeredModels.map((name) => Type.Literal(name)),
+						{
+							description: includeNativeClaude
+								? "Run on this model. Bare claude-* names use the local claude CLI; provider-qualified names use Pi. Omit to use the current Pi model."
+								: "Run on this Pi model. Omit to use the current Pi model.",
+						},
+					),
 				),
-			),
-		}),
+			}),
 
-		renderCall(args, theme) {
-			const agent = args.agent || "…";
-			const task = args.task ? preview(args.task, TASK_PREVIEW_MAX) : "…";
-			return new Text(theme.fg("toolTitle", theme.bold(agent)) + theme.fg("dim", `(${task})`), 0, 0);
-		},
+			renderCall(args, theme) {
+				const agent = args.agent || "…";
+				const task = args.task ? preview(args.task, TASK_PREVIEW_MAX) : "…";
+				return new Text(theme.fg("toolTitle", theme.bold(agent)) + theme.fg("dim", `(${task})`), 0, 0);
+			},
 
-		// Called during the run too (isPartial), so this is where progress, the full task, and the
-		// report all live: renderCall never receives `expanded`, so nothing collapsible can go there.
-		renderResult(result, { expanded, isPartial }, theme) {
-			const details = result.details;
-			if (!isRunResult(details)) {
-				const first = result.content[0];
-				return new Text(first?.type === "text" ? first.text : "(no output)", 0, 0);
-			}
-			const outcome = classifyResult(details);
-			const header = new Text(resultHeader(details, isPartial, theme), 0, 0);
-			if (!expanded) return header;
-			const container = new Container();
-			container.addChild(header);
-			container.addChild(new Text(theme.fg("muted", "── task ──"), 0, 0));
-			container.addChild(new Text(theme.fg("dim", details.task), 0, 0));
-			for (const line of stepLines(details, theme)) container.addChild(line);
-			if (!isPartial && outcome.message) {
-				container.addChild(new Text(theme.fg("error", outcome.message), 0, 0));
-			}
-			if (details.output.trim()) {
-				// "The run finished and this is its report" and "this is the last thing it said" are
-				// different claims, and the label is the only thing that distinguishes them.
-				const finished = !isPartial && outcome.kind === "success";
-				container.addChild(
-					new Text(theme.fg(finished ? "muted" : "warning", finished ? "── report ──" : "── last output ──"), 0, 0),
-				);
-				container.addChild(new Markdown(details.output.trim(), 0, 0, getMarkdownTheme()));
-			}
-			return container;
-		},
+			// Called during the run too (isPartial), so this is where progress, the full task, and the
+			// report all live: renderCall never receives `expanded`, so nothing collapsible can go there.
+			renderResult(result, { expanded, isPartial }, theme) {
+				const details = result.details;
+				if (!isRunResult(details)) {
+					const first = result.content[0];
+					return new Text(first?.type === "text" ? first.text : "(no output)", 0, 0);
+				}
+				const outcome = classifyResult(details);
+				const header = new Text(resultHeader(details, isPartial, theme), 0, 0);
+				if (!expanded) return header;
+				const container = new Container();
+				container.addChild(header);
+				container.addChild(new Text(theme.fg("muted", "── task ──"), 0, 0));
+				container.addChild(new Text(theme.fg("dim", details.task), 0, 0));
+				for (const line of stepLines(details, theme)) container.addChild(line);
+				if (!isPartial && outcome.message) {
+					container.addChild(new Text(theme.fg("error", outcome.message), 0, 0));
+				}
+				if (details.output.trim()) {
+					// "The run finished and this is its report" and "this is the last thing it said" are
+					// different claims, and the label is the only thing that distinguishes them.
+					const finished = !isPartial && outcome.kind === "success";
+					container.addChild(
+						new Text(theme.fg(finished ? "muted" : "warning", finished ? "── report ──" : "── last output ──"), 0, 0),
+					);
+					container.addChild(new Markdown(details.output.trim(), 0, 0, getMarkdownTheme()));
+				}
+				return container;
+			},
 
-		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const { agents } = loadAgents();
-			const found = agents.find((candidate) => candidate.name === params.agent);
-			if (!found) {
-				throw new Error(`unknown agent ${params.agent}; available: ${agents.map((a) => a.name).join(", ") || "none"}`);
-			}
-			// An override can move an agent to the other runtime, so both of the load-time checks are
-			// repeated here: the model name must be one this build knows, and the tools must translate
-			// rather than reaching the child as a silently shortened allowlist. `effort` is claude's
-			// word, so it goes when the agent lands on pi.
-			const overridden = params.model ? { ...found, model: params.model } : found;
-			const runtime = selectRuntime(overridden.model);
-			const agent = runtime.name === "claude" ? overridden : { ...overridden, effort: undefined };
-			if (runtime.name === "claude") claudeTools(agent);
-			const inherited: Inherited = {
-				appendSystemPrompt: inheritedAppendSystemPrompt,
-				model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
-			};
-			const result = await runAgent(agent, params.task, ctx.cwd, inherited, signal, (partial) => {
-				onUpdate?.({
-					content: [{ type: "text", text: partial.activity ?? "thinking" }],
-					details: partial,
+			async execute(_toolCallId, params, signal, onUpdate, ctx) {
+				const { agents } = loadAgents();
+				const found = agents.find((candidate) => candidate.name === params.agent);
+				if (!found) {
+					throw new Error(`unknown agent ${params.agent}; available: ${agents.map((a) => a.name).join(", ") || "none"}`);
+				}
+				// Native claude needs translated tools; Pi uses the agent's tool names directly.
+				const runtime = selectRuntime(params.model);
+				if (runtime.name === "claude") claudeTools(found);
+				const inherited: Inherited = {
+					appendSystemPrompt: inheritedAppendSystemPrompt,
+					model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
+				};
+				const result = await runAgent(found, params.task, ctx.cwd, inherited, params.model, signal, (partial) => {
+					onUpdate?.({
+						content: [{ type: "text", text: partial.activity ?? "thinking" }],
+						details: partial,
+					});
 				});
-			});
-			const outcome = classifyResult(result);
-			if (outcome.kind !== "success") {
-				const failure = truncateHead(outcome.message ?? `${agent.name} failed.`, { maxLines: 10, maxBytes: 1000 });
+				const outcome = classifyResult(result);
+				if (outcome.kind !== "success") {
+					const failure = truncateHead(outcome.message ?? `${found.name} failed.`, { maxLines: 10, maxBytes: 1000 });
+					return {
+						content: [{ type: "text" as const, text: failure.content }],
+						details: result,
+						usage: result.usage,
+					};
+				}
+				// Tools must bound what they put in the parent's context, and several of these run at
+				// once. `details` keeps the whole report for the expanded view.
+				const report = truncateHead(result.output, {
+					maxLines: DEFAULT_MAX_LINES,
+					maxBytes: DEFAULT_MAX_BYTES,
+				});
 				return {
-					content: [{ type: "text" as const, text: failure.content }],
+					content: [
+						{
+							type: "text" as const,
+							text: report.truncated
+								? `${report.content}\n\n[Report truncated to ${formatSize(report.outputBytes)} of ${formatSize(report.totalBytes)} — full text in the tool details.]`
+								: report.content,
+						},
+					],
 					details: result,
 					usage: result.usage,
 				};
-			}
-			// Tools must bound what they put in the parent's context, and several of these run at
-			// once. `details` keeps the whole report for the expanded view.
-			const report = truncateHead(result.output, {
-				maxLines: DEFAULT_MAX_LINES,
-				maxBytes: DEFAULT_MAX_BYTES,
-			});
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: report.truncated
-							? `${report.content}\n\n[Report truncated to ${formatSize(report.outputBytes)} of ${formatSize(report.totalBytes)} — full text in the tool details.]`
-							: report.content,
-					},
-				],
-				details: result,
-				usage: result.usage,
-			};
-		},
-	});
+			},
+		});
+	};
+
+	registerDelegate(true);
+	const stopListeningForSsh = pi.events.on("ssh:connected", () => registerDelegate(false));
+	pi.on("session_shutdown", stopListeningForSsh);
 }

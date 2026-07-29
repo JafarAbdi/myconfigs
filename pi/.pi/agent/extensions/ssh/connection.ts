@@ -1,7 +1,7 @@
 import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, posix, resolve } from "node:path";
 import {
 	ensureLocalPythonUvCommands,
 	type LocalPythonUvCommands,
@@ -76,8 +76,8 @@ export class SshConnection {
 		try {
 			await this.runConnectionProbe([this.remote, "true"]);
 			const remoteHome = (await this.exec('printf "%s" "$HOME"')).toString("utf8").trim();
-			if (!remoteHome) {
-				throw new Error("SSH remote HOME is empty; cannot install pi SSH tools");
+			if (!isAbsolute(remoteHome)) {
+				throw new Error("SSH remote HOME must be an absolute path");
 			}
 			this.remoteHome = remoteHome.replace(/\/+$/, "") || "/";
 		} catch (error) {
@@ -280,7 +280,8 @@ export class SshConnection {
 
 	private async findRemoteTool(tool: SshToolName): Promise<string | undefined> {
 		const output = (await this.exec(`command -v ${tool} 2>/dev/null || true`)).toString("utf8").trim();
-		return output ? output.split("\n")[0]?.trim() : undefined;
+		const toolPath = output.split("\n")[0]?.trim();
+		return toolPath ? posix.resolve(this.remoteHome, toolPath) : undefined;
 	}
 
 	private async installRemoteTools(
@@ -328,7 +329,8 @@ export class SshConnection {
 			'test -x "$HOME/.cargo/bin/uv" && printf "%s\\n" "$HOME/.cargo/bin/uv"',
 		].join(" || ");
 		const output = (await this.exec(`${command} || true`)).toString("utf8").trim();
-		return output ? output.split("\n")[0]?.trim() : undefined;
+		const uvPath = output.split("\n")[0]?.trim();
+		return uvPath ? posix.resolve(this.remoteHome, uvPath) : undefined;
 	}
 
 	private async installPythonUvCommands(commands: LocalPythonUvCommands): Promise<{ binDir: string }> {

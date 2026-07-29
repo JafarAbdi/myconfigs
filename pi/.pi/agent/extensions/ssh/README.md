@@ -68,6 +68,12 @@ If remote `fd`, `rg`, or `fzf` is missing, pi downloads and caches Linux `amd64`
   python-uv-commands/
 ```
 
+## Delegates
+
+After SSH connects, `delegate` offers Pi models only. Omitting its `model` uses the current Pi model.
+The parent bootstraps remote helper tools once; delegated Pi children inherit the resolved paths and
+run their file and shell tools through SSH without installing anything remotely.
+
 ## Resume
 
 Sessions started with `--ssh` persist SSH target and remote cwd. Resuming without `--ssh` reconnects automatically. If reconnect fails, startup fails.

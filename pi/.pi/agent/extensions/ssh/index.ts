@@ -16,6 +16,13 @@ import {
 } from "./autocomplete.ts";
 import { SshConnection } from "./connection.ts";
 import { SSH_STATE_CUSTOM_TYPE } from "./constants.ts";
+import {
+	applySshConnectionDescriptor,
+	clearSshConnectionDescriptor,
+	DELEGATE_CHILD_ENV,
+	publishSshConnectionDescriptor,
+	readDelegateChildSshDescriptor,
+} from "./descriptor.ts";
 import { executeRemoteGrep } from "./grep.ts";
 import {
 	createRemoteBashOps,
@@ -26,7 +33,6 @@ import {
 	createRemoteWriteOps,
 } from "./operations.ts";
 import { getPersistedSshState, makeSshSessionState, type SshSessionState } from "./state.ts";
-import { createSubagentSshBridge, readChildSshTarget } from "./subagent-env.ts";
 
 const SSH_EXECUTION_TOOL_NAMES = [
 	"read",
@@ -263,9 +269,9 @@ export default function (pi: ExtensionAPI) {
 	let connection: SshConnection | null = null;
 	let autocompleteProviderRegistered = false;
 	let toolOverridesRegistered = false;
+	let delegateChild = false;
 
 	const getConnection = () => connection;
-	const subagentBridge = createSubagentSshBridge({ getConnection });
 	const persistConnection = (ssh: SshConnection) => {
 		pi.appendEntry(SSH_STATE_CUSTOM_TYPE, makeSshSessionState(ssh.remote, ssh.remoteCwd));
 	};
@@ -293,7 +299,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const nextRemoteCwd = await ssh.changeRemoteCwd(parseHiddenFlag(args).rest);
 				persistConnection(ssh);
-				subagentBridge.syncToConnection();
+				if (!delegateChild) publishSshConnectionDescriptor(ssh);
 				updateSshStatus(ctx, ssh);
 				ctx.ui.notify(`SSH cwd: ${ssh.remote}:${nextRemoteCwd}`, "info");
 			} catch (error) {
@@ -312,18 +318,25 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`SSH completion failed: ${message}`, "error");
 		};
 
+		delegateChild = process.env[DELEGATE_CHILD_ENV] === "1";
+		// Fail closed if a marked child's inherited descriptor is malformed.
+		if (delegateChild && !toolOverridesRegistered) {
+			assertSshExecutionToolOwnership(pi);
+			registerSshToolOverrides(pi, localCwd, getConnection);
+			toolOverridesRegistered = true;
+		}
+		const childDescriptor = readDelegateChildSshDescriptor();
 		const arg = pi.getFlag("ssh") as string | undefined;
-		const childTarget = readChildSshTarget();
 		const persistedState = getPersistedSshState(ctx);
-		const target = arg
-			? parseSshFlag(arg)
-			: childTarget
-				? { ...childTarget, persist: false }
+		const parentTarget = childDescriptor
+			? undefined
+			: arg
+				? parseSshFlag(arg)
 				: persistedState
 					? targetFromState(persistedState)
 					: undefined;
-		if (!target) {
-			subagentBridge.syncToConnection();
+		if (!childDescriptor && !parentTarget) {
+			clearSshConnectionDescriptor();
 			updateSshStatus(ctx, null);
 			return;
 		}
@@ -335,18 +348,22 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		try {
-			connection = await connectTarget(target, ctx.cwd, ctx);
-			if (target.persist) {
-				persistConnection(connection);
+			if (childDescriptor) {
+				connection = new SshConnection(childDescriptor.remote, ctx.cwd);
+				applySshConnectionDescriptor(connection, childDescriptor);
+			} else {
+				connection = await connectTarget(parentTarget!, ctx.cwd, ctx);
+				publishSshConnectionDescriptor(connection);
 			}
+			if (parentTarget?.persist) persistConnection(connection);
 		} catch (error) {
 			connection = null;
+			if (!delegateChild) clearSshConnectionDescriptor();
 			const message = error instanceof Error ? error.message : String(error);
 			updateSshStatus(ctx, null, message);
 			throw error;
 		}
 
-		subagentBridge.syncToConnection();
 		if (!autocompleteProviderRegistered) {
 			autocompleteProviderRegistered = true;
 			ctx.ui.addAutocompleteProvider((current) =>
@@ -355,27 +372,14 @@ export default function (pi: ExtensionAPI) {
 		}
 		updateSshStatus(ctx, connection);
 		ctx.ui.notify(`SSH mode: ${sshStatusText(connection)}`, "info");
+		pi.events.emit("ssh:connected", undefined);
 	});
 
 	pi.on("session_shutdown", async () => {
 		const ssh = connection;
 		connection = null;
-		subagentBridge.shutdown();
+		if (!delegateChild) clearSshConnectionDescriptor();
 		await ssh?.close();
-	});
-
-	// beginLaunch/endLaunch must bracket the subagent tool's execute(), where pi-subagents
-	// snapshots process.env for the child spawn. Order is tool_call -> execute (spawn) ->
-	// tool_result, so the published env override stays live across the whole spawn window.
-	pi.on("tool_call", (event) => {
-		if (event.toolName !== "subagent") return;
-		const { error } = subagentBridge.beginLaunch(event.input);
-		if (error) return { block: true, reason: error };
-	});
-
-	pi.on("tool_result", (event) => {
-		if (event.toolName !== "subagent") return;
-		subagentBridge.endLaunch();
 	});
 
 	pi.on("user_bash", (_event) => {

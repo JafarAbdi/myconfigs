@@ -2,8 +2,6 @@
 description: Adversarial correctness review of a bounded scope
 tools: read, grep, find, ls, bash
 skills: none
-model: claude-opus-5
-effort: high
 ---
 
 You are an adversarial correctness reviewer.

@@ -19,11 +19,33 @@ export interface Agent {
 	description: string;
 	/** Required. This list is the agent's capability — nothing else adds to it or takes from it. */
 	tools: string[];
-	model?: string;
-	/** claude only: `--effort`. pi spells this `--thinking` and inherits it from the session. */
-	effort?: string;
 	skills: "all" | "none";
 	systemPrompt: string;
+}
+
+export function agentFromFrontmatter(
+	name: string,
+	frontmatter: Record<string, unknown>,
+	systemPrompt: string,
+): Agent {
+	const rawTools = frontmatter.tools;
+	const parts = typeof rawTools === "string"
+		? rawTools.split(",")
+		: Array.isArray(rawTools)
+			? rawTools.map(String)
+			: [];
+	const tools = parts.map((tool) => tool.trim()).filter(Boolean);
+	if (typeof frontmatter.description !== "string" || !frontmatter.description) {
+		throw new Error("missing a description");
+	}
+	if (!tools.length) throw new Error("must declare tools");
+	return {
+		name,
+		description: frontmatter.description,
+		tools,
+		skills: frontmatter.skills === "none" ? "none" : "all",
+		systemPrompt,
+	};
 }
 
 export interface RunResult {
@@ -166,7 +188,7 @@ export function createActivityTracker(result: RunResult): ActivityTracker {
 
 export interface Runtime {
 	name: "pi" | "claude";
-	invoke(agent: Agent, task: string, inherited: Inherited): Invocation;
+	invoke(agent: Agent, task: string, inherited: Inherited, model?: string): Invocation;
 	/**
 	 * True when the event changed something worth redrawing. Both CLIs interleave bookkeeping the
 	 * parent has no use for — claude alone emits a `thinking_tokens` line every few hundred
@@ -184,7 +206,19 @@ export interface Runtime {
 const CLAUDE_MODELS = new Set(["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-haiku-4-5-20251001"]);
 /** The same list as a value the `delegate` schema can enumerate: how the model learns these names. */
 export const CLAUDE_MODEL_NAMES = [...CLAUDE_MODELS].sort();
-const EFFORT_LEVELS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+export function delegateModelNames(piModels: string[], includeNativeClaude: boolean): string[] {
+	return [...new Set([...piModels, ...(includeNativeClaude ? CLAUDE_MODEL_NAMES : [])])];
+}
+
+export function childEnvironment(
+	runtime: Runtime["name"],
+	env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+	if (runtime !== "pi" || !env.PI_SSH_DESCRIPTOR) return env;
+	return { ...env, PI_DELEGATE_CHILD: "1" };
+}
+
 /**
  * The one capability rule left. Depth is always exactly one: a child that could delegate would make
  * the fan-out unbounded, and nothing in the parent is watching a grandchild's spend.
@@ -375,7 +409,7 @@ export function claudeTools(agent: Agent): string[] {
 const claudeRuntime: Runtime = {
 	name: "claude",
 
-	invoke(agent, task, inherited) {
+	invoke(agent, task, inherited, model) {
 		// Repeating `--append-system-prompt` silently drops all but the last, so the inherited text
 		// and the agent body travel as one argument.
 		const systemPrompt = [inherited.appendSystemPrompt?.trim(), agent.systemPrompt]
@@ -395,9 +429,8 @@ const claudeRuntime: Runtime = {
 			"--append-system-prompt",
 			systemPrompt,
 		];
-		// Always set: naming a claude model is *how* an agent selected this runtime.
-		if (agent.model) args.push("--model", agent.model);
-		if (agent.effort) args.push("--effort", agent.effort);
+		// Always set in normal use: naming a native claude model selects this runtime.
+		if (model) args.push("--model", model);
 		// Pinned, or `~/.claude/settings.json` decides whether a subagent's tools run at all.
 		args.push("--permission-mode", "acceptEdits");
 		// Availability and permission are separate grants: without this a tool is offered and then
@@ -506,7 +539,7 @@ function claudeFailure(event: Record<string, unknown>, denials: unknown[]): stri
 const piRuntime: Runtime = {
 	name: "pi",
 
-	invoke(agent, task, inherited) {
+	invoke(agent, task, inherited, requestedModel) {
 		// Prompts are literal arguments: pi reads one as a file only when the string names an existing
 		// path. Agent bodies are multi-line, so they cannot accidentally name a file.
 		const args = ["--mode", "json", "-p", "--no-session"];
@@ -521,12 +554,9 @@ const piRuntime: Runtime = {
 		// Explicit both ways: without `--tools` the child would fall back to pi's default active set
 		// (read, bash, edit, write) — a file that grants nothing must get nothing, not the default.
 		args.push(...(tools.length ? ["--tools", tools.join(",")] : ["--no-tools"]));
-		// A pi child with no `model:` follows this session rather than settings.json: otherwise raising
-		// the parent to a stronger model would leave every reviewer on whatever the default happens to
-		// be — the one setting that changes what a review is worth, decided somewhere you are not.
-		// Inheritance stays inside pi's namespace; a claude agent always names its model, which is how
-		// it selected that runtime in the first place.
-		const model = agent.model ?? inherited.model;
+		// Omitting a delegate model follows this session rather than settings.json. An explicit
+		// provider-qualified model overrides it while remaining in pi's runtime.
+		const model = requestedModel ?? inherited.model;
 		if (model) args.push("--model", model);
 		if (agent.skills === "none") args.push("--no-skills");
 		// Last, and safe unquoted: spawn runs without a shell. Prefixed because pi has no `--` argument
@@ -589,9 +619,3 @@ export function selectRuntime(model: string | undefined): Runtime {
 	}
 	return piRuntime;
 }
-
-export function isEffortLevel(value: string): boolean {
-	return EFFORT_LEVELS.has(value);
-}
-
-export const EFFORT_HELP = [...EFFORT_LEVELS].join(", ");

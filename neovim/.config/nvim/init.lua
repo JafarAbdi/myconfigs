@@ -975,14 +975,6 @@ local gh = function(x)
   return "https://github.com/" .. x
 end
 
--- Copilot globals must be set before the plugin loads
-vim.g.copilot_node_command = myconfigs_path .. "/.pixi/envs/nodejs/bin/node"
-vim.g.copilot_no_maps = true
-vim.g.copilot_filetypes = {
-  ["*"] = true,
-  gitcommit = false,
-}
-
 -- TSUpdate on install/update
 vim.api.nvim_create_autocmd("PackChanged", {
   callback = function(ev)
@@ -1001,35 +993,9 @@ vim.api.nvim_create_autocmd("PackChanged", {
 vim.pack.add({
   gh("mfussenegger/nvim-qwahl"),
   gh("mfussenegger/nvim-fzy"),
-  gh("github/copilot.vim"),
   { src = gh("nvim-treesitter/nvim-treesitter"), version = "main" },
   { src = gh("nvim-treesitter/nvim-treesitter-textobjects"), version = "main" },
 })
-
--- Copilot keymaps
-vim.keymap.set("i", "<M-e>", function()
-  return vim.api.nvim_feedkeys(
-    vim.fn["copilot#Accept"](vim.api.nvim_replace_termcodes("<Tab>", true, true, true)),
-    "n",
-    true
-  )
-end, { expr = true })
-vim.keymap.set("i", "<c-;>", function()
-  return vim.fn["copilot#Next"]()
-end, { expr = true })
-vim.keymap.set("i", "<c-,>", function()
-  return vim.fn["copilot#Previous"]()
-end, { expr = true })
-vim.keymap.set("i", "<c-c>", function()
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<ESC>", true, true, true), "n", true)
-  return vim.fn["copilot#Dismiss"]()
-end, { expr = true })
-vim.keymap.set("i", "<C-M-l>", function()
-  return vim.fn["copilot#AcceptLine"]()
-end, { expr = true, silent = true })
-vim.keymap.set("i", "<C-M-e>", function()
-  return vim.fn["copilot#AcceptWord"]()
-end, { expr = true, silent = true })
 
 -- nvim-treesitter
 require("nvim-treesitter").install({
