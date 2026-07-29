@@ -407,6 +407,10 @@ function sessionName(slug: string, phase: string): string {
 	return `${slug} · ${phase}`;
 }
 
+function detachedConversationHint(slug: string): string {
+	return `run /clone to continue this conversation independently in the same worktree outside RPI, or /rpi ${slug} to return to the active workflow`;
+}
+
 function samePaths(left: string[], right: string[]): boolean {
 	return (
 		left.length === right.length &&
@@ -3590,7 +3594,26 @@ export default function rpi(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", async (event, ctx) => {
-		const [slug, phase] = (pi.getSessionName() ?? "").split(" · ");
+		const name = pi.getSessionName() ?? "";
+		const [slug, phase] = name.split(" · ");
+		if (
+			event.reason === "fork" &&
+			name === sessionName(slug, phase) &&
+			SLUG.test(slug) &&
+			SESSION_PHASES.includes(phase as VisiblePhase) &&
+			taskDirectoryStatus(slug).kind === "valid"
+		) {
+			pi.setSessionName("");
+			active = undefined;
+			if (ctx.hasUI) {
+				ctx.ui.setWidget("rpi", undefined);
+				ctx.ui.notify(
+					`conversation detached from RPI in the same worktree; /rpi ${slug} returns to the active workflow`,
+					"info",
+				);
+			}
+			return;
+		}
 		if (
 			!slug ||
 			!SESSION_PHASES.includes(phase as (typeof SESSION_PHASES)[number]) ||
@@ -3681,7 +3704,7 @@ export default function rpi(pi: ExtensionAPI): void {
 		if (inputPhase !== sessionPhase) {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
-					`${slug} is in ${loaded.state.phase}, not this ${sessionPhase} session; use /rpi ${slug} to switch safely`,
+					`${slug} is in ${loaded.state.phase}, not this ${sessionPhase} session; ${detachedConversationHint(slug)}`,
 					"warning",
 				);
 			}
@@ -3695,7 +3718,7 @@ export default function rpi(pi: ExtensionAPI): void {
 				ctx.sessionManager.getSessionFile() !== loaded.state.session
 			) {
 				throw new Error(
-					`this session does not own the active build transaction; use /rpi ${slug}`,
+					`this session does not own the active build transaction; ${detachedConversationHint(slug)}`,
 				);
 			}
 			if (
@@ -3703,7 +3726,7 @@ export default function rpi(pi: ExtensionAPI): void {
 				ctx.sessionManager.getSessionFile() !== runSession(loaded.state)
 			) {
 				throw new Error(
-					`this session does not own the active ${loaded.state.phase} run; use /rpi ${slug}`,
+					`this session does not own the active ${loaded.state.phase} run; ${detachedConversationHint(slug)}`,
 				);
 			}
 			if (loaded.state.phase === "pr")

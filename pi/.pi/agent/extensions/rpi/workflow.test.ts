@@ -71,6 +71,7 @@ interface RegisteredTool {
 }
 
 interface MockEvent {
+	reason?: "startup" | "reload" | "new" | "resume" | "fork";
 	previousSessionFile?: string;
 	text?: string;
 	source?: string;
@@ -414,6 +415,7 @@ async function main(): Promise<void> {
 		readonly selections: CapturedSelection[] = [];
 		readonly tools: string[] = [];
 		readonly widgets: unknown[] = [];
+		readonly editorTexts: string[] = [];
 		cancelNextSwitch = false;
 		beforeNextConfirm: (() => Promise<void> | void) | undefined;
 		beforeNextSelect: (() => Promise<void> | void) | undefined;
@@ -473,6 +475,10 @@ async function main(): Promise<void> {
 					if (name === "rpi") this.command = options.handler;
 				},
 				getSessionName: () => this.manager?.getSessionName(),
+				setSessionName: (name: string) => {
+					assert.ok(this.manager);
+					this.manager.appendSessionInfo(name);
+				},
 				sendUserMessage: (text: string) => this.capturePrompt(text),
 				setModel: async (model: MockModel) => {
 					const sameModel =
@@ -554,11 +560,14 @@ async function main(): Promise<void> {
 
 		async startSession(
 			manager: SessionManagerInstance,
-			event: { previousSessionFile?: string } = {},
+			event: Pick<MockEvent, "reason" | "previousSessionFile"> = {},
 		): Promise<void> {
 			assert.ok(this.sessionStart, "session_start was not registered");
 			await this.withManager(manager, () =>
-				this.sessionStart?.(event, this.context(manager)),
+				this.sessionStart?.(
+					{ reason: "startup", ...event },
+					this.context(manager),
+				),
 			);
 		}
 
@@ -724,7 +733,9 @@ async function main(): Promise<void> {
 					this.widgets.push(value);
 				},
 				getEditorText: () => "",
-				setEditorText: () => undefined,
+				setEditorText: (text) => {
+					this.editorTexts.push(text);
+				},
 			};
 			const context: MockContext = {
 				cwd: manager.getCwd(),
@@ -1077,6 +1088,11 @@ async function main(): Promise<void> {
 				harness.notices.at(-1)?.message ?? "",
 				/creating, not this questions session/,
 			);
+			assert.match(harness.notices.at(-1)?.message ?? "", /\/clone/);
+			assert.match(
+				harness.notices.at(-1)?.message ?? "",
+				new RegExp(`/rpi ${slug}`),
+			);
 			assert.equal(loadState(slug).phase, "creating");
 		}
 
@@ -1137,6 +1153,36 @@ async function main(): Promise<void> {
 				thinkingLevel: "high",
 			});
 			harness.resetModel();
+		}
+
+		{
+			const slug = "clone-detaches-rpi";
+			const { worktree, owner, ownerPath } = await prepareCommitRecovery(slug);
+			await harness.startSession(owner);
+			const clone = SessionManager.forkFrom(ownerPath, worktree);
+			assert.equal(clone.getSessionName(), `${slug} · build`);
+			const editorCount = harness.editorTexts.length;
+
+			await harness.startSession(clone, { reason: "fork" });
+
+			assert.equal(clone.getSessionName(), undefined);
+			assert.equal(owner.getSessionName(), `${slug} · build`);
+			assert.equal(loadState(slug).session, ownerPath);
+			assert.equal(harness.widgets.at(-1), undefined);
+			assert.match(
+				harness.notices.at(-1)?.message ?? "",
+				/conversation detached from RPI in the same worktree/,
+			);
+			assert.match(
+				harness.notices.at(-1)?.message ?? "",
+				new RegExp(`/rpi ${slug}`),
+			);
+			await harness.settle(clone);
+			assert.equal(harness.editorTexts.length, editorCount);
+
+			const ordinary = harness.createOwner(worktree, "ordinary named fork");
+			await harness.startSession(ordinary, { reason: "fork" });
+			assert.equal(ordinary.getSessionName(), "ordinary named fork");
 		}
 
 		{
@@ -2587,6 +2633,11 @@ async function main(): Promise<void> {
 			await harness.settle(other);
 			assert.equal(loadState(slug).phase, "committing");
 			assert.deepEqual(await harness.input(other), { action: "handled" });
+			assert.match(harness.notices.at(-1)?.message ?? "", /\/clone/);
+			assert.match(
+				harness.notices.at(-1)?.message ?? "",
+				new RegExp(`/rpi ${slug}`),
+			);
 			assert.deepEqual(await harness.input(owner), { action: "continue" });
 			await git(worktree, "commit", "-m", "Exact owner commit");
 			await harness.settle(other);
