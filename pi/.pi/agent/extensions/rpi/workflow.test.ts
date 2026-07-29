@@ -1735,7 +1735,20 @@ async function main(): Promise<void> {
 			);
 			writeFileSync(join(tasks, slug, "pr-description.md"), "Stale PR\n");
 			await harness.startSession(prOwner);
-			await harness.invokeInSession(slug, prOwner, "Replan pending work");
+			await harness.invokeInSession(
+				slug,
+				prOwner,
+				"Revise remaining work — return to Outline",
+			);
+			assert.deepEqual(harness.selections.at(-1), {
+				question: `${slug} · PR phase — choose next step`,
+				options: [
+					"Done — finish the task",
+					"Revise remaining work — return to Outline",
+					"Fix a review finding — add a repair phase",
+					"Rethink the solution — return to Design",
+				],
+			});
 			const outlineOwner = harness.createOwner(worktree, `${slug} · outline`);
 			setOutlineOwner(slug, outlineOwner);
 			await harness.startSession(outlineOwner);
@@ -1831,7 +1844,7 @@ async function main(): Promise<void> {
 			await harness.invokeInSession(
 				slug,
 				prOwner,
-				"Add repair phase",
+				"Fix a review finding — add a repair phase",
 				"Repair retry behavior.",
 			);
 			const designOwner = harness.createOwner(worktree, `${slug} · design`);
@@ -1958,7 +1971,7 @@ async function main(): Promise<void> {
 			await harness.invokeInSession(
 				slug,
 				prOwner,
-				"Add repair phase",
+				"Fix a review finding — add a repair phase",
 				"Repair the failed retry behavior.",
 			);
 			assert.equal(loadState(slug).phase, "design");

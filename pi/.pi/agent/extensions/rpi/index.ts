@@ -2868,15 +2868,15 @@ export default function rpi(pi: ExtensionAPI): void {
 		state: PrTaskState,
 	): Promise<void> {
 		await validatePrHead(slug, state, ctx.cwd);
-		const choice = await ctx.ui.select(`${slug} · pr`, [
-			"Finish",
-			"Replan pending work",
-			"Add repair phase",
-			"Revisit design",
+		const choice = await ctx.ui.select(`${slug} · PR phase — choose next step`, [
+			"Done — finish the task",
+			"Revise remaining work — return to Outline",
+			"Fix a review finding — add a repair phase",
+			"Rethink the solution — return to Design",
 		]);
-		if (choice === "Replan pending work")
+		if (choice === "Revise remaining work — return to Outline")
 			return replanPendingWork(ctx, slug, state, ctx.cwd);
-		if (choice === "Add repair phase") {
+		if (choice === "Fix a review finding — add a repair phase") {
 			return revisit(
 				ctx,
 				slug,
@@ -2885,7 +2885,7 @@ export default function rpi(pi: ExtensionAPI): void {
 				"Describe the repair that the design must address",
 			);
 		}
-		if (choice === "Revisit design") {
+		if (choice === "Rethink the solution — return to Design") {
 			return revisit(
 				ctx,
 				slug,
@@ -2894,7 +2894,7 @@ export default function rpi(pi: ExtensionAPI): void {
 				"Why revisit the design, and what should change?",
 			);
 		}
-		if (choice !== "Finish") return;
+		if (choice !== "Done — finish the task") return;
 		try {
 			await validatePrHead(slug, state, ctx.cwd);
 			if (!validPrDescription(slug)) {
