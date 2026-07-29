@@ -14,7 +14,8 @@ Write both task texts before issuing either call, then emit both `delegate` call
 - `context-style-reviewer`: conventions plus a deletion-first simplicity pass; pass the scope. It
   already has the context files in its own system prompt.
 - `correctness-reviewer`: adversarial correctness, test integrity, and behavioral equivalence; pass
-  the scope and requirement file paths when available.
+  the scope and requirement file paths when available, otherwise a concise statement of the current
+  user requirement.
 
 Composing the second task after reading the first report would leak one lane into the other, so
 both are written up front. Pass file paths rather than pasted contents; each agent reads them

@@ -3,7 +3,7 @@ description: RPI pr — verify the branch and write its PR description
 argument-hint: "<task-slug> [instructions]"
 ---
 
-Stop as well on a missing named base ref or a dirty worktree.
+Stop on a missing named base ref or a dirty worktree.
 
 Treat a decision in the final Run context as settled, but check any claim about the code before
 acting on it — `delegate` to `scout`. A wrong fact accepted here dismisses a real finding.
@@ -13,20 +13,26 @@ Read `ticket.md` and the generated `04-structure-outline.md` projection in full;
 Never edit Outline artifacts or treat Markdown as writable progress state; repairs route through
 Design and a fresh Outline submission.
 
-Run every phase's `### Verification` commands, not just the last phase's. Stop on a failure.
+Before writing or updating `pr-description.md`, resolve the actual current HEAD with
+`git rev-parse HEAD`; never infer reuse from the phase-entry HEAD in the final Run context. Every
+phase's `### Verification` commands and both branch-audit reviewer verdicts must have passed during
+this PR audit against that resolved HEAD. Reuse them only while HEAD is unchanged; otherwise rerun
+the complete verification sweep and branch audit. Stop on a failure.
 
-Read the whole branch diff using the transient merge-base and current HEAD range in the final Run
-context. Do not infer `main` or a default branch. Read files the diff references but does not show.
+Read the whole branch diff using the transient merge-base in the final Run context and the resolved
+current HEAD. Do not infer `main` or a default branch. Read files the diff references but does not
+show.
 
 **Never push, never create or edit a PR.** No `git push`, no `gh pr create`, no `gh pr edit`. If
 there are uncommitted changes, say so and stop; do not commit them.
 
 ## Audit the branch
 
-Follow the audit instructions in the final Run context over the whole branch diff.
+Follow the audit instructions in the final Run context over the whole branch diff, replacing their
+phase-entry HEAD with the resolved current HEAD.
 
 On a blocking finding, report it in one clear line and stop. The human can use `/rpi <task-slug>`
-to continue the audit, add a repair phase, or revisit the design. Do not fix the code here, and do
+to replan pending work, add a repair phase, or revisit the design. Do not fix the code here, and do
 not write the description around a finding the human has not settled.
 
 ## Describe it
@@ -56,7 +62,7 @@ paragraph.]
 No HTML walkthrough, no generated artifact. A reviewer reads the diff; this description tells them
 what to look for.
 
-Then stop. Report the path, and the exact commands the human can run if they want the PR:
+Report the path, and the exact commands the human can run if they want the PR:
 
 ```text
 git push -u origin <task-slug>
@@ -69,11 +75,11 @@ Then stop.
 
 Task slug: `$1`
 Task directory: `~/.pi/agent/tasks/$1/`
-Additional instruction supplied through the `/rpi` controls: `${@:2}`
+Additional instruction supplied through `/rpi`: `${@:2}`
 Named base branch: `{{RPI_BASE_BRANCH}}`
 Transient merge-base with the named base branch: `{{RPI_BASE_SHA}}`
-Transient current HEAD: `{{RPI_PR_HEAD}}`
-Audit the transient range: `git diff {{RPI_BASE_SHA}}..{{RPI_PR_HEAD}}`
+Transient current HEAD at phase entry: `{{RPI_PR_HEAD}}`
+Initial transient range: `git diff {{RPI_BASE_SHA}}..{{RPI_PR_HEAD}}`
 Substitute the Task slug and Task directory above for `<task-slug>` and `<task-directory>`.
 Audit instructions:
 {{RPI_AUDIT}}

@@ -57,5 +57,5 @@ Then stop. Report what you wrote.
 
 Task slug: `$1`
 Task directory: `~/.pi/agent/tasks/$1/`
-Additional instruction supplied through the `/rpi` controls: `${@:2}`
+Additional instruction supplied through `/rpi`: `${@:2}`
 Use the Task directory above wherever this prompt says `<task-directory>`.

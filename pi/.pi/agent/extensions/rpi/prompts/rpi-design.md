@@ -53,8 +53,8 @@ into the prose.
 **You may recommend. You may not decide for the human.** "Do what you think" permits a strong
 recommendation, not self-resolution.
 
-Each tool question needs a concise noun-phrase `title`, one concrete `question`, 2–26 distinct
-concrete `options`, a 1-based `recommended_option`, and a compact `recommendation`. State the main
+Each tool question needs a concise noun-phrase `title`, one concrete `question`, distinct concrete
+`options`, a 1-based `recommended_option`, and a compact `recommendation`. State the main
 reason the recommended option wins; do not restate every option or write an essay. Add as many
 questions in one call as the design needs. Do not artificially serialize independent choices, and
 do not add ceremonial questions.
@@ -88,7 +88,7 @@ implementation runs in another checkout. This applies especially to snippets und
 
 Write `<task-directory>/03-design-discussion.md`. If it exists, update it in place and keep its
 number and filename. Use the structure below, omitting optional empty headings. Do not add a
-Markdown question section or copy bracketed guidance into the document.
+Markdown question section.
 
 ````markdown
 ---
@@ -134,5 +134,5 @@ Then stop. Report what you wrote.
 
 Task slug: `$1`
 Task directory: `~/.pi/agent/tasks/$1/`
-The human decisions or feedback supplied through `/rpi` are the whole job of this run: `${@:2}`
+Human decisions or feedback supplied through `/rpi`: `${@:2}`
 Use the Task directory above wherever this prompt says `<task-directory>`.

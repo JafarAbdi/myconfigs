@@ -21,11 +21,11 @@ export interface PromptContext {
 }
 
 const PROMPTS = join(dirname(fileURLToPath(import.meta.url)), "prompts");
-const CONTROL =
-	"Workflow state belongs to the RPI extension. Do not read or edit state.json in the task directory, and do not run /rpi yourself.";
-/** Said once here because five phases said it five ways, and the wordings had already drifted. */
-const WORKTREE =
-	"Treat any `repo:` path in a task document as historical provenance only; never leave this worktree.";
+/**
+ * `rpi-common.md` is prepended to every phase. Said once there because five phases said it five
+ * ways, and the wordings had already drifted. Prompt text lives in Markdown, never in this file.
+ */
+const COMMON = "rpi-common.md";
 
 export function stripFrontmatter(markdown: string): string {
 	return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
@@ -40,13 +40,13 @@ export function loadPhasePrompt(
 	const agentDirectory = realpathSync(getAgentDir());
 	const taskDirectory = `${join(agentDirectory, "tasks", slug)}/`;
 	const worktree = join(agentDirectory, "worktrees", slug);
-	const instructions = stripFrontmatter(
-		readFileSync(join(PROMPTS, `rpi-${phase}.md`), "utf-8"),
-	);
-	const body = `${CONTROL} The canonical repository root for this phase is ${worktree}; stop on any cwd or branch mismatch. ${WORKTREE}\n\n${instructions}`;
+	const read = (name: string): string =>
+		stripFrontmatter(readFileSync(join(PROMPTS, name), "utf-8"));
+	const body = `${read(COMMON)}\n\n${read(`rpi-${phase}.md`)}`;
 	const replacements: Record<string, string> = {
 		$1: slug,
-		"${@:2}": context.extra ?? "",
+		"${@:2}": context.extra?.trim() || "none",
+		"{{RPI_WORKTREE}}": worktree,
 		"{{RPI_STRUCTURED_PHASE}}": context.structuredPhase ?? "",
 		"{{RPI_BASE_BRANCH}}": context.baseBranch ?? "",
 		"{{RPI_BASE_SHA}}": context.baseSha ?? "",
@@ -55,7 +55,7 @@ export function loadPhasePrompt(
 		"~/.pi/agent/tasks/$1/": taskDirectory,
 	};
 	return body.replace(
-		/~\/\.pi\/agent\/tasks\/\$1\/|\$\{@:2\}|\{\{RPI_(?:STRUCTURED_PHASE|BASE_BRANCH|BASE_SHA|PR_HEAD|AUDIT)\}\}|\$1/g,
+		/~\/\.pi\/agent\/tasks\/\$1\/|\$\{@:2\}|\{\{RPI_(?:WORKTREE|STRUCTURED_PHASE|BASE_BRANCH|BASE_SHA|PR_HEAD|AUDIT)\}\}|\$1/g,
 		(placeholder) => replacements[placeholder],
 	);
 }

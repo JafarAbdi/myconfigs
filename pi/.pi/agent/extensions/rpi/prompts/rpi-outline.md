@@ -16,9 +16,10 @@ fallback, compatibility path, policy, mechanism, abstraction, or unresolved deci
 
 ## Mechanical escape hatch
 
-If inspection exposes a missing decision or invalid architecture, collect every currently identifiable blocking decision
-and call `rpi_update_design_questions` once with
-`incorporated_question_ids: []`; then stop. Outline may add questions but never acknowledge answers.
+If inspection exposes a missing decision or invalid architecture, collect every currently
+identifiable blocking decision and call `rpi_update_design_questions` once, with those decisions as
+`questions` and `incorporated_question_ids: []`; then stop. Outline may add questions but never
+acknowledge answers.
 
 Otherwise call `rpi_set_outline` exactly once. It is the only Outline output: do not create or edit
 outline artifacts. Submit an overview operation and the desired ordered pending suffix. For the overview, use `keep`
@@ -41,4 +42,4 @@ submission.
 
 Task slug: `$1`
 Task directory: `~/.pi/agent/tasks/$1/`
-Additional instruction supplied through `/rpi` controls: `${@:2}`
+Additional instruction supplied through `/rpi`: `${@:2}`

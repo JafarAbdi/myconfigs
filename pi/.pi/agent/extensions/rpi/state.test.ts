@@ -489,6 +489,16 @@ assert.notEqual(
 
 const extensionDirectory = dirname(fileURLToPath(import.meta.url));
 const prompts = new Map<string, string>();
+// The shared preamble has no Run context, so the static-tail rule below cannot apply to it. It
+// earns the stricter rule instead: the only value it may interpolate is the phase's worktree.
+assert.deepEqual(
+	readFileSync(
+		join(extensionDirectory, "prompts", "rpi-common.md"),
+		"utf-8",
+	).match(/\$1|\$\{@:2\}|\{\{RPI_[A-Z_]+\}\}/g),
+	["{{RPI_WORKTREE}}"],
+	"the shared preamble may interpolate only the worktree",
+);
 for (const phase of [
 	"questions",
 	"research",
@@ -528,7 +538,7 @@ assert.ok(designPrompt.includes("incorporated_question_ids"));
 assert.match(designPrompt, /no question-count\s+limit/i);
 assert.match(
 	prompts.get("outline") ?? "",
-	/Mechanical escape hatch[\s\S]*every currently identifiable blocking decision/i,
+	/Mechanical escape hatch[\s\S]*every\s+currently\s+identifiable\s+blocking\s+decision/i,
 );
 const root = mkdtempSync(join(tmpdir(), "rpi-state-test-"));
 try {
