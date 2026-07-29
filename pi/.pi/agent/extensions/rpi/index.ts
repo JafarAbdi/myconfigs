@@ -1483,18 +1483,12 @@ export default function rpi(pi: ExtensionAPI): void {
 
 	type RemovalEvidence =
 		| { kind: "absent"; worktree: string }
-		| { kind: "managed"; gitDirectory: string; worktree: string };
-
-	async function removalClean(root: string): Promise<boolean> {
-		const [index, unstaged, untracked] = await Promise.all([
-			git(root, ["diff", "--cached", "--quiet", "--"]),
-			git(root, ["diff", "--quiet", "--"]),
-			git(root, ["ls-files", "--others", "-z"]),
-		]);
-		if (index.code > 1 || unstaged.code > 1 || untracked.code !== 0)
-			throw new Error("could not inspect the worktree");
-		return index.code === 0 && unstaged.code === 0 && !untracked.stdout;
-	}
+		| {
+				kind: "managed";
+				gitDirectory: string;
+				worktree: string;
+				status: string;
+			};
 
 	async function removalEvidence(slug: string): Promise<RemovalEvidence> {
 		const worktree = join(WORKTREES, slug);
@@ -1524,11 +1518,14 @@ export default function rpi(pi: ExtensionAPI): void {
 				`branch ${slug} at ${worktree}`,
 				`branch ${repository.branch || "<detached>"}`,
 			);
-		if (!(await removalClean(worktree)))
+		if (!lstatSync(join(worktree, ".git")).isFile())
 			throw invariantError(
-				`clean worktree ${worktree}`,
-				"dirty worktree, including ignored files",
+				`linked Git worktree at ${worktree}`,
+				"main working tree",
 			);
+		const status = await git(worktree, ["status", "--short", "--ignored"]);
+		if (status.code !== 0)
+			throw new Error(status.stderr.trim() || "Git status could not be inspected");
 		const common = await git(worktree, [
 			"rev-parse",
 			"--path-format=absolute",
@@ -1542,6 +1539,7 @@ export default function rpi(pi: ExtensionAPI): void {
 			kind: "managed",
 			gitDirectory: realpathSync(common.stdout.trim()),
 			worktree,
+			status: status.stdout.trimEnd(),
 		};
 	}
 
@@ -1593,43 +1591,24 @@ export default function rpi(pi: ExtensionAPI): void {
 			`Permanently remove ${slug}?`,
 			evidence.kind === "absent"
 				? "Delete the stale RPI task folder and named phase sessions only?"
-				: "Delete its exact clean RPI worktree, task folder, and named phase sessions? The Git branch and commits remain.",
+				: evidence.status
+					? `Delete its exact RPI worktree, task folder, and named phase sessions? The Git branch and commits remain. This will discard:\n\n${evidence.status}`
+					: "Delete its exact clean RPI worktree, task folder, and named phase sessions? The Git branch and commits remain.",
 		);
 		if (!confirmed) return false;
 		const sessions = (await SessionManager.listAll()).filter((session) =>
 			names.has(session.name ?? ""),
 		);
 		try {
-			const verified = await removalEvidence(slug);
-			if (
-				verified.kind !== evidence.kind ||
-				verified.worktree !== evidence.worktree ||
-				(verified.kind === "managed" &&
-					evidence.kind === "managed" &&
-					verified.gitDirectory !== evidence.gitDirectory)
-			)
-				throw invariantError(
-					"unchanged removal target after confirmation",
-					"worktree evidence changed while confirmation was open",
-				);
-			evidence = verified;
 			if (evidence.kind === "managed") {
 				const removed = await git(
 					evidence.gitDirectory,
-					["worktree", "remove", evidence.worktree],
+					["worktree", "remove", "--force", evidence.worktree],
 					GIT_WRITE_MS,
 				);
 				if (removed.code !== 0)
 					throw new Error(
 						removed.stderr.trim() || "git worktree remove failed",
-					);
-				if (
-					existsSync(evidence.worktree) ||
-					(await worktreeFor(slug, evidence.gitDirectory))
-				)
-					throw invariantError(
-						`${evidence.worktree} removed and unregistered`,
-						"worktree removal is incomplete",
 					);
 			}
 			for (const session of sessions) {

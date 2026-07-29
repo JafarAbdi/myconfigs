@@ -417,7 +417,6 @@ async function main(): Promise<void> {
 		readonly widgets: unknown[] = [];
 		readonly editorTexts: string[] = [];
 		cancelNextSwitch = false;
-		beforeNextConfirm: (() => Promise<void> | void) | undefined;
 		beforeNextSelect: (() => Promise<void> | void) | undefined;
 		private manager: SessionManagerInstance | undefined;
 		private command:
@@ -611,9 +610,13 @@ async function main(): Promise<void> {
 			this.thinkingLevel = "off";
 		}
 
-		async remove(slug: string, cwd: string): Promise<void> {
+		async remove(
+			slug: string,
+			cwd: string,
+			confirm = true,
+		): Promise<void> {
 			assert.ok(this.command, "RPI command was not registered");
-			this.confirmAnswers = [true];
+			this.confirmAnswers = [confirm];
 			this.customAnswers = [{ action: "remove", slug }, { action: "cancel" }];
 			const source = SessionManager.create(cwd);
 			this.persistSession(source, `remove · ${slug}`);
@@ -712,9 +715,6 @@ async function main(): Promise<void> {
 				},
 				confirm: async (title, body) => {
 					this.confirmations.push({ title, body });
-					const before = this.beforeNextConfirm;
-					this.beforeNextConfirm = undefined;
-					await before?.();
 					return this.confirmAnswers.shift() ?? false;
 				},
 				select: async (question, options) => {
@@ -2835,12 +2835,12 @@ async function main(): Promise<void> {
 			);
 		}
 
-		{
-			const slug = "keep-changed-worktree";
+		for (const confirm of [true, false]) {
+			const slug = `remove-dirty-${confirm ? "confirmed" : "declined"}`;
 			const repository = await initRepository(slug);
-			writeFileSync(join(repository.root, ".gitignore"), "ignored.log\n");
+			writeFileSync(join(repository.root, ".gitignore"), "node_modules/\n");
 			await git(repository.root, "add", ".gitignore");
-			await git(repository.root, "commit", "-m", "Ignore test log");
+			await git(repository.root, "commit", "-m", "Ignore dependencies");
 			repository.head = await git(repository.root, "rev-parse", "HEAD");
 			const worktree = join(worktrees, slug);
 			await git(
@@ -2852,18 +2852,51 @@ async function main(): Promise<void> {
 				worktree,
 				repository.head,
 			);
+			writeFileSync(join(worktree, "tracked.txt"), "modified\n");
+			writeFileSync(join(worktree, "staged.txt"), "staged\n");
+			await git(worktree, "add", "staged.txt");
+			writeFileSync(join(worktree, "untracked.txt"), "untracked\n");
+			mkdirSync(join(worktree, "node_modules"));
+			writeFileSync(join(worktree, "node_modules", "package.js"), "ignored\n");
 			persistTask(slug, state(repository.common, repository.head, "questions"));
-			harness.beforeNextConfirm = () => {
-				writeFileSync(join(worktree, "ignored.log"), "keep\n");
-			};
+
+			await harness.remove(slug, repository.root, confirm);
+			const confirmation = harness.confirmations.at(-1);
+			assert.match(confirmation?.body ?? "", / M tracked\.txt/);
+			assert.match(confirmation?.body ?? "", /A  staged\.txt/);
+			assert.match(confirmation?.body ?? "", /\?\? untracked\.txt/);
+			assert.match(confirmation?.body ?? "", /!! node_modules\//);
+			if (confirm) {
+				assert.equal(existsSync(worktree), false);
+				assert.equal(existsSync(join(tasks, slug)), false);
+				assert.equal(
+					await git(repository.root, "rev-parse", `refs/heads/${slug}`),
+					repository.head,
+				);
+			} else {
+				assert.equal(existsSync(join(worktree, "tracked.txt")), true);
+				assert.equal(existsSync(join(worktree, "staged.txt")), true);
+				assert.equal(existsSync(join(worktree, "untracked.txt")), true);
+				assert.equal(existsSync(join(worktree, "node_modules")), true);
+				assert.equal(existsSync(join(tasks, slug)), true);
+			}
+		}
+
+		{
+			const slug = "keep-main-worktree";
+			const repository = await initRepository(slug);
+			const worktree = join(worktrees, slug);
+			await git(repository.root, "branch", slug);
+			await git(repository.root, "clone", "--branch", slug, repository.root, worktree);
+			persistTask(slug, state(repository.common, repository.head, "questions"));
 			await harness.remove(slug, repository.root);
-			assert.equal(existsSync(join(worktree, "ignored.log")), true);
+			assert.equal(existsSync(join(worktree, "tracked.txt")), true);
 			assert.equal(existsSync(join(tasks, slug)), true);
 			assert.ok(
 				harness.notices.some(
 					(notice) =>
 						notice.level === "error" &&
-						notice.message.includes("including ignored files"),
+						notice.message.includes("main working tree"),
 				),
 			);
 		}
