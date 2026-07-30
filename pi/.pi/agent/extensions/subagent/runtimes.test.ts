@@ -94,6 +94,12 @@ test("audit is the extension's one review policy and slash discovery is gone", (
 	assert.match(policy, /requirements, behavior/);
 	assert.match(policy, /project context/);
 	assert.match(policy, /deletion-first simplicity/);
+	assert.ok(
+		policy.includes(
+			'PI_OFFLINE=1 pi --mode json --no-session -p "/context-files" \\\n' +
+				"  | jq -r 'select(.type==\"message_end\" and .message.customType==\"context-files\") | .message.content'",
+		),
+	);
 	const extension = readFileSync(join(EXTENSION_DIR, "index.ts"), "utf-8");
 	assert.doesNotMatch(extension, /promptPaths/);
 });
