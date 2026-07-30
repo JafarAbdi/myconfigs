@@ -1,13 +1,5 @@
 {
   "plugins": {
-    "nvim-fzy": {
-      "rev": "826cfe38dfbdcdf281e21d8cacf419cb7793f80d",
-      "src": "https://github.com/mfussenegger/nvim-fzy"
-    },
-    "nvim-qwahl": {
-      "rev": "3081cdd8fcbccfbe68381088ed0d6e1ff47da3a6",
-      "src": "https://github.com/mfussenegger/nvim-qwahl"
-    },
     "nvim-treesitter": {
       "rev": "7caec274fd19c12b55902a5b795100d21531391f",
       "src": "https://github.com/nvim-treesitter/nvim-treesitter",

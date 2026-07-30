@@ -991,8 +991,6 @@ vim.api.nvim_create_autocmd("PackChanged", {
 })
 
 vim.pack.add({
-  gh("mfussenegger/nvim-qwahl"),
-  gh("mfussenegger/nvim-fzy"),
   { src = gh("nvim-treesitter/nvim-treesitter"), version = "main" },
   { src = gh("nvim-treesitter/nvim-treesitter-textobjects"), version = "main" },
 })
@@ -1197,16 +1195,260 @@ vim.cmd.colorscheme("habamax")
 --- Keymaps ---
 ---------------
 
-local fzy = require("fzy")
-fzy.command = function(opts)
-  return string.format(
+local finder = {}
+
+function finder.execute(choices_cmd, on_choice, prompt)
+  if vim.api.nvim_get_mode().mode == "i" then
+    vim.cmd("stopinsert")
+  end
+  local tmpfile = vim.fn.tempname()
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_keymap(buf, "t", "<ESC>", [[<C-\><C-c>]], {})
+  vim.bo[buf].bufhidden = "wipe"
+  local width = math.floor(vim.o.columns * 0.9)
+  local popup_height = math.floor(vim.o.lines * 0.8)
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    style = "minimal",
+    row = math.floor((vim.o.lines - popup_height) * 0.5),
+    col = math.floor((vim.o.columns - width) * 0.5),
+    width = width,
+    height = popup_height,
+  })
+  vim.api.nvim_create_autocmd("WinLeave", {
+    callback = function()
+      if vim.api.nvim_get_current_win() == win then
+        vim.api.nvim_buf_delete(buf, { force = true })
+        return true
+      end
+    end,
+  })
+  vim.api.nvim_create_autocmd({ "TermOpen", "BufEnter" }, {
+    buffer = buf,
+    command = "startinsert!",
+    once = true,
+  })
+  local height = vim.api.nvim_win_get_height(win)
+  local cmd = string.format(
     'fzf --height %d --prompt "%s" --no-multi --preview=""',
-    opts.height,
-    vim.F.if_nil(opts.prompt, "")
+    height,
+    prompt and vim.fn.shellescape(prompt) or ""
+  )
+  vim.fn.termopen(
+    { vim.o.shell, vim.o.shellcmdflag, string.format('%s | %s > "%s"', choices_cmd, cmd, tmpfile) },
+    {
+      on_exit = function()
+        -- popup could already be gone if user closes it manually; ignore that case
+        pcall(vim.api.nvim_win_close, win, true)
+        local choice = nil
+        local file = io.open(tmpfile)
+        if file then
+          choice = file:read("*all")
+          file:close()
+          os.remove(tmpfile)
+        end
+        -- after on_exit there is a terminal-related cmdline redraw that would clobber
+        -- any message printed by on_choice; defer past it with a zero-timeout timer
+        local timer = vim.uv.new_timer()
+        if timer then
+          timer:start(0, 0, function()
+            timer:stop()
+            timer:close()
+            vim.schedule(function()
+              on_choice(choice)
+            end)
+          end)
+        else
+          on_choice(choice)
+        end
+      end,
+    }
   )
 end
 
-local q = require("qwahl")
+function finder.edit_file(selection)
+  if not selection then
+    return
+  end
+  selection = vim.trim(selection)
+  if selection == "" then
+    return
+  end
+  local ok, err = pcall(vim.cmd.e, selection)
+  if not ok then
+    vim.notify(err, vim.log.levels.WARN)
+  end
+end
+
+function finder.edit_live_grep(selection)
+  selection = string.match(selection, ".+:%d+:.+")
+  if selection then
+    local parts = vim.split(selection, ":")
+    vim.cmd("e +" .. parts[2] .. " " .. parts[1])
+  end
+end
+
+-- items are written to a fifo as "NNN│ label" and read back through fzf so
+-- entries stay associated with their original index even after fuzzy-filtering
+function finder.pick_one(items, prompt, label_fn, on_choice)
+  label_fn = label_fn or vim.inspect
+  local num_digits = math.floor(math.log(math.abs(#items), 10) + 1)
+  local digit_fmt = "%0" .. tostring(num_digits) .. "d"
+  local inputs = vim.fn.tempname()
+  vim.fn.system(string.format('mkfifo "%s"', inputs))
+  finder.execute(string.format('cat "%s"', inputs), function(selection)
+    os.remove(inputs)
+    if not selection or vim.trim(selection) == "" then
+      on_choice(nil)
+    else
+      local parts = vim.split(selection, "│ ")
+      local idx = tonumber(parts[1])
+      on_choice(items[idx], idx)
+    end
+  end, prompt)
+  local f = io.open(inputs, "a")
+  if f then
+    for i, item in ipairs(items) do
+      f:write(string.format(digit_fmt .. "│ %s", i, label_fn(item)) .. "\n")
+    end
+    f:flush()
+    f:close()
+  else
+    vim.notify("Could not open tempfile", vim.log.levels.ERROR)
+  end
+end
+
+function vim.ui.select(items, opts, on_choice)
+  return finder.pick_one(items, opts.prompt, opts.format_item, on_choice)
+end
+
+local function format_bufname(bufnr)
+  return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":.")
+end
+
+local function jump_to(win, lnum, col)
+  vim.api.nvim_win_set_cursor(win, { lnum, col or 0 })
+  vim.api.nvim_win_call(win, function()
+    vim.cmd("normal! zvzz")
+  end)
+end
+
+local function helptags()
+  local tags = {}
+  for _, file in ipairs(vim.api.nvim_get_runtime_file("doc/tags", true)) do
+    for line in io.lines(file) do
+      table.insert(tags, vim.split(line, "\t", { plain = true }))
+    end
+  end
+  vim.ui.select(tags, {
+    prompt = "Helptags: ",
+    format_item = function(tag)
+      return tag[1]
+    end,
+  }, function(choice)
+    if choice then
+      vim.cmd.help(choice[1])
+    end
+  end)
+end
+
+local function buffers()
+  local bufs = vim.tbl_filter(function(b)
+    return vim.fn.buflisted(b) == 1 and vim.bo[b].buftype ~= "quickfix"
+  end, vim.api.nvim_list_bufs())
+  vim.ui.select(bufs, {
+    prompt = "Buffer: ",
+    format_item = function(b)
+      local fullname = vim.api.nvim_buf_get_name(b)
+      local name = #fullname == 0 and ("[No Name] (" .. vim.bo[b].buftype .. ")")
+        or format_bufname(b)
+      return vim.bo[b].modified and name .. " [+]" or name
+    end,
+  }, function(b)
+    if b then
+      vim.api.nvim_set_current_buf(b)
+    end
+  end)
+end
+
+local function buf_lines()
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, true)
+  local win = vim.api.nvim_get_current_win()
+  vim.ui.select(lines, {
+    prompt = "Line: ",
+    format_item = function(line)
+      return line
+    end,
+  }, function(_, idx)
+    if idx then
+      jump_to(win, idx)
+    end
+  end)
+end
+
+local function quickfix()
+  vim.cmd.cclose()
+  local win = vim.api.nvim_get_current_win()
+  vim.ui.select(vim.fn.getqflist(), {
+    prompt = "Quickfix: ",
+    format_item = function(item)
+      return format_bufname(item.bufnr) .. ": " .. item.text
+    end,
+  }, function(item, idx)
+    if item then
+      vim.api.nvim_win_call(win, function()
+        vim.cmd("cc " .. tostring(idx))
+        vim.cmd("normal! zvzz")
+      end)
+    end
+  end)
+end
+
+local function jumplist()
+  local locations = vim.tbl_filter(function(loc)
+    return vim.api.nvim_buf_is_valid(loc.bufnr)
+  end, vim.fn.getjumplist()[1])
+  local win = vim.api.nvim_get_current_win()
+  vim.ui.select(locations, {
+    prompt = "Jumplist: ",
+    format_item = function(loc)
+      local label = format_bufname(loc.bufnr) .. ":" .. tostring(loc.lnum)
+      local line
+      if vim.api.nvim_buf_is_loaded(loc.bufnr) then
+        local ok, lines = pcall(vim.api.nvim_buf_get_lines, loc.bufnr, loc.lnum - 1, loc.lnum, true)
+        line = ok and lines[1]
+      else
+        local file = io.open(vim.api.nvim_buf_get_name(loc.bufnr), "r")
+        if file then
+          local contents = file:read("*a")
+          file:close()
+          line = contents and vim.split(contents, "\n")[loc.lnum]
+        end
+      end
+      return line and (label .. ": " .. line) or label
+    end,
+  }, function(loc)
+    if loc then
+      vim.api.nvim_set_current_buf(loc.bufnr)
+      jump_to(win, loc.lnum, loc.col)
+    end
+  end)
+end
+
+local function diagnostic(bufnr)
+  local win = vim.api.nvim_get_current_win()
+  vim.ui.select(vim.diagnostic.get(bufnr), {
+    prompt = "Diagnostic: ",
+    format_item = function(d)
+      return d.message
+    end,
+  }, function(d)
+    if d then
+      vim.api.nvim_set_current_buf(d.bufnr)
+      jump_to(win, d.lnum + 1, d.col)
+    end
+  end)
+end
 
 vim.keymap.set("i", "<CR>", function()
   return vim.fn.complete_info({ "selected" }).selected >= 0 and "<C-y>" or "<CR>"
@@ -1231,28 +1473,42 @@ vim.keymap.set("", "<Space>", "<Nop>", { silent = true })
 vim.keymap.set("n", "<leader>x", function()
   run_file()
 end, { silent = true })
-vim.keymap.set("n", "<leader>h", q.helptags, { silent = true })
-vim.keymap.set("n", "<leader><space>", q.buffers, { silent = true })
-vim.keymap.set("n", "<leader>gc", q.buf_lines, { silent = true })
+vim.keymap.set("n", "z=", function()
+  local word = vim.fn.expand("<cword>")
+  vim.ui.select(vim.fn.spellsuggest(word), {
+    prompt = 'Change "' .. word .. '" to: ',
+    format_item = function(x)
+      return x
+    end,
+  }, function(choice)
+    if choice then
+      vim.cmd.normal({ "ciw" .. choice, bang = true })
+      vim.cmd.stopinsert()
+    end
+  end)
+end, { silent = true })
+vim.keymap.set("n", "<leader>h", helptags, { silent = true })
+vim.keymap.set("n", "<leader><space>", buffers, { silent = true })
+vim.keymap.set("n", "<leader>gc", buf_lines, { silent = true })
 vim.keymap.set("n", "<C-M-s>", function()
   local cword = vim.fn.expand("<cword>")
   if cword ~= "" then
-    fzy.execute(
+    finder.execute(
       "rg --no-messages --no-heading --trim --line-number --smart-case --fixed-strings -- "
         .. vim.fn.shellescape(cword),
-      fzy.sinks.edit_live_grep
+      finder.edit_live_grep
     )
   end
 end, { silent = true })
 vim.keymap.set("n", "<M-o>", function()
-  fzy.execute("fd --hidden --type f --strip-cwd-prefix", fzy.sinks.edit_file)
+  finder.execute("fd --hidden --type f --strip-cwd-prefix", finder.edit_file)
 end, { silent = true })
-vim.keymap.set("n", "<leader>j", q.jumplist, { silent = true })
+vim.keymap.set("n", "<leader>j", jumplist, { silent = true })
 
 -- Diagnostic keymaps
-vim.keymap.set("n", "<leader>q", q.quickfix, { silent = true })
+vim.keymap.set("n", "<leader>q", quickfix, { silent = true })
 vim.keymap.set("n", "<leader>dq", function()
-  q.diagnostic(0)
+  diagnostic(0)
 end, { silent = true })
 
 vim.keymap.set("n", "<leader>c", function()
