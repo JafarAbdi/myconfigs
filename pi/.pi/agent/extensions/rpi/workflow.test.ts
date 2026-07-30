@@ -441,13 +441,8 @@ async function main(): Promise<void> {
 		private inputAnswers: string[] = [];
 		private customAnswers: unknown[] = [];
 		private readonly commitPrompt = join(agentDir, "commit-message.md");
-		private readonly auditPrompt = join(agentDir, "audit.md");
 
 		constructor() {
-			writeFileSync(
-				this.auditPrompt,
-				"---\ndescription: test\n---\nReview this scope: ${@:-the current git diff}\n",
-			);
 			writeFileSync(
 				this.commitPrompt,
 				"---\ndescription: test\n---\nCommit the staged change.\n",
@@ -496,11 +491,6 @@ async function main(): Promise<void> {
 						name: "commit-message",
 						source: "prompt",
 						sourceInfo: { path: this.commitPrompt },
-					},
-					{
-						name: "audit",
-						source: "prompt",
-						sourceInfo: { path: this.auditPrompt },
 					},
 				],
 			};
@@ -1580,7 +1570,17 @@ async function main(): Promise<void> {
 				).id,
 				"P1",
 			);
-			assert.match(harness.prompts.at(-1)?.text ?? "", /"id": "P1"/);
+			const buildPrompt = harness.prompts.at(-1)?.text ?? "";
+			assert.match(buildPrompt, /"id": "P1"/);
+			assert.match(buildPrompt, /Delegate one fresh `audit` agent/);
+			assert.match(
+				buildPrompt,
+				/changed no repository files[\s\S]*Do not invent\s+work for an audit/,
+			);
+			assert.match(
+				buildPrompt,
+				/Every repository change invalidates the prior review:[\s\S]*fresh audit/,
+			);
 		}
 
 		{
@@ -1597,10 +1597,11 @@ async function main(): Promise<void> {
 			);
 			assert.equal(loadState(slug).phase, "pr");
 			const prPrompt = harness.prompts.at(-1)?.text ?? "";
-			assert.match(prPrompt, /Audit the transient range/);
-			// The audit prompt is inlined with its scope bound, never left for the agent to read
-			// and then discount an unexpanded slash-command placeholder.
-			assert.match(prPrompt, /Review this scope: `git diff [0-9a-f]{40}\.\.[0-9a-f]{40}`/);
+			assert.match(prPrompt, /Delegate one fresh `audit` agent/);
+			assert.match(
+				prPrompt,
+				/Initial transient range: `git diff [0-9a-f]{40}\.\.[0-9a-f]{40}`/,
+			);
 			assert.equal(prPrompt.includes("${@"), false);
 		}
 

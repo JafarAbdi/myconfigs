@@ -9,36 +9,49 @@ or progress from Markdown checkboxes, parse `outline.json`, or edit either Outli
 
 Resolve every file path relative to the repository root. Use `implementer` when useful, giving it
 the current request, structured phase, and relevant generated Outline, Design, and Research paths.
-It runs focused checks; the phase agent owns readiness. The phase wins over Design, Research, and
-ticket. Route an out-of-scope request to repair when settled Design already requires it, or Design
-when it changes a material decision; do not implement it here.
+It runs focused checks; the phase agent owns readiness and chooses its own implementation tactics.
+The phase wins over Design, Research, and ticket. Route an out-of-scope request to repair when settled
+Design already requires it, or Design when it changes a material decision; do not implement it here.
 
-Before reporting an initial implementation successful, or later claiming the phase complete or ready
-for approval, establish a readiness gate for the exact current repository changes:
+Before claiming the phase complete or ready for approval, follow this readiness procedure.
+
+If the phase changed no repository files, run every verification command in the structured phase,
+explain why no code was needed, and stop for the existing **Close with no code** path. Do not invent
+work for an audit.
+
+If the phase changed repository files:
 
 1. Run every verification command in the structured phase.
-2. Write both review tasks before dispatch, then emit both `delegate` calls in one message so the
-   reviewers remain mutually blind:
-   - `context-style-reviewer` gets the changed scope and no task-level requirement context;
-   - `correctness-reviewer` gets the structured phase and generated Outline as requirements, reading
-     Design or Research only if the diff raises a question they answer.
-3. Require both verdicts to be `PASS`. Report any non-blocking findings.
+2. Delegate one fresh `audit` agent. Give it a complete but minimal task containing:
+   - the exact structured phase below;
+   - the complete current worktree scope, including untracked files;
+   - the verification commands and their results;
+   - paths to whichever ticket, Outline, Design, or Research documents are authoritative for a
+     question raised by the change; do not present superseded documents as requirements.
+3. Require `PASS` before reporting readiness, unless the human explicitly dismisses every remaining
+   false finding while the repository is unchanged.
 
-A passed gate remains valid only while the reviewed repository changes are exactly unchanged. Any
-later repository change invalidates it. Before restoring readiness, rerun phase verification and
-both reviewers. Otherwise use focused checks and optional review proportional to the current request,
-and explicitly report that the phase is not ready for approval.
+Do not paste whole task documents or the parent conversation into the audit task. The auditor reads
+large authoritative context from the named files.
 
-Fix blocking findings directly or through `implementer`; never implement a `needs design` finding.
-You may fix a small, clearly in-scope non-blocking finding when worthwhile. Stop optional polishing
-when another full gate costs more than the expected benefit, and report what remains. A guard
-earns its place when it prevents a demonstrated reachable failure; one for a speculative failure
-does not. Stop when no blocking finding remains, or when no allowed local change can resolve a
-remaining one.
+A failed delegate, missing verdict, or incomplete report cannot establish readiness. Stop and report
+it; do not automatically restart the whole audit.
 
-Report changes, exact checks and results, findings and fixes, remaining issues, and manual checks.
-If Git shows unrelated pre-existing changes, stop and report them. If the phase is impossible or
-unnecessary, explain why it can close with no code.
+On `FAIL`, consider every reported blocker. A local repair is one whose smallest safe implementation
+is determined by the approved phase without choosing new behavior or expanding its design. If any
+genuine blocker fails that test and needs Design, stop before applying further audit repairs and
+report the unresolved decision. Otherwise resolve the local blockers using whichever tactics are
+appropriate. After an attempted repair, inspect the worktree and decide whether another safe tactic
+can make progress or whether to stop. Every repository change invalidates the prior review: rerun
+phase verification and a fresh audit before reporting readiness.
+
+The audit reports blockers only. Do not add optional polishing or maintain a reviewer ledger,
+prior-report protocol, focused-delta protocol, or fixed review-round count. The model decides whether
+further work is productive within the scope and safety rules above.
+
+Report changes, exact checks and results, audit findings and resolutions, remaining issues, and
+manual checks. If Git shows unrelated pre-existing changes, stop and report them. If the phase is
+impossible or unnecessary, explain why it can close with no code.
 
 Do not stage, commit, edit Outline artifacts, start another phase, or claim a transition. The
 extension owns progress and completion.

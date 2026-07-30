@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
 	type ActivityTracker,
 	type Agent,
@@ -16,6 +19,8 @@ import {
 	selectRuntime,
 	stepDetail,
 } from "./runtimes.ts";
+
+const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 
 function agent(overrides: Partial<Agent> = {}): Agent {
 	return {
@@ -80,19 +85,37 @@ test("agent frontmatter reads only role and capability fields", () => {
 	);
 });
 
+test("audit is the extension's one review policy and slash discovery is gone", () => {
+	const agents = join(EXTENSION_DIR, "agents");
+	const policy = readFileSync(join(agents, "audit.md"), "utf-8");
+	assert.equal(existsSync(join(agents, "correctness-reviewer.md")), false);
+	assert.equal(existsSync(join(agents, "context-style-reviewer.md")), false);
+	assert.equal(existsSync(join(EXTENSION_DIR, "prompts", "audit.md")), false);
+	assert.match(policy, /requirements, behavior/);
+	assert.match(policy, /project context/);
+	assert.match(policy, /deletion-first simplicity/);
+	const extension = readFileSync(join(EXTENSION_DIR, "index.ts"), "utf-8");
+	assert.doesNotMatch(extension, /promptPaths/);
+});
+
 test("delegate model choices add native claude only outside SSH", () => {
 	const piModels = ["openai-codex/gpt-5.6-luna", "llama.cpp/qwen36"];
 	assert.deepEqual(delegateModelNames(piModels, false), piModels);
 	assert.deepEqual(delegateModelNames(piModels, true), [...piModels, ...CLAUDE_MODEL_NAMES]);
 });
 
-test("Pi SSH children inherit the descriptor and receive the delegate marker", () => {
+test("child environments apply only their runtime-specific defaults", () => {
 	const parent = { PI_SSH_DESCRIPTOR: "{}" };
 	assert.deepEqual(childEnvironment("pi", parent), {
 		...parent,
 		PI_DELEGATE_CHILD: "1",
 	});
-	assert.equal(childEnvironment("claude", parent), parent);
+	assert.deepEqual(childEnvironment("claude", parent), {
+		...parent,
+		CLAUDE_CODE_MAX_RETRIES: "3",
+	});
+	const configured = { CLAUDE_CODE_MAX_RETRIES: "7" };
+	assert.equal(childEnvironment("claude", configured), configured);
 	const local = {};
 	assert.equal(childEnvironment("pi", local), local);
 });

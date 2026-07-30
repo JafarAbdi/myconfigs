@@ -17,7 +17,6 @@ export interface PromptContext {
 	baseBranch?: string;
 	baseSha?: string;
 	head?: string;
-	audit?: string;
 }
 
 const PROMPTS = join(dirname(fileURLToPath(import.meta.url)), "prompts");
@@ -51,11 +50,10 @@ export function loadPhasePrompt(
 		"{{RPI_BASE_BRANCH}}": context.baseBranch ?? "",
 		"{{RPI_BASE_SHA}}": context.baseSha ?? "",
 		"{{RPI_PR_HEAD}}": context.head ?? "",
-		"{{RPI_AUDIT}}": context.audit ?? "",
 		"~/.pi/agent/tasks/$1/": taskDirectory,
 	};
 	return body.replace(
-		/~\/\.pi\/agent\/tasks\/\$1\/|\$\{@:2\}|\{\{RPI_(?:WORKTREE|STRUCTURED_PHASE|BASE_BRANCH|BASE_SHA|PR_HEAD|AUDIT)\}\}|\$1/g,
+		/~\/\.pi\/agent\/tasks\/\$1\/|\$\{@:2\}|\{\{RPI_(?:WORKTREE|STRUCTURED_PHASE|BASE_BRANCH|BASE_SHA|PR_HEAD)\}\}|\$1/g,
 		(placeholder) => replacements[placeholder],
 	);
 }

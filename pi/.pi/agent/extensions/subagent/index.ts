@@ -57,9 +57,6 @@ import {
 const AGENTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "agents");
 /** `~/.pi/agent`, two levels up from `extensions/subagent/`. */
 const AGENT_DIR = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-// `/audit` ships beside the agents it runs. pi's automatic scan reads `~/.pi/agent/prompts` one
-// level deep and never descends into `extensions/`, so it is announced — see `resources_discover`.
-const PROMPTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "prompts");
 /** Children still running. The abort signal covers a cancelled call; this covers a dead session. */
 const LIVE = new Set<ReturnType<typeof spawn>>();
 const TASK_PREVIEW_MAX = 60;
@@ -310,10 +307,6 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 		catalog.map((agent) => `${agent.name} (${agent.tools.join(", ")}): ${agent.description}`).join("; ") || "none";
 	const piModels = enabledModels();
 	let inheritedAppendSystemPrompt: string | undefined;
-
-	// The prompts that drive these agents travel with them, so the extension announces its own
-	// directory rather than depending on a settings.json entry that can be lost without a word.
-	pi.on("resources_discover", () => ({ promptPaths: [PROMPTS_DIR] }));
 
 	// Said where it will be read. A skipped agent is silent otherwise: the roster simply comes up
 	// one short, and nothing connects that to the file you just edited.

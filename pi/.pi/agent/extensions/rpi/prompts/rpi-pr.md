@@ -9,31 +9,39 @@ Treat a decision in the final Run context as settled, but check any claim about 
 acting on it — `delegate` to `scout`. A wrong fact accepted here dismisses a real finding.
 
 Read `ticket.md` and the generated `04-structure-outline.md` projection in full; read
-`03-design-discussion.md` and `02-research.md` if the diff raises something they would answer.
+`03-design-discussion.md` and `02-research.md` if the branch raises something they would answer.
 Never edit Outline artifacts or treat Markdown as writable progress state; repairs route through
 Design and a fresh Outline submission.
 
 Before writing or updating `pr-description.md`, resolve the actual current HEAD with
-`git rev-parse HEAD`; never infer reuse from the phase-entry HEAD in the final Run context. Every
-phase's `### Verification` commands and both branch-audit reviewer verdicts must have passed during
-this PR audit against that resolved HEAD. Reuse them only while HEAD is unchanged; otherwise rerun
-the complete verification sweep and branch audit. Stop on a failure.
+`git rev-parse HEAD`; never infer reuse from the phase-entry HEAD in the final Run context. Run every
+phase's `### Verification` commands against that resolved HEAD. Stop on a failure.
 
 Read the whole branch diff using the transient merge-base in the final Run context and the resolved
 current HEAD. Do not infer `main` or a default branch. Read files the diff references but does not
-show.
+show. An explicitly named empty range is still a valid branch-review scope.
+
+Delegate one fresh `audit` agent for each branch-review attempt. Give it a complete but minimal task
+containing:
+
+- the exact merge-base-to-HEAD range;
+- the verification commands and their results;
+- paths to `ticket.md` and `04-structure-outline.md`, plus Design or Research only when relevant.
+
+Do not paste whole task documents or the parent conversation. The auditor reads authoritative
+context from the named files. A failed delegate, missing verdict, or incomplete report cannot
+establish readiness; stop and report it rather than automatically restarting the whole audit.
+
+Require `PASS` before writing the description, unless the human explicitly dismisses every remaining
+false finding while HEAD is unchanged. On a genuine blocker, report the audit findings and stop. The
+human can use `/rpi <task-slug>` to replan pending work, add a repair phase, or revisit Design. Do not
+fix code here or write the description around an unresolved finding.
+
+The verification and audit remain valid only while HEAD is unchanged. If HEAD changes, rerun the
+complete sweep and a fresh audit.
 
 **Never push, never create or edit a PR.** No `git push`, no `gh pr create`, no `gh pr edit`. If
 there are uncommitted changes, say so and stop; do not commit them.
-
-## Audit the branch
-
-Follow the audit instructions in the final Run context over the whole branch diff, replacing their
-phase-entry HEAD with the resolved current HEAD.
-
-On a blocking finding, report it in one clear line and stop. The human can use `/rpi <task-slug>`
-to replan pending work, add a repair phase, or revisit the design. Do not fix the code here, and do
-not write the description around a finding the human has not settled.
 
 ## Describe it
 
@@ -81,5 +89,3 @@ Transient merge-base with the named base branch: `{{RPI_BASE_SHA}}`
 Transient current HEAD at phase entry: `{{RPI_PR_HEAD}}`
 Initial transient range: `git diff {{RPI_BASE_SHA}}..{{RPI_PR_HEAD}}`
 Substitute the Task slug and Task directory above for `<task-slug>` and `<task-directory>`.
-Audit instructions:
-{{RPI_AUDIT}}

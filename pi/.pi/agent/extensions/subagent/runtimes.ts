@@ -215,7 +215,11 @@ export function childEnvironment(
 	runtime: Runtime["name"],
 	env: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-	if (runtime !== "pi" || !env.PI_SSH_DESCRIPTOR) return env;
+	if (runtime === "claude") {
+		if (env.CLAUDE_CODE_MAX_RETRIES !== undefined) return env;
+		return { ...env, CLAUDE_CODE_MAX_RETRIES: "3" };
+	}
+	if (!env.PI_SSH_DESCRIPTOR) return env;
 	return { ...env, PI_DELEGATE_CHILD: "1" };
 }
 
