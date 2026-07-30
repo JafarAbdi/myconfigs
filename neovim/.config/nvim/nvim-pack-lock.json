@@ -1,9 +1,5 @@
 {
   "plugins": {
-    "copilot.vim": {
-      "rev": "a12fd5672110c8aa7e3c8419e28c96943ca179be",
-      "src": "https://github.com/github/copilot.vim"
-    },
     "nvim-fzy": {
       "rev": "826cfe38dfbdcdf281e21d8cacf419cb7793f80d",
       "src": "https://github.com/mfussenegger/nvim-fzy"
