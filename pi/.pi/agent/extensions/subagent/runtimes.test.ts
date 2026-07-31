@@ -425,7 +425,7 @@ test("an unknown model fails in-band, with exit code 0 and empty stderr", () => 
 test("a tool call carries the argument that identifies it", () => {
 	// `Bash` alone tells you an agent is busy; the command tells you what it is doing.
 	assert.equal(stepDetail({ command: "git show --stat HEAD", description: "inspect" }), "git show --stat HEAD");
-	assert.equal(stepDetail({ file_path: "/home/juruc/myconfigs/pi/index.ts" }), "/home/juruc/myconfigs/pi/index.ts");
+	assert.equal(stepDetail({ file_path: "pi/index.ts" }), "pi/index.ts");
 	assert.equal(stepDetail({ pattern: "selectRuntime" }), "selectRuntime");
 	// pi and claude name these fields identically, so one rule serves both lanes.
 	assert.equal(stepDetail({ path: "runtimes.ts" }), "runtimes.ts");

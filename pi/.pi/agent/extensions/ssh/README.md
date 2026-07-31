@@ -5,7 +5,7 @@ Remote SSH mode for pi tools.
 ## Start
 
 ```bash
-pi -e packages/coding-agent/examples/extensions/ssh.ts --ssh desktop.local:/home/juruc
+pi -e packages/coding-agent/examples/extensions/ssh.ts --ssh desktop.local:/workspace
 ```
 
 The extension is safe to install globally. It registers execution-tool overrides only when `--ssh` or persisted SSH state is active.

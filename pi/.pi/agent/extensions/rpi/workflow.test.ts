@@ -11,7 +11,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionManager as SessionManagerInstance } from "@earendil-works/pi-coding-agent";
 import type {
@@ -149,8 +149,12 @@ Object.assign(process.env, gitIdentity);
 
 const extensionDirectory = dirname(fileURLToPath(import.meta.url));
 const localModules = join(extensionDirectory, "node_modules");
-const piPackage =
-	"/home/juruc/.local/share/fnm/node-versions/v22.22.3/installation/lib/node_modules/@earendil-works/pi-coding-agent";
+const piExecutable = process.env.PATH?.split(delimiter)
+	.map((directory) => join(directory, "pi"))
+	.find(existsSync);
+const piPackage = process.env.PI_PACKAGE_DIR ??
+	(piExecutable ? join(dirname(realpathSync(piExecutable)), "..") : undefined);
+if (!piPackage) throw new Error("pi package not found through PI_PACKAGE_DIR or PATH");
 let removeLocalModules = false;
 
 function cleanupTempFiles(): void {
