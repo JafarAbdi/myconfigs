@@ -393,7 +393,7 @@ function git-untracked
   git-fzf '\?\?'
 end
 
-alias git-commit='PI_OFFLINE=1 pi --no-session -p "/commit-message"'
+alias git-commit='PI_OFFLINE=1 pi --no-session -p "/commit-message" --model openai-codex/gpt-5.6-luna'
 
 # Emit "<branch>\t<path>" per worktree. Detached and bare entries have no branch,
 # so they fall back to the path basename. git puts worktrees at arbitrary paths --
