@@ -95,6 +95,8 @@ Note: This differs from Drake which uses angular-first.
 | Sensor | `S`, `Sensor` | Attached to sensor (camera, IMU, etc.) |
 | EndEffector | `EE`, `EndEffector` | Robot end-effector frame |
 | Tool | `Tool` | Tool center point frame |
+| Site | `Site` | MuJoCo site (massless reference frame) |
+| Geom | `Geom` | MuJoCo geom (collision/visual shape) |
 
 ### Frame vs Body
 - Use the same symbol for a body and its body frame.
@@ -105,7 +107,7 @@ Note: This differs from Drake which uses angular-first.
 
 ## 5. Rotation Matrix Usage
 
-Columns of `mat_A_B` are B's basis vectors expressed in A:
+Columns of `rmat_A_B` are B's basis vectors expressed in A:
 
 ```
          ---- ---- ----
@@ -117,17 +119,17 @@ Columns of `mat_A_B` are B's basis vectors expressed in A:
 
 **Re-express vector from B to A:**
 ```python
-r_A = mat_A_B @ r_B
+r_A = rmat_A_B @ r_B
 ```
 
 **Properties:**
 ```python
-mat_B_A = mat_A_B.T  # Inverse equals transpose for rotation matrices
+rmat_B_A = rmat_A_B.T  # Inverse equals transpose for rotation matrices
 ```
 
 **Composition (match adjacent frames):**
 ```python
-mat_A_D = mat_A_B @ mat_B_C @ mat_C_D
+rmat_A_D = rmat_A_B @ rmat_B_C @ rmat_C_D
 ```
 
 ---
@@ -137,7 +139,7 @@ mat_A_D = mat_A_B @ mat_B_C @ mat_C_D
 ```
          --------- ----
         |         |    |
-        | mat_A_B |p_AB|
+        |rmat_A_B |p_AB|
  X_AB = |         |    |
         | 0  0  0 | 1  |
          --------- ----
@@ -170,8 +172,8 @@ This is sometimes called "hybrid" or "body-point, world-axes" convention.
 | `mj_jac` | `jacp_W_P` | `jacr_W_B` | arbitrary point P |
 | `mj_jacBody` | `jacp_W_Bo` | `jacr_W_B` | body origin |
 | `mj_jacBodyCom` | `jacp_W_Bcm` | `jacr_W_B` | body COM |
-| `mj_jacSite` | `jacp_W_S` | `jacr_W_S` | site origin |
-| `mj_jacGeom` | `jacp_W_G` | `jacr_W_G` | geom center |
+| `mj_jacSite` | `jacp_W_Site` | `jacr_W_Site` | site origin |
+| `mj_jacGeom` | `jacp_W_Geom` | `jacr_W_Geom` | geom center |
 
 ### Usage
 ```python
@@ -213,7 +215,7 @@ hmat_Base_EndEffector         # End-effector pose in Base (4×4)
 ### Rotations
 ```python
 quat_Body_Camera              # Camera orientation in Body frame
-mat_World_Body                # Body orientation in World (3×3)
+rmat_World_Body               # Body orientation in World (3×3)
 rotvec_Imu_Camera             # IMU-to-camera rotation as rotation vector
 axisangle_Parent_Child        # Parent-to-child as axis-angle
 ```
@@ -243,7 +245,7 @@ jacp_World_Tool_Body          # 3×nv, expressed in Body frame
 
 ---
 
-## 11. MuJoCo vs Drake Jacobian Notation
+## 10. MuJoCo vs Drake Jacobian Notation
 
 ```python
 """
