@@ -11,7 +11,7 @@
  * normalized shape and never learns which CLI produced it.
  */
 import { existsSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import type { Usage } from "@earendil-works/pi-ai";
 
 export interface Agent {
@@ -48,9 +48,26 @@ export function agentFromFrontmatter(
 	};
 }
 
+export type AuditBasis =
+	| { source: "phase"; criterion: number }
+	| { source: "contract"; path: string; ref: string };
+
+export interface AuditFinding {
+	basis: AuditBasis;
+	path: string;
+	evidence: string;
+	failure: string;
+}
+
+export type AuditSubmission =
+	| { verdict: "pass" }
+	| { verdict: "fail"; findings: AuditFinding[] };
+
 export interface RunResult {
 	agent: string;
 	task: string;
+	runId?: string;
+	audit?: AuditSubmission;
 	/** The latest assistant text. The final turn's, once there is one; before that, the last thing said. */
 	output: string;
 	stopReason?: string;
@@ -108,6 +125,18 @@ export function stepDetail(input: unknown): string | undefined {
 export interface Inherited {
 	appendSystemPrompt?: string;
 	model?: string;
+	/** Pi children persist here; each invocation still creates its own fresh session. */
+	sessionDir?: string;
+	/** Extension-owned exact child session identity. */
+	sessionId?: string;
+	resume?: boolean;
+	/** Loaded only for the audit role, whose typed verdict travels in the tool result. */
+	auditExtension?: string;
+}
+
+export function childSessionDir(parentSessionDir: string, parentSessionId: string, agentDir: string): string {
+	const root = parentSessionDir || join(agentDir, "sessions");
+	return join(root, "subagents", parentSessionId);
 }
 
 export interface Invocation {
@@ -271,6 +300,26 @@ function isUsage(value: unknown): value is Usage {
 	);
 }
 
+function validNonemptyText(value: unknown): value is string {
+	return typeof value === "string" && value.trim().length > 0;
+}
+
+export function isAuditSubmission(value: unknown): value is AuditSubmission {
+	if (!isRecord(value)) return false;
+	if (value.verdict === "pass") return Object.keys(value).length === 1;
+	if (value.verdict !== "fail" || !Array.isArray(value.findings) || value.findings.length === 0) return false;
+	return value.findings.every((finding) => {
+		if (!isRecord(finding) || !isRecord(finding.basis)) return false;
+		const basis = finding.basis;
+		const validBasis = basis.source === "phase"
+			? Number.isSafeInteger(basis.criterion) && (basis.criterion as number) >= 1
+			: basis.source === "contract" && validNonemptyText(basis.path) &&
+				typeof basis.ref === "string" && /^[RICAN][1-9][0-9]*$/.test(basis.ref);
+		return validBasis && validNonemptyText(finding.path) &&
+			validNonemptyText(finding.evidence) && validNonemptyText(finding.failure);
+	});
+}
+
 export function isRunResult(value: unknown): value is RunResult {
 	if (!isRecord(value)) return false;
 	const optionalStrings = [
@@ -288,6 +337,8 @@ export function isRunResult(value: unknown): value is RunResult {
 		typeof value.turns === "number" &&
 		typeof value.durationMs === "number" &&
 		Array.isArray(value.steps) &&
+		(value.runId === undefined || typeof value.runId === "string") &&
+		(value.audit === undefined || isAuditSubmission(value.audit)) &&
 		(value.thinking === undefined || typeof value.thinking === "number") &&
 		isUsage(value.usage) &&
 		optionalStrings.every((key) => value[key] === undefined || typeof value[key] === "string") &&
@@ -374,7 +425,14 @@ export function classifyResult(result: RunResult): ResultOutcome {
 			message: `${result.agent} model error${context}${suffix}`,
 		};
 	}
-	if (result.stopReason !== "stop" || !result.output.trim()) {
+	if (result.agent === "audit" && !result.audit) {
+		return {
+			kind: "invalid-response",
+			label: "missing audit verdict",
+			message: `audit returned without submit_audit${context}.`,
+		};
+	}
+	if (result.stopReason !== "stop" || (!result.output.trim() && !result.audit)) {
 		const reason = detail ?? (result.stopReason ? `unexpected stop reason: ${result.stopReason}` : undefined);
 		return {
 			kind: "invalid-response",
@@ -546,7 +604,14 @@ const piRuntime: Runtime = {
 	invoke(agent, task, inherited, requestedModel) {
 		// Prompts are literal arguments: pi reads one as a file only when the string names an existing
 		// path. Agent bodies are multi-line, so they cannot accidentally name a file.
-		const args = ["--mode", "json", "-p", "--no-session"];
+		const args = ["--mode", "json", "-p"];
+		if (inherited.sessionDir) args.push("--session-dir", inherited.sessionDir);
+		if (inherited.sessionId) {
+			args.push(inherited.resume ? "--session" : "--session-id", inherited.sessionId);
+		}
+		if (agent.name === "audit" && inherited.auditExtension) {
+			args.push("--extension", inherited.auditExtension);
+		}
 		if (inherited.appendSystemPrompt?.trim()) {
 			args.push("--append-system-prompt", inherited.appendSystemPrompt);
 		}
@@ -582,6 +647,10 @@ const piRuntime: Runtime = {
 		}
 		if (event.type === "tool_execution_end") {
 			activity.end(typeof event.toolCallId === "string" ? event.toolCallId : undefined, event.isError === true);
+			if (event.toolName === "submit_audit" && !event.isError && isRecord(event.result)) {
+				const submission = isRecord(event.result.details) ? event.result.details : event.result;
+				if (isAuditSubmission(submission)) result.audit = submission;
+			}
 			return true;
 		}
 		if (event.type !== "message_end" || !isRecord(event.message)) return false;

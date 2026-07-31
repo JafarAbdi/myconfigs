@@ -8,11 +8,13 @@ import {
 	type Agent,
 	agentFromFrontmatter,
 	childEnvironment,
+	childSessionDir,
 	claudeTools,
 	classifyResult,
 	delegateModelNames,
 	emptyUsage,
 	CLAUDE_MODEL_NAMES,
+	isAuditSubmission,
 	modelLabel,
 	type RunResult,
 	createActivityTracker,
@@ -85,21 +87,17 @@ test("agent frontmatter reads only role and capability fields", () => {
 	);
 });
 
-test("audit is the extension's one review policy and slash discovery is gone", () => {
+test("audit is contract-bound, typed, and does no broad context rediscovery", () => {
 	const agents = join(EXTENSION_DIR, "agents");
 	const policy = readFileSync(join(agents, "audit.md"), "utf-8");
 	assert.equal(existsSync(join(agents, "correctness-reviewer.md")), false);
 	assert.equal(existsSync(join(agents, "context-style-reviewer.md")), false);
 	assert.equal(existsSync(join(EXTENSION_DIR, "prompts", "audit.md")), false);
-	assert.match(policy, /requirements, behavior/);
-	assert.match(policy, /project context/);
-	assert.match(policy, /deletion-first simplicity/);
-	assert.ok(
-		policy.includes(
-			'PI_OFFLINE=1 pi --mode json --no-session -p "/context-files" \\\n' +
-				"  | jq -r 'select(.type==\"message_end\" and .message.customType==\"context-files\") | .message.content'",
-		),
-	);
+	assert.match(policy, /PROJECT-CONTRACT\.md/);
+	assert.match(policy, /staged candidate/);
+	assert.match(policy, /submit_audit/);
+	assert.doesNotMatch(policy, /context-files/);
+	assert.match(policy, /skills: none/);
 	const extension = readFileSync(join(EXTENSION_DIR, "index.ts"), "utf-8");
 	assert.doesNotMatch(extension, /promptPaths/);
 });
@@ -108,6 +106,17 @@ test("delegate model choices add native claude only outside SSH", () => {
 	const piModels = ["openai-codex/gpt-5.6-luna", "llama.cpp/qwen36"];
 	assert.deepEqual(delegateModelNames(piModels, false), piModels);
 	assert.deepEqual(delegateModelNames(piModels, true), [...piModels, ...CLAUDE_MODEL_NAMES]);
+});
+
+test("child session directories are grouped under persistent and ephemeral parents", () => {
+	assert.equal(
+		childSessionDir("/sessions/project", "parent-id", "/agent"),
+		join("/sessions/project", "subagents", "parent-id"),
+	);
+	assert.equal(
+		childSessionDir("", "ephemeral-id", "/agent"),
+		join("/agent", "sessions", "subagents", "ephemeral-id"),
+	);
 });
 
 test("child environments apply only their runtime-specific defaults", () => {
@@ -243,14 +252,47 @@ test("claude argv fences the child and carries one system prompt", () => {
 	assert.ok(!args.includes("Task: review it"));
 });
 
-test("a provider-qualified delegate model launches pi", () => {
+test("a provider-qualified delegate model launches pi with its own persistent session", () => {
 	const reviewer = agent({ tools: ["read", "bash"] });
 	const model = "openai-codex/gpt-5.6-luna";
 	const runtime = selectRuntime(model);
 	assert.equal(runtime.name, "pi");
-	const { args } = runtime.invoke(reviewer, "review", {}, model);
+	const sessionDir = "/sessions/project/subagents/parent-id";
+	const { args } = runtime.invoke(reviewer, "review", { sessionDir }, model);
 	assert.equal(args[args.indexOf("--model") + 1], model);
 	assert.equal(args[args.indexOf("--tools") + 1], "read,bash");
+	assert.equal(args[args.indexOf("--session-dir") + 1], sessionDir);
+	assert.ok(!args.includes("--no-session"));
+});
+
+test("pi audit runs load the typed submission tool", () => {
+	const audit = agent({ name: "audit", tools: ["read", "submit_audit"] });
+	const { args } = selectRuntime(undefined).invoke(audit, "review", {
+		auditExtension: "/extensions/audit-submit.ts",
+	});
+	assert.equal(args[args.indexOf("--extension") + 1], "/extensions/audit-submit.ts");
+	assert.equal(args[args.indexOf("--tools") + 1], "read,submit_audit");
+});
+
+test("typed audit submissions are captured and required for audit success", () => {
+	const runtime = selectRuntime(undefined);
+	const run = result({ agent: "audit" });
+	const activity = createActivityTracker(run);
+	const submission = { verdict: "pass" } as const;
+	assert.equal(isAuditSubmission(submission), true);
+	runtime.consume({
+		type: "tool_execution_end",
+		toolName: "submit_audit",
+		toolCallId: "a",
+		result: { details: submission },
+	}, run, activity);
+	runtime.consume({
+		type: "message_end",
+		message: { role: "assistant", stopReason: "stop", content: [] },
+	}, run, activity);
+	assert.deepEqual(run.audit, submission);
+	assert.equal(classifyResult(run).kind, "success");
+	assert.equal(classifyResult(result({ agent: "audit", output: "PASS", stopReason: "stop" })).kind, "invalid-response");
 });
 
 test("an omitted delegate model launches pi and inherits the session model", () => {

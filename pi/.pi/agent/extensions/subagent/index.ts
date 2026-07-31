@@ -2,8 +2,8 @@
  * Subagent — run one bounded task in a fresh-context child process.
  *
  * Agents are markdown files in ./agents/: frontmatter defines role metadata and capabilities, and
- * the body is appended to the child's default system prompt. The child gets no session, so it
- * cannot see this conversation.
+ * the body is appended to the child's default system prompt. The child gets its own persistent
+ * session and fresh context, so it cannot see this conversation.
  *
  * Why this is code and not a bash recipe: the child's tool allowlist comes from the agent file,
  * never from the model. If the model composed the command line, "this reviewer cannot edit code"
@@ -20,6 +20,7 @@
  * mode exits 0 on a failed run, and claude exits 0 with empty stderr even for an unknown model.
  */
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -29,6 +30,7 @@ import {
 	DEFAULT_MAX_LINES,
 	type ExtensionAPI,
 	formatSize,
+	getAgentDir,
 	getMarkdownTheme,
 	parseFrontmatter,
 	type Theme,
@@ -39,7 +41,9 @@ import { Type } from "typebox";
 import {
 	type Agent,
 	agentFromFrontmatter,
+	type AuditSubmission,
 	childEnvironment,
+	childSessionDir,
 	claudeTools,
 	classifyResult,
 	delegateModelNames,
@@ -54,9 +58,10 @@ import {
 	selectRuntime,
 } from "./runtimes.ts";
 
-const AGENTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "agents");
-/** `~/.pi/agent`, two levels up from `extensions/subagent/`. */
-const AGENT_DIR = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
+const AGENTS_DIR = join(EXTENSION_DIR, "agents");
+const AUDIT_EXTENSION = join(EXTENSION_DIR, "audit-submit.ts");
+const AGENT_DIR = getAgentDir();
 /** Children still running. The abort signal covers a cancelled call; this covers a dead session. */
 const LIVE = new Set<ReturnType<typeof spawn>>();
 const TASK_PREVIEW_MAX = 60;
@@ -140,6 +145,7 @@ function runAgent(
 	const result: RunResult = {
 		agent: agent.name,
 		task,
+		runId: inherited.sessionId,
 		output: "",
 		model: model ?? inherited.model,
 		steps: [],
@@ -236,6 +242,19 @@ function formatDuration(durationMs: number): string {
 	return `${Math.floor(durationMs / 60_000)}m${Math.round((durationMs % 60_000) / 1000)}s`;
 }
 
+function auditReport(submission: AuditSubmission): string {
+	if (submission.verdict === "pass") return "Audit: PASS";
+	return [
+		"Audit: FAIL",
+		...submission.findings.map((finding, index) => {
+			const basis = finding.basis.source === "phase"
+				? `phase criterion ${finding.basis.criterion}`
+				: `${finding.basis.path} ${finding.basis.ref}`;
+			return `F${index + 1} [${basis}] ${finding.path}\nEvidence: ${finding.evidence}\nFailure: ${finding.failure}`;
+		}),
+	].join("\n\n");
+}
+
 function formatStats(result: RunResult): string {
 	const parts: string[] = [];
 	if (result.turns) parts.push(`${result.turns} turn${result.turns > 1 ? "s" : ""}`);
@@ -303,6 +322,10 @@ function resultHeader(result: RunResult, isPartial: boolean, theme: Theme): stri
 
 export default function subagentExtension(pi: ExtensionAPI): void {
 	const { agents: catalog, broken } = loadAgents();
+	const continuable = new Map<
+		string,
+		{ agent: string; model?: string; sessionDir: string }
+	>();
 	const roster =
 		catalog.map((agent) => `${agent.name} (${agent.tools.join(", ")}): ${agent.description}`).join("; ") || "none";
 	const piModels = enabledModels();
@@ -415,9 +438,18 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				// Native claude needs translated tools; Pi uses the agent's tool names directly.
 				const runtime = selectRuntime(params.model);
 				if (runtime.name === "claude") claudeTools(found);
+				const sessionDir = childSessionDir(
+					ctx.sessionManager.getSessionDir(),
+					ctx.sessionManager.getSessionId(),
+					AGENT_DIR,
+				);
+				const runId = runtime.name === "pi" ? randomUUID() : undefined;
 				const inherited: Inherited = {
 					appendSystemPrompt: inheritedAppendSystemPrompt,
 					model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
+					sessionDir,
+					sessionId: runId,
+					auditExtension: AUDIT_EXTENSION,
 				};
 				const result = await runAgent(found, params.task, ctx.cwd, inherited, params.model, signal, (partial) => {
 					onUpdate?.({
@@ -425,6 +457,13 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 						details: partial,
 					});
 				});
+				if (runId && found.name !== "audit") {
+					continuable.set(runId, {
+						agent: found.name,
+						model: modelLabel(result),
+						sessionDir,
+					});
+				}
 				const outcome = classifyResult(result);
 				if (outcome.kind !== "success") {
 					const failure = truncateHead(outcome.message ?? `${found.name} failed.`, { maxLines: 10, maxBytes: 1000 });
@@ -436,10 +475,13 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				}
 				// Tools must bound what they put in the parent's context, and several of these run at
 				// once. `details` keeps the whole report for the expanded view.
-				const report = truncateHead(result.output, {
-					maxLines: DEFAULT_MAX_LINES,
-					maxBytes: DEFAULT_MAX_BYTES,
-				});
+				const report = truncateHead(
+					result.audit ? auditReport(result.audit) : result.output,
+					{
+						maxLines: DEFAULT_MAX_LINES,
+						maxBytes: DEFAULT_MAX_BYTES,
+					},
+				);
 				return {
 					content: [
 						{
