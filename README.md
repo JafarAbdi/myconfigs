@@ -21,7 +21,6 @@
 myinstall i3
 myinstall wezterm
 myinstall docker
-myinstall obsidian
 myinstall nextcloud-sync
 ```
 
