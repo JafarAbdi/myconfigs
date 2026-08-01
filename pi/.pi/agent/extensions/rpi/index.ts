@@ -3511,7 +3511,13 @@ export default function rpi(pi: ExtensionAPI): void {
 	}
 
 	pi.on("agent_settled", async (_event, ctx) => {
-		if (!ctx.hasUI) return;
+		let hasUI: boolean;
+		try {
+			hasUI = ctx.hasUI;
+		} catch {
+			return;
+		}
+		if (!hasUI) return;
 		let slug = active?.slug;
 		if (!slug) {
 			const [sessionSlug, sessionPhase] = (pi.getSessionName() ?? "").split(

@@ -571,6 +571,17 @@ async function main(): Promise<void> {
 			);
 		}
 
+		async settleStale(manager: SessionManagerInstance): Promise<void> {
+			assert.ok(this.agentSettled, "agent_settled was not registered");
+			const context = this.context(manager);
+			Object.defineProperty(context, "hasUI", {
+				get() {
+					throw new Error("stale replacement context");
+				},
+			});
+			await this.withManager(manager, () => this.agentSettled?.({}, context));
+		}
+
 		async input(
 			manager: SessionManagerInstance,
 			text = "inspect recovery",
@@ -908,6 +919,11 @@ async function main(): Promise<void> {
 	]);
 
 	try {
+		{
+			const stale = harness.createOwner(scratch, "stale · source");
+			await harness.settleStale(stale);
+		}
+
 		for (const slug of ["foo.", "foo..bar", "foo.lock"]) {
 			const root = join(scratch, `invalid-${slug.replaceAll(".", "-")}`);
 			mkdirSync(root);
