@@ -17,7 +17,6 @@ import {
 	CLAUDE_MODEL_NAMES,
 	CHILD_PENDING_LINE_MAX_BYTES,
 	CHILD_STDERR_MAX_BYTES,
-	CHILD_STDOUT_MAX_BYTES,
 	createChildProtocol,
 	isAuditResult,
 	modelLabel,
@@ -79,12 +78,16 @@ test("child protocol preserves noisy JSONL and split lines", () => {
 	assert.deepEqual(protocol.finishStdout(), { lines: [] });
 });
 
-test("child protocol rejects bounded line, stream, and stderr overflow", () => {
+test("child protocol bounds retained lines and stderr, not consumed stream totals", () => {
 	const line = createChildProtocol();
 	assert.match(line.pushStdout(Buffer.alloc(CHILD_PENDING_LINE_MAX_BYTES + 1, 120)).error ?? "", /line exceeded/);
 
 	const stream = createChildProtocol();
-	assert.match(stream.pushStdout(Buffer.alloc(CHILD_STDOUT_MAX_BYTES + 1, 120)).error ?? "", /stdout exceeded/);
+	const completedLine = Buffer.from(`${"x".repeat(1023)}\n`);
+	for (let index = 0; index < 5000; index++) {
+		assert.deepEqual(stream.pushStdout(completedLine), { lines: ["x".repeat(1023)] });
+	}
+	assert.deepEqual(stream.finishStdout(), { lines: [] });
 
 	const error = createChildProtocol();
 	assert.match(error.pushStderr(Buffer.alloc(CHILD_STDERR_MAX_BYTES + 1, 120)) ?? "", /stderr exceeded/);
@@ -354,8 +357,14 @@ test("a provider-qualified delegate model launches pi with its own persistent se
 	const runtime = selectRuntime(model);
 	assert.equal(runtime.name, "pi");
 	const sessionDir = "/sessions/project/subagents/parent-id";
-	const { args } = runtime.invoke(reviewer, "review", { sessionDir }, model);
+	const { args } = runtime.invoke(
+		reviewer,
+		"review",
+		{ sessionDir, thinkingLevel: "minimal" },
+		model,
+	);
 	assert.equal(args[args.indexOf("--model") + 1], model);
+	assert.equal(args[args.indexOf("--thinking") + 1], "minimal");
 	assert.equal(args[args.indexOf("--tools") + 1], "read,bash");
 	assert.equal(args[args.indexOf("--session-dir") + 1], sessionDir);
 	assert.ok(!args.includes("--no-session"));
@@ -495,10 +504,14 @@ test("Pi parses audit text once, while native Claude uses structured output", ()
 	assert.equal(classifyResult(result({ agent: "audit", output: JSON.stringify(pass), audit: pass, termination: "cancelled" })).kind, "cancelled");
 });
 
-test("an omitted delegate model launches pi and inherits the session model", () => {
+test("an omitted delegate model launches pi and inherits the session model and thinking", () => {
 	const scout = agent({ tools: ["read"] });
-	const { args, input } = selectRuntime(undefined).invoke(scout, "look", { model: "openai-codex/gpt-5.6-luna" });
+	const { args, input } = selectRuntime(undefined).invoke(scout, "look", {
+		model: "openai-codex/gpt-5.6-luna",
+		thinkingLevel: "low",
+	});
 	assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.6-luna");
+	assert.equal(args[args.indexOf("--thinking") + 1], "low");
 	// pi takes its prompt as an argument and is given no stdin at all.
 	assert.equal(input, undefined);
 	assert.ok(args.includes("Task: look"));

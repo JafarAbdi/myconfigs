@@ -12,7 +12,7 @@
  */
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
-import type { Usage } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 
 export interface Agent {
 	name: string;
@@ -176,7 +176,6 @@ export interface Step {
 /** Steps kept, and so also steps shown: a tail is a tail, and a loop cannot grow the parent's memory. */
 export const STEP_LIMIT = 40;
 /** Protocol and result limits are byte limits because child streams are byte streams. */
-export const CHILD_STDOUT_MAX_BYTES = 4 * 1024 * 1024;
 export const CHILD_PENDING_LINE_MAX_BYTES = 1024 * 1024;
 export const CHILD_STDERR_MAX_BYTES = 64 * 1024;
 export const RESULT_OUTPUT_MAX_BYTES = 1024 * 1024;
@@ -188,8 +187,9 @@ export interface ProtocolChunk {
 }
 
 /**
- * Incrementally splits child stdout without readline or an unbounded string. The total protocol,
- * current unterminated line, and stderr each have an independent byte limit.
+ * Incrementally splits child stdout without readline or an unbounded string. Only retained data is
+ * bounded: the current unterminated line and stderr. Completed protocol lines are consumed and
+ * discarded, so bounding their lifetime total would reject healthy verbose runs.
  */
 export function createChildProtocol(): {
 	pushStdout(chunk: Uint8Array): ProtocolChunk;
@@ -197,7 +197,6 @@ export function createChildProtocol(): {
 	finishStdout(): ProtocolChunk;
 	stderr(): string;
 } {
-	let stdoutBytes = 0;
 	let pending = Buffer.alloc(0);
 	let stderr = Buffer.alloc(0);
 	let error: string | undefined;
@@ -219,9 +218,6 @@ export function createChildProtocol(): {
 	return {
 		pushStdout(chunk) {
 			if (error) return { lines: [], error };
-			stdoutBytes += chunk.length;
-			if (stdoutBytes > CHILD_STDOUT_MAX_BYTES)
-				return fail(`child stdout exceeded ${CHILD_STDOUT_MAX_BYTES} bytes`);
 			const bytes = Buffer.from(chunk);
 			const lines: string[] = [];
 			let offset = 0;
@@ -305,6 +301,7 @@ export function stepDetail(input: unknown): string | undefined {
 export interface Inherited {
 	appendSystemPrompt?: string;
 	model?: string;
+	thinkingLevel?: ModelThinkingLevel;
 	/** Pi children persist here; each invocation still creates its own fresh session. */
 	sessionDir?: string;
 	/** Extension-owned exact child session identity. */
@@ -840,6 +837,7 @@ const piRuntime: Runtime = {
 		// provider-qualified model overrides it while remaining in pi's runtime.
 		const model = requestedModel ?? inherited.model;
 		if (model) args.push("--model", model);
+		if (inherited.thinkingLevel) args.push("--thinking", inherited.thinkingLevel);
 		if (agent.skills === "none") args.push("--no-skills");
 		// Last, and safe unquoted: spawn runs without a shell. Prefixed because pi has no `--` argument
 		// terminator, so position alone does not protect it: a task opening with `--` or `@` is read as

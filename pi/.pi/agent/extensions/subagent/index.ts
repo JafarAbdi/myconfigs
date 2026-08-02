@@ -396,7 +396,12 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 	const { agents: catalog, broken } = loadAgents();
 	const continuable = new Map<
 		string,
-		{ agent: string; model?: string; sessionDir: string }
+		{
+			agent: string;
+			model?: string;
+			thinkingLevel?: Inherited["thinkingLevel"];
+			sessionDir: string;
+		}
 	>();
 	const roster = catalog.map((agent) =>
 		`${agent.name} (${agent.tools.length ? agent.tools.join(", ") : "no tools"}): ${agent.description}`
@@ -501,6 +506,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					inherited = {
 						appendSystemPrompt: inheritedAppendSystemPrompt,
 						model,
+						thinkingLevel: prior.thinkingLevel,
 						sessionDir,
 						sessionId: runId,
 						resume: true,
@@ -532,6 +538,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					inherited = {
 						appendSystemPrompt: inheritedAppendSystemPrompt,
 						model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
+						thinkingLevel: ctx.thinkingLevel,
 						sessionDir,
 						sessionId: runId,
 					};
@@ -544,7 +551,12 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					});
 				});
 				if (runId && agent.name === "implementer") {
-					continuable.set(runId, { agent: agent.name, model: modelLabel(result), sessionDir });
+					continuable.set(runId, {
+						agent: agent.name,
+						model: modelLabel(result),
+						thinkingLevel: inherited.thinkingLevel,
+						sessionDir,
+					});
 				}
 				const outcome = classifyResult(result);
 				if (outcome.kind !== "success") {
