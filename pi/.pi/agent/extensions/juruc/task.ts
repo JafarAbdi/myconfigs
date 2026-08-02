@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
-export const TASK_VERSION = 1 as const;
+export const TASK_VERSION = 2 as const;
 export const TASK_STAGES = [
 	"research",
 	"planning",
@@ -18,7 +18,24 @@ export const TASK_STAGES = [
 ] as const;
 
 export type TaskStage = (typeof TASK_STAGES)[number];
-export type SessionKind = "research" | "planning" | "build";
+export type DiscoverySessionKind =
+	| "questions"
+	| "research"
+	| "specification"
+	| "plan";
+export type ReviewerSessionKind = "deviation-review" | "correctness-review";
+
+export type TaskSessionRun =
+	| { kind: DiscoverySessionKind; path: string }
+	| { kind: "implementation"; phase: number; path: string }
+	| { kind: ReviewerSessionKind; round: number; path: string }
+	| { kind: "correction"; round: number; path: string };
+
+export type TaskSessionKey =
+	| { kind: DiscoverySessionKind }
+	| { kind: "implementation"; phase: number }
+	| { kind: ReviewerSessionKind; round: number }
+	| { kind: "correction"; round: number };
 
 export interface TaskRepository {
 	sourceRoot: string;
@@ -26,12 +43,6 @@ export interface TaskRepository {
 	sourceHead: string;
 	branch: string;
 	worktree: string;
-}
-
-export interface TaskSessions {
-	research: string | null;
-	planning: string | null;
-	build: string | null;
 }
 
 export interface TaskPhase {
@@ -71,7 +82,7 @@ export interface TaskDocument {
 	request: string;
 	repository: TaskRepository;
 	stage: TaskStage;
-	sessions: TaskSessions;
+	sessions: TaskSessionRun[];
 	plan: TaskPlan | null;
 	blockReason: string | null;
 }
@@ -128,10 +139,6 @@ function validTextList(value: unknown, nonempty = false): value is string[] {
 	);
 }
 
-function validNullableAbsolutePath(value: unknown): value is string | null {
-	return value === null || (validText(value) && isAbsolute(value));
-}
-
 function validRepository(value: unknown): value is TaskRepository {
 	const repository = record(value);
 	return Boolean(
@@ -155,20 +162,49 @@ function validRepository(value: unknown): value is TaskRepository {
 	);
 }
 
-function validSessions(value: unknown): value is TaskSessions {
-	const sessions = record(value);
-	if (
-		!sessions ||
-		!exactKeys(sessions, ["research", "planning", "build"]) ||
-		!validNullableAbsolutePath(sessions.research) ||
-		!validNullableAbsolutePath(sessions.planning) ||
-		!validNullableAbsolutePath(sessions.build)
-	)
+function positiveInteger(value: unknown): value is number {
+	return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
+function validSessionRun(value: unknown): value is TaskSessionRun {
+	const run = record(value);
+	if (!run || !validText(run.kind) || !validText(run.path) || !isAbsolute(run.path))
 		return false;
-	const paths = [sessions.research, sessions.planning, sessions.build].filter(
-		(path): path is string => path !== null,
-	);
-	return new Set(paths).size === paths.length;
+	switch (run.kind) {
+		case "questions":
+		case "research":
+		case "specification":
+		case "plan":
+			return exactKeys(run, ["kind", "path"]);
+		case "implementation":
+			return exactKeys(run, ["kind", "phase", "path"]) && positiveInteger(run.phase);
+		case "deviation-review":
+		case "correctness-review":
+		case "correction":
+			return exactKeys(run, ["kind", "round", "path"]) && positiveInteger(run.round);
+		default:
+			return false;
+	}
+}
+
+function sessionLogicalKey(run: TaskSessionRun | TaskSessionKey): string {
+	switch (run.kind) {
+		case "implementation":
+			return `${run.kind}:${run.phase}`;
+		case "deviation-review":
+		case "correctness-review":
+		case "correction":
+			return `${run.kind}:${run.round}`;
+		default:
+			return run.kind;
+	}
+}
+
+function validSessions(value: unknown): value is TaskSessionRun[] {
+	if (!Array.isArray(value) || !value.every(validSessionRun)) return false;
+	const paths = value.map(({ path }) => path);
+	const keys = value.map(sessionLogicalKey);
+	return new Set(paths).size === paths.length && new Set(keys).size === keys.length;
 }
 
 function validPhase(value: unknown): value is TaskPhase {
@@ -300,9 +336,16 @@ export function validTaskDocument(value: unknown): value is TaskDocument {
 
 	const stage = task.stage as TaskStage;
 	const plan = task.plan as TaskPlan | null;
-	const sessions = task.sessions as TaskSessions;
+	const sessions = task.sessions as TaskSessionRun[];
 	if (stage === "blocked")
-		return Boolean(plan?.remaining.length && sessions.build && task.blockReason);
+		return Boolean(
+			plan?.remaining.length &&
+			findSession(sessions, {
+				kind: "implementation",
+				phase: plan.completed.length + 1,
+			}) &&
+			task.blockReason,
+		);
 	if (stage === "building")
 		return task.blockReason === null && Boolean(plan?.remaining.length);
 	if (stage === "done")
@@ -323,33 +366,46 @@ export function createTaskDocument(input: NewTaskInput): TaskDocument {
 		request: input.request,
 		repository: structuredClone(input.repository),
 		stage: "research",
-		sessions: { research: null, planning: null, build: null },
+		sessions: [],
 		plan: null,
 		blockReason: null,
 	});
 }
 
-export function recordTaskSession(
-	task: TaskDocument,
-	kind: SessionKind,
+function findSession(
+	sessions: readonly TaskSessionRun[],
+	key: TaskSessionKey,
+): TaskSessionRun | undefined {
+	const logicalKey = sessionLogicalKey(key);
+	return sessions.find((run) => sessionLogicalKey(run) === logicalKey);
+}
+
+export function findTaskSession(
+	task: Pick<TaskDocument, "sessions">,
+	key: TaskSessionKey,
+): TaskSessionRun | undefined {
+	return findSession(task.sessions, key);
+}
+
+export function findTaskSessionByPath(
+	task: Pick<TaskDocument, "sessions">,
 	path: string,
+): TaskSessionRun | undefined {
+	return task.sessions.find((run) => run.path === path);
+}
+
+export function appendTaskSession(
+	task: TaskDocument,
+	run: TaskSessionRun,
 ): TaskDocument {
-	if (!isAbsolute(path)) throw new Error(`${kind} session path must be absolute`);
-	if (kind === "research" && task.stage !== "research")
-		throw new Error("research session requires research stage");
-	if (kind === "planning" && task.stage !== "planning")
-		throw new Error("planning session requires planning stage");
-	if (kind === "build" && task.stage !== "building")
-		throw new Error("build session requires building stage");
-	if (
-		Object.entries(task.sessions).some(
-			([role, owned]) => role !== kind && owned === path,
-		)
-	)
-		throw new Error("research, planning, and build sessions must be separate");
+	if (!validSessionRun(run)) throw new Error("invalid task session run");
+	if (findTaskSessionByPath(task, run.path))
+		throw new Error(`session path is already recorded: ${run.path}`);
+	if (findSession(task.sessions, run))
+		throw new Error(`session run is already recorded: ${sessionLogicalKey(run)}`);
 	return checked({
 		...task,
-		sessions: { ...task.sessions, [kind]: path },
+		sessions: [...task.sessions, structuredClone(run)],
 	});
 }
 
@@ -361,11 +417,7 @@ export function finishTaskResearch(task: TaskDocument): TaskDocument {
 export function returnTaskToResearch(task: TaskDocument): TaskDocument {
 	if (task.stage !== "planning" && task.stage !== "blocked")
 		throw new Error("only planning or blocked tasks can return to research");
-	return checked({
-		...task,
-		stage: "research",
-		sessions: { ...task.sessions, research: null },
-	});
+	return checked({ ...task, stage: "research" });
 }
 
 export function returnTaskToPlanning(task: TaskDocument): TaskDocument {
@@ -406,7 +458,9 @@ export function blockTaskPhase(
 	reason: string,
 ): TaskDocument {
 	if (task.stage !== "building") throw new Error("task is not building");
-	if (!task.sessions.build) throw new Error("active phase has no build session");
+	const phase = (task.plan?.completed.length ?? 0) + 1;
+	if (!findTaskSession(task, { kind: "implementation", phase }))
+		throw new Error("active phase has no implementation session");
 	return checked({ ...task, stage: "blocked", blockReason: reason });
 }
 
@@ -427,7 +481,6 @@ export function completeTaskPhase(
 	return checked({
 		...task,
 		stage: remaining.length ? "building" : "done",
-		sessions: { ...task.sessions, build: null },
 		plan: {
 			...task.plan,
 			completed: [

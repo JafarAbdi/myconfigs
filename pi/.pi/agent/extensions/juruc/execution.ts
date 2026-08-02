@@ -1,6 +1,7 @@
 import {
 	blockTaskPhase,
 	completeTaskPhase,
+	findTaskSession,
 	type TaskDocument,
 	type VerificationEvidence,
 } from "./task.ts";
@@ -133,8 +134,9 @@ export async function finishCurrentPhase(
 ): Promise<PhaseCompletionResult> {
 	if (task.stage !== "building" || !task.plan?.remaining.length)
 		throw new Error("task has no active build phase");
-	if (!task.sessions.build)
-		throw new Error("active phase has no build session");
+	const phase = task.plan.completed.length + 1;
+	if (!findTaskSession(task, { kind: "implementation", phase }))
+		throw new Error("active phase has no implementation session");
 	const resolution = input.resolution.trim();
 	const commitMessage = input.commitMessage.trim();
 	if (!resolution || !commitMessage)

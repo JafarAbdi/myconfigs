@@ -24,9 +24,10 @@ import {
 	successfulResearchSynthesis,
 } from "./research.ts";
 import {
+	appendTaskSession,
 	createTaskDocument,
+	findTaskSession,
 	finishTaskResearch,
-	recordTaskSession,
 	type NewTaskInput,
 } from "./task.ts";
 
@@ -125,19 +126,26 @@ test("successful synthesis is persisted without retransmission or normalization"
 	}
 });
 
-test("research and planning cannot reuse the same managed session", () => {
-	let task = recordTaskSession(
-		createTaskDocument(taskInput()),
-		"research",
-		"/sessions/research.jsonl",
-	);
+test("research and plan runs cannot reuse the same managed session", () => {
+	let task = appendTaskSession(createTaskDocument(taskInput()), {
+		kind: "research",
+		path: "/sessions/research.jsonl",
+	});
 	task = finishTaskResearch(task);
 	assert.throws(
-		() => recordTaskSession(task, "planning", "/sessions/research.jsonl"),
-		/must be separate/,
+		() =>
+			appendTaskSession(task, {
+				kind: "plan",
+				path: "/sessions/research.jsonl",
+			}),
+		/path is already recorded/,
 	);
+	task = appendTaskSession(task, {
+		kind: "plan",
+		path: "/sessions/planning.jsonl",
+	});
 	assert.equal(
-		recordTaskSession(task, "planning", "/sessions/planning.jsonl").sessions.planning,
+		findTaskSession(task, { kind: "plan" })?.path,
 		"/sessions/planning.jsonl",
 	);
 });

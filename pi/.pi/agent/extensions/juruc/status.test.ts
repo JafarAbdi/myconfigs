@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+	appendTaskSession,
 	blockTaskPhase,
 	completeTaskPhase,
 	createTaskDocument,
 	finishTaskResearch,
-	recordTaskSession,
 	setTaskPlan,
 } from "./task.ts";
 import { lifecycleLine, lifecyclePlace } from "./status.ts";
@@ -54,7 +54,11 @@ test("status is one lifecycle line derived from compact task state", () => {
 			},
 		],
 	});
-	current = recordTaskSession(current, "build", "/sessions/build.jsonl");
+	current = appendTaskSession(current, {
+		kind: "implementation",
+		phase: 1,
+		path: "/sessions/build.jsonl",
+	});
 	assert.match(lifecycleLine(current), /● build · P1\/2 · building/);
 	current = blockTaskPhase(current, "Need input.");
 	assert.match(lifecycleLine(current), /P1\/2 · blocked: Need input\./);
@@ -78,7 +82,11 @@ test("done status derives its count from completed phases", () => {
 			},
 		],
 	});
-	current = recordTaskSession(current, "build", "/sessions/build.jsonl");
+	current = appendTaskSession(current, {
+		kind: "implementation",
+		phase: 1,
+		path: "/sessions/build.jsonl",
+	});
 	current = completeTaskPhase(
 		current,
 		"Done.",

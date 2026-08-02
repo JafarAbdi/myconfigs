@@ -17,9 +17,10 @@ import {
 	type FinishPhaseInput,
 } from "./execution.ts";
 import {
+	appendTaskSession,
 	createTaskDocument,
+	findTaskSession,
 	finishTaskResearch,
-	recordTaskSession,
 	resumeTaskPhase,
 	returnTaskToResearch,
 	setTaskPlan,
@@ -87,7 +88,11 @@ async function buildingTask(
 		successCriteria: ["All phases work together."],
 		remaining: phases,
 	});
-	return recordTaskSession(task, "build", "/sessions/build.jsonl");
+	return appendTaskSession(task, {
+		kind: "implementation",
+		phase: 1,
+		path: "/sessions/build.jsonl",
+	});
 }
 
 function finishInput(
@@ -143,7 +148,10 @@ test("verification evidence must exactly match declared command count and order"
 			await assert.rejects(finishCurrentPhase(task, input), /verification evidence/i);
 			await assertUnstaged(task);
 			assert.equal(task.plan?.completed.length, 0);
-			assert.equal(task.sessions.build, "/sessions/build.jsonl");
+			assert.equal(
+				findTaskSession(task, { kind: "implementation", phase: 1 })?.path,
+				"/sessions/build.jsonl",
+			);
 		}
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -162,7 +170,10 @@ test("nonzero verification rejects before staging and leaves the phase resumable
 		await assertUnstaged(task);
 		assert.deepEqual((await workspaceStatus(task.repository.worktree)).paths, ["tracked.txt"]);
 		assert.equal(task.stage, "building");
-		assert.equal(task.sessions.build, "/sessions/build.jsonl");
+		assert.equal(
+			findTaskSession(task, { kind: "implementation", phase: 1 })?.path,
+			"/sessions/build.jsonl",
+		);
 		assert.equal(task.plan?.completed.length, 0);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -181,7 +192,14 @@ test("all-zero evidence is persisted with the commit and advances to a fresh pha
 		const result = await finishCurrentPhase(task, input);
 		assert.ok(result.commit);
 		assert.equal(result.task.stage, "building");
-		assert.equal(result.task.sessions.build, null);
+		assert.equal(
+			findTaskSession(result.task, { kind: "implementation", phase: 1 })?.path,
+			"/sessions/build.jsonl",
+		);
+		assert.equal(
+			findTaskSession(result.task, { kind: "implementation", phase: 2 }),
+			undefined,
+		);
 		assert.equal(result.task.plan?.completed[0].resolution, "Implemented and tested phase one.");
 		assert.equal(result.task.plan?.completed[0].commit, result.commit);
 		assert.deepEqual(
@@ -237,16 +255,25 @@ test("blocking preserves dirty work and resumes the same build session", async (
 		const blocked = await blockCurrentPhase(task, " Need an API decision. ");
 		assert.equal(blocked.stage, "blocked");
 		assert.equal(blocked.blockReason, "Need an API decision.");
-		assert.equal(blocked.sessions.build, "/sessions/build.jsonl");
+		assert.equal(
+			findTaskSession(blocked, { kind: "implementation", phase: 1 })?.path,
+			"/sessions/build.jsonl",
+		);
 		await assertUnstaged(task);
 		assert.equal(readFileSync(join(task.repository.worktree, "tracked.txt"), "utf8"), "blocked work\n");
 		const researching = returnTaskToResearch(blocked);
 		assert.equal(researching.stage, "research");
 		assert.equal(researching.blockReason, "Need an API decision.");
-		assert.equal(researching.sessions.build, "/sessions/build.jsonl");
+		assert.equal(
+			findTaskSession(researching, { kind: "implementation", phase: 1 })?.path,
+			"/sessions/build.jsonl",
+		);
 		const resumed = resumeTaskPhase(blocked);
 		assert.equal(resumed.stage, "building");
-		assert.equal(resumed.sessions.build, "/sessions/build.jsonl");
+		assert.equal(
+			findTaskSession(resumed, { kind: "implementation", phase: 1 })?.path,
+			"/sessions/build.jsonl",
+		);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

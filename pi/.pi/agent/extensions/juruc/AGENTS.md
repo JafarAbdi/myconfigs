@@ -8,18 +8,18 @@ Provide one small workflow from an isolated Git workspace through separate resea
 
 - R1: `/juruc` is the task-picker and task-creation front door; managed sessions show one concise lifecycle line.
 - R2: Task creation may initialize Git with confirmation, then creates a dedicated task branch and managed worktree from committed `HEAD`.
-- R3: Research uses a fresh delegate-only coordinator; successful final synthesis is persisted verbatim in `research.md` before a separate persistent planning session begins.
+- R3: Research uses its typed delegate-only session run; successful final synthesis is persisted verbatim in `research.md` before a separate typed plan session run begins.
 - R4: Planning is read-only, uses canonical `/grill`, preserves completed phases, and may replace only remaining phases through `juruc_set_plan`; every phase declares a nonempty ordered list of exact runnable verification commands.
-- R5: Each phase uses one implementation session that is resumed after blocking or failed verification.
+- R5: Each phase uses one implementation session run scoped by its positive phase ordinal; it is resumed after blocking or failed verification, while the next phase starts a fresh run.
 - R6: `juruc_finish_phase` accepts structured evidence for every declared command, rejects nonzero or inexact evidence before staging, refuses an unchanged candidate, then stages with `git add -A`, creates the local checkpoint commit, records the evidence and commit, and advances automatically. There is no independent per-phase audit.
 - R7: `juruc_block_phase` persists the reason without discarding dirty work and permits resume, planning, or renewed research.
-- R8: Persist task identity, lifecycle, session paths, plan, completed phases, remaining phases, block reason, resolutions, ordered verification evidence, and commits once in `task.json`.
+- R8: Persist task identity, lifecycle, one append-only typed session-run list, plan, completed phases, remaining phases, block reason, resolutions, ordered verification evidence, and commits once in `task.json`.
 
 ## Invariants
 
 - I1: Models provide research, plans, implementation, structured verification evidence, resolutions, and commit-message text; the extension owns workflow identity, transitions, staging, and commits.
-- I2: Research, planning, and implementation use separate sessions; planning cannot edit the worktree and implementation cannot commit.
-- I3: Completed phase records are immutable. Replanning replaces only remaining work.
+- I2: Every session path is absolute and globally unique within the task; discovery kinds are singletons, and implementation, reviewer, and correction runs have unique positive scopes. Planning cannot edit the worktree and implementation cannot commit.
+- I3: Session runs and completed phase records are append-only. Replanning replaces only remaining work.
 - I4: Completed-phase evidence must match the authoritative phase's declared command count, order, and exact text, and every exit code must be zero.
 - I5: Persisted JSON and external Pi, filesystem, and Git results are validated at their boundaries.
 - I6: JURUC runtime state remains isolated from RPI.

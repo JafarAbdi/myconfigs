@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import {
 	createTaskDocument,
+	findTaskSessionByPath,
 	loadTaskDocument,
 	saveTaskDocument,
 	type NewTaskInput,
@@ -172,4 +173,16 @@ export function scanTasks(paths: RuntimePaths): ScannedTask[] {
 
 export function listTasks(paths: RuntimePaths): TaskSummary[] {
 	return scanTasks(paths).map(({ summary }) => summary);
+}
+
+export function findTaskBySession(
+	paths: RuntimePaths,
+	sessionPath: string,
+): StoredTask | undefined {
+	const matches = scanTasks(paths).flatMap(({ task }) =>
+		task && findTaskSessionByPath(task.document, sessionPath) ? [task] : []
+	);
+	if (matches.length > 1)
+		throw new Error("current session belongs to multiple JURUC tasks");
+	return matches[0];
 }

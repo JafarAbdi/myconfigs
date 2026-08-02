@@ -51,22 +51,24 @@ import {
 import { runtimePaths } from "./runtime.ts";
 import { lifecycleLine } from "./status.ts";
 import {
+	appendTaskSession,
 	extendTask,
+	findTaskSession,
+	findTaskSessionByPath,
 	finishTaskResearch,
-	recordTaskSession,
 	resumeTaskPhase,
 	returnTaskToPlanning,
 	returnTaskToResearch,
-	type SessionKind,
 	type TaskDocument,
+	type TaskSessionRun,
 } from "./task.ts";
 import {
 	createTask,
+	findTaskBySession,
 	listTasks,
 	loadTask,
 	removeTaskRecord,
 	saveTask,
-	scanTasks,
 	slugify,
 	type StoredTask,
 	type TaskSummary,
@@ -89,6 +91,7 @@ const JURUC_TOOLS = new Set([
 const RESEARCH_AGENTS = new Set<string>(RESEARCH_AGENT_NAMES);
 
 type Activity = "synthesizing";
+type CurrentSessionKind = "research" | "plan" | "implementation";
 type ReplacementContext = Parameters<
 	NonNullable<
 		NonNullable<Parameters<ExtensionCommandContext["switchSession"]>[1]>["withSession"]
@@ -243,14 +246,18 @@ export function registerJuruc(pi: ExtensionAPI): void {
 
 	function taskForSession(ctx: ExtensionContext): StoredTask | undefined {
 		const session = currentSessionPath(ctx);
-		if (!session) return undefined;
-		const matches = scanTasks(paths).flatMap(({ task }) => {
-			if (!task) return [];
-			return Object.values(task.document.sessions).includes(session) ? [task] : [];
+		return session ? findTaskBySession(paths, session) : undefined;
+	}
+
+	function currentRun(
+		task: TaskDocument,
+		kind: CurrentSessionKind,
+	): TaskSessionRun | undefined {
+		if (kind !== "implementation") return findTaskSession(task, { kind });
+		return findTaskSession(task, {
+			kind,
+			phase: (task.plan?.completed.length ?? 0) + 1,
 		});
-		if (matches.length > 1)
-			throw new Error("current session belongs to multiple JURUC tasks");
-		return matches[0];
 	}
 
 	function showStatus(ctx: ExtensionContext, task = taskForSession(ctx)): void {
@@ -265,11 +272,11 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		let requested: readonly string[] | undefined;
 		if (task && session && sameWorkingDirectory(ctx, task.document)) {
 			const { document } = task;
-			if (document.stage === "research" && document.sessions.research === session)
+			if (document.stage === "research" && currentRun(document, "research")?.path === session)
 				requested = RESEARCH_TOOL_NAMES;
-			else if (document.stage === "planning" && document.sessions.planning === session)
+			else if (document.stage === "planning" && currentRun(document, "plan")?.path === session)
 				requested = PLANNING_TOOL_NAMES;
-			else if (document.stage === "building" && document.sessions.build === session)
+			else if (document.stage === "building" && currentRun(document, "implementation")?.path === session)
 				requested = BUILD_TOOL_NAMES;
 		}
 		if (!ordinaryTools)
@@ -287,7 +294,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 
 	function ownedTask(
 		ctx: ExtensionContext,
-		kind: SessionKind,
+		kind: CurrentSessionKind,
 		stage: TaskDocument["stage"],
 	): StoredTask {
 		const task = taskForSession(ctx);
@@ -296,7 +303,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			!task ||
 			!session ||
 			task.document.stage !== stage ||
-			task.document.sessions[kind] !== session ||
+			currentRun(task.document, kind)?.path !== session ||
 			!sameWorkingDirectory(ctx, task.document)
 		)
 			throw new Error(
@@ -307,10 +314,9 @@ export function registerJuruc(pi: ExtensionAPI): void {
 
 	function saveSession(
 		task: StoredTask,
-		kind: SessionKind,
-		path: string,
+		run: TaskSessionRun,
 	): StoredTask {
-		return saveTask(task, recordTaskSession(task.document, kind, path));
+		return saveTask(task, appendTaskSession(task.document, run));
 	}
 
 	async function switchAndSend(
@@ -327,7 +333,10 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		const result = await ctx.switchSession(path, {
 			withSession: async (replacement: ReplacementContext) => {
 				const current = loadTask(paths, task.document.slug);
-				if (current.document.stage !== stage || !Object.values(current.document.sessions).includes(path))
+				if (
+					current.document.stage !== stage ||
+					!findTaskSessionByPath(current.document, path)
+				)
 					throw new Error(`${task.document.slug}: task changed during session switch`);
 				await replacement.sendUserMessage(first ? prompt : resumePrompt);
 				await after?.(replacement);
@@ -344,7 +353,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		let task = selected;
 		if (task.document.stage !== "research")
 			throw new Error(`${task.document.slug}: task is not researching`);
-		let session = task.document.sessions.research;
+		let session = findTaskSession(task.document, { kind: "research" })?.path;
 		if (!session) {
 			session = createManagedSession(
 				task.document.repository.worktree,
@@ -353,7 +362,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 				RESEARCH_INSTRUCTION,
 				ctx.sessionManager.getSessionFile(),
 			);
-			task = saveSession(task, "research", session);
+			task = saveSession(task, { kind: "research", path: session });
 		}
 		const commands = pi.getCommands();
 		await switchAndSend(
@@ -379,16 +388,17 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		let task = selected;
 		if (task.document.stage !== "planning")
 			throw new Error(`${task.document.slug}: task is not planning`);
-		let session = task.document.sessions.planning;
+		let session = findTaskSession(task.document, { kind: "plan" })?.path;
 		if (!session) {
 			session = createManagedSession(
 				task.document.repository.worktree,
 				`${task.document.slug} · plan`,
 				"juruc-planning-instruction",
 				planningSessionInstruction(task.directory),
-				task.document.sessions.research ?? ctx.sessionManager.getSessionFile(),
+				findTaskSession(task.document, { kind: "research" })?.path ??
+					ctx.sessionManager.getSessionFile(),
 			);
-			task = saveSession(task, "planning", session);
+			task = saveSession(task, { kind: "plan", path: session });
 		}
 		const prompt = planningPrompt(commands, planningSubject(task.document));
 		await switchAndSend(
@@ -413,19 +423,27 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		let task = selected;
 		if (task.document.stage !== "building")
 			throw new Error(`${task.document.slug}: task is not building`);
-		let session = task.document.sessions.build;
+		const plan = task.document.plan;
+		if (!plan?.remaining.length) throw new Error("task has no remaining phase");
+		const position = plan.completed.length + 1;
+		let session = findTaskSession(task.document, {
+			kind: "implementation",
+			phase: position,
+		})?.path;
 		if (!session) {
-			const plan = task.document.plan;
-			if (!plan?.remaining.length) throw new Error("task has no remaining phase");
-			const position = plan.completed.length + 1;
 			session = createManagedSession(
 				task.document.repository.worktree,
 				`${task.document.slug} · phase ${position}`,
 				"juruc-build-instruction",
 				BUILD_INSTRUCTION,
-				task.document.sessions.planning ?? ctx.sessionManager.getSessionFile(),
+				findTaskSession(task.document, { kind: "plan" })?.path ??
+					ctx.sessionManager.getSessionFile(),
 			);
-			task = saveSession(task, "build", session);
+			task = saveSession(task, {
+				kind: "implementation",
+				phase: position,
+				path: session,
+			});
 		}
 		await switchAndSend(
 			ctx,
@@ -436,7 +454,10 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			"Resume the active phase from task.json and the current dirty worktree. Verify it, then call juruc_finish_phase or juruc_block_phase.",
 			async (replacement) => {
 				const current = loadTask(paths, task.document.slug);
-				if (current.document.stage === "building" && !current.document.sessions.build)
+				if (
+					current.document.stage === "building" &&
+					!currentRun(current.document, "implementation")
+				)
 					await openBuild(replacement, current);
 			},
 		);
@@ -446,7 +467,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		ctx: ExtensionCommandContext,
 		task: StoredTask,
 	): Promise<void> {
-		const session = task.document.sessions.planning;
+		const session = findTaskSession(task.document, { kind: "plan" })?.path;
 		if (!session || !regularFile(session)) {
 			ctx.ui.notify(`${task.document.slug}: done`, "info");
 			return;
@@ -705,7 +726,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		parameters: SET_PLAN_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: SetPlanInput, _signal, _onUpdate, ctx) {
-			const task = ownedTask(ctx, "planning", "planning");
+			const task = ownedTask(ctx, "plan", "planning");
 			const updated = saveTask(task, confirmTaskPlan(task.document, params));
 			showStatus(ctx, updated);
 			activateTools(ctx, updated);
@@ -724,7 +745,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		parameters: FINISH_PHASE_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: FinishPhaseInput, _signal, _onUpdate, ctx) {
-			const task = ownedTask(ctx, "build", "building");
+			const task = ownedTask(ctx, "implementation", "building");
 			const result = await finishCurrentPhase(task.document, params);
 			const updated = saveTask(task, result.task);
 			showStatus(ctx, updated);
@@ -749,7 +770,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		parameters: BLOCK_PHASE_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: { reason: string }, _signal, _onUpdate, ctx) {
-			const task = ownedTask(ctx, "build", "building");
+			const task = ownedTask(ctx, "implementation", "building");
 			const updated = saveTask(
 				task,
 				await blockCurrentPhase(task.document, params.reason),
@@ -783,7 +804,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			!task ||
 			!session ||
 			task.document.stage !== "planning" ||
-			task.document.sessions.planning !== session
+			currentRun(task.document, "plan")?.path !== session
 		)
 			return;
 		return {
@@ -799,9 +820,9 @@ export function registerJuruc(pi: ExtensionAPI): void {
 				return { block: true, reason: `${event.toolName} requires an active JURUC session` };
 			return;
 		}
-		const research = task.document.stage === "research" && task.document.sessions.research === session;
-		const planning = task.document.stage === "planning" && task.document.sessions.planning === session;
-		const building = task.document.stage === "building" && task.document.sessions.build === session;
+		const research = task.document.stage === "research" && currentRun(task.document, "research")?.path === session;
+		const planning = task.document.stage === "planning" && currentRun(task.document, "plan")?.path === session;
+		const building = task.document.stage === "building" && currentRun(task.document, "implementation")?.path === session;
 		if (JURUC_TOOLS.has(event.toolName) && !isSoleCurrentToolCall(ctx, event))
 			return { block: true, reason: `${event.toolName} must be the sole tool call in its assistant message` };
 		if (research) {
@@ -844,7 +865,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			const task = loadTask(paths, pending.slug);
 			if (
 				task.document.stage !== "research" ||
-				task.document.sessions.research !== pending.session
+				currentRun(task.document, "research")?.path !== pending.session
 			)
 				throw new Error(`${pending.slug}: research task changed before synthesis persistence`);
 			saveResearchBrief(task.directory, output);

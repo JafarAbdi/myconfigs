@@ -221,11 +221,11 @@ slug · implement 2/4 · 2h ago
 
 Each checkpoint must leave one authoritative lifecycle schema, pass the complete JURUC test suite, create one extension-owned local commit, and never push.
 
-1. Replace per-phase audits with phase-declared verification, persisted command evidence, and extension-owned checkpoint commits; delete only JURUC's local audit runner.
-2. Replace fixed research/planning/build session slots with final stage slots plus append-only typed fresh-session runs; adapt ownership and tool gates once.
-3. Cut discovery over to Questions, Research, Specification, and Plan with strict validated artifacts, read-only source-checkout sessions, automatic fresh transitions, and the compact QRSPI rail. Research always runs; Plan no longer invokes canonical `/grill`.
-4. Defer branch/worktree creation until plan acceptance, copy only the fixed local-file set, and activate phased implementation with the final schema.
-5. Add the factual-deviation and bounded-correctness reviewer prompts, validated annotation/failure outcomes, fresh-session runner, and fixtures without making reviews reachable yet.
-6. Add immutable authoritative review rounds to `task.json`; replace the prototype sidecar writer with task-backed browser mutations and ingest both advisory reviewer outcomes.
-7. Add Pi-owned review-server lifecycle, Firefox/Chromium checks, measured fail-clear resource limits, explicit decisions, all-comments correction sessions, focused verification, correction commits, and fresh cumulative rounds.
-8. Finish the OSC 8 review link, `/juruc` review resume, compact picker/status behavior, completed-task summary, and end-to-end QRSPI interruption/restart coverage.
+1. [x] Replace per-phase audits with phase-declared verification, persisted command evidence, and extension-owned checkpoint commits; delete only JURUC's local audit runner.
+2. [x] Replace fixed research/planning/build session slots with one append-only typed fresh-session run list; adapt ownership and tool gates once.
+3. [ ] Cut discovery over to Questions, Research, Specification, and Plan with strict validated artifacts, read-only source-checkout sessions, automatic fresh transitions, and the compact QRSPI rail. Research always runs; Plan no longer invokes canonical `/grill`.
+4. [ ] Defer branch/worktree creation until plan acceptance, copy only the fixed local-file set, and activate phased implementation with the final schema.
+5. [ ] Add the factual-deviation and bounded-correctness reviewer prompts, validated annotation/failure outcomes, fresh-session runner, and fixtures without making reviews reachable yet.
+6. [ ] Add immutable authoritative review rounds to `task.json`; replace the prototype sidecar writer with task-backed browser mutations and ingest both advisory reviewer outcomes.
+7. [ ] Add Pi-owned review-server lifecycle, Firefox/Chromium checks, measured fail-clear resource limits, explicit decisions, all-comments correction sessions, focused verification, correction commits, and fresh cumulative rounds.
+8. [ ] Finish the OSC 8 review link, `/juruc` review resume, compact picker/status behavior, completed-task summary, and end-to-end QRSPI interruption/restart coverage.

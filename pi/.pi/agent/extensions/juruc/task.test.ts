@@ -4,22 +4,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+	appendTaskSession,
 	blockTaskPhase,
 	completeTaskPhase,
 	createTaskDocument,
+	findTaskSession,
+	findTaskSessionByPath,
 	finishTaskResearch,
 	loadTaskDocument,
 	parseTaskDocument,
-	recordTaskSession,
 	resumeTaskPhase,
 	returnTaskToPlanning,
 	returnTaskToResearch,
 	saveTaskDocument,
 	serializeTaskDocument,
 	setTaskPlan,
+	TASK_VERSION,
 	type NewTaskInput,
 	type TaskDocument,
 	type TaskPhase,
+	type TaskSessionRun,
 } from "./task.ts";
 
 const oid = (digit: string): string => digit.repeat(40);
@@ -66,17 +70,116 @@ function plannedTask(): TaskDocument {
 	});
 }
 
+const sessionRuns: TaskSessionRun[] = [
+	{ kind: "questions", path: "/sessions/questions.jsonl" },
+	{ kind: "research", path: "/sessions/research.jsonl" },
+	{ kind: "specification", path: "/sessions/specification.jsonl" },
+	{ kind: "plan", path: "/sessions/plan.jsonl" },
+	{ kind: "implementation", phase: 1, path: "/sessions/implementation-1.jsonl" },
+	{ kind: "implementation", phase: 2, path: "/sessions/implementation-2.jsonl" },
+	{ kind: "deviation-review", round: 1, path: "/sessions/deviation-1.jsonl" },
+	{ kind: "correctness-review", round: 1, path: "/sessions/correctness-1.jsonl" },
+	{ kind: "correction", round: 1, path: "/sessions/correction-1.jsonl" },
+];
+
 test("task.json round-trips through atomic persistence", () => {
 	const directory = mkdtempSync(join(tmpdir(), "juruc-task-"));
 	try {
 		const path = join(directory, "task.json");
 		const task = createTaskDocument(input());
+		assert.equal(task.version, TASK_VERSION);
+		assert.deepEqual(task.sessions, []);
 		saveTaskDocument(path, task);
 		assert.deepEqual(loadTaskDocument(path), task);
 		assert.equal(readFileSync(path, "utf8"), serializeTaskDocument(task));
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
+});
+
+test("session runs support every final kind with explicit scoped lookup", () => {
+	let task = createTaskDocument(input());
+	for (const run of sessionRuns) task = appendTaskSession(task, run);
+	assert.deepEqual(task.sessions, sessionRuns);
+	assert.deepEqual(findTaskSession(task, { kind: "research" }), sessionRuns[1]);
+	assert.deepEqual(
+		findTaskSession(task, { kind: "implementation", phase: 2 }),
+		sessionRuns[5],
+	);
+	assert.deepEqual(
+		findTaskSession(task, { kind: "correctness-review", round: 1 }),
+		sessionRuns[7],
+	);
+	assert.deepEqual(findTaskSessionByPath(task, sessionRuns[8].path), sessionRuns[8]);
+	assert.equal(findTaskSession(task, { kind: "implementation", phase: 3 }), undefined);
+	assert.deepEqual(parseTaskDocument(serializeTaskDocument(task)), task);
+});
+
+test("session runs reject unknown fields, kinds, scopes, paths, and logical duplicates", () => {
+	const task = createTaskDocument(input());
+	const invalidRuns: unknown[] = [
+		{ kind: "research", path: "/sessions/research.jsonl", extra: true },
+		{ kind: "build", path: "/sessions/build.jsonl" },
+		{ kind: "implementation", phase: 0, path: "/sessions/build.jsonl" },
+		{ kind: "implementation", phase: 1.5, path: "/sessions/build.jsonl" },
+		{ kind: "correction", round: 0, path: "/sessions/correction.jsonl" },
+		{ kind: "research", path: "sessions/research.jsonl" },
+	];
+	for (const run of invalidRuns)
+		assert.throws(
+			() => parseTaskDocument(JSON.stringify({ ...task, sessions: [run] })),
+			/invalid/,
+		);
+	assert.throws(
+		() =>
+			parseTaskDocument(JSON.stringify({
+				...task,
+				sessions: [
+					{ kind: "research", path: "/sessions/shared.jsonl" },
+					{ kind: "plan", path: "/sessions/shared.jsonl" },
+				],
+			})),
+		/invalid/,
+	);
+	assert.throws(
+		() =>
+			parseTaskDocument(JSON.stringify({
+				...task,
+				sessions: [
+					{ kind: "implementation", phase: 1, path: "/sessions/one.jsonl" },
+					{ kind: "implementation", phase: 1, path: "/sessions/two.jsonl" },
+				],
+			})),
+		/invalid/,
+	);
+	assert.throws(
+		() =>
+			parseTaskDocument(JSON.stringify({
+				...task,
+				sessions: [
+					{ kind: "research", path: "/sessions/research-one.jsonl" },
+					{ kind: "research", path: "/sessions/research-two.jsonl" },
+				],
+			})),
+		/invalid/,
+	);
+	assert.throws(
+		() =>
+			appendTaskSession(
+				appendTaskSession(task, { kind: "research", path: "/sessions/one.jsonl" }),
+				{ kind: "research", path: "/sessions/two.jsonl" },
+			),
+		/already recorded/,
+	);
+	assert.throws(
+		() =>
+			parseTaskDocument(JSON.stringify({
+				...task,
+				version: 1,
+				sessions: { research: null, planning: null, build: null },
+			})),
+		/invalid/,
+	);
 });
 
 test("task.json rejects malformed and inconsistent persisted state", () => {
@@ -110,8 +213,12 @@ test("task.json rejects malformed and inconsistent persisted state", () => {
 	);
 });
 
-test("replanning preserves completed phases and the blocked build session", () => {
-	let task = recordTaskSession(plannedTask(), "build", "/sessions/build-1.jsonl");
+test("replanning preserves completed phases and append-only implementation runs", () => {
+	let task = appendTaskSession(plannedTask(), {
+		kind: "implementation",
+		phase: 1,
+		path: "/sessions/build-1.jsonl",
+	});
 	task = completeTaskPhase(
 		task,
 		"Implemented and tested the core.",
@@ -122,9 +229,14 @@ test("replanning preserves completed phases and the blocked build session", () =
 		}],
 		oid("2"),
 	);
-	task = recordTaskSession(task, "build", "/sessions/build-2.jsonl");
+	task = appendTaskSession(task, {
+		kind: "implementation",
+		phase: 2,
+		path: "/sessions/build-2.jsonl",
+	});
 	task = blockTaskPhase(task, "The integration contract needs revision.");
 	const completed = structuredClone(task.plan?.completed);
+	const sessions = structuredClone(task.sessions);
 	task = returnTaskToPlanning(task);
 	assert.equal(task.blockReason, "The integration contract needs revision.");
 	task = setTaskPlan(task, {
@@ -136,42 +248,59 @@ test("replanning preserves completed phases and the blocked build session", () =
 		remaining: [{ ...second, objective: "Connect the revised core." }],
 	});
 	assert.deepEqual(task.plan?.completed, completed);
-	assert.equal(task.sessions.build, "/sessions/build-2.jsonl");
+	assert.deepEqual(task.sessions, sessions);
+	assert.equal(
+		findTaskSession(task, { kind: "implementation", phase: 2 })?.path,
+		"/sessions/build-2.jsonl",
+	);
 	assert.equal(task.stage, "building");
 });
 
-test("blocking and resuming retain dirty-work session continuity", () => {
-	let task = recordTaskSession(plannedTask(), "build", "/sessions/build.jsonl");
+test("blocking and resuming retain implementation session continuity", () => {
+	let task = appendTaskSession(plannedTask(), {
+		kind: "implementation",
+		phase: 1,
+		path: "/sessions/build.jsonl",
+	});
 	task = blockTaskPhase(task, "Need a user decision.");
 	assert.equal(task.stage, "blocked");
 	assert.equal(task.blockReason, "Need a user decision.");
 	task = resumeTaskPhase(task);
 	assert.equal(task.stage, "building");
 	assert.equal(task.blockReason, null);
-	assert.equal(task.sessions.build, "/sessions/build.jsonl");
+	assert.equal(
+		findTaskSession(task, { kind: "implementation", phase: 1 })?.path,
+		"/sessions/build.jsonl",
+	);
 });
 
-test("research stays separate and phase completion advances to done", () => {
-	let task = recordTaskSession(
-		createTaskDocument(input()),
-		"research",
-		"/sessions/research.jsonl",
-	);
+test("transitions retain prior runs and completion leaves the next phase unopened", () => {
+	let task = appendTaskSession(createTaskDocument(input()), {
+		kind: "research",
+		path: "/sessions/research.jsonl",
+	});
 	task = finishTaskResearch(task);
-	task = recordTaskSession(task, "planning", "/sessions/planning.jsonl");
+	task = appendTaskSession(task, {
+		kind: "plan",
+		path: "/sessions/planning.jsonl",
+	});
 	task = returnTaskToResearch(task);
-	assert.equal(task.sessions.research, null);
-	assert.equal(task.sessions.planning, "/sessions/planning.jsonl");
+	assert.equal(findTaskSession(task, { kind: "research" })?.path, "/sessions/research.jsonl");
+	assert.equal(findTaskSession(task, { kind: "plan" })?.path, "/sessions/planning.jsonl");
 	task = finishTaskResearch(task);
 	task = setTaskPlan(task, {
-		objective: "Finish one phase.",
+		objective: "Finish two phases.",
 		constraints: [],
 		assumptions: [],
 		nonGoals: [],
 		successCriteria: ["The task is complete."],
-		remaining: [first],
+		remaining: [first, second],
 	});
-	task = recordTaskSession(task, "build", "/sessions/build.jsonl");
+	task = appendTaskSession(task, {
+		kind: "implementation",
+		phase: 1,
+		path: "/sessions/build.jsonl",
+	});
 	const verificationEvidence = [{
 		command: "node --test core.test.ts",
 		exitCode: 0,
@@ -183,11 +312,11 @@ test("research stays separate and phase completion advances to done", () => {
 		verificationEvidence,
 		oid("2"),
 	);
-	assert.equal(task.stage, "done");
-	assert.equal(task.plan?.remaining.length, 0);
+	assert.equal(task.stage, "building");
 	assert.equal(task.plan?.completed[0].commit, oid("2"));
 	assert.deepEqual(task.plan?.completed[0].verificationEvidence, verificationEvidence);
-	assert.equal(task.sessions.build, null);
+	assert.equal(findTaskSession(task, { kind: "implementation", phase: 1 })?.path, "/sessions/build.jsonl");
+	assert.equal(findTaskSession(task, { kind: "implementation", phase: 2 }), undefined);
 	const invalid = structuredClone(task) as unknown as {
 		plan: { completed: Array<{ verificationEvidence: unknown[] }> };
 	};

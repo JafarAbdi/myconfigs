@@ -75,12 +75,14 @@ try {
 		{ registerJuruc },
 		{ runtimePaths },
 		{ loadTask },
+		{ findTaskSession },
 	] = await Promise.all([
 		import("./runtime-harness.ts"),
 		import("@earendil-works/pi-coding-agent"),
 		import("./index.ts"),
 		import("./runtime.ts"),
 		import("./tasks.ts"),
+		import("./task.ts"),
 	]);
 
 	await test("compact runtime automatically advances through research, planning, build, and verified completion", async () => {
@@ -188,14 +190,19 @@ try {
 
 			let task = loadTask(paths, slug);
 			assert.equal(task.document.stage, "blocked");
-			assert.ok(task.document.sessions.research);
-			assert.ok(task.document.sessions.planning);
-			assert.notEqual(task.document.sessions.research, task.document.sessions.planning);
+			const researchSession = findTaskSession(task.document, { kind: "research" })?.path;
+			const planSession = findTaskSession(task.document, { kind: "plan" })?.path;
+			assert.ok(researchSession);
+			assert.ok(planSession);
+			assert.notEqual(researchSession, planSession);
 			assert.equal(readFileSync(join(task.directory, "research.md"), "utf8"), researchOutput);
 			assert.equal(existsSync(join(task.directory, "state.json")), false);
 			assert.equal(existsSync(join(task.directory, "plan.json")), false);
 			assert.equal(task.document.blockReason, "Confirm the retry path.");
-			const buildSession = task.document.sessions.build;
+			const buildSession = findTaskSession(task.document, {
+				kind: "implementation",
+				phase: 1,
+			})?.path;
 			assert.ok(buildSession);
 			assert.equal(
 				git(task.document.repository.worktree, "rev-parse", "HEAD"),
@@ -243,8 +250,12 @@ try {
 
 			task = loadTask(paths, slug);
 			assert.equal(task.document.stage, "done");
-			assert.equal(task.document.sessions.build, null);
 			assert.equal(task.document.plan?.completed.length, 2);
+			assert.equal(
+				findTaskSession(task.document, { kind: "implementation", phase: 1 })?.path,
+				buildSession,
+			);
+			assert.ok(findTaskSession(task.document, { kind: "implementation", phase: 2 }));
 			assert.ok(task.document.plan?.completed[0].commit);
 			assert.ok(task.document.plan?.completed[1].commit);
 			assert.deepEqual(task.document.plan?.completed[0].verificationEvidence, finish.verificationEvidence);
@@ -258,7 +269,8 @@ try {
 				"Connect runtime workflow\nImplement runtime workflow",
 			);
 			assert.equal(git(task.document.repository.worktree, "status", "--porcelain"), "");
-			assert.equal(buildSession === task.document.sessions.planning, false);
+			assert.equal(buildSession === planSession, false);
+			assert.equal(new Set(task.document.sessions.map(({ path }) => path)).size, 4);
 			assert.equal(
 				harness.instances.at(-1)?.pi.getActiveTools().some((name) => name.startsWith("juruc_")),
 				false,

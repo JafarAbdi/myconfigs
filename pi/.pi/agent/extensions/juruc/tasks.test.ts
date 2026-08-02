@@ -12,6 +12,7 @@ import test from "node:test";
 import { runtimePathsForRoot } from "./runtime.ts";
 import {
 	createTask,
+	findTaskBySession,
 	listTasks,
 	loadTask,
 	removeTaskRecord,
@@ -21,7 +22,7 @@ import {
 	uniqueSlug,
 	validTaskSlug,
 } from "./tasks.ts";
-import { finishTaskResearch } from "./task.ts";
+import { appendTaskSession, finishTaskResearch } from "./task.ts";
 
 function paths() {
 	const root = mkdtempSync(join(tmpdir(), "juruc-tasks-"));
@@ -61,6 +62,28 @@ test("create, save, load, and list use only task.json", () => {
 		assert.deepEqual(listTasks(fixture.paths).map(({ slug, stage, valid }) => ({ slug, stage, valid })), [
 			{ slug: "small-task", stage: "planning", valid: true },
 		]);
+	} finally {
+		rmSync(fixture.root, { recursive: true, force: true });
+	}
+});
+
+test("session ownership resolves an implementation-scoped run", () => {
+	const fixture = paths();
+	try {
+		let task = createTask(fixture.paths, input(fixture.root));
+		task = saveTask(
+			task,
+			appendTaskSession(task.document, {
+				kind: "implementation",
+				phase: 3,
+				path: "/sessions/implementation-3.jsonl",
+			}),
+		);
+		assert.equal(
+			findTaskBySession(fixture.paths, "/sessions/implementation-3.jsonl")?.document.slug,
+			"small-task",
+		);
+		assert.equal(findTaskBySession(fixture.paths, "/sessions/missing.jsonl"), undefined);
 	} finally {
 		rmSync(fixture.root, { recursive: true, force: true });
 	}
