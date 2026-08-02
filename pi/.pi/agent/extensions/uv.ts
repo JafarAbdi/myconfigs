@@ -8,7 +8,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isCommitInspectionInput } from "./juruc/commit-message.ts";
 import { ensureLocalPythonUvCommands } from "./lib/python-uv-commands.ts";
 
 const pythonShimBinPromise = ensureLocalPythonUvCommands().then((commands) => commands.binDir);
@@ -99,11 +98,6 @@ function getBlockedCommandMessage(command: string): string | null {
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event) => {
     if (event.toolName !== "bash" && event.toolName !== "host_bash") return;
-    // JURUC's committing-phase gate validates these exact commit-inspection commands
-    // byte-for-byte before execution; mutating them here would desync execution from
-    // what the gate approved.
-    if (event.toolName === "bash" && isCommitInspectionInput(event.input)) return;
-
     const command = event.input.command;
     if (typeof command !== "string") return;
 
