@@ -14,5 +14,6 @@ pi/.pi/agent/run-history.jsonl
 pi/.pi/agent/models-store.json
 pi/.pi/agent/tasks
 pi/.pi/agent/worktrees/
+pi/.pi/agent/juruc/
 yo/pi/agent/models-store.json
 yo/pi/agent/sessions/
