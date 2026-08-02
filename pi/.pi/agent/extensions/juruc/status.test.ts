@@ -1,54 +1,66 @@
 import assert from "node:assert/strict";
-import { lifecyclePlace, phasePosition, readinessDimensions } from "./status.ts";
-import type { BaseReadiness } from "./execution.ts";
-import type { TaskRecord } from "./tasks.ts";
+import test from "node:test";
+import {
+	blockTaskPhase,
+	completeTaskPhase,
+	createTaskDocument,
+	finishTaskResearch,
+	recordTaskSession,
+	setTaskPlan,
+} from "./task.ts";
+import { lifecycleLine, lifecyclePlace } from "./status.ts";
 
-function task(state: Record<string, unknown>): TaskRecord {
-	return {
-		plan: { approved: { completed: [], future: [{}] } },
-		state,
-	} as unknown as TaskRecord;
+function task() {
+	return createTaskDocument({
+		slug: "status-task",
+		title: "Status task",
+		request: "Show concise status.",
+		repository: {
+			sourceRoot: "/source",
+			baseBranch: "main",
+			sourceHead: "1".repeat(40),
+			branch: "status-task",
+			worktree: "/worktrees/status-task",
+		},
+	});
 }
 
-assert.match(lifecyclePlace(task({
-	phase: "building",
-	audit: { snapshot: { paths: ["changed.ts"] }, summary: "done" },
-}))?.detail ?? "", /audited · recovery ready/);
-assert.match(lifecyclePlace(task({
-	phase: "building",
-	audit: { snapshot: { paths: [] }, summary: "done" },
-}))?.detail ?? "", /audited · no-code recovery/);
-assert.match(lifecyclePlace(task({
-	phase: "committing",
-	commitMessage: null,
-}))?.detail ?? "", /generating commit message/);
-assert.match(lifecyclePlace(task({
-	phase: "committing",
-	commitMessage: { responseEntryId: "response", text: "message" },
-}))?.detail ?? "", /commit recovery ready/);
-
-const replaced = task({
-	phase: "building",
-	phaseSnapshot: { id: "P9" },
+test("status is one lifecycle line derived from compact task state", () => {
+	let current = task();
+	assert.equal(lifecyclePlace(current).active, "research");
+	assert.match(lifecycleLine(current), /^● research/);
+	current = finishTaskResearch(current);
+	assert.match(lifecycleLine(current), /✓ research  ● plan/);
+	current = setTaskPlan(current, {
+		objective: "Finish.",
+		constraints: [],
+		assumptions: [],
+		nonGoals: [],
+		successCriteria: ["Done."],
+		remaining: [
+			{ title: "One", objective: "One.", successCriteria: ["One."], hints: [] },
+			{ title: "Two", objective: "Two.", successCriteria: ["Two."], hints: [] },
+		],
+	});
+	current = recordTaskSession(current, "build", "/sessions/build.jsonl");
+	assert.match(lifecycleLine(current), /● build · P1\/2 · building/);
+	current = blockTaskPhase(current, "Need input.");
+	assert.match(lifecycleLine(current), /P1\/2 · blocked: Need input\./);
 });
-replaced.plan.approved = {
-	completed: [{ id: "P6" }],
-	future: [{ id: "P9" }, { id: "P12" }],
-} as never;
-assert.deepEqual(phasePosition(replaced, "P9"), { position: 2, total: 3 });
-assert.deepEqual(phasePosition(replaced), { position: 2, total: 3 });
-assert.equal(phasePosition(replaced, "P6")?.position, 1);
 
-for (const acceptance of ["accepted", "not-ready"] as const)
-	for (const risk of ["clear", "accepted-risks"] as const)
-		for (const base of ["current", "moved", "deleted-or-rewritten"] as BaseReadiness[])
-			assert.deepEqual(
-				readinessDimensions({
-					plan: { approved: { risks: risk === "clear" ? [] : [{}] } },
-					state: { phase: acceptance === "accepted" ? "done" : "planning" },
-				} as unknown as TaskRecord, base),
-				{ acceptance, risk, base },
-			);
-assert.equal(lifecyclePlace(task({ phase: "accepting" }))?.active, "build");
-
-console.log("juruc authoritative recovery status: ok");
+test("done status derives its count from completed phases", () => {
+	let current = finishTaskResearch(task());
+	current = setTaskPlan(current, {
+		objective: "Finish.",
+		constraints: [],
+		assumptions: [],
+		nonGoals: [],
+		successCriteria: ["Done."],
+		remaining: [
+			{ title: "One", objective: "One.", successCriteria: ["One."], hints: [] },
+		],
+	});
+	current = recordTaskSession(current, "build", "/sessions/build.jsonl");
+	current = completeTaskPhase(current, "Done.", "2".repeat(40));
+	assert.equal(lifecycleLine(current), "✓ research  ✓ plan  ✓ build  ✓ done · 1/1 phases");
+});

@@ -34,6 +34,8 @@ export interface HarnessOptions {
 	select?: (title: string, options: string[]) => Promise<string | undefined>;
 	editor?: (title: string) => Promise<string | undefined>;
 	confirm?: (title: string, message: string) => Promise<boolean>;
+	/** Override JURUC registration for injected workflow dependencies in tests. */
+	registerJuruc?: (pi: ExtensionAPI) => void;
 	/** Registered in the same extension closure as JURUC, before JURUC itself. */
 	beforeJuruc?: readonly ((pi: ExtensionAPI) => void)[];
 	/** Registered after JURUC, matching configured extension order. */
@@ -165,7 +167,7 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 						pi.on("session_shutdown", (event) => {
 							events.push(`shutdown:${record.instance}:${event.reason}`);
 						});
-						juruc(pi);
+						(options.registerJuruc ?? juruc)(pi);
 						for (const extension of options.afterJuruc ?? []) extension(pi);
 						options.probe?.(pi, record);
 					},

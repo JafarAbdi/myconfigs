@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { saveResearchBrief } from "./research.ts";
 
-const brief = "  ## Findings\r\n\nUse the existing transaction boundary.\n";
+const brief = "  ## Findings\r\n\nUse the existing module boundary.\n";
 
 const root = mkdtempSync(join(tmpdir(), "juruc-research-test-"));
 try {
