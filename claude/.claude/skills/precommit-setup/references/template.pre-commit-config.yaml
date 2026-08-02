@@ -1,0 +1,218 @@
+# Master pre-commit hook reference — a curated menu of hooks covering common
+# languages and tools (Python, Rust, C++, general/whitespace, docs, security,
+# etc.), including the conventions used by uv, ruff, pre-commit-hooks, and
+# requests upstream.
+#
+# This is NOT meant to be installed as-is. It's a menu, organized by language/
+# tool section below. The `precommit-setup` skill reads this file, decides
+# which sections apply to a target repo, and writes a `.pre-commit-config.yaml`
+# there containing only those sections, deleted wholesale — not toggled by
+# commenting/uncommenting.
+#
+# Run hooks with `prek`, not `pre-commit` — prek (https://github.com/j178/prek)
+# is a drop-in, single-binary, Rust-based reimplementation: same config file
+# format, no Python bootstrap step, parallel hook execution.
+#   prek install          # instead of `pre-commit install`
+#   prek run --all-files  # instead of `pre-commit run --all-files`
+#   prek autoupdate       # bump every `rev:` below to latest — do this periodically,
+#                         # the pins here are a snapshot, not a permanent pin.
+
+repos:
+  # =====================================================================
+  # GENERAL — applies to every repo regardless of language
+  # =====================================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-symlinks
+      - id: destroyed-symlinks
+      - id: mixed-line-ending
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: detect-private-key
+      - id: debug-statements
+      - id: check-ast
+      - id: check-builtin-literals
+      - id: check-docstring-first
+      - id: check-executables-have-shebangs
+      - id: check-vcs-permalinks
+      - id: check-xml
+      - id: forbid-new-submodules
+      - id: name-tests-test
+      - id: requirements-txt-fixer
+      - id: sort-simple-yaml
+      - id: pretty-format-json
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.48.0
+    hooks:
+      - id: typos
+
+  # =====================================================================
+  # PYTHON — ruff covers lint + format + import-sort + pyupgrade + security
+  # (via its "S"/flake8-bandit rules) in one tool. Pair this hook with the
+  # ruff config in references/ruff.toml (a good default select/ignore list).
+  # =====================================================================
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.22
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # uv projects: keep uv.lock in sync with pyproject.toml
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: "0.11.26"
+    hooks:
+      - id: uv-lock
+
+  # Static typing
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.65
+    hooks:
+      - id: ty
+  - repo: https://github.com/facebook/pyrefly-pre-commit
+    rev: "1.2.0"
+    hooks:
+      - id: pyrefly-check
+
+  # Jupyter notebook repos — strip outputs before commit
+  - repo: https://github.com/srstevenson/nb-clean
+    rev: 4.0.1
+    hooks:
+      - id: nb-clean
+        args: [--remove-empty-cells]
+
+  # Django projects
+  - repo: https://github.com/adamchainz/django-upgrade
+    rev: 1.28.0
+    hooks:
+      - id: django-upgrade
+  - repo: https://github.com/Riverside-Healthcare/djLint
+    rev: v1.36.4
+    hooks:
+      - id: djlint-reformat-django
+      - id: djlint-django
+
+  # =====================================================================
+  # RUST — no official upstream pre-commit repo; use local hooks calling cargo.
+  # =====================================================================
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt -- --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+  # =====================================================================
+  # C++ / CMake
+  # =====================================================================
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v21.1.8
+    hooks:
+      - id: clang-format
+
+  - repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.13
+    hooks:
+      - id: cmake-format
+
+  # =====================================================================
+  # TOML formatting (beyond the syntax-only check-toml above)
+  # =====================================================================
+  - repo: https://github.com/ComPWA/taplo-pre-commit
+    rev: v0.9.3
+    hooks:
+      - id: taplo-format
+
+  # =====================================================================
+  # YAML lint (beyond the syntax-only check-yaml above)
+  # =====================================================================
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.37.1
+    hooks:
+      - id: yamllint
+
+  # =====================================================================
+  # MARKDOWN / DOCS
+  # =====================================================================
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.22.1
+    hooks:
+      - id: markdownlint-cli2
+  - repo: https://github.com/tcort/markdown-link-check
+    rev: v3.14.1
+    hooks:
+      - id: markdown-link-check
+
+  # =====================================================================
+  # PRETTIER (JS/TS/CSS/JSON/YAML/MD formatting)
+  # rbubley fork — pre-commit/mirrors-prettier is archived/unmaintained.
+  # =====================================================================
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.6.2
+    hooks:
+      - id: prettier
+
+  # =====================================================================
+  # DOCKER
+  # =====================================================================
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.14.0
+    hooks:
+      - id: hadolint-docker
+
+  # =====================================================================
+  # GITHUB ACTIONS
+  # =====================================================================
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+  - repo: https://github.com/woodruffw/zizmor-pre-commit
+    rev: v1.15.2
+    hooks:
+      - id: zizmor
+
+  # =====================================================================
+  # SECURITY — Python security linting is handled by ruff's "S" rules
+  # (see references/ruff.toml), not a separate bandit hook.
+  # =====================================================================
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+
+  # =====================================================================
+  # LUA (only relevant to Neovim config / Lua repos)
+  # =====================================================================
+  - repo: https://github.com/JohnnyMorganz/StyLua
+    rev: v2.5.2
+    hooks:
+      - id: stylua-github
+  - repo: https://github.com/Calinou/pre-commit-luacheck
+    rev: v1.0.0
+    hooks:
+      - id: luacheck
+
+  # =====================================================================
+  # LICENSE HEADERS
+  # =====================================================================
+  - repo: https://github.com/google/addlicense
+    rev: v1.2.0-rc0
+    hooks:
+      - id: addlicense
