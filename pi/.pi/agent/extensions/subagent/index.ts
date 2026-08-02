@@ -127,6 +127,19 @@ function loadAgents(): { agents: Agent[]; broken: string[] } {
 	};
 }
 
+function agentWithContext(
+	agent: Agent,
+	cwd: string,
+	auditBaseRef?: string,
+): Agent {
+	return agent.name === "audit"
+		? withProjectContext(
+				agent,
+				loadAuditProjectContext(cwd, AGENT_DIR, loadProjectContextFiles, auditBaseRef),
+			)
+		: agent;
+}
+
 async function terminateChild(child: ReturnType<typeof spawn>): Promise<void> {
 	if (child.exitCode !== null || child.signalCode !== null) return;
 	const closed = once(child, "close");
@@ -262,6 +275,39 @@ function runAgent(
 	});
 }
 
+export interface ConfiguredAgentRunOptions {
+	agent: string;
+	task: string;
+	cwd: string;
+	inherited: Inherited;
+	model?: string;
+	auditBaseRef?: string;
+	signal?: AbortSignal;
+	onProgress?: (partial: RunResult) => void;
+}
+
+/** Run a configured role without routing through an LLM tool call. */
+export function runConfiguredAgent(
+	options: ConfiguredAgentRunOptions,
+): Promise<RunResult> {
+	const configured = loadAgents().agents.find(
+		(agent) => agent.name === options.agent,
+	);
+	if (!configured)
+		throw new Error(`unknown configured agent ${options.agent}`);
+	const agent = agentWithContext(configured, options.cwd, options.auditBaseRef);
+	if (selectRuntime(options.model).name === "claude") claudeTools(agent);
+	return runAgent(
+		agent,
+		options.task,
+		options.cwd,
+		options.inherited,
+		options.model,
+		options.signal,
+		options.onProgress,
+	);
+}
+
 function formatTokens(count: number): string {
 	if (count < 1000) return String(count);
 	if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
@@ -308,17 +354,21 @@ function formatStats(result: RunResult): string {
  * columns and at 200, and re-reads correctly when the pane is resized.
  */
 class Line implements Component {
+	private readonly text: string;
+	private readonly ellipsis: string;
+
 	// The ellipsis carries its own styling because `truncateToWidth` closes every open code before
 	// appending it: an unstyled "…" lands in the terminal's default foreground, the one glyph on the
 	// line not dimmed like the text it stands in for.
-	constructor(
-		private readonly text: string,
-		private readonly ellipsis: string,
-	) {}
+	constructor(text: string, ellipsis: string) {
+		this.text = text;
+		this.ellipsis = ellipsis;
+	}
 	render(width: number): string[] {
 		// Padded, so a shorter line overwrites whatever the previous frame left on that row.
 		return [truncateToWidth(this.text, width, this.ellipsis, true)];
 	}
+	invalidate(): void {}
 }
 
 /** The run as it happened, one tool per line — the whole point of expanding a run still in flight. */
@@ -517,15 +567,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					if (!found) {
 						throw new Error(`unknown agent ${params.agent}; available: ${agents.map((a) => a.name).join(", ") || "none"}`);
 					}
-					const suppliedAuditBaseRef = "auditBaseRef" in params ? params.auditBaseRef : undefined;
-					const auditBaseRef = found.name === "audit" &&
-						typeof suppliedAuditBaseRef === "string" &&
-						/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(suppliedAuditBaseRef)
-						? suppliedAuditBaseRef
-						: undefined;
-					agent = found.name === "audit"
-						? withProjectContext(found, loadAuditProjectContext(ctx.cwd, AGENT_DIR, loadProjectContextFiles, auditBaseRef))
-						: found;
+					agent = agentWithContext(found, ctx.cwd);
 					model = params.model;
 					const runtime = selectRuntime(model);
 					if (runtime.name === "claude") claudeTools(agent);

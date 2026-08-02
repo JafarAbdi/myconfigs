@@ -144,7 +144,7 @@ test("audit uses one validated final JSON result and supplied native context", (
 	assert.equal(existsSync(join(agents, "correctness-reviewer.md")), false);
 	assert.equal(existsSync(join(agents, "context-style-reviewer.md")), false);
 	assert.equal(existsSync(join(EXTENSION_DIR, "prompts", "audit.md")), false);
-	assert.match(policy, /Pi-discovered project context/);
+	assert.match(policy, /Pi-discovered project\s+context/);
 	assert.match(policy, /staged candidate/);
 	assert.match(policy, /exactly one JSON object/);
 	assert.match(policy, /summary[\s\S]*500 characters/);
@@ -153,9 +153,9 @@ test("audit uses one validated final JSON result and supplied native context", (
 	assert.doesNotMatch(policy, /--binary/);
 	assert.match(policy, /skills: none/);
 	const extension = readFileSync(join(EXTENSION_DIR, "index.ts"), "utf-8");
-	assert.match(extension, /loadAuditProjectContext\(ctx\.cwd, AGENT_DIR, loadProjectContextFiles, auditBaseRef\)/);
-	assert.match(extension, /\^\[0-9a-f\]\{40\}\(\?:\[0-9a-f\]\{24\}\)\?\$/u);
-	assert.doesNotMatch(extension, /auditBaseRef:\s*Type\./u);
+	assert.match(extension, /agentWithContext\(found, ctx\.cwd\)/);
+	assert.match(extension, /agentWithContext\(configured, options\.cwd, options\.auditBaseRef\)/);
+	assert.doesNotMatch(extension, /suppliedAuditBaseRef|auditBaseRef:\s*Type\./u);
 	assert.doesNotMatch(extension, /promptPaths/);
 });
 
