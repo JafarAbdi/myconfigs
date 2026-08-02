@@ -38,12 +38,20 @@ export interface TaskPhase {
 	title: string;
 	objective: string;
 	successCriteria: string[];
+	verification: string[];
 	hints: string[];
+}
+
+export interface VerificationEvidence {
+	command: string;
+	exitCode: number;
+	summary: string;
 }
 
 export interface CompletedTaskPhase extends TaskPhase {
 	resolution: string;
-	commit: string | null;
+	verificationEvidence: VerificationEvidence[];
+	commit: string;
 }
 
 export interface TaskPlan {
@@ -87,6 +95,7 @@ export interface NewTaskInput {
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 const MAX_TEXT_LENGTH = 100_000;
+const MAX_VERIFICATION_SUMMARY_LENGTH = 1_000;
 
 function record(value: unknown): Record<string, unknown> | undefined {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -166,11 +175,34 @@ function validPhase(value: unknown): value is TaskPhase {
 	const phase = record(value);
 	return Boolean(
 		phase &&
-			exactKeys(phase, ["title", "objective", "successCriteria", "hints"]) &&
+			exactKeys(phase, [
+				"title",
+				"objective",
+				"successCriteria",
+				"verification",
+				"hints",
+			]) &&
 			validText(phase.title) &&
 			validText(phase.objective) &&
 			validTextList(phase.successCriteria, true) &&
+			validTextList(phase.verification, true) &&
+			new Set(phase.verification as string[]).size ===
+				(phase.verification as string[]).length &&
 			validTextList(phase.hints),
+	);
+}
+
+function validVerificationEvidence(
+	value: unknown,
+): value is VerificationEvidence {
+	const evidence = record(value);
+	return Boolean(
+		evidence &&
+			exactKeys(evidence, ["command", "exitCode", "summary"]) &&
+			validText(evidence.command) &&
+			Number.isInteger(evidence.exitCode) &&
+			validText(evidence.summary) &&
+			(evidence.summary as string).length <= MAX_VERIFICATION_SUMMARY_LENGTH,
 	);
 }
 
@@ -182,8 +214,10 @@ function validCompletedPhase(value: unknown): value is CompletedTaskPhase {
 			"title",
 			"objective",
 			"successCriteria",
+			"verification",
 			"hints",
 			"resolution",
+			"verificationEvidence",
 			"commit",
 		])
 	)
@@ -192,13 +226,22 @@ function validCompletedPhase(value: unknown): value is CompletedTaskPhase {
 		title: phase.title,
 		objective: phase.objective,
 		successCriteria: phase.successCriteria,
+		verification: phase.verification,
 		hints: phase.hints,
 	};
 	return (
 		validPhase(content) &&
 		validText(phase.resolution) &&
-		(phase.commit === null ||
-			(typeof phase.commit === "string" && OBJECT_ID.test(phase.commit)))
+		Array.isArray(phase.verificationEvidence) &&
+		phase.verificationEvidence.length === content.verification.length &&
+		phase.verificationEvidence.every(
+			(evidence, index) =>
+				validVerificationEvidence(evidence) &&
+				evidence.command === content.verification[index] &&
+				evidence.exitCode === 0,
+		) &&
+		typeof phase.commit === "string" &&
+		OBJECT_ID.test(phase.commit)
 	);
 }
 
@@ -375,7 +418,8 @@ export function resumeTaskPhase(task: TaskDocument): TaskDocument {
 export function completeTaskPhase(
 	task: TaskDocument,
 	resolution: string,
-	commit: string | null,
+	verificationEvidence: VerificationEvidence[],
+	commit: string,
 ): TaskDocument {
 	if (task.stage !== "building" || !task.plan?.remaining.length)
 		throw new Error("task has no active build phase");
@@ -388,7 +432,12 @@ export function completeTaskPhase(
 			...task.plan,
 			completed: [
 				...task.plan.completed,
-				{ ...structuredClone(current), resolution, commit },
+				{
+					...structuredClone(current),
+					resolution,
+					verificationEvidence: structuredClone(verificationEvidence),
+					commit,
+				},
 			],
 			remaining: structuredClone(remaining),
 		},

@@ -13,7 +13,7 @@ Read research.md first as non-authoritative evidence; task.json is authoritative
 
 Classify confirmed material as task-specific or durable project context. Before /grill's single final confirmation, show each durable change's exact target path and exact entries under Objective, Requirements, Invariants, Constraints, Assumptions, and Non-Goals, or state "Durable project context: None." Use the narrowest governing existing file; reserve Git-root AGENTS.md for project-wide rules. Preserve an existing context file's format.
 
-Before final confirmation, present assumptions, accepted risks, deferred non-goals, and every blocker with its disposition. An unresolved blocker means do not call juruc_set_plan. Represent every confirmed context edit in the earliest affected phase's success criteria. Only after human confirmation, call juruc_set_plan once with the complete ordered remaining plan. Phases must be minimal, incrementally complete, independently verifiable after their predecessors, include relevant tests, and not depend on later phases for validity.`;
+Before final confirmation, present assumptions, accepted risks, deferred non-goals, and every blocker with its disposition. An unresolved blocker means do not call juruc_set_plan. Represent every confirmed context edit in the earliest affected phase's success criteria. Only after human confirmation, call juruc_set_plan once with the complete ordered remaining plan. Phases must be minimal, incrementally complete, and not depend on later phases for validity. Every phase must declare a nonempty ordered list of exact runnable verification commands, including its relevant tests.`;
 
 export const PLANNING_TOOL_NAMES = ["read", "juruc_set_plan"] as const;
 
@@ -21,6 +21,7 @@ export interface PlanPhaseInput {
 	title: string;
 	objective: string;
 	successCriteria: string[];
+	verification: string[];
 	hints?: string[];
 }
 
@@ -59,11 +60,12 @@ export const SET_PLAN_SCHEMA = {
 			items: {
 				type: "object",
 				additionalProperties: false,
-				required: ["title", "objective", "successCriteria"],
+				required: ["title", "objective", "successCriteria", "verification"],
 				properties: {
 					title: text,
 					objective: text,
 					successCriteria: { ...textList, minItems: 1 },
+					verification: { ...textList, minItems: 1, uniqueItems: true },
 					hints: textList,
 				},
 			},
@@ -84,6 +86,7 @@ function phaseFromInput(phase: PlanPhaseInput): TaskPhase {
 		title: cleanText(phase.title),
 		objective: cleanText(phase.objective),
 		successCriteria: cleanList(phase.successCriteria),
+		verification: cleanList(phase.verification),
 		hints: cleanList(phase.hints ?? []),
 	};
 }

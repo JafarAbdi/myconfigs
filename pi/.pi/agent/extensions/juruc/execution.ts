@@ -1,8 +1,8 @@
-import type { AuditResult } from "../subagent/runtimes.ts";
 import {
 	blockTaskPhase,
 	completeTaskPhase,
 	type TaskDocument,
+	type VerificationEvidence,
 } from "./task.ts";
 import {
 	commitStaged,
@@ -11,7 +11,7 @@ import {
 	unstageAll,
 } from "./workspace.ts";
 
-export const BUILD_INSTRUCTION = `Implement and verify only the active phase in task.json. Do not run git commit. Preserve dirty work when blocked. When the phase criteria are satisfied, call juruc_finish_phase once with a concise resolution and commit message. JURUC stages the complete candidate, runs the independent audit, and commits only on success. If a material decision prevents completion, call juruc_block_phase with the reason.`;
+export const BUILD_INSTRUCTION = `Implement only the active phase in task.json and run every declared verification command exactly as written, in order. Do not run other verification commands and do not run git commit. Preserve dirty work when blocked. When every command exits zero and the phase criteria are satisfied, call juruc_finish_phase once with a concise resolution, commit message, and structured evidence for every command. JURUC validates the evidence, stages the complete changed candidate, creates the checkpoint commit, and advances. If a command fails, fix the phase and rerun its declared verification before reporting completion. If a material decision prevents completion, call juruc_block_phase with the reason.`;
 
 export const BUILD_TOOL_NAMES = [
 	"read",
@@ -21,7 +21,6 @@ export const BUILD_TOOL_NAMES = [
 	"grep",
 	"find",
 	"ls",
-	"delegate",
 	"juruc_finish_phase",
 	"juruc_block_phase",
 ] as const;
@@ -29,21 +28,7 @@ export const BUILD_TOOL_NAMES = [
 export interface FinishPhaseInput {
 	resolution: string;
 	commitMessage: string;
-}
-
-export interface PhaseAuditRequest {
-	task: string;
-	worktree: string;
-	baseRef: string;
-	phase: {
-		position: number;
-		total: number;
-		title: string;
-		objective: string;
-		successCriteria: string[];
-	};
-	overallCriteria: string[];
-	stagedPaths: string[];
+	verificationEvidence: VerificationEvidence[];
 }
 
 const text = { type: "string", pattern: "\\S" } as const;
@@ -51,10 +36,24 @@ const text = { type: "string", pattern: "\\S" } as const;
 export const FINISH_PHASE_SCHEMA = {
 	type: "object",
 	additionalProperties: false,
-	required: ["resolution", "commitMessage"],
+	required: ["resolution", "commitMessage", "verificationEvidence"],
 	properties: {
 		resolution: text,
 		commitMessage: text,
+		verificationEvidence: {
+			type: "array",
+			minItems: 1,
+			items: {
+				type: "object",
+				additionalProperties: false,
+				required: ["command", "exitCode", "summary"],
+				properties: {
+					command: text,
+					exitCode: { type: "integer" },
+					summary: { ...text, maxLength: 1_000 },
+				},
+			},
+		},
 	},
 } as const;
 
@@ -65,78 +64,72 @@ export const BLOCK_PHASE_SCHEMA = {
 	properties: { reason: text },
 } as const;
 
-export type AuditRunner = (
-	request: PhaseAuditRequest,
-) => Promise<AuditResult>;
-
-export type PhaseCompletionResult =
-	| {
-			kind: "audit-failed";
-			task: TaskDocument;
-			audit: Extract<AuditResult, { verdict: "fail" }>;
-			feedback: string;
-	  }
-	| {
-			kind: "completed";
-			task: TaskDocument;
-			audit: Extract<AuditResult, { verdict: "pass" }>;
-			commit: string | null;
-	  };
+export interface PhaseCompletionResult {
+	task: TaskDocument;
+	commit: string;
+}
 
 export function expectedTaskHead(task: TaskDocument): string {
 	if (!task.plan) return task.repository.sourceHead;
-	for (let index = task.plan.completed.length - 1; index >= 0; index--) {
-		const commit = task.plan.completed[index].commit;
-		if (commit) return commit;
-	}
-	return task.repository.sourceHead;
+	return task.plan.completed.at(-1)?.commit ?? task.repository.sourceHead;
 }
 
-export function currentAuditRequest(
+function validatedVerificationEvidence(
 	task: TaskDocument,
-	stagedPaths: string[],
-): PhaseAuditRequest {
-	if (task.stage !== "building" || !task.plan?.remaining.length)
-		throw new Error("task has no active build phase");
-	const current = task.plan.remaining[0];
-	const final = task.plan.remaining.length === 1;
-	return {
-		task: task.slug,
-		worktree: task.repository.worktree,
-		baseRef: final ? task.repository.sourceHead : expectedTaskHead(task),
-		phase: {
-			position: task.plan.completed.length + 1,
-			total: task.plan.completed.length + task.plan.remaining.length,
-			title: current.title,
-			objective: current.objective,
-			successCriteria: [...current.successCriteria],
-		},
-		overallCriteria: final ? [...task.plan.successCriteria] : [],
-		stagedPaths: [...stagedPaths],
-	};
-}
-
-function auditFeedback(
-	audit: Extract<AuditResult, { verdict: "fail" }>,
-): string {
-	return audit.findings
-		.map((finding, index) => {
-			const basis = finding.basis.source === "context"
-				? `${finding.basis.path}: ${finding.basis.rule}`
-				: `${finding.basis.source} criterion ${finding.basis.criterion}`;
-			return `${index + 1}. [${basis}] ${finding.path}: ${finding.failure}\nEvidence: ${finding.evidence}`;
-		})
-		.join("\n\n");
-}
-
-async function unstageAfterAudit(repository: TaskDocument["repository"]): Promise<void> {
-	await unstageAll(repository);
+	reported: readonly VerificationEvidence[],
+): VerificationEvidence[] {
+	const declared = task.plan?.remaining[0]?.verification;
+	if (!declared) throw new Error("task has no active build phase");
+	if (!Array.isArray(reported))
+		throw new Error("verification evidence must be an array");
+	const commands = new Set<string>();
+	for (const evidence of reported) {
+		if (
+			evidence === null ||
+			typeof evidence !== "object" ||
+			Array.isArray(evidence) ||
+			Object.keys(evidence).length !== 3 ||
+			!Object.hasOwn(evidence, "command") ||
+			!Object.hasOwn(evidence, "exitCode") ||
+			!Object.hasOwn(evidence, "summary") ||
+			typeof evidence.command !== "string" ||
+			!evidence.command.trim() ||
+			!Number.isInteger(evidence.exitCode) ||
+			typeof evidence.summary !== "string" ||
+			!evidence.summary.trim() ||
+			evidence.summary.includes("\0") ||
+			evidence.summary.length > 1_000
+		)
+			throw new Error("verification evidence is malformed");
+		if (commands.has(evidence.command))
+			throw new Error(`verification evidence duplicates command: ${evidence.command}`);
+		commands.add(evidence.command);
+	}
+	if (reported.length !== declared.length)
+		throw new Error(
+			`verification evidence count differs from the ${declared.length} declared commands`,
+		);
+	for (const [index, command] of declared.entries()) {
+		if (reported[index].command !== command)
+			throw new Error(
+				`verification evidence command ${index + 1} must exactly equal: ${command}`,
+			);
+	}
+	const failed = reported.find((evidence) => evidence.exitCode !== 0);
+	if (failed)
+		throw new Error(
+			`verification command exited with code ${failed.exitCode}: ${failed.command}`,
+		);
+	return reported.map((evidence) => ({
+		command: evidence.command,
+		exitCode: evidence.exitCode,
+		summary: evidence.summary.trim(),
+	}));
 }
 
 export async function finishCurrentPhase(
 	task: TaskDocument,
 	input: FinishPhaseInput,
-	runAudit: AuditRunner,
 ): Promise<PhaseCompletionResult> {
 	if (task.stage !== "building" || !task.plan?.remaining.length)
 		throw new Error("task has no active build phase");
@@ -146,12 +139,18 @@ export async function finishCurrentPhase(
 	const commitMessage = input.commitMessage.trim();
 	if (!resolution || !commitMessage)
 		throw new Error("phase resolution and commit message must be nonempty");
+	const verificationEvidence = validatedVerificationEvidence(
+		task,
+		input.verificationEvidence,
+	);
 	const before = await inspectTaskWorktree(task.repository);
 	const expectedHead = expectedTaskHead(task);
 	if (before.head !== expectedHead)
 		throw new Error("implementation session changed Git HEAD outside JURUC");
 
 	const stagedPaths = await stageAll(task.repository);
+	if (stagedPaths.length === 0)
+		throw new Error("unchanged candidate; refusing an empty checkpoint commit");
 	const staged = new Set(stagedPaths);
 	const candidate = await inspectTaskWorktree(task.repository);
 	const unstagedPaths = candidate.paths.filter((path) => !staged.has(path));
@@ -161,30 +160,9 @@ export async function finishCurrentPhase(
 			`git add -A could not stage the complete candidate: ${unstagedPaths.join(", ")}`,
 		);
 	}
-	let audit: AuditResult;
-	try {
-		audit = await runAudit(currentAuditRequest(task, stagedPaths));
-	} catch (error) {
-		await unstageAfterAudit(task.repository);
-		throw error;
-	}
-	if (audit.verdict === "fail") {
-		await unstageAfterAudit(task.repository);
-		return {
-			kind: "audit-failed",
-			task: structuredClone(task),
-			audit,
-			feedback: auditFeedback(audit),
-		};
-	}
-
-	const commit = stagedPaths.length
-		? await commitStaged(task.repository, commitMessage)
-		: null;
+	const commit = await commitStaged(task.repository, commitMessage);
 	return {
-		kind: "completed",
-		task: completeTaskPhase(task, resolution, commit),
-		audit,
+		task: completeTaskPhase(task, resolution, verificationEvidence, commit),
 		commit,
 	};
 }

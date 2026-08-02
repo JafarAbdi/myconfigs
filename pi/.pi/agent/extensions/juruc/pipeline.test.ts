@@ -73,19 +73,17 @@ try {
 		{ fauxAssistantMessage, fauxToolCall, createRuntimeHarness },
 		{ SessionManager },
 		{ registerJuruc },
-		{ runIndependentAudit },
 		{ runtimePaths },
 		{ loadTask },
 	] = await Promise.all([
 		import("./runtime-harness.ts"),
 		import("@earendil-works/pi-coding-agent"),
 		import("./index.ts"),
-		import("./audit.ts"),
 		import("./runtime.ts"),
 		import("./tasks.ts"),
 	]);
 
-	await test("compact runtime automatically advances through research, planning, build, and audited completion", async () => {
+	await test("compact runtime automatically advances through research, planning, build, and verified completion", async () => {
 		const source = join(scratch, "source");
 		mkdirSync(source);
 		git(source, "init", "-b", "main");
@@ -102,8 +100,7 @@ try {
 		const paths = runtimePaths(agentDir);
 		const slug = "simplify-runtime-workflow";
 		const researchOutput = "Independent facts with concrete references.\n";
-		let auditCalls = 0;
-		let wroteCandidate = false;
+		const writtenPhases = new Set<number>();
 
 		const synthesis = {
 			agent: "synthesizer",
@@ -122,21 +119,6 @@ try {
 			},
 			durationMs: 1,
 		};
-		const failedAudit = {
-			verdict: "fail" as const,
-			findings: [
-				{
-					basis: { source: "phase" as const, criterion: 1 },
-					path: "tracked.txt",
-					evidence: "The first attempt needs one correction.",
-					failure: "Retry the verified completion.",
-				},
-			],
-		};
-		const passedAudit = {
-			verdict: "pass" as const,
-			summary: "Phase and overall criteria pass.",
-		};
 		const confirmedPlan = {
 			objective: "Complete the requested workflow.",
 			constraints: ["Keep worktree isolation."],
@@ -148,6 +130,13 @@ try {
 					title: "Implement the change",
 					objective: "Change the tracked candidate.",
 					successCriteria: ["The candidate is verified."],
+					verification: ["node --test focused.test.ts"],
+				},
+				{
+					title: "Connect the change",
+					objective: "Complete the tracked candidate.",
+					successCriteria: ["The integration is verified."],
+					verification: ["node --test integration.test.ts"],
 				},
 			],
 		};
@@ -159,22 +148,18 @@ try {
 			promptTemplates: [grill],
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
-			registerJuruc: (pi) =>
-				registerJuruc(pi, {
-					runAudit: async (request) => {
-						auditCalls++;
-						assert.deepEqual(request.stagedPaths, ["tracked.txt"]);
-						assert.deepEqual(request.overallCriteria, ["The task is complete."]);
-						return auditCalls === 1 ? failedAudit : passedAudit;
-					},
-				}),
+			registerJuruc,
 			probe: (pi) => {
 				pi.on("session_start", () => {
 					try {
 						const task = loadTask(paths, slug);
-						if (task.document.stage === "building" && !wroteCandidate) {
-							writeFileSync(join(task.document.repository.worktree, "tracked.txt"), "candidate\n");
-							wroteCandidate = true;
+						const phase = task.document.plan?.completed.length ?? 0;
+						if (task.document.stage === "building" && !writtenPhases.has(phase)) {
+							writeFileSync(
+								join(task.document.repository.worktree, "tracked.txt"),
+								`candidate ${phase + 1}\n`,
+							);
+							writtenPhases.add(phase);
 						}
 					} catch {}
 				});
@@ -182,63 +167,6 @@ try {
 		});
 
 		try {
-			const adapterRequest = {
-				task: "adapter-task",
-				worktree: source,
-				baseRef: git(source, "rev-parse", "HEAD"),
-				phase: {
-					position: 1,
-					total: 1,
-					title: "Adapter",
-					objective: "Verify adapter wiring.",
-					successCriteria: ["The adapter is wired."],
-				},
-				overallCriteria: ["The runtime is inherited."],
-				stagedPaths: [],
-			};
-			let configured: {
-				agent: string;
-				task: string;
-				inherited: { model?: string; thinkingLevel?: unknown };
-			} | undefined;
-			const adapterResult = await runIndependentAudit(
-				adapterRequest,
-				harness.instances[0].startContext!,
-				undefined,
-				undefined,
-				{
-					agentDir,
-					runAgent: async (options) => {
-						configured = options;
-						return {
-							agent: "audit",
-							task: options.task,
-							output: JSON.stringify(passedAudit),
-							stopReason: "stop",
-							audit: passedAudit,
-							steps: [],
-							turns: 1,
-							usage: synthesis.usage,
-							durationMs: 1,
-						};
-					},
-				},
-			);
-			assert.equal(adapterResult.verdict, "pass");
-			assert.equal(configured?.agent, "audit");
-			assert.match(
-				configured?.task ?? "",
-				new RegExp(`Overall base ref: ${adapterRequest.baseRef}`),
-			);
-			assert.equal(
-				configured?.inherited.model,
-				`${harness.instances[0].startContext!.model?.provider}/${harness.instances[0].startContext!.model?.id}`,
-			);
-			assert.equal(
-				configured?.inherited.thinkingLevel,
-				harness.instances[0].startContext!.thinkingLevel,
-			);
-
 			harness.selections.push("New task…");
 			harness.editorValues.push("Simplify runtime workflow");
 			harness.setResponses([
@@ -273,7 +201,7 @@ try {
 				git(task.document.repository.worktree, "rev-parse", "HEAD"),
 				task.document.repository.sourceHead,
 			);
-			assert.equal(readFileSync(join(task.document.repository.worktree, "tracked.txt"), "utf8"), "candidate\n");
+			assert.equal(readFileSync(join(task.document.repository.worktree, "tracked.txt"), "utf8"), "candidate 1\n");
 
 			harness.selections.push(
 				"Simplify runtime workflow — simplify-runtime-workflow · blocked",
@@ -282,6 +210,20 @@ try {
 			const finish = {
 				resolution: "Implemented and verified the candidate.",
 				commitMessage: "Implement runtime workflow",
+				verificationEvidence: [{
+					command: "node --test focused.test.ts",
+					exitCode: 0,
+					summary: "Focused test passed.",
+				}],
+			};
+			const finishIntegration = {
+				resolution: "Connected and verified the candidate.",
+				commitMessage: "Connect runtime workflow",
+				verificationEvidence: [{
+					command: "node --test integration.test.ts",
+					exitCode: 0,
+					summary: "Integration test passed.",
+				}],
 			};
 			harness.setResponses([
 				fauxAssistantMessage(
@@ -293,20 +235,28 @@ try {
 					{ stopReason: "toolUse" },
 				),
 				fauxAssistantMessage(
-					[fauxToolCall("juruc_finish_phase", finish)],
+					[fauxToolCall("juruc_finish_phase", finishIntegration)],
 					{ stopReason: "toolUse" },
 				),
 			]);
 			await harness.runtime.session.prompt("/juruc");
 
 			task = loadTask(paths, slug);
-			assert.equal(auditCalls, 2);
 			assert.equal(task.document.stage, "done");
 			assert.equal(task.document.sessions.build, null);
-			assert.equal(task.document.plan?.completed.length, 1);
+			assert.equal(task.document.plan?.completed.length, 2);
 			assert.ok(task.document.plan?.completed[0].commit);
+			assert.ok(task.document.plan?.completed[1].commit);
+			assert.deepEqual(task.document.plan?.completed[0].verificationEvidence, finish.verificationEvidence);
+			assert.deepEqual(
+				task.document.plan?.completed[1].verificationEvidence,
+				finishIntegration.verificationEvidence,
+			);
 			assert.equal(task.document.plan?.remaining.length, 0);
-			assert.equal(git(task.document.repository.worktree, "log", "-1", "--format=%s"), "Implement runtime workflow");
+			assert.equal(
+				git(task.document.repository.worktree, "log", "-2", "--format=%s"),
+				"Connect runtime workflow\nImplement runtime workflow",
+			);
 			assert.equal(git(task.document.repository.worktree, "status", "--porcelain"), "");
 			assert.equal(buildSession === task.document.sessions.planning, false);
 			assert.equal(

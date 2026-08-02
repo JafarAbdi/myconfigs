@@ -21,7 +21,6 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { runIndependentAudit } from "./audit.ts";
 import {
 	BLOCK_PHASE_SCHEMA,
 	BUILD_INSTRUCTION,
@@ -89,7 +88,7 @@ const JURUC_TOOLS = new Set([
 ]);
 const RESEARCH_AGENTS = new Set<string>(RESEARCH_AGENT_NAMES);
 
-type Activity = "auditing" | "synthesizing";
+type Activity = "synthesizing";
 type ReplacementContext = Parameters<
 	NonNullable<
 		NonNullable<Parameters<ExtensionCommandContext["switchSession"]>[1]>["withSession"]
@@ -183,14 +182,13 @@ function phasePrompt(task: StoredTask): string {
 		`Phase objective: ${phase.objective}`,
 		"Phase success criteria:",
 		...phase.successCriteria.map((criterion, index) => `${index + 1}. ${criterion}`),
+		"Declared verification commands (run exactly in this order):",
+		...phase.verification.map((command, index) => `${index + 1}. ${command}`),
 		...section("Hints:", phase.hints),
-		...(plan.remaining.length === 1
-			? ["", "This is the final phase; its one audit also judges every overall criterion."]
-			: []),
 		"",
 		`Research evidence: ${join(task.directory, "research.md")} (non-authoritative)`,
 		`Task state: ${join(task.directory, "task.json")} (authoritative)`,
-		"Inspect current code, implement only this phase, verify it, then call juruc_finish_phase. Do not call an audit delegate yourself and do not commit.",
+		"Inspect current code, implement only this phase, run only its declared verification, then call juruc_finish_phase with exact structured command evidence. Do not commit.",
 	].join("\n");
 }
 
@@ -234,14 +232,7 @@ function isSoleCurrentToolCall(
 		calls[0].name === event.toolName;
 }
 
-export interface JurucDependencies {
-	runAudit: typeof runIndependentAudit;
-}
-
-export function registerJuruc(
-	pi: ExtensionAPI,
-	dependencies: JurucDependencies = { runAudit: runIndependentAudit },
-): void {
+export function registerJuruc(pi: ExtensionAPI): void {
 	const paths = runtimePaths(getAgentDir());
 	const activity = new Map<string, Activity>();
 	const pendingSynthesis = new Map<
@@ -729,48 +720,25 @@ export function registerJuruc(
 	pi.registerTool({
 		name: "juruc_finish_phase",
 		label: "Finish JURUC phase",
-		description: "Stage the complete candidate, run one independent audit, and commit only on pass.",
+		description: "Validate declared verification evidence, stage the changed candidate, and create its checkpoint commit.",
 		parameters: FINISH_PHASE_SCHEMA as never,
 		executionMode: "sequential",
-		async execute(_id, params: FinishPhaseInput, signal, onUpdate, ctx) {
+		async execute(_id, params: FinishPhaseInput, _signal, _onUpdate, ctx) {
 			const task = ownedTask(ctx, "build", "building");
-			activity.set(task.document.slug, "auditing");
-			showStatus(ctx, task);
-			try {
-				const result = await finishCurrentPhase(
-					task.document,
-					params,
-					(request) =>
-						dependencies.runAudit(request, ctx, signal, (progress) => {
-							onUpdate?.({
-								content: [{ type: "text", text: progress.activity ?? "auditing" }],
-								details: { activity: progress.activity ?? "auditing" },
-							});
-						}),
-				);
-				if (result.kind === "audit-failed") {
-					return {
-						content: [{ type: "text" as const, text: `Audit failed. Fix every finding, then call juruc_finish_phase again.\n\n${result.feedback}` }],
-						details: { verdict: "fail", findings: result.audit.findings.length },
-					};
-				}
-				const updated = saveTask(task, result.task);
-				showStatus(ctx, updated);
-				activateTools(ctx, updated);
-				return {
-					content: [{
-						type: "text" as const,
-						text: result.task.stage === "done"
-							? "Final phase audited and completed. Task done."
-							: "Phase audited and completed. Starting the next phase.",
-					}],
-					details: { verdict: "pass", commit: result.commit, stage: result.task.stage },
-					terminate: true,
-				};
-			} finally {
-				activity.delete(task.document.slug);
-				showStatus(ctx);
-			}
+			const result = await finishCurrentPhase(task.document, params);
+			const updated = saveTask(task, result.task);
+			showStatus(ctx, updated);
+			activateTools(ctx, updated);
+			return {
+				content: [{
+					type: "text" as const,
+					text: result.task.stage === "done"
+						? "Final phase verified, committed, and completed. Task done."
+						: "Phase verified and committed. Starting the next phase.",
+				}],
+				details: { commit: result.commit, stage: result.task.stage },
+				terminate: true,
+			};
 		},
 	});
 
@@ -851,12 +819,6 @@ export function registerJuruc(
 		}
 		if (planning && !PLANNING_TOOL_NAMES.includes(event.toolName as never))
 			return { block: true, reason: "Planning sessions are read-only" };
-		if (
-			building &&
-			event.toolName === "delegate" &&
-			(event.input as Record<string, unknown>).agent === "audit"
-		)
-			return { block: true, reason: "Call juruc_finish_phase; JURUC owns the independent audit" };
 		if (JURUC_TOOLS.has(event.toolName)) {
 			const allowed =
 				(event.toolName === "juruc_set_plan" && planning) ||

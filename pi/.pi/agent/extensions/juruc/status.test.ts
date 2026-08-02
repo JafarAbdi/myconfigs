@@ -38,8 +38,20 @@ test("status is one lifecycle line derived from compact task state", () => {
 		nonGoals: [],
 		successCriteria: ["Done."],
 		remaining: [
-			{ title: "One", objective: "One.", successCriteria: ["One."], hints: [] },
-			{ title: "Two", objective: "Two.", successCriteria: ["Two."], hints: [] },
+			{
+				title: "One",
+				objective: "One.",
+				successCriteria: ["One."],
+				verification: ["test one"],
+				hints: [],
+			},
+			{
+				title: "Two",
+				objective: "Two.",
+				successCriteria: ["Two."],
+				verification: ["test two"],
+				hints: [],
+			},
 		],
 	});
 	current = recordTaskSession(current, "build", "/sessions/build.jsonl");
@@ -57,10 +69,21 @@ test("done status derives its count from completed phases", () => {
 		nonGoals: [],
 		successCriteria: ["Done."],
 		remaining: [
-			{ title: "One", objective: "One.", successCriteria: ["One."], hints: [] },
+			{
+				title: "One",
+				objective: "One.",
+				successCriteria: ["One."],
+				verification: ["test one"],
+				hints: [],
+			},
 		],
 	});
 	current = recordTaskSession(current, "build", "/sessions/build.jsonl");
-	current = completeTaskPhase(current, "Done.", "2".repeat(40));
+	current = completeTaskPhase(
+		current,
+		"Done.",
+		[{ command: "test one", exitCode: 0, summary: "Passed." }],
+		"2".repeat(40),
+	);
 	assert.equal(lifecycleLine(current), "✓ research  ✓ plan  ✓ build  ✓ done · 1/1 phases");
 });

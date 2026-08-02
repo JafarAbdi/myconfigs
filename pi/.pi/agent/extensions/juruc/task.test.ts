@@ -28,6 +28,7 @@ const first: TaskPhase = {
 	title: "Build the core",
 	objective: "Implement the smallest useful core.",
 	successCriteria: ["The focused tests pass."],
+	verification: ["node --test core.test.ts"],
 	hints: [],
 };
 
@@ -35,6 +36,7 @@ const second: TaskPhase = {
 	title: "Connect the workflow",
 	objective: "Use the core from the extension.",
 	successCriteria: ["The extension loads."],
+	verification: ["node --test integration.test.ts"],
 	hints: ["Delete the old path after cutover."],
 };
 
@@ -59,7 +61,7 @@ function plannedTask(): TaskDocument {
 		constraints: ["Keep Git worktree isolation."],
 		assumptions: ["One operator owns the task."],
 		nonGoals: ["No crash-perfect recovery."],
-		successCriteria: ["Every phase is audited before completion."],
+		successCriteria: ["Every phase is verified before completion."],
 		remaining: [first, second],
 	});
 }
@@ -91,11 +93,35 @@ test("task.json rejects malformed and inconsistent persisted state", () => {
 			),
 		/invalid/,
 	);
+	const phase = task.plan?.remaining[0];
+	assert.ok(phase);
+	assert.throws(
+		() =>
+			parseTaskDocument(
+				JSON.stringify({
+					...task,
+					plan: {
+						...task.plan,
+						remaining: [{ ...phase, verification: [] }],
+					},
+				}),
+			),
+		/invalid/,
+	);
 });
 
 test("replanning preserves completed phases and the blocked build session", () => {
 	let task = recordTaskSession(plannedTask(), "build", "/sessions/build-1.jsonl");
-	task = completeTaskPhase(task, "Implemented and tested the core.", oid("2"));
+	task = completeTaskPhase(
+		task,
+		"Implemented and tested the core.",
+		[{
+			command: "node --test core.test.ts",
+			exitCode: 0,
+			summary: "Core tests passed.",
+		}],
+		oid("2"),
+	);
 	task = recordTaskSession(task, "build", "/sessions/build-2.jsonl");
 	task = blockTaskPhase(task, "The integration contract needs revision.");
 	const completed = structuredClone(task.plan?.completed);
@@ -146,9 +172,29 @@ test("research stays separate and phase completion advances to done", () => {
 		remaining: [first],
 	});
 	task = recordTaskSession(task, "build", "/sessions/build.jsonl");
-	task = completeTaskPhase(task, "Completed without file changes.", null);
+	const verificationEvidence = [{
+		command: "node --test core.test.ts",
+		exitCode: 0,
+		summary: "Focused tests passed.",
+	}];
+	task = completeTaskPhase(
+		task,
+		"Completed and verified.",
+		verificationEvidence,
+		oid("2"),
+	);
 	assert.equal(task.stage, "done");
 	assert.equal(task.plan?.remaining.length, 0);
-	assert.equal(task.plan?.completed[0].commit, null);
+	assert.equal(task.plan?.completed[0].commit, oid("2"));
+	assert.deepEqual(task.plan?.completed[0].verificationEvidence, verificationEvidence);
 	assert.equal(task.sessions.build, null);
+	const invalid = structuredClone(task) as unknown as {
+		plan: { completed: Array<{ verificationEvidence: unknown[] }> };
+	};
+	invalid.plan.completed[0].verificationEvidence = [{
+		command: "node --test core.test.ts",
+		exitCode: 0,
+		result: "Focused tests passed.",
+	}];
+	assert.throws(() => parseTaskDocument(JSON.stringify(invalid)), /invalid/);
 });

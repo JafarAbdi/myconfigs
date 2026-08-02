@@ -72,6 +72,7 @@ function planInput(): SetPlanInput {
 				title: " Implement the phase ",
 				objective: " Implement only confirmed work. ",
 				successCriteria: [" Focused tests pass. "],
+				verification: [" node --test focused.test.ts "],
 			},
 		],
 	};
@@ -147,6 +148,9 @@ test("confirmed planning directly activates the compact remaining plan", () => {
 	assert.equal(building.stage, "building");
 	assert.equal(building.plan?.objective, "Build the confirmed result.");
 	assert.equal(building.plan?.remaining[0].title, "Implement the phase");
+	assert.deepEqual(building.plan?.remaining[0].verification, [
+		"node --test focused.test.ts",
+	]);
 	assert.deepEqual(building.plan?.completed, []);
 	assert.equal(building.blockReason, null);
 });
@@ -170,6 +174,16 @@ test("the planning tool schema exposes no candidate or transaction fields", () =
 	])
 		assert.equal(Object.hasOwn(SET_PLAN_SCHEMA.properties, removed), false);
 	assert.equal(SET_PLAN_SCHEMA.properties.futurePhases.minItems, 1);
+	assert.deepEqual(SET_PLAN_SCHEMA.properties.futurePhases.items.required, [
+		"title",
+		"objective",
+		"successCriteria",
+		"verification",
+	]);
+	assert.equal(
+		SET_PLAN_SCHEMA.properties.futurePhases.items.properties.verification.minItems,
+		1,
+	);
 });
 
 test("planning remains read-only and resolves canonical grill from its own session", () => {
@@ -178,6 +192,7 @@ test("planning remains read-only and resolves canonical grill from its own sessi
 		"task.json is authoritative",
 		"Do not modify the worktree",
 		"Only after human confirmation",
+		"runnable verification commands",
 	])
 		assert.match(PLANNING_INSTRUCTION, new RegExp(phrase));
 	const directory = mkdtempSync(join(tmpdir(), "juruc-coordination-planning-"));

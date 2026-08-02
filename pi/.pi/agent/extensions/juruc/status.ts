@@ -10,7 +10,7 @@ export interface LifecyclePlace {
 
 export function lifecyclePlace(
 	task: TaskDocument,
-	activity?: "auditing" | "synthesizing",
+	activity?: "synthesizing",
 ): LifecyclePlace {
 	if (task.stage === "research")
 		return {
@@ -29,17 +29,15 @@ export function lifecyclePlace(
 	const completed = task.plan?.completed.length ?? 0;
 	const total = completed + (task.plan?.remaining.length ?? 0);
 	const progress = total ? `P${completed + 1}/${total}` : "";
-	const state = activity === "auditing"
-		? "auditing"
-		: task.stage === "blocked"
-			? `blocked${task.blockReason ? `: ${task.blockReason}` : ""}`
-			: "building";
+	const state = task.stage === "blocked"
+		? `blocked${task.blockReason ? `: ${task.blockReason}` : ""}`
+		: "building";
 	return { active: "build", detail: [progress, state].filter(Boolean).join(" · ") };
 }
 
 export function lifecycleLine(
 	task: TaskDocument,
-	activity?: "auditing" | "synthesizing",
+	activity?: "synthesizing",
 ): string {
 	const place = lifecyclePlace(task, activity);
 	const active = LIFECYCLE_STAGES.indexOf(place.active);
