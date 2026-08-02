@@ -13,14 +13,23 @@ import {
 	classifyResult,
 	delegateModelNames,
 	emptyUsage,
+	finalizeRunResult,
 	CLAUDE_MODEL_NAMES,
-	isAuditSubmission,
+	CHILD_PENDING_LINE_MAX_BYTES,
+	CHILD_STDERR_MAX_BYTES,
+	CHILD_STDOUT_MAX_BYTES,
+	createChildProtocol,
+	isAuditResult,
 	modelLabel,
+	parseAuditResult,
+	RESULT_OUTPUT_MAX_BYTES,
+	runResultBoundsError,
 	type RunResult,
 	createActivityTracker,
 	selectRuntime,
 	stepDetail,
 } from "./runtimes.ts";
+import { withProjectContext } from "./audit-context.ts";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -63,6 +72,28 @@ function steps(result: RunResult): string[] {
 	);
 }
 
+test("child protocol preserves noisy JSONL and split lines", () => {
+	const protocol = createChildProtocol();
+	assert.deepEqual(protocol.pushStdout(Buffer.from("diagnostic noise\n{\"ok\":1")), { lines: ["diagnostic noise"] });
+	assert.deepEqual(protocol.pushStdout(Buffer.from("}\n")), { lines: ['{"ok":1}'] });
+	assert.deepEqual(protocol.finishStdout(), { lines: [] });
+});
+
+test("child protocol rejects bounded line, stream, and stderr overflow", () => {
+	const line = createChildProtocol();
+	assert.match(line.pushStdout(Buffer.alloc(CHILD_PENDING_LINE_MAX_BYTES + 1, 120)).error ?? "", /line exceeded/);
+
+	const stream = createChildProtocol();
+	assert.match(stream.pushStdout(Buffer.alloc(CHILD_STDOUT_MAX_BYTES + 1, 120)).error ?? "", /stdout exceeded/);
+
+	const error = createChildProtocol();
+	assert.match(error.pushStderr(Buffer.alloc(CHILD_STDERR_MAX_BYTES + 1, 120)) ?? "", /stderr exceeded/);
+});
+
+test("oversized retained result output is rejected before it becomes details", () => {
+	assert.match(runResultBoundsError({ output: "x".repeat(RESULT_OUTPUT_MAX_BYTES + 1) }) ?? "", /result output exceeded/);
+});
+
 test("agent frontmatter reads only role and capability fields", () => {
 	assert.deepEqual(
 		agentFromFrontmatter(
@@ -87,18 +118,41 @@ test("agent frontmatter reads only role and capability fields", () => {
 	);
 });
 
-test("audit is contract-bound, typed, and does no broad context rediscovery", () => {
+test("agent frontmatter accepts an explicit empty tool array only", () => {
+	assert.deepEqual(
+		agentFromFrontmatter("synthesizer", { description: "synthesizes", tools: [], skills: "none" }, "Synthesize."),
+		agent({ name: "synthesizer", description: "synthesizes", tools: [], systemPrompt: "Synthesize." }),
+	);
+	assert.throws(
+		() => agentFromFrontmatter("missing", { description: "missing tools" }, "No."),
+		/must declare tools/,
+	);
+	for (const tools of [null, 3, {}, ["read", 3]]) {
+		assert.throws(
+			() => agentFromFrontmatter("malformed", { description: "bad tools", tools }, "No."),
+			/tools must be a string or string array/,
+		);
+	}
+});
+
+test("audit uses one validated final JSON result and supplied native context", () => {
 	const agents = join(EXTENSION_DIR, "agents");
 	const policy = readFileSync(join(agents, "audit.md"), "utf-8");
 	assert.equal(existsSync(join(agents, "correctness-reviewer.md")), false);
 	assert.equal(existsSync(join(agents, "context-style-reviewer.md")), false);
 	assert.equal(existsSync(join(EXTENSION_DIR, "prompts", "audit.md")), false);
-	assert.match(policy, /PROJECT-CONTRACT\.md/);
+	assert.match(policy, /Pi-discovered project context/);
 	assert.match(policy, /staged candidate/);
-	assert.match(policy, /submit_audit/);
-	assert.doesNotMatch(policy, /context-files/);
+	assert.match(policy, /exactly one JSON object/);
+	assert.match(policy, /summary[\s\S]*500 characters/);
+	assert.doesNotMatch(policy, /context-files|PI_OFFLINE|\bpi\s+--mode/);
+	assert.match(policy, /tools: read, grep, bash/);
+	assert.doesNotMatch(policy, /--binary/);
 	assert.match(policy, /skills: none/);
 	const extension = readFileSync(join(EXTENSION_DIR, "index.ts"), "utf-8");
+	assert.match(extension, /loadAuditProjectContext\(ctx\.cwd, AGENT_DIR, loadProjectContextFiles, auditBaseRef\)/);
+	assert.match(extension, /\^\[0-9a-f\]\{40\}\(\?:\[0-9a-f\]\{24\}\)\?\$/u);
+	assert.doesNotMatch(extension, /auditBaseRef:\s*Type\./u);
 	assert.doesNotMatch(extension, /promptPaths/);
 });
 
@@ -191,13 +245,16 @@ test("tool names translate, and find/ls collapse to one Glob", () => {
 	assert.deepEqual(claudeTools(agent({ tools: ["web_search", "fetch_content"] })), ["WebFetch", "WebSearch"]);
 });
 
-test("a file that grants nothing gets nothing, not pi's default four", () => {
-	// Without an explicit flag the child falls back to read, bash, edit and write — the opposite of
-	// what an empty list asks for.
-	const { args } = selectRuntime(undefined).invoke(agent({ tools: ["delegate"] }), "look", {});
-	assert.ok(args.includes("--no-tools"));
-	assert.ok(!args.includes("--tools"));
-	assert.deepEqual(claudeTools(agent({ tools: ["delegate"] })), []);
+test("an explicit empty capability invokes both runtimes with no tools", () => {
+	// Without explicit flags the children fall back to configured or default tools.
+	const toolFree = agent({ tools: [] });
+	const piArgs = selectRuntime(undefined).invoke(toolFree, "synthesize", {}).args;
+	assert.ok(piArgs.includes("--no-tools"));
+	assert.ok(!piArgs.includes("--tools"));
+
+	const claudeArgs = selectRuntime("claude-opus-5").invoke(toolFree, "synthesize", {}).args;
+	assert.equal(claudeArgs[claudeArgs.indexOf("--allowed-tools") + 1], "");
+	assert.equal(claudeArgs[claudeArgs.indexOf("--tools") + 1], "");
 });
 
 test("skills: all grants Skill, skills: none is its absence", () => {
@@ -250,6 +307,45 @@ test("claude argv fences the child and carries one system prompt", () => {
 	// The task goes on stdin: --tools and --allowed-tools are variadic and swallow a positional.
 	assert.equal(input, "Task: review it");
 	assert.ok(!args.includes("Task: review it"));
+	assert.ok(!args.includes("--json-schema"), "ordinary agents keep ordinary text output");
+});
+
+test("native claude audits enforce the portable result schema", () => {
+	const args = selectRuntime("claude-haiku-4-5-20251001").invoke(
+		agent({ name: "audit" }),
+		"audit it",
+		{},
+		"claude-haiku-4-5-20251001",
+	).args;
+	const schema = JSON.parse(args[args.indexOf("--json-schema") + 1]);
+	assert.equal(schema.type, "object");
+	assert.deepEqual(schema.properties.verdict.enum, ["pass", "fail"]);
+	assert.deepEqual(schema.required, ["verdict"]);
+	assert.equal(schema.properties.summary.type, "string");
+	assert.equal(schema.properties.summary.maxLength, 500);
+	assert.equal(schema.properties.summary.pattern, "^[^\\s\\r\\n\\u2028\\u2029](?:[^\\r\\n\\u2028\\u2029]*[^\\s\\r\\n\\u2028\\u2029])?$");
+	assert.doesNotMatch(schema.properties.summary.pattern, /\(\?[=!<]/u, "audit schema remains RE2-portable");
+	const summaryPattern = new RegExp(schema.properties.summary.pattern, "u");
+	for (const summary of ["valid", "two words", "a b c", "x".repeat(500)]) {
+		assert.equal(summaryPattern.test(summary), true, summary);
+		assert.ok(parseAuditResult(JSON.stringify({ verdict: "pass", summary })), summary);
+	}
+	for (const summary of ["", " padded", "padded ", "two\nlines", "two\rlines", "two\u2028lines", "\tvalue", "value\t"]) {
+		assert.equal(summaryPattern.test(summary), false, JSON.stringify(summary));
+		assert.equal(parseAuditResult(JSON.stringify({ verdict: "pass", summary })), undefined, JSON.stringify(summary));
+	}
+	assert.equal(schema.additionalProperties, false);
+	assert.equal(schema.properties.findings.minItems, 1);
+	assert.equal(schema.properties.findings.items.additionalProperties, false);
+	assert.equal(schema.properties.findings.items.properties.path.pattern, "\\S");
+	assert.equal(
+		schema.properties.findings.items.properties.basis.oneOf[0].properties.criterion.maximum,
+		Number.MAX_SAFE_INTEGER,
+	);
+	assert.deepEqual(schema.then.required, ["findings"]);
+	assert.equal(schema.then.properties.summary, false);
+	assert.deepEqual(schema.else.required, ["summary"]);
+	assert.equal(schema.else.properties.findings, false);
 });
 
 test("a provider-qualified delegate model launches pi with its own persistent session", () => {
@@ -265,34 +361,138 @@ test("a provider-qualified delegate model launches pi with its own persistent se
 	assert.ok(!args.includes("--no-session"));
 });
 
-test("pi audit runs load the typed submission tool", () => {
-	const audit = agent({ name: "audit", tools: ["read", "submit_audit"] });
-	const { args } = selectRuntime(undefined).invoke(audit, "review", {
-		auditExtension: "/extensions/audit-submit.ts",
+test("pi sessions use extension-owned IDs and resume the exact run", () => {
+	const implementer = agent({ name: "implementer", tools: ["read", "edit"] });
+	const runtime = selectRuntime(undefined);
+	const created = runtime.invoke(implementer, "implement", {
+		sessionDir: "/sessions/subagents/parent",
+		sessionId: "run-id",
 	});
-	assert.equal(args[args.indexOf("--extension") + 1], "/extensions/audit-submit.ts");
-	assert.equal(args[args.indexOf("--tools") + 1], "read,submit_audit");
+	assert.equal(created.args[created.args.indexOf("--session-id") + 1], "run-id");
+	assert.ok(!created.args.includes("--session"));
+	const resumed = runtime.invoke(implementer, "repair", {
+		sessionDir: "/sessions/subagents/parent",
+		sessionId: "run-id",
+		resume: true,
+	});
+	assert.equal(resumed.args[resumed.args.indexOf("--session") + 1], "run-id");
+	assert.ok(!resumed.args.includes("--session-id"));
 });
 
-test("typed audit submissions are captured and required for audit success", () => {
-	const runtime = selectRuntime(undefined);
-	const run = result({ agent: "audit" });
-	const activity = createActivityTracker(run);
-	const submission = { verdict: "pass" } as const;
-	assert.equal(isAuditSubmission(submission), true);
-	runtime.consume({
-		type: "tool_execution_end",
-		toolName: "submit_audit",
-		toolCallId: "a",
-		result: { details: submission },
-	}, run, activity);
-	runtime.consume({
+test("audit context is supplied once on Pi and native Claude", () => {
+	const audit = withProjectContext(
+		agent({ name: "audit", tools: ["read", "grep", "bash"] }),
+		[{ path: "/repo/AGENTS.md", content: "Keep the exact schema." }],
+	);
+	const inherited = { appendSystemPrompt: "Inherited discipline." };
+	const piArgs = selectRuntime(undefined).invoke(audit, "review", inherited).args;
+	assert.equal(piArgs[piArgs.indexOf("--tools") + 1], "read,grep,bash");
+	assert.ok(!piArgs.includes("--extension"));
+	assert.ok(piArgs.includes("--no-context-files"));
+	assert.equal(piArgs.filter((arg) => arg === "--append-system-prompt").length, 1);
+	const piPrompt = piArgs[piArgs.indexOf("--append-system-prompt") + 1];
+	assert.equal(piPrompt.split("Keep the exact schema.").length - 1, 1);
+
+	const claudeArgs = selectRuntime("claude-opus-5").invoke(
+		audit,
+		"review",
+		inherited,
+		"claude-opus-5",
+	).args;
+	assert.deepEqual(claudeTools(audit), ["Bash", "Grep", "Read"]);
+	assert.equal(claudeArgs[claudeArgs.indexOf("--setting-sources") + 1], "");
+	assert.equal(claudeArgs.filter((arg) => arg === "--append-system-prompt").length, 1);
+	const claudePrompt = claudeArgs[claudeArgs.indexOf("--append-system-prompt") + 1];
+	assert.equal(claudePrompt.split("Keep the exact schema.").length - 1, 1);
+	assert.equal(claudePrompt, piPrompt);
+});
+
+test("Pi parses audit text once, while native Claude uses structured output", () => {
+	const pass = { verdict: "pass", summary: "The staged candidate satisfies every criterion." } as const;
+	const fail = {
+		verdict: "fail" as const,
+		findings: [{
+			basis: { source: "overall" as const, criterion: 2 },
+			path: "pkg/index.ts",
+			evidence: "Concrete evidence.",
+			failure: "The context rule fails.",
+		}],
+	};
+	assert.equal(isAuditResult(pass), true);
+	assert.equal(isAuditResult(fail), true);
+	assert.deepEqual(parseAuditResult(JSON.stringify(pass)), pass);
+	assert.deepEqual(parseAuditResult(`\n${JSON.stringify(fail)}\n`), fail);
+	for (const invalid of [
+		"PASS",
+		"```json\n{\"verdict\":\"pass\"}\n```",
+		"Report: {\"verdict\":\"pass\"}",
+		'{"verdict":"pass"}',
+		'{"verdict":"pass","summary":""}',
+		'{"verdict":"pass","summary":" padded"}',
+		'{"verdict":"pass","summary":"two\\nlines"}',
+		JSON.stringify({ verdict: "pass", summary: "x".repeat(501) }),
+		'{"verdict":"pass","summary":"valid","findings":[]}',
+		'{"verdict":"pass","summary":"valid","extra":true}',
+		'{"verdict":"fail","findings":[]}',
+		'{"verdict":"fail"}',
+		JSON.stringify({ verdict: "fail", findings: [{ basis: { source: "overall", criterion: 0 }, path: "x", evidence: "e", failure: "f" }] }),
+		JSON.stringify({ verdict: "fail", findings: [{ basis: { source: "overall", criterion: 1, extra: true }, path: "x", evidence: "e", failure: "f" }] }),
+	]) assert.equal(parseAuditResult(invalid), undefined, invalid);
+
+	const piRun = result({ agent: "audit" });
+	selectRuntime(undefined).consume({
 		type: "message_end",
-		message: { role: "assistant", stopReason: "stop", content: [] },
-	}, run, activity);
-	assert.deepEqual(run.audit, submission);
-	assert.equal(classifyResult(run).kind, "success");
-	assert.equal(classifyResult(result({ agent: "audit", output: "PASS", stopReason: "stop" })).kind, "invalid-response");
+		message: {
+			role: "assistant",
+			stopReason: "stop",
+			content: [{ type: "text", text: JSON.stringify(pass) }],
+		},
+	}, piRun, createActivityTracker(piRun));
+	finalizeRunResult(piRun);
+	assert.deepEqual(piRun.audit, pass);
+	assert.equal(classifyResult(piRun).kind, "success");
+
+	const claudeRun = runClaude([{
+		type: "result",
+		subtype: "success",
+		is_error: false,
+		stop_reason: "end_turn",
+		result: "non-authoritative display text",
+		structured_output: fail,
+	}], result({ agent: "audit" })).result;
+	finalizeRunResult(claudeRun);
+	assert.equal(claudeRun.output, "");
+	assert.equal(claudeRun.audit, fail);
+	assert.equal(classifyResult(claudeRun).kind, "success");
+
+	const malformedStructured = runClaude([{
+		type: "result",
+		subtype: "success",
+		is_error: false,
+		result: JSON.stringify(pass),
+		structured_output: { verdict: "pass" },
+	}], result({ agent: "audit" })).result;
+	finalizeRunResult(malformedStructured);
+	assert.equal(malformedStructured.output, "");
+	assert.equal(malformedStructured.audit, undefined);
+	assert.equal(classifyResult(malformedStructured).kind, "invalid-response");
+
+	const missingStructured = runClaude([{
+		type: "result",
+		subtype: "success",
+		is_error: false,
+		result: JSON.stringify(pass),
+	}], result({ agent: "audit" })).result;
+	finalizeRunResult(missingStructured);
+	assert.equal(missingStructured.output, "");
+	assert.equal(missingStructured.audit, undefined);
+	assert.equal(classifyResult(missingStructured).kind, "invalid-response");
+
+	const accepted = result({ agent: "audit", output: JSON.stringify(pass), audit: pass, stopReason: "stop" });
+	assert.equal(classifyResult(accepted).kind, "success");
+	assert.equal(classifyResult(result({ agent: "audit", output: JSON.stringify(pass), stopReason: "stop" })).kind, "invalid-response");
+	assert.equal(classifyResult(result({ agent: "audit", output: JSON.stringify(pass), audit: pass, stopReason: "length" })).kind, "length");
+	assert.equal(classifyResult(result({ agent: "audit", output: JSON.stringify(pass), audit: pass, termination: "cancelled" })).kind, "cancelled");
 });
 
 test("an omitted delegate model launches pi and inherits the session model", () => {
@@ -488,6 +688,7 @@ test("a tool call carries the argument that identifies it", () => {
 test("both lanes report the same call the same way", () => {
 	const seen: string[] = [];
 	const activity: ActivityTracker = {
+		think: () => undefined,
 		start: (_id, tool, detail) => seen.push(`start ${tool} ${detail}`),
 		end: (_id, failed) => seen.push(`end ${failed}`),
 	};
@@ -576,13 +777,13 @@ test("a child killed before its envelope still shows the last thing it said", ()
 	assert.equal(classifyResult(run).kind, "invalid-response");
 });
 
-test("the result envelope wins, and an empty one does not erase the text before it", () => {
+test("the final result envelope is authoritative even when empty", () => {
 	const said = { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "midway" }] } };
 	const { result: finished } = runClaude([said, { type: "result", subtype: "success", stop_reason: "end_turn", result: "the report" }]);
 	assert.equal(finished.output, "the report");
 	assert.equal(classifyResult(finished).kind, "success");
 
-	// An empty final answer is not an answer, so the earlier text survives for reading.
 	const { result: blank } = runClaude([said, { type: "result", subtype: "success", stop_reason: "end_turn", result: "" }]);
-	assert.equal(blank.output, "midway");
+	assert.equal(blank.output, "");
+	assert.equal(classifyResult(blank).kind, "invalid-response");
 });

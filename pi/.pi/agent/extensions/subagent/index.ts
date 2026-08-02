@@ -32,16 +32,18 @@ import {
 	formatSize,
 	getAgentDir,
 	getMarkdownTheme,
+	loadProjectContextFiles,
 	parseFrontmatter,
 	type Theme,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Markdown, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { loadAuditProjectContext, withProjectContext } from "./audit-context.ts";
 import {
 	type Agent,
 	agentFromFrontmatter,
-	type AuditSubmission,
+	type AuditResult,
 	childEnvironment,
 	childSessionDir,
 	claudeTools,
@@ -51,16 +53,18 @@ import {
 	type Inherited,
 	isRecord,
 	isRunResult,
+	finalizeRunResult,
 	modelLabel,
 	preview,
 	type RunResult,
 	createActivityTracker,
+	createChildProtocol,
+	runResultBoundsError,
 	selectRuntime,
 } from "./runtimes.ts";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const AGENTS_DIR = join(EXTENSION_DIR, "agents");
-const AUDIT_EXTENSION = join(EXTENSION_DIR, "audit-submit.ts");
 const AGENT_DIR = getAgentDir();
 /** Children still running. The abort signal covers a cancelled call; this covers a dead session. */
 const LIVE = new Set<ReturnType<typeof spawn>>();
@@ -171,10 +175,19 @@ function runAgent(
 		// Tracked so session teardown can end it. A child outliving its session is not merely a
 		// stray process: it goes on spending tokens with nothing left to read what it produces.
 		LIVE.add(child);
-		let pending = "";
-		let stderr = "";
+		const protocol = createChildProtocol();
 		const activity = createActivityTracker(result);
+		let protocolError: string | undefined;
 
+		const failProtocol = (message: string) => {
+			if (protocolError) return;
+			protocolError = `invalid child protocol: ${message}`;
+			result.output = "";
+			result.audit = undefined;
+			result.stopReason = "error";
+			result.errorMessage = protocolError;
+			void terminateChild(child);
+		};
 		const consume = (line: string) => {
 			if (!line.trim()) return;
 			let event: unknown;
@@ -184,22 +197,33 @@ function runAgent(
 				return; // A non-JSON line is diagnostic noise, not a protocol failure.
 			}
 			if (!isRecord(event)) return;
-			if (runtime.consume(event, result, activity)) onProgress?.(snapshot(result, startedAtMs));
+			if (!runtime.consume(event, result, activity)) return;
+			const boundsError = runResultBoundsError(result);
+			if (boundsError) {
+				failProtocol(boundsError);
+				return;
+			}
+			onProgress?.(snapshot(result, startedAtMs));
+		};
+		const consumeChunk = (chunk: Buffer | Uint8Array) => {
+			const parsed = protocol.pushStdout(chunk);
+			if (parsed.error) {
+				failProtocol(parsed.error);
+				return;
+			}
+			for (const line of parsed.lines) {
+				if (protocolError) return;
+				consume(line);
+			}
 		};
 
-		child.stdout.setEncoding("utf-8");
-		child.stdout.on("data", (chunk: string) => {
-			pending += chunk;
-			let newline = pending.indexOf("\n");
-			while (newline >= 0) {
-				consume(pending.slice(0, newline));
-				pending = pending.slice(newline + 1);
-				newline = pending.indexOf("\n");
-			}
-		});
-		child.stderr.setEncoding("utf-8");
-		child.stderr.on("data", (chunk: string) => {
-			stderr += chunk;
+		const stdout = child.stdout;
+		const stderrStream = child.stderr;
+		if (!stdout || !stderrStream) throw new Error("child process stdio is unavailable");
+		stdout.on("data", consumeChunk);
+		stderrStream.on("data", (chunk: Buffer | Uint8Array) => {
+			const error = protocol.pushStderr(chunk);
+			if (error) failProtocol(error);
 		});
 
 		const kill = () => {
@@ -216,13 +240,22 @@ function runAgent(
 		child.once("close", () => {
 			LIVE.delete(child);
 			signal?.removeEventListener("abort", kill);
-			consume(pending);
+			if (!protocolError) {
+				const final = protocol.finishStdout();
+				if (final.error) failProtocol(final.error);
+				else for (const line of final.lines) consume(line);
+			}
+			if (!protocolError) {
+				const boundsError = runResultBoundsError(result);
+				if (boundsError) failProtocol(boundsError);
+			}
 			// A step still open here never finished, and keeps its running mark to say so rather
 			// than reading as the last thing that succeeded.
 			result.activity = undefined;
 			result.durationMs = Date.now() - startedAtMs;
-			if (!result.output.trim() && !result.errorMessage && stderr.trim()) {
-				result.errorMessage = stderr.trim().split("\n").slice(-5).join("\n");
+			finalizeRunResult(result);
+			if (!result.output.trim() && !result.errorMessage && protocol.stderr().trim()) {
+				result.errorMessage = protocol.stderr().trim().split("\n").slice(-5).join("\n");
 			}
 			resolve(result);
 		});
@@ -242,14 +275,14 @@ function formatDuration(durationMs: number): string {
 	return `${Math.floor(durationMs / 60_000)}m${Math.round((durationMs % 60_000) / 1000)}s`;
 }
 
-function auditReport(submission: AuditSubmission): string {
+function auditReport(submission: AuditResult): string {
 	if (submission.verdict === "pass") return "Audit: PASS";
 	return [
 		"Audit: FAIL",
 		...submission.findings.map((finding, index) => {
-			const basis = finding.basis.source === "phase"
-				? `phase criterion ${finding.basis.criterion}`
-				: `${finding.basis.path} ${finding.basis.ref}`;
+			const basis = finding.basis.source === "phase" || finding.basis.source === "overall"
+				? `${finding.basis.source} criterion ${finding.basis.criterion}`
+				: `${finding.basis.path}: ${finding.basis.rule}`;
 			return `F${index + 1} [${basis}] ${finding.path}\nEvidence: ${finding.evidence}\nFailure: ${finding.failure}`;
 		}),
 	].join("\n\n");
@@ -320,14 +353,54 @@ function resultHeader(result: RunResult, isPartial: boolean, theme: Theme): stri
 	return `${header} ${theme.fg("muted", `· ${stats}`)}`;
 }
 
+/** One line collapsed, then header/task/steps/report when expanded. */
+function continuationBreadcrumb(runId: string): string {
+	return `[Run ${runId}; continue with delegate({ runId: ${JSON.stringify(runId)}, task: "..." })]`;
+}
+
+function renderDelegateResult(
+	result: { content: Array<{ type: string; text?: string }>; details: unknown },
+	{ expanded, isPartial }: { expanded: boolean; isPartial: boolean },
+	theme: Theme,
+): Component {
+	const details = result.details;
+	if (!isRunResult(details)) {
+		const first = result.content[0];
+		return new Text(first?.type === "text" ? first.text ?? "(no output)" : "(no output)", 0, 0);
+	}
+	const outcome = classifyResult(details);
+	const header = new Text(resultHeader(details, isPartial, theme), 0, 0);
+	if (!expanded) return header;
+	const container = new Container();
+	container.addChild(header);
+	container.addChild(new Text(theme.fg("muted", "── task ──"), 0, 0));
+	container.addChild(new Text(theme.fg("dim", details.task), 0, 0));
+	for (const line of stepLines(details, theme)) container.addChild(line);
+	if (!isPartial && outcome.message) {
+		container.addChild(new Text(theme.fg("error", outcome.message), 0, 0));
+	}
+	const visibleReport = details.audit ? auditReport(details.audit) : details.output.trim();
+	if (visibleReport) {
+		// "The run finished and this is its report" and "this is the last thing it said" are
+		// different claims, and the label is the only thing that distinguishes them.
+		const finished = !isPartial && outcome.kind === "success";
+		container.addChild(
+			new Text(theme.fg(finished ? "muted" : "warning", finished ? "── report ──" : "── last output ──"), 0, 0),
+		);
+		container.addChild(new Markdown(visibleReport, 0, 0, getMarkdownTheme()));
+	}
+	return container;
+}
+
 export default function subagentExtension(pi: ExtensionAPI): void {
 	const { agents: catalog, broken } = loadAgents();
 	const continuable = new Map<
 		string,
 		{ agent: string; model?: string; sessionDir: string }
 	>();
-	const roster =
-		catalog.map((agent) => `${agent.name} (${agent.tools.join(", ")}): ${agent.description}`).join("; ") || "none";
+	const roster = catalog.map((agent) =>
+		`${agent.name} (${agent.tools.length ? agent.tools.join(", ") : "no tools"}): ${agent.description}`
+	).join("; ") || "none";
 	const piModels = enabledModels();
 	let inheritedAppendSystemPrompt: string | undefined;
 
@@ -360,24 +433,25 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 			name: "delegate",
 			label: "Delegate",
 			description:
-				`Run one bounded task as a configured agent in its own process with a fresh context. ` +
-				`The agent cannot see this conversation, so the task must contain everything it needs — ` +
-				`prefer file paths over pasted contents, it can read them itself. Emit several delegate ` +
-				`calls in one message to run agents concurrently and mutually blind. Omit \`model\` to use ` +
-				`the current Pi model; pass it to select an enabled Pi model` +
-				(includeNativeClaude ? ` or a native local Claude model. ` : `. `) +
+				`Run one isolated, bounded task as a configured agent. Start a fresh run with agent, or ` +
+				`resume an exact prior implementer run with runId. The child does not see the parent ` +
+				`conversation, so provide a complete brief and exact file paths. Omit model to inherit the current Pi model` +
+				(includeNativeClaude ? `; enabled Pi and native local Claude models are available. ` : `; enabled Pi models are available. `) +
 				`Agents: ${roster}`,
-			promptSnippet: "Delegate a bounded task to a fresh-context agent in its own process",
+			promptSnippet: "Delegate or continue one bounded agent task in its own process",
 			promptGuidelines: [
-				"Use delegate for independent review, research, or a bounded implementation.",
-				"Emit two or more delegate calls in a single message when the results must be independent; write every task before issuing any of them.",
+				"Use delegate for independent review, research, or bounded implementation.",
 			],
 			parameters: Type.Object({
-				agent: Type.String({
-					description: `One of: ${catalog.map((agent) => agent.name).join(", ")}`,
-				}),
+				agent: Type.Optional(Type.String({
+					description: `Fresh run role; one of: ${catalog.map((agent) => agent.name).join(", ")}`,
+				})),
+				runId: Type.Optional(Type.String({
+					description: "Exact prior implementer run to continue; cannot be combined with agent or model.",
+					minLength: 1,
+				})),
 				task: Type.String({
-					description: "The complete brief. The agent sees nothing else.",
+					description: "The complete brief; the child does not see the parent conversation.",
 					minLength: 1,
 				}),
 				model: Type.Optional(
@@ -393,80 +467,94 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 			}),
 
 			renderCall(args, theme) {
-				const agent = args.agent || "…";
+				const label = args.runId
+					? continuable.get(args.runId)?.agent ?? args.runId
+					: args.agent || "…";
 				const task = args.task ? preview(args.task, TASK_PREVIEW_MAX) : "…";
-				return new Text(theme.fg("toolTitle", theme.bold(agent)) + theme.fg("dim", `(${task})`), 0, 0);
+				return new Text(theme.fg("toolTitle", theme.bold(label)) + theme.fg("dim", `(${task})`), 0, 0);
 			},
 
 			// Called during the run too (isPartial), so this is where progress, the full task, and the
 			// report all live: renderCall never receives `expanded`, so nothing collapsible can go there.
-			renderResult(result, { expanded, isPartial }, theme) {
-				const details = result.details;
-				if (!isRunResult(details)) {
-					const first = result.content[0];
-					return new Text(first?.type === "text" ? first.text : "(no output)", 0, 0);
-				}
-				const outcome = classifyResult(details);
-				const header = new Text(resultHeader(details, isPartial, theme), 0, 0);
-				if (!expanded) return header;
-				const container = new Container();
-				container.addChild(header);
-				container.addChild(new Text(theme.fg("muted", "── task ──"), 0, 0));
-				container.addChild(new Text(theme.fg("dim", details.task), 0, 0));
-				for (const line of stepLines(details, theme)) container.addChild(line);
-				if (!isPartial && outcome.message) {
-					container.addChild(new Text(theme.fg("error", outcome.message), 0, 0));
-				}
-				if (details.output.trim()) {
-					// "The run finished and this is its report" and "this is the last thing it said" are
-					// different claims, and the label is the only thing that distinguishes them.
-					const finished = !isPartial && outcome.kind === "success";
-					container.addChild(
-						new Text(theme.fg(finished ? "muted" : "warning", finished ? "── report ──" : "── last output ──"), 0, 0),
-					);
-					container.addChild(new Markdown(details.output.trim(), 0, 0, getMarkdownTheme()));
-				}
-				return container;
-			},
+			renderResult: renderDelegateResult,
 
 			async execute(_toolCallId, params, signal, onUpdate, ctx) {
 				const { agents } = loadAgents();
-				const found = agents.find((candidate) => candidate.name === params.agent);
-				if (!found) {
-					throw new Error(`unknown agent ${params.agent}; available: ${agents.map((a) => a.name).join(", ") || "none"}`);
+				let agent: Agent;
+				let model: string | undefined;
+				let inherited: Inherited;
+				let runId: string | undefined;
+				let sessionDir: string;
+
+				if (params.runId) {
+					if (params.agent || params.model) throw new Error("agent and model must be omitted when runId is given");
+					const prior = continuable.get(params.runId);
+					if (!prior) throw new Error(`unknown or non-continuable run ${params.runId}`);
+					const found = agents.find((candidate) => candidate.name === prior.agent);
+					if (!found || found.name !== "implementer") {
+						throw new Error(`run ${params.runId} cannot be continued`);
+					}
+					agent = found;
+					model = prior.model;
+					runId = params.runId;
+					sessionDir = prior.sessionDir;
+					inherited = {
+						appendSystemPrompt: inheritedAppendSystemPrompt,
+						model,
+						sessionDir,
+						sessionId: runId,
+						resume: true,
+					};
+				} else {
+					if (!params.agent) throw new Error("agent is required when runId is omitted");
+					const found = agents.find((candidate) => candidate.name === params.agent);
+					if (!found) {
+						throw new Error(`unknown agent ${params.agent}; available: ${agents.map((a) => a.name).join(", ") || "none"}`);
+					}
+					const suppliedAuditBaseRef = "auditBaseRef" in params ? params.auditBaseRef : undefined;
+					const auditBaseRef = found.name === "audit" &&
+						typeof suppliedAuditBaseRef === "string" &&
+						/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(suppliedAuditBaseRef)
+						? suppliedAuditBaseRef
+						: undefined;
+					agent = found.name === "audit"
+						? withProjectContext(found, loadAuditProjectContext(ctx.cwd, AGENT_DIR, loadProjectContextFiles, auditBaseRef))
+						: found;
+					model = params.model;
+					const runtime = selectRuntime(model);
+					if (runtime.name === "claude") claudeTools(agent);
+					sessionDir = childSessionDir(
+						ctx.sessionManager.getSessionDir(),
+						ctx.sessionManager.getSessionId(),
+						AGENT_DIR,
+					);
+					runId = runtime.name === "pi" ? randomUUID() : undefined;
+					inherited = {
+						appendSystemPrompt: inheritedAppendSystemPrompt,
+						model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
+						sessionDir,
+						sessionId: runId,
+					};
 				}
-				// Native claude needs translated tools; Pi uses the agent's tool names directly.
-				const runtime = selectRuntime(params.model);
-				if (runtime.name === "claude") claudeTools(found);
-				const sessionDir = childSessionDir(
-					ctx.sessionManager.getSessionDir(),
-					ctx.sessionManager.getSessionId(),
-					AGENT_DIR,
-				);
-				const runId = runtime.name === "pi" ? randomUUID() : undefined;
-				const inherited: Inherited = {
-					appendSystemPrompt: inheritedAppendSystemPrompt,
-					model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
-					sessionDir,
-					sessionId: runId,
-					auditExtension: AUDIT_EXTENSION,
-				};
-				const result = await runAgent(found, params.task, ctx.cwd, inherited, params.model, signal, (partial) => {
+
+				const result = await runAgent(agent, params.task, ctx.cwd, inherited, model, signal, (partial) => {
 					onUpdate?.({
 						content: [{ type: "text", text: partial.activity ?? "thinking" }],
 						details: partial,
 					});
 				});
-				if (runId && found.name !== "audit") {
-					continuable.set(runId, {
-						agent: found.name,
-						model: modelLabel(result),
-						sessionDir,
-					});
+				if (runId && agent.name === "implementer") {
+					continuable.set(runId, { agent: agent.name, model: modelLabel(result), sessionDir });
 				}
 				const outcome = classifyResult(result);
 				if (outcome.kind !== "success") {
-					const failure = truncateHead(outcome.message ?? `${found.name} failed.`, { maxLines: 10, maxBytes: 1000 });
+					const continuation = runId && agent.name === "implementer"
+						? `${continuationBreadcrumb(runId)}\n\n`
+						: "";
+					const failure = truncateHead(
+						`${continuation}${outcome.message ?? `${agent.name} failed.`}`,
+						{ maxLines: 12, maxBytes: 1200 },
+					);
 					return {
 						content: [{ type: "text" as const, text: failure.content }],
 						details: result,
@@ -475,8 +563,14 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				}
 				// Tools must bound what they put in the parent's context, and several of these run at
 				// once. `details` keeps the whole report for the expanded view.
-				const report = truncateHead(
+				const reportSource = [
+					runId && agent.name === "implementer"
+						? continuationBreadcrumb(runId)
+						: "",
 					result.audit ? auditReport(result.audit) : result.output,
+				].filter(Boolean).join("\n\n");
+				const report = truncateHead(
+					reportSource,
 					{
 						maxLines: DEFAULT_MAX_LINES,
 						maxBytes: DEFAULT_MAX_BYTES,
