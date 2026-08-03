@@ -95,6 +95,7 @@ import {
 	findTaskBySession,
 	listTasks,
 	loadTask,
+	removeInvalidTaskRecord,
 	removeTaskRecord,
 	saveTask,
 	slugify,
@@ -828,8 +829,27 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 	}
 
 	async function removeTask(ctx: ExtensionCommandContext, slug: string): Promise<void> {
+		let task: StoredTask;
 		try {
-			const task = loadTask(paths, slug);
+			task = loadTask(paths, slug);
+		} catch {
+			try {
+				const confirmed = await ctx.ui.confirm(
+					`Delete invalid task ${slug}?`,
+					"Remove only its invalid task state? Any managed worktree, branch, and session history will remain.",
+				);
+				if (!confirmed) return;
+				removeInvalidTaskRecord(paths, slug);
+				ctx.ui.notify(`${slug}: invalid task state removed; worktree and branch retained if present`, "info");
+			} catch (error) {
+				ctx.ui.notify(
+					`${slug}: deletion failed — ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
+			return;
+		}
+		try {
 			const registered = await hasTaskWorktreeRegistration(task.document.repository);
 			const present = registered &&
 				lstatSync(task.document.repository.worktree, { throwIfNoEntry: false });

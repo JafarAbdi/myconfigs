@@ -149,13 +149,21 @@ export function saveTask(task: StoredTask, document: TaskDocument): StoredTask {
 	return { directory: task.directory, document };
 }
 
+function removeExactTaskDirectory(directory: string): void {
+	const stat = lstatSync(directory, { throwIfNoEntry: false });
+	if (!stat?.isDirectory() || stat.isSymbolicLink() || realpathSync(directory) !== directory)
+		throw new Error(`${directory}: invalid task directory`);
+	rmSync(directory, { recursive: true });
+	syncDirectory(dirname(directory));
+}
+
 export function removeTaskRecord(task: StoredTask): void {
 	requireOwnedRepository(task.document, storedTaskWorktree(task));
-	const stat = lstatSync(task.directory, { throwIfNoEntry: false });
-	if (!stat?.isDirectory() || stat.isSymbolicLink() || realpathSync(task.directory) !== task.directory)
-		throw new Error(`${task.directory}: invalid task directory`);
-	rmSync(task.directory, { recursive: true });
-	syncDirectory(dirname(task.directory));
+	removeExactTaskDirectory(task.directory);
+}
+
+export function removeInvalidTaskRecord(paths: RuntimePaths, slug: string): void {
+	removeExactTaskDirectory(taskDirectory(paths, slug));
 }
 
 export interface ScannedTask {

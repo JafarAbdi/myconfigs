@@ -12,6 +12,7 @@ import {
 	findTaskBySession,
 	listTasks,
 	loadTask,
+	removeInvalidTaskRecord,
 	removeTaskRecord,
 	saveTask,
 	scanTasks,
@@ -177,6 +178,8 @@ test("old and sidecar-only task directories are invalid without migration", () =
 		assert.equal(entry.task, undefined);
 		assert.equal(entry.summary.stage, "invalid");
 		assert.match(entry.summary.error ?? "", /task\.json is invalid/);
+		removeInvalidTaskRecord(fixture.paths, "legacy-task");
+		assert.equal(existsSync(directory), false);
 	} finally {
 		rmSync(fixture.root, { recursive: true, force: true });
 	}
