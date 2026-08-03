@@ -1,8 +1,8 @@
-# JURUC C4 Contract
+# JURUC C5 Contract
 
 ## Objective
 
-Run one strict Questions → Research → Specification → Plan → Implementation workflow with fresh bounded sessions, durable authoritative artifacts, deferred workspace activation, phase-declared verification, and extension-owned local commits.
+Run one strict Questions → Research → Specification → Plan → Implementation workflow with fresh bounded sessions, durable authoritative artifacts, deferred workspace activation, phase-declared verification, and extension-owned local commits. Provide isolated advisory deviation and correctness reviewer primitives without making review reachable from the task lifecycle.
 
 ## Lifecycle
 
@@ -50,7 +50,16 @@ Run one strict Questions → Research → Specification → Plan → Implementat
 - Before implementation resumes, descendant commits absent from `task.json` reset mixed to the latest recorded task head, preserving file changes. After an uncertain checkpoint save, reload exact `task.json`: recover only an installed old document, retry durability for an installed new checkpoint, and never move history for ambiguous state. Divergence fails; recorded checkpoint commits remain immutable.
 - Task deletion removes only an exact registered managed worktree, if present, then task state; the task branch is retained. Pre-workspace, branch-only, and unmanaged-path cases never delete unrelated paths.
 
+## Advisory Reviewers
+
+- C5 defines two reviewer kinds: factual deviation and bounded correctness. They are deliberately unreachable from `task.json`, `/juruc`, and extension tools until C6; there are no review stages, rounds, transitions, or index wiring.
+- Deviation receives only validated Specification, accepted Plan authoritative phase fields, cumulative patch identity/text, and projected checkpoint verification evidence. It reports concrete divergence from required or accepted behavior, not style or speculation.
+- Correctness receives only validated Specification, cumulative patch identity/text, and projected checkpoint verification evidence (phase id/title plus evidence). It receives no accepted Plan object, goals, scopes, or instructions and reports only concrete introduced correctness, security, data-loss, or error-handling defects.
+- Each reviewer durably persists a fresh mode-0600 Pi session header and reviewer label before one model call, rooted at the task worktree with optional parent-session metadata. It loads no extensions/skills/prompts/themes/project context, has zero tools, uses normal configured model reasoning, and disables agent/provider retries and compaction only through non-persistent settings overrides.
+- Patch content is untrusted data, never instructions. A reviewer emits exactly one final canonical JSON text block, optionally alongside normal thinking blocks. Parsing is byte-bounded, rejects duplicate object members and noncanonical escapes while allowing ordinary pretty whitespace/key order, is all-or-nothing and exact-field, and permits annotations only on exact changed-side lines in the immutable cumulative patch.
+- Reviewer outcomes are advisory completed annotations or bounded `malformed-output`/`session-error` failures. Reviewers never retry, edit, execute, block, correct, or mutate task lifecycle state.
+
 ## Deferred Work
 
-- Advisory deviation/correctness reviewers, authoritative review rounds, browser feedback, corrections, explicit final acceptance, and final review TUI remain C5+ work.
+- Lifecycle-reachable review orchestration, authoritative review rounds, browser feedback, corrections, explicit final acceptance, and final review TUI remain C6+ work.
 - No PR creation, push, deployment, publication, remote review, accounts, telemetry, or collaboration features.
