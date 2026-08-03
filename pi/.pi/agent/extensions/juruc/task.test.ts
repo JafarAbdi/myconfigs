@@ -8,12 +8,14 @@ import {
 	activateTaskPlan,
 	addTaskReviewComment,
 	appendTaskSession,
+	completeTaskCorrection,
 	completeTaskPhase,
 	completeTaskResearch,
 	completeTaskReviewer,
 	confirmTaskQuestions,
 	confirmTaskSpecification,
 	createTaskDocument,
+	currentTaskCorrectionRound,
 	currentTaskPhase,
 	currentTaskReviewRound,
 	decideTaskReview,
@@ -21,6 +23,7 @@ import {
 	findTaskSession,
 	loadTaskDocument,
 	parseTaskDocument,
+	registerTaskCorrectionStart,
 	registerTaskReviewerStart,
 	saveTaskDocument,
 	serializeTaskDocument,
@@ -75,6 +78,7 @@ const failed: ReviewerOutcome = {
 };
 const now = "2026-08-03T00:00:00.000Z";
 const commentId = "12345678-1234-4234-8234-123456789abc";
+const correctionEvidence = [{ command: "npm test", exitCode: 0, summary: "Correction passed." }];
 
 function input(): NewTaskInput {
 	return {
@@ -132,7 +136,7 @@ function terminalReview(): TaskDocument {
 	return completeTaskReviewer(task, "correctness", failed);
 }
 
-test("version 5 task.json round-trips atomically from Questions", () => {
+test("version 6 task.json round-trips atomically from Questions", () => {
 	const directory = mkdtempSync(join(tmpdir(), "juruc-task-"));
 	try {
 		const path = join(directory, "task.json");
@@ -247,11 +251,133 @@ test("comments preserve immutable fields and decisions freeze the round", () => 
 
 	let approval = terminalReview();
 	approval = decideTaskReview(approval, "approve", now);
-	assert.equal(approval.stage, "review");
-	assert.deepEqual(
-		parseTaskDocument(JSON.stringify({ ...approval, stage: "done" })).stage,
-		"done",
+	assert.equal(approval.stage, "done");
+	assert.equal(approval.reviewRounds.at(-1)?.correction, null);
+	assert.throws(
+		() => parseTaskDocument(JSON.stringify({ ...approval, stage: "review" })),
+		/invalid/,
 	);
+	assert.throws(() => registerTaskCorrectionStart(approval, "/sessions/correction-1.jsonl"), /no current review round/);
+});
+
+test("corrections append fresh cumulative rounds and freeze completed ones", () => {
+	let task = decideTaskReview(
+		addTaskReviewComment(terminalReview(), {
+			filePath: "src/index.ts",
+			side: "additions",
+			startLine: 4,
+			endLine: 4,
+			body: "Fix the changed line.",
+		}, commentId, now),
+		"send-feedback",
+		now,
+	);
+	assert.equal(currentTaskCorrectionRound(task), undefined);
+	assert.throws(() => completeTaskCorrection(task, "Fixed.", correctionEvidence, oid("4")), /has not started/);
+
+	task = registerTaskCorrectionStart(task, "/sessions/correction-1.jsonl");
+	assert.deepEqual(currentTaskReviewRound(task)?.correction, {
+		sessionPath: "/sessions/correction-1.jsonl",
+		result: null,
+	});
+	assert.equal(currentTaskCorrectionRound(task)?.number, 1);
+	assert.equal(findTaskSession(task, { kind: "correction", round: 1 })?.path, "/sessions/correction-1.jsonl");
+	assert.throws(() => registerTaskCorrectionStart(task, "/sessions/correction-2.jsonl"), /already started/);
+
+	const frozen = structuredClone(task.reviewRounds[0]);
+	task = completeTaskCorrection(task, "Fixed the changed line.", correctionEvidence, oid("4"));
+	assert.equal(task.stage, "review");
+	assert.equal(task.reviewRounds.length, 2);
+	assert.deepEqual(task.reviewRounds[0], {
+		...frozen,
+		correction: {
+			sessionPath: "/sessions/correction-1.jsonl",
+			result: { resolution: "Fixed the changed line.", verificationEvidence: correctionEvidence, commit: oid("4") },
+		},
+	});
+	assert.deepEqual(task.reviewRounds[1], {
+		number: 2,
+		baseCommit: oid("1"),
+		headCommit: oid("4"),
+		reviewers: { deviation: null, correctness: null },
+		humanComments: [],
+		decision: null,
+		correction: null,
+	});
+	assert.throws(() => completeTaskCorrection(task, "Again.", correctionEvidence, oid("5")), /no Send Feedback decision/);
+	assert.throws(() => deleteTaskReviewComment(task, commentId), /not found/);
+	assert.deepEqual(parseTaskDocument(serializeTaskDocument(task)), task);
+
+	let second = registerTaskReviewerStart(task, "deviation", "/sessions/deviation-2.jsonl");
+	second = completeTaskReviewer(second, "deviation", completed);
+	second = registerTaskReviewerStart(second, "correctness", "/sessions/correctness-2.jsonl");
+	second = completeTaskReviewer(second, "correctness", completed);
+	second = decideTaskReview(second, "approve", now);
+	assert.equal(second.stage, "done");
+	assert.equal(second.reviewRounds.length, 2);
+});
+
+test("multi-round review shapes reject broken chains, sessions, and mutated history", () => {
+	let task = decideTaskReview(
+		addTaskReviewComment(terminalReview(), {
+			filePath: "src/index.ts",
+			side: "additions",
+			startLine: 4,
+			endLine: 4,
+			body: "Fix the changed line.",
+		}, commentId, now),
+		"send-feedback",
+		now,
+	);
+	task = registerTaskCorrectionStart(task, "/sessions/correction-1.jsonl");
+	const running = structuredClone(task);
+	task = completeTaskCorrection(task, "Fixed.", correctionEvidence, oid("4"));
+
+	const rounds = () => structuredClone(task.reviewRounds);
+	for (const changed of [
+		// a later round must start from the previous round's correction commit
+		{ ...task, reviewRounds: rounds().map((round, index) => index === 1 ? { ...round, headCommit: oid("9") } : round) },
+		// every round is based on sourceHead
+		{ ...task, reviewRounds: rounds().map((round, index) => index === 1 ? { ...round, baseCommit: oid("4") } : round) },
+		// a nonfinal round must have a completed correction
+		{ ...task, reviewRounds: rounds().map((round, index) => index === 0 ? { ...round, correction: null } : round) },
+		// the last round may not carry a completed correction
+		{ ...task, reviewRounds: [rounds()[0]] },
+		// a correction slot needs its exact recorded session
+		{ ...task, sessions: task.sessions.filter((run) => run.kind !== "correction") },
+		// correction evidence must be nonzero-free and nonempty
+		{
+			...task,
+			reviewRounds: rounds().map((round, index) =>
+				index === 0
+					? { ...round, correction: { ...round.correction!, result: { ...round.correction!.result!, verificationEvidence: [] } } }
+					: round),
+		},
+		// a running correction cannot exist without its Send Feedback decision
+		{ ...running, reviewRounds: [{ ...running.reviewRounds[0], decision: null }] },
+	]) assert.throws(() => parseTaskDocument(JSON.stringify(changed)), /invalid/);
+	assert.deepEqual(parseTaskDocument(serializeTaskDocument(running)), running);
+});
+
+test("persisted correction evidence must use accepted verification commands", () => {
+	let task = decideTaskReview(
+		addTaskReviewComment(terminalReview(), {
+			filePath: "src/index.ts",
+			side: "additions",
+			startLine: 4,
+			endLine: 4,
+			body: "Fix the changed line.",
+		}, commentId, now),
+		"send-feedback",
+		now,
+	);
+	task = registerTaskCorrectionStart(task, "/sessions/correction-1.jsonl");
+	task = completeTaskCorrection(task, "Fixed.", correctionEvidence, oid("4"));
+	assert.deepEqual(parseTaskDocument(serializeTaskDocument(task)), task);
+
+	const rounds = structuredClone(task.reviewRounds);
+	rounds[0].correction!.result!.verificationEvidence[0].command = "npm run lint";
+	assert.throws(() => parseTaskDocument(JSON.stringify({ ...task, reviewRounds: rounds })), /invalid/);
 });
 
 test("review and legacy shapes are rejected strictly", () => {

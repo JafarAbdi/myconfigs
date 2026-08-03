@@ -29,6 +29,15 @@ import {
 	type FinishPhaseInput,
 	type RunVerificationInput,
 } from "./execution.ts";
+import {
+	CORRECTION_INSTRUCTION,
+	CORRECTION_TOOL_NAMES,
+	correctionPrompt,
+	FINISH_CORRECTION_SCHEMA,
+	finishCorrection,
+	runCorrectionVerification,
+	type FinishCorrectionInput,
+} from "./correction.ts";
 import { taskOptions, type TaskChoice } from "./picker.ts";
 import {
 	confirmTaskPlan,
@@ -66,6 +75,7 @@ import {
 } from "./specification.ts";
 import { readGitReviewPatch, type ReviewPatch } from "./review-git.ts";
 import { acquireTaskReviewLock } from "./review-lock.ts";
+import { activeReviewServer, openSystemBrowser } from "./review-server.ts";
 import {
 	drivePiReviewer,
 	runReviewer,
@@ -77,14 +87,17 @@ import {
 	appendTaskSession,
 	completeTaskResearch,
 	completeTaskReviewer,
+	currentTaskCorrectionRound,
 	currentTaskPhase,
 	currentTaskReviewRound,
 	findTaskSession,
 	findTaskSessionByPath,
 	loadTaskDocument,
+	registerTaskCorrectionStart,
 	registerTaskReviewerStart,
 	saveTaskDocument,
 	type DiscoverySessionKind,
+	type ReviewDecision,
 	type ReviewerKind,
 	type TaskDocument,
 	type TaskReviewRound,
@@ -121,9 +134,26 @@ const JURUC_TOOLS = new Set([
 	"juruc_set_plan",
 	"juruc_run_verification",
 	"juruc_finish_phase",
+	"juruc_finish_correction",
 ]);
 const RESEARCH_AGENTS = new Set<string>(RESEARCH_AGENT_NAMES);
-type CurrentSessionKind = DiscoverySessionKind | "implementation";
+type CurrentSessionKind = DiscoverySessionKind | "implementation" | "correction";
+
+/** The one task-owned session kind that may act right now, if any. */
+function activeSessionKind(task: TaskDocument): CurrentSessionKind | undefined {
+	switch (task.stage) {
+		case "questions":
+		case "research":
+		case "specification":
+		case "plan":
+		case "implementation":
+			return task.stage;
+		case "review":
+			return currentTaskCorrectionRound(task) ? "correction" : undefined;
+		case "done":
+			return undefined;
+	}
+}
 type ReplacementContext = Parameters<
 	NonNullable<
 		NonNullable<Parameters<ExtensionCommandContext["switchSession"]>[1]>["withSession"]
@@ -352,11 +382,15 @@ export async function prepareReview(input: PrepareReviewInput): Promise<TaskDocu
 export interface JurucDependencies {
 	readPatch?: ReviewPatchReader;
 	reviewerDriver?: ReviewerDriver;
+	/** Best-effort handoff of the local capability URL to the operator's browser. */
+	openBrowser?: (url: string) => Promise<void>;
 }
 
 export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies = {}): void {
 	const paths = runtimePaths(getAgentDir());
 	const verificationOperations = createLocalBashOperations();
+	const readPatch = dependencies.readPatch ?? readGitReviewPatch;
+	const openBrowser = dependencies.openBrowser ?? openSystemBrowser;
 	const pendingSynthesis = new Map<string, { slug: string; session: string }>();
 	let ordinaryTools: string[] | undefined;
 
@@ -366,19 +400,21 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 	}
 
 	function currentRun(task: TaskDocument, kind: CurrentSessionKind): TaskSessionRun | undefined {
-		if (kind !== "implementation") return findTaskSession(task, { kind });
-		return findTaskSession(task, {
-			kind,
-			phase: task.checkpoints.length + 1,
-		});
+		if (kind === "implementation")
+			return findTaskSession(task, { kind, phase: task.checkpoints.length + 1 });
+		if (kind === "correction") {
+			const round = currentTaskCorrectionRound(task);
+			return round ? findTaskSession(task, { kind, round: round.number }) : undefined;
+		}
+		return findTaskSession(task, { kind });
 	}
 
 	function showStatus(ctx: ExtensionContext, task = taskForSession(ctx)): void {
 		ctx.ui.setWidget("juruc", task ? [lifecycleLine(task.document)] : undefined);
 	}
 
-	function stageTools(task: TaskDocument): readonly string[] | undefined {
-		switch (task.stage) {
+	function sessionTools(kind: CurrentSessionKind, task: TaskDocument): readonly string[] {
+		switch (kind) {
 			case "questions":
 				return QUESTIONS_TOOL_NAMES;
 			case "research":
@@ -389,55 +425,52 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				return task.plan ? [] : PLANNING_TOOL_NAMES;
 			case "implementation":
 				return BUILD_TOOL_NAMES;
-			case "review":
-				return [];
-			case "done":
-				return undefined;
+			case "correction":
+				return CORRECTION_TOOL_NAMES;
 		}
+	}
+
+	function activeSession(
+		ctx: ExtensionContext,
+		task: StoredTask | undefined,
+	): CurrentSessionKind | undefined {
+		if (!task) return undefined;
+		const kind = activeSessionKind(task.document);
+		const session = currentSessionPath(ctx);
+		return kind &&
+				session &&
+				currentRun(task.document, kind)?.path === session &&
+				sameWorkingDirectory(ctx, task)
+			? kind
+			: undefined;
 	}
 
 	function activateTools(ctx: ExtensionContext, task = taskForSession(ctx)): void {
-		const session = currentSessionPath(ctx);
 		if (!ordinaryTools)
 			ordinaryTools = pi.getActiveTools().filter((name) => !JURUC_TOOLS.has(name));
-		if (!task || !session) {
+		if (!task || !currentSessionPath(ctx)) {
 			pi.setActiveTools(ordinaryTools);
 			return;
 		}
-		const stage = task.document.stage;
-		if (
-			stage === "review" ||
-			stage === "done" ||
-			currentRun(task.document, stage)?.path !== session ||
-			!sameWorkingDirectory(ctx, task)
-		) {
+		const kind = activeSession(ctx, task);
+		if (!kind) {
 			pi.setActiveTools([]);
 			return;
 		}
-		const requested = stageTools(task.document)!;
+		const requested = sessionTools(kind, task.document);
 		const registered = new Set(pi.getAllTools().map(({ name }) => name));
 		const missing = requested.filter((name) => !registered.has(name));
 		if (missing.length)
-			throw new Error(`required ${stage} tools are unavailable: ${missing.join(", ")}`);
+			throw new Error(`required ${kind} tools are unavailable: ${missing.join(", ")}`);
 		pi.setActiveTools([...requested]);
 	}
 
-	function ownedTask(
-		ctx: ExtensionContext,
-		kind: CurrentSessionKind,
-		stage: TaskDocument["stage"],
-	): StoredTask {
+	function ownedTask(ctx: ExtensionContext, kind: CurrentSessionKind): StoredTask {
 		const task = taskForSession(ctx);
-		const session = currentSessionPath(ctx);
-		if (
-			!task ||
-			!session ||
-			task.document.stage !== stage ||
-			currentRun(task.document, kind)?.path !== session ||
-			!sameWorkingDirectory(ctx, task)
-		) throw new Error(
-			`JURUC action requires the active ${stage} ${kind} session; run /juruc to resume it`,
-		);
+		if (!task || activeSession(ctx, task) !== kind)
+			throw new Error(
+				`JURUC action requires the active ${kind} session; run /juruc to resume it`,
+			);
 		return task;
 	}
 
@@ -669,9 +702,78 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				if (
 					current.document.stage === "implementation" &&
 					!currentRun(current.document, "implementation")
-				) await openImplementation(replacement, current);
+				) {
+					await openImplementation(replacement, current);
+					return;
+				}
+				// The captured `ctx` is stale here, so report through the live replacement.
+				if (current.document.stage === "review") {
+					try {
+						await openReview(replacement, current);
+					} catch (error) {
+						replacement.ui.notify(
+							`${task.document.slug}: final phase committed but its first review round did not open; run /juruc — ${error instanceof Error ? error.message : String(error)}`,
+							"warning",
+						);
+					}
+				}
 			},
 		);
+	}
+
+	/** Routes the persisted decision once the deciding response and its server are done. */
+	function routeReviewDecision(
+		ctx: ExtensionCommandContext,
+		slug: string,
+		decision: ReviewDecision,
+	): void {
+		void (async () => {
+			try {
+				await activeReviewServer.close();
+				const task = loadTask(paths, slug);
+				showStatus(ctx, task);
+				if (decision.kind === "approve") {
+					await viewDone(ctx, task);
+					return;
+				}
+				await ctx.waitForIdle();
+				await openReview(ctx, task);
+			} catch (error) {
+				try {
+					ctx.ui.notify(
+						`${slug}: decision recorded but JURUC could not continue automatically; run /juruc — ${error instanceof Error ? error.message : String(error)}`,
+						"warning",
+					);
+				} catch {}
+			}
+		})();
+	}
+
+	async function serveReview(ctx: ExtensionCommandContext, task: StoredTask): Promise<void> {
+		const round = currentTaskReviewRound(task.document)!;
+		const slug = task.document.slug;
+		const patch = await readPatch(
+			task.document.repository.worktree,
+			round.baseCommit,
+			round.headCommit,
+		);
+		const server = await activeReviewServer.serve({
+			patch,
+			taskPath: join(task.directory, "task.json"),
+			onDecision: (decision) => routeReviewDecision(ctx, slug, decision),
+		});
+		// Never touch the captured `pi` here: a routed decision runs this after session
+		// replacement, where the old extension instance's tool handle is already stale.
+		showStatus(ctx, task);
+		ctx.ui.notify(`${slug}: review ${round.number} is open at ${server.url}`, "info");
+		try {
+			await openBrowser(server.url);
+		} catch (error) {
+			ctx.ui.notify(
+				`${slug}: could not open a browser automatically — ${error instanceof Error ? error.message : String(error)}`,
+				"warning",
+			);
+		}
 	}
 
 	async function openReview(ctx: ExtensionCommandContext, selected: StoredTask): Promise<void> {
@@ -679,21 +781,76 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		if (task.document.stage !== "review")
 			throw new Error(`${task.document.slug}: task is not in review`);
 		const round = currentTaskReviewRound(task.document)!;
+		if (round.decision?.kind === "send-feedback") {
+			await activeReviewServer.close();
+			await openCorrection(ctx, task);
+			return;
+		}
 		if (Object.values(round.reviewers).some((slot) => !slot?.outcome)) {
-			const parentSession = findTaskSession(task.document, {
-				kind: "implementation",
-				phase: task.document.plan!.phases.length,
-			})?.path;
+			await activeReviewServer.close();
+			const parentSession = round.number === 1
+				? findTaskSession(task.document, {
+					kind: "implementation",
+					phase: task.document.plan!.phases.length,
+				})?.path
+				: findTaskSession(task.document, { kind: "correction", round: round.number - 1 })?.path;
 			await prepareReview({
 				taskPath: join(task.directory, "task.json"),
 				...(parentSession ? { parentSession } : {}),
-				...dependencies,
+				readPatch,
+				reviewerDriver: dependencies.reviewerDriver,
 			});
 			task = loadTask(paths, task.document.slug);
 		}
-		showStatus(ctx, task);
-		activateTools(ctx, task);
-		ctx.ui.notify(`${task.document.slug}: review prepared`, "info");
+		await serveReview(ctx, task);
+	}
+
+	async function openCorrection(
+		ctx: ExtensionCommandContext,
+		selected: StoredTask,
+	): Promise<void> {
+		let task = selected;
+		const round = currentTaskReviewRound(task.document)!;
+		if (round.decision?.kind !== "send-feedback" || round.correction?.result)
+			throw new Error(`${task.document.slug}: task has no pending correction`);
+		if (await recoverUnrecordedTaskCommits(
+			task.document.repository,
+			expectedTaskHead(task.document),
+		)) ctx.ui.notify(`${task.document.slug}: recovered an unrecorded correction commit`, "warning");
+		let session = round.correction?.sessionPath;
+		if (!session) {
+			session = createManagedSession(
+				task.document.repository.worktree,
+				`${task.document.slug} · correction ${round.number}`,
+				"juruc-correction-instruction",
+				CORRECTION_INSTRUCTION,
+				findTaskSession(task.document, { kind: "correctness-review", round: round.number })?.path,
+			);
+			task = saveTask(task, registerTaskCorrectionStart(task.document, session));
+		}
+		await switchAndSend(
+			ctx,
+			task,
+			session,
+			"review",
+			correctionPrompt(task.document, currentTaskReviewRound(task.document)!),
+			"Resume only the saved human comments for this round; verify with accepted Plan commands and call juruc_finish_correction when all evidence is zero.",
+			async (replacement) => {
+				// The captured `ctx` is stale here, so report through the live replacement.
+				try {
+					const current = loadTask(paths, task.document.slug);
+					if (
+						current.document.stage === "review" &&
+						!currentTaskReviewRound(current.document)!.decision
+					) await openReview(replacement, current);
+				} catch (error) {
+					replacement.ui.notify(
+						`${task.document.slug}: correction committed but its fresh review round did not open; run /juruc — ${error instanceof Error ? error.message : String(error)}`,
+						"warning",
+					);
+				}
+			},
+		);
 	}
 
 	async function viewDone(ctx: ExtensionCommandContext, task: StoredTask): Promise<void> {
@@ -940,7 +1097,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		parameters: SET_QUESTIONS_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: SetQuestionsInput, _signal, _onUpdate, ctx) {
-			const task = ownedTask(ctx, "questions", "questions");
+			const task = ownedTask(ctx, "questions");
 			const updated = saveTask(task, setTaskQuestions(task.document, params));
 			showStatus(ctx, updated);
 			activateTools(ctx, updated);
@@ -959,7 +1116,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		parameters: SET_SPECIFICATION_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: SetSpecificationInput, _signal, _onUpdate, ctx) {
-			const task = ownedTask(ctx, "specification", "specification");
+			const task = ownedTask(ctx, "specification");
 			const updated = saveTask(task, setTaskSpecification(task.document, params));
 			showStatus(ctx, updated);
 			activateTools(ctx, updated);
@@ -978,7 +1135,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		parameters: SET_PLAN_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: SetPlanInput, _signal, _onUpdate, ctx) {
-			const task = ownedTask(ctx, "plan", "plan");
+			const task = ownedTask(ctx, "plan");
 			const pending = saveTask(task, confirmTaskPlan(task.document, params));
 			showStatus(ctx, pending);
 			activateTools(ctx, pending);
@@ -994,17 +1151,25 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 	pi.registerTool({
 		name: "juruc_run_verification",
 		label: "Run JURUC verification",
-		description: "Run one exact verification command declared by the active implementation phase.",
+		description: "Run one exact verification command the active implementation phase or accepted Plan declared.",
 		parameters: RUN_VERIFICATION_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: RunVerificationInput, signal, _onUpdate, ctx) {
-			const task = ownedTask(ctx, "implementation", "implementation");
-			const result = await runDeclaredVerification(
-				task.document,
-				params.command,
-				verificationOperations,
-				signal,
-			);
+			const correcting = activeSession(ctx, taskForSession(ctx)) === "correction";
+			const task = ownedTask(ctx, correcting ? "correction" : "implementation");
+			const result = correcting
+				? await runCorrectionVerification(
+					task.document,
+					params.command,
+					verificationOperations,
+					signal,
+				)
+				: await runDeclaredVerification(
+					task.document,
+					params.command,
+					verificationOperations,
+					signal,
+				);
 			const status = result.cancelled
 				? "Verification cancelled"
 				: result.timedOut
@@ -1027,7 +1192,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		parameters: FINISH_PHASE_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: FinishPhaseInput, signal, _onUpdate, ctx) {
-			const task = ownedTask(ctx, "implementation", "implementation");
+			const task = ownedTask(ctx, "implementation");
 			const result = await finishCurrentPhase(
 				task.document,
 				params,
@@ -1050,7 +1215,8 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				await prepareReview({
 					taskPath: join(updated.directory, "task.json"),
 					parentSession: currentSessionPath(ctx),
-					...dependencies,
+					readPatch,
+					reviewerDriver: dependencies.reviewerDriver,
 				});
 				updated = loadTask(paths, updated.document.slug);
 				showStatus(ctx, updated);
@@ -1063,6 +1229,46 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 						: "Phase verified and committed. Starting the next phase.",
 				}],
 				details: { commit: result.commit, stage: updated.document.stage },
+				terminate: true,
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "juruc_finish_correction",
+		label: "Finish JURUC correction",
+		description: "Validate correction evidence, stage the candidate, and create its correction commit.",
+		parameters: FINISH_CORRECTION_SCHEMA as never,
+		executionMode: "sequential",
+		async execute(_id, params: FinishCorrectionInput, signal, _onUpdate, ctx) {
+			const task = ownedTask(ctx, "correction");
+			const result = await finishCorrection(
+				task.document,
+				params,
+				verificationOperations,
+				signal,
+			);
+			const updated = await persistCheckpointTask(task, result.task, {
+				save: saveTask,
+				reload: () => loadTask(paths, task.document.slug),
+				recover: async () => {
+					await recoverUnrecordedTaskCommits(
+						task.document.repository,
+						expectedTaskHead(task.document),
+					);
+				},
+			});
+			showStatus(ctx, updated);
+			activateTools(ctx, updated);
+			return {
+				content: [{
+					type: "text" as const,
+					text: "Correction verified and committed. Starting a fresh cumulative review round.",
+				}],
+				details: {
+					commit: result.commit,
+					round: currentTaskReviewRound(updated.document)?.number,
+				},
 				terminate: true,
 			};
 		},
@@ -1091,17 +1297,15 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			return;
 		}
 		const stage = task.document.stage;
-		const active = stage !== "review" && stage !== "done" &&
-			currentRun(task.document, stage)?.path === session &&
-			sameWorkingDirectory(ctx, task);
-		if (!active)
+		const kind = activeSession(ctx, task);
+		if (!kind)
 			return {
 				block: true,
 				reason: `This JURUC session is stale; run /juruc to resume the active ${stage} session`,
 			};
 		if (JURUC_TOOLS.has(event.toolName) && !isSoleCurrentToolCall(ctx, event))
 			return { block: true, reason: `${event.toolName} must be the sole tool call in its assistant message` };
-		if (stage === "research") {
+		if (kind === "research") {
 			if (event.toolName !== "delegate")
 				return { block: true, reason: "Research coordinators may only delegate" };
 			const input = event.input as Record<string, unknown>;
@@ -1114,18 +1318,18 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			}
 			return;
 		}
-		const allowed = stageTools(task.document) ?? [];
+		const allowed = sessionTools(kind, task.document);
 		if (!allowed.includes(event.toolName as never))
-			return { block: true, reason: `${stage} sessions may not call ${event.toolName}` };
+			return { block: true, reason: `${kind} sessions may not call ${event.toolName}` };
 		const expectedTools =
-			stage === "questions" ? ["juruc_set_questions"]
-				: stage === "specification" ? ["juruc_set_specification"]
-					: stage === "plan" ? ["juruc_set_plan"]
-						: stage === "implementation"
+			kind === "questions" ? ["juruc_set_questions"]
+				: kind === "specification" ? ["juruc_set_specification"]
+					: kind === "plan" ? ["juruc_set_plan"]
+						: kind === "implementation"
 							? ["juruc_run_verification", "juruc_finish_phase"]
-							: [];
+							: ["juruc_run_verification", "juruc_finish_correction"];
 		if (JURUC_TOOLS.has(event.toolName) && !expectedTools.includes(event.toolName))
-			return { block: true, reason: `${event.toolName} is unavailable while the task is ${stage}` };
+			return { block: true, reason: `${event.toolName} is unavailable in a ${kind} session` };
 	});
 
 	pi.on("tool_execution_end", async (event, ctx) => {
@@ -1152,9 +1356,12 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		}
 	});
 
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", async (event) => {
 		pendingSynthesis.clear();
 		ordinaryTools = undefined;
+		// Session replacement keeps the process-owned server; only leaving this process must close it.
+		if (event.reason === "quit" || event.reason === "reload")
+			await activeReviewServer.close().catch(() => {});
 	});
 
 	pi.registerCommand("juruc", {

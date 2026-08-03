@@ -53,7 +53,7 @@ test("task names are simple valid branch-compatible slugs", () => {
 	assert.equal(validTaskSlug("../escape"), false);
 });
 
-test("create, save, load, and list use version 5 task.json", () => {
+test("create, save, load, and list use version 6 task.json", () => {
 	const fixture = paths();
 	try {
 		let task = createTask(fixture.paths, input(fixture.root));

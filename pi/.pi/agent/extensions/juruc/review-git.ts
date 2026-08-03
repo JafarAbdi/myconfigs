@@ -24,6 +24,23 @@ export interface ReviewPatch {
 
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
+/**
+ * Measured JURUC review ceilings. Synthetic Pierre SSR runs on this machine rendered
+ * 500 files with 10,000 changed lines as ~31 MiB of HTML in ~1.0 s at ~295 MiB RSS,
+ * while 20,000 changed lines doubled that to ~1.4 s and ~489 MiB RSS. Raw patch bytes
+ * bound Git's buffer; long-line patches parse cheaply but 8 MiB of text already yields
+ * ~9 MiB of HTML. A review beyond any of these is refused clearly and never truncated.
+ */
+export const MAX_REVIEW_PATCH_BYTES = 8 * 1024 * 1024;
+export const MAX_REVIEW_FILES = 500;
+export const MAX_REVIEW_CHANGED_LINES = 10_000;
+
+function oversized(what: string, actual: number, limit: number): Error {
+	return new Error(
+		`review is too large to render: ${what} is ${actual}, above the ${limit} JURUC limit; split the task instead`,
+	);
+}
+
 export function gitDiffArguments(baseOid: string, headOid: string): string[] {
 	return [
 		"diff",
@@ -78,29 +95,40 @@ export function reviewPatchFromText(
 		headOid: requireOid(headOid, "head"),
 	};
 	if (text.length === 0) return { identity, text, empty: true, files: [] };
+	const bytes = Buffer.byteLength(text, "utf8");
+	if (bytes > MAX_REVIEW_PATCH_BYTES)
+		throw oversized("the cumulative patch", bytes, MAX_REVIEW_PATCH_BYTES);
 
-	const files = parsePatchFiles(
+	const parsed = parsePatchFiles(
 		text,
 		`${identity.baseOid}...${identity.headOid}`,
 		true,
-	).flatMap((parsed) => parsed.files);
-	if (files.length === 0)
+	).flatMap((entry) => entry.files);
+	if (parsed.length === 0)
 		throw new Error("Git produced a non-empty patch that Pierre could not parse");
-	return {
-		identity,
-		text,
-		empty: false,
-		files: files.map((fileDiff) => ({
-			filePath: fileDiff.name,
-			...(fileDiff.prevName === undefined ? {} : { previousPath: fileDiff.prevName }),
-			type: fileDiff.type,
-			changed: collectChangedLines(fileDiff),
-			fileDiff,
-		})),
-	};
+	if (parsed.length > MAX_REVIEW_FILES)
+		throw oversized("the changed file count", parsed.length, MAX_REVIEW_FILES);
+	const files = parsed.map((fileDiff) => ({
+		filePath: fileDiff.name,
+		...(fileDiff.prevName === undefined ? {} : { previousPath: fileDiff.prevName }),
+		type: fileDiff.type,
+		changed: collectChangedLines(fileDiff),
+		fileDiff,
+	}));
+	const changedLines = files.reduce(
+		(total, file) => total + file.changed.additions.length + file.changed.deletions.length,
+		0,
+	);
+	if (changedLines > MAX_REVIEW_CHANGED_LINES)
+		throw oversized("the changed line count", changedLines, MAX_REVIEW_CHANGED_LINES);
+	return { identity, text, empty: false, files };
 }
 
-async function runGit(repository: string, arguments_: string[]): Promise<Buffer> {
+async function runGit(
+	repository: string,
+	arguments_: string[],
+	maxStdoutBytes = 64 * 1024,
+): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const child = spawn("git", arguments_, {
 			cwd: repository,
@@ -110,7 +138,16 @@ async function runGit(repository: string, arguments_: string[]): Promise<Buffer>
 		});
 		const stdout: Buffer[] = [];
 		const stderr: Buffer[] = [];
-		child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+		let stdoutBytes = 0;
+		child.stdout.on("data", (chunk: Buffer) => {
+			stdoutBytes += chunk.length;
+			if (stdoutBytes > maxStdoutBytes) {
+				child.kill("SIGKILL");
+				reject(oversized("the cumulative patch", stdoutBytes, maxStdoutBytes));
+				return;
+			}
+			stdout.push(chunk);
+		});
 		child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
 		child.once("error", reject);
 		child.once("close", (code, signal) => {
@@ -148,6 +185,10 @@ export async function readGitReviewPatch(
 		resolveCommit(repository, base),
 		resolveCommit(repository, head),
 	]);
-	const bytes = await runGit(repository, gitDiffArguments(baseOid, headOid));
+	const bytes = await runGit(
+		repository,
+		gitDiffArguments(baseOid, headOid),
+		MAX_REVIEW_PATCH_BYTES,
+	);
 	return reviewPatchFromText(bytes.toString("utf8"), baseOid, headOid);
 }

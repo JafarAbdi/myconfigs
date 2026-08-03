@@ -18,15 +18,14 @@ export function lifecyclePlace(task: TaskDocument): LifecyclePlace {
 		return { active: "plan", detail: "plan accepted · activation pending" };
 	if (task.stage === "review") {
 		const round = task.reviewRounds.at(-1);
+		const number = round?.number ?? 1;
+		if (round?.decision?.kind === "send-feedback")
+			return { active: "review", detail: `correction ${number} · verifying` };
 		const reviewersReady = round && Object.values(round.reviewers).every((slot) => slot?.outcome);
-		const detail = round?.decision?.kind === "approve"
-			? "approved"
-			: round?.decision?.kind === "send-feedback"
-				? "feedback sent"
-				: reviewersReady
-					? "awaiting decision"
-					: "preparing";
-		return { active: "review", detail: `review ${round?.number ?? 1} · ${detail}` };
+		return {
+			active: "review",
+			detail: `review ${number} · ${reviewersReady ? "awaiting decision" : "preparing"}`,
+		};
 	}
 	if (task.stage !== "implementation" && task.stage !== "done")
 		return { active: task.stage, detail: task.stage };

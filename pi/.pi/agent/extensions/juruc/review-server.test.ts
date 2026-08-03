@@ -11,7 +11,7 @@ import {
 	createReviewServer,
 	type ReviewServer,
 } from "./review-server.ts";
-import { saveTaskDocument } from "./task.ts";
+import { loadTaskDocument, saveTaskDocument, type ReviewDecision } from "./task.ts";
 
 const comment = {
 	filePath: "src/greeting.ts",
@@ -199,6 +199,81 @@ test("loopback capability server persists comment CRUD and only records explicit
 		await first?.close();
 		await second?.close();
 		await third?.close();
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("the decision callback runs once, after its response, and leaves the round read-only", { timeout: 120_000 }, async () => {
+	const directory = mkdtempSync(join(tmpdir(), "juruc-review-decision-"));
+	const taskPath = join(directory, "task.json");
+	const patch = demoReviewPatch();
+	saveTaskDocument(taskPath, demoReviewTask());
+	const decisions: ReviewDecision[] = [];
+	let first: ReviewServer | undefined;
+	let second: ReviewServer | undefined;
+	try {
+		// The callback closes its own server, exactly as the process-owned controller does.
+		// That can only work if it runs outside the request turn that still owns the response.
+		let settle!: () => void;
+		const settled = new Promise<void>((resolve) => { settle = resolve; });
+		const closingServer = await createReviewServer({
+			patch,
+			taskPath,
+			onDecision: (decision) => {
+				decisions.push(decision);
+				void first?.close().then(settle, settle);
+			},
+		});
+		first = closingServer;
+		const api = new URL("api/", closingServer.url);
+		await json(new URL("comments", api).href, "POST", comment);
+
+		const decided = await json(new URL("decision", api).href, "POST", {
+			kind: "send-feedback",
+		});
+		assert.equal(decided.status, 200);
+		assert.equal((await decided.json()).state.decision.kind, "send-feedback");
+		await settled;
+		assert.deepEqual(decisions.map(({ kind }) => kind), ["send-feedback"]);
+		assert.equal(loadTaskDocument(taskPath).reviewRounds[0].decision?.kind, "send-feedback");
+		await assert.rejects(fetch(new URL("state", api)));
+		first = undefined;
+
+		saveTaskDocument(taskPath, demoReviewTask());
+		const approvals: ReviewDecision[] = [];
+		let approve!: () => void;
+		const approved = new Promise<void>((resolve) => { approve = resolve; });
+		second = await createReviewServer({
+			patch,
+			taskPath,
+			onDecision: (decision) => {
+				approvals.push(decision);
+				approve();
+			},
+		});
+		const approvalApi = new URL("api/", second.url);
+		assert.equal(
+			(await json(new URL("decision", approvalApi).href, "POST", { kind: "approve" })).status,
+			200,
+		);
+		await approved;
+		assert.deepEqual(approvals.map(({ kind }) => kind), ["approve"]);
+		assert.equal(loadTaskDocument(taskPath).stage, "done");
+
+		// A decided round stays readable and read-only until the controller closes the server.
+		assert.equal((await fetch(new URL("state", approvalApi))).status, 200);
+		assert.equal(
+			(await json(new URL("decision", approvalApi).href, "POST", { kind: "approve" })).status,
+			409,
+		);
+		assert.equal(
+			(await json(new URL("comments", approvalApi).href, "POST", comment)).status,
+			409,
+		);
+		assert.equal(approvals.length, 1);
+	} finally {
+		await first?.close();
+		await second?.close();
 		rmSync(directory, { recursive: true, force: true });
 	}
 });

@@ -4,12 +4,16 @@ import { lifecycleLine, lifecyclePlace } from "./status.ts";
 import {
 	acceptTaskPlan,
 	activateTaskPlan,
+	addTaskReviewComment,
+	completeTaskCorrection,
 	completeTaskPhase,
 	completeTaskResearch,
 	completeTaskReviewer,
 	confirmTaskQuestions,
 	confirmTaskSpecification,
 	createTaskDocument,
+	decideTaskReview,
+	registerTaskCorrectionStart,
 	registerTaskReviewerStart,
 } from "./task.ts";
 
@@ -112,4 +116,49 @@ test("implementation and review spell out the active phase", () => {
 		{ status: "completed", annotations: [] },
 	);
 	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · review 1 · awaiting decision");
+});
+
+test("a pending or running correction and a fresh round spell out their own context", () => {
+	let current = completeTaskReviewer(
+		registerTaskReviewerStart(
+			completeTaskReviewer(
+				registerTaskReviewerStart(
+					completeTaskPhase(
+						implementationTask(),
+						"Done.",
+						[{ command: "test status", exitCode: 0, summary: "Passed." }],
+						"2".repeat(40),
+					),
+					"deviation",
+					"/sessions/deviation.jsonl",
+				),
+				"deviation",
+				{ status: "completed", annotations: [] },
+			),
+			"correctness",
+			"/sessions/correctness.jsonl",
+		),
+		"correctness",
+		{ status: "completed", annotations: [] },
+	);
+	current = addTaskReviewComment(current, {
+		filePath: "status.ts",
+		side: "additions",
+		startLine: 1,
+		endLine: 1,
+		body: "Rename the rail helper.",
+	}, "12345678-1234-4234-8234-123456789abc", "2026-08-03T00:00:00.000Z");
+	current = decideTaskReview(current, "send-feedback", "2026-08-03T00:00:00.000Z");
+	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · correction 1 · verifying");
+
+	current = registerTaskCorrectionStart(current, "/sessions/correction-1.jsonl");
+	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · correction 1 · verifying");
+
+	current = completeTaskCorrection(
+		current,
+		"Renamed it.",
+		[{ command: "test status", exitCode: 0, summary: "Passed." }],
+		"3".repeat(40),
+	);
+	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · review 2 · preparing");
 });

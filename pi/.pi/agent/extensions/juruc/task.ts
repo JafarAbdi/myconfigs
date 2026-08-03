@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
-export const TASK_VERSION = 5 as const;
+export const TASK_VERSION = 6 as const;
 export const TASK_STAGES = [
 	"questions",
 	"research",
@@ -73,6 +73,17 @@ export interface TaskReviewerSlot {
 	outcome: ReviewerOutcome | null;
 }
 
+export interface TaskCorrectionResult {
+	resolution: string;
+	verificationEvidence: VerificationEvidence[];
+	commit: string;
+}
+
+export interface TaskCorrection {
+	sessionPath: string;
+	result: TaskCorrectionResult | null;
+}
+
 export interface TaskReviewRound {
 	number: number;
 	baseCommit: string;
@@ -80,7 +91,7 @@ export interface TaskReviewRound {
 	reviewers: Record<ReviewerKind, TaskReviewerSlot | null>;
 	humanComments: HumanComment[];
 	decision: ReviewDecision | null;
-	correction: null;
+	correction: TaskCorrection | null;
 }
 
 export type TaskSessionRun =
@@ -511,7 +522,45 @@ function validReviewDecision(value: unknown): value is ReviewDecision {
 	);
 }
 
-function validReviewRound(value: unknown, index: number): value is TaskReviewRound {
+function validCorrectionResult(
+	value: unknown,
+	accepted: ReadonlySet<string>,
+): value is TaskCorrectionResult {
+	const result = record(value);
+	if (
+		!result ||
+		!exactKeys(result, ["resolution", "verificationEvidence", "commit"]) ||
+		!validCleanText(result.resolution) ||
+		!Array.isArray(result.verificationEvidence) ||
+		result.verificationEvidence.length === 0 ||
+		!result.verificationEvidence.every(
+			(evidence) =>
+				validVerificationEvidence(evidence) && evidence.exitCode === 0 &&
+				accepted.has(evidence.command),
+		) ||
+		typeof result.commit !== "string" ||
+		!OBJECT_ID.test(result.commit)
+	) return false;
+	const commands = result.verificationEvidence.map(({ command }) => command);
+	return new Set(commands).size === commands.length;
+}
+
+function validCorrection(value: unknown, accepted: ReadonlySet<string>): value is TaskCorrection {
+	const correction = record(value);
+	return Boolean(
+		correction &&
+			exactKeys(correction, ["sessionPath", "result"]) &&
+			validCleanText(correction.sessionPath) &&
+			isAbsolute(correction.sessionPath as string) &&
+			(correction.result === null || validCorrectionResult(correction.result, accepted)),
+	);
+}
+
+function validReviewRound(
+	value: unknown,
+	index: number,
+	accepted: ReadonlySet<string>,
+): value is TaskReviewRound {
 	const round = record(value);
 	if (
 		!round ||
@@ -529,7 +578,7 @@ function validReviewRound(value: unknown, index: number): value is TaskReviewRou
 		!OBJECT_ID.test(round.baseCommit) ||
 		typeof round.headCommit !== "string" ||
 		!OBJECT_ID.test(round.headCommit) ||
-		round.correction !== null
+		(round.correction !== null && !validCorrection(round.correction, accepted))
 	) return false;
 	const reviewers = record(round.reviewers);
 	if (
@@ -545,13 +594,15 @@ function validReviewRound(value: unknown, index: number): value is TaskReviewRou
 	if (correctness !== null && (deviation === null || deviation.outcome === null)) return false;
 	const comments = round.humanComments as HumanComment[];
 	if (new Set(comments.map(({ id }) => id)).size !== comments.length) return false;
-	if (round.decision === null) return true;
+	if (round.decision === null) return round.correction === null;
 	if (!validReviewDecision(round.decision)) return false;
 	const terminal = [reviewers.deviation, reviewers.correctness].every(
 		(slot) => slot !== null && record(slot)?.outcome !== null,
 	);
 	if (!terminal) return false;
-	return round.decision.kind === "approve" ? comments.length === 0 : comments.length > 0;
+	return round.decision.kind === "approve"
+		? comments.length === 0 && round.correction === null
+		: comments.length > 0;
 }
 
 function validReviewRounds(
@@ -559,12 +610,22 @@ function validReviewRounds(
 	repository: TaskRepository,
 	checkpoints: readonly CompletedTaskPhase[],
 ): value is TaskReviewRound[] {
-	if (!Array.isArray(value) || value.length > 1) return false;
-	if (!value.every(validReviewRound)) return false;
-	if (value.length === 0) return true;
-	const round = value[0] as TaskReviewRound;
-	return round.baseCommit === repository.sourceHead &&
-		round.headCommit === checkpoints.at(-1)?.commit;
+	// Validated checkpoints mirror the accepted Plan phases, so their commands are exactly the
+	// accepted verification commands a correction may report.
+	const accepted = new Set(checkpoints.flatMap((checkpoint) => checkpoint.verification));
+	if (!Array.isArray(value) || !value.every((round, index) => validReviewRound(round, index, accepted)))
+		return false;
+	for (const [index, round] of (value as TaskReviewRound[]).entries()) {
+		const expectedHead = index === 0
+			? checkpoints.at(-1)?.commit
+			: value[index - 1].correction?.result?.commit;
+		if (round.baseCommit !== repository.sourceHead || round.headCommit !== expectedHead)
+			return false;
+		if (index < value.length - 1) {
+			if (round.decision?.kind !== "send-feedback" || !round.correction?.result) return false;
+		} else if (round.correction?.result) return false;
+	}
+	return true;
 }
 
 function validSessionRelationships(
@@ -605,10 +666,11 @@ function validSessionRelationships(
 				break;
 			}
 			case "correction":
-				return false;
+				if (rounds[run.round - 1]?.correction?.sessionPath !== run.path) return false;
+				break;
 		}
 	}
-	for (const round of rounds)
+	for (const round of rounds) {
 		for (const kind of ["deviation", "correctness"] as const) {
 			const slot = round.reviewers[kind];
 			if (!slot) continue;
@@ -617,6 +679,12 @@ function validSessionRelationships(
 				(run) => run.kind === sessionKind && run.round === round.number && run.path === slot.sessionPath,
 			)) return false;
 		}
+		const correction = round.correction;
+		if (correction && !sessions.some(
+			(run) => run.kind === "correction" && run.round === round.number &&
+				run.path === correction.sessionPath,
+		)) return false;
+	}
 	return true;
 }
 
@@ -689,11 +757,12 @@ export function validTaskDocument(value: unknown): value is TaskDocument {
 				checkpoints.length < plan.phases.length && reviewRounds.length === 0;
 		case "review":
 			return questions !== null && specification !== null && plan !== null &&
-				checkpoints.length === plan.phases.length && reviewRounds.length === 1;
+				checkpoints.length === plan.phases.length && reviewRounds.length > 0 &&
+				reviewRounds.at(-1)!.decision?.kind !== "approve";
 		case "done":
 			return questions !== null && specification !== null && plan !== null &&
-				checkpoints.length === plan.phases.length && reviewRounds.length === 1 &&
-				reviewRounds[0].decision?.kind === "approve";
+				checkpoints.length === plan.phases.length && reviewRounds.length > 0 &&
+				reviewRounds.at(-1)!.decision?.kind === "approve";
 	}
 }
 
@@ -944,7 +1013,88 @@ export function decideTaskReview(
 		throw new Error("Send Feedback requires at least one saved human comment");
 	const decision = { kind, decidedAt };
 	if (!validReviewDecision(decision)) throw new Error("invalid review decision timestamp");
-	return replaceCurrentReviewRound(task, { ...round, decision });
+	return checked({
+		...task,
+		stage: kind === "approve" ? "done" : "review",
+		reviewRounds: [...task.reviewRounds.slice(0, -1), { ...round, decision }],
+	});
+}
+
+export function currentTaskCorrectionRound(task: TaskDocument): TaskReviewRound | undefined {
+	const round = currentTaskReviewRound(task);
+	return task.stage === "review" &&
+		round?.decision?.kind === "send-feedback" &&
+		round.correction !== null &&
+		round.correction.result === null
+		? round
+		: undefined;
+}
+
+function requireFeedbackRound(task: TaskDocument): TaskReviewRound {
+	const round = currentTaskReviewRound(task);
+	if (task.stage !== "review" || !round) throw new Error("task has no current review round");
+	if (round.decision?.kind !== "send-feedback")
+		throw new Error("task review round has no Send Feedback decision");
+	return round;
+}
+
+export function registerTaskCorrectionStart(
+	task: TaskDocument,
+	sessionPath: string,
+): TaskDocument {
+	const round = requireFeedbackRound(task);
+	if (!validCleanText(sessionPath) || !isAbsolute(sessionPath))
+		throw new Error("correction session path must be absolute");
+	if (round.correction) throw new Error("correction has already started");
+	if (findTaskSessionByPath(task, sessionPath))
+		throw new Error(`session path is already recorded: ${sessionPath}`);
+	if (findSession(task.sessions, { kind: "correction", round: round.number }))
+		throw new Error("correction session is already recorded");
+	return checked({
+		...task,
+		sessions: [...task.sessions, { kind: "correction", round: round.number, path: sessionPath }],
+		reviewRounds: [
+			...task.reviewRounds.slice(0, -1),
+			{ ...round, correction: { sessionPath, result: null } },
+		],
+	});
+}
+
+export function completeTaskCorrection(
+	task: TaskDocument,
+	resolution: string,
+	verificationEvidence: VerificationEvidence[],
+	commit: string,
+): TaskDocument {
+	const round = requireFeedbackRound(task);
+	if (!round.correction) throw new Error("correction has not started");
+	if (round.correction.result) throw new Error("correction is already complete");
+	return checked({
+		...task,
+		reviewRounds: [
+			...task.reviewRounds.slice(0, -1),
+			{
+				...round,
+				correction: {
+					sessionPath: round.correction.sessionPath,
+					result: {
+						resolution,
+						verificationEvidence: structuredClone(verificationEvidence),
+						commit,
+					},
+				},
+			},
+			{
+				number: round.number + 1,
+				baseCommit: task.repository.sourceHead,
+				headCommit: commit,
+				reviewers: { deviation: null, correctness: null },
+				humanComments: [],
+				decision: null,
+				correction: null,
+			},
+		],
+	});
 }
 
 export function parseTaskDocument(json: string): TaskDocument {

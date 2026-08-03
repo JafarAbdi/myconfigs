@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -7,7 +8,7 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 import { acquireTaskReviewLock } from "./review-lock.ts";
-import type { ReviewState } from "./review-state.ts";
+import type { ReviewDecision, ReviewState } from "./review-state.ts";
 import { ReviewStateError, ReviewStore } from "./review-state.ts";
 import type { ReviewPatch } from "./review-git.ts";
 import {
@@ -49,6 +50,16 @@ export interface ReviewServer {
 	url: string;
 	taskPath: string;
 	close(): Promise<void>;
+}
+
+/** Runs once, after the deciding HTTP response completed and outside its request turn. */
+export type ReviewDecisionCallback = (decision: ReviewDecision) => void;
+
+export interface CreateReviewServerOptions {
+	patch: ReviewPatch;
+	taskPath: string;
+	view?: ReviewViewOptions;
+	onDecision?: ReviewDecisionCallback;
 }
 
 function commonHeaders(contentType: string): Record<string, string> {
@@ -210,16 +221,16 @@ function commentId(pathname: string, commentsPath: string): string | undefined {
 	}
 }
 
-export async function createReviewServer(options: {
-	patch: ReviewPatch;
-	taskPath: string;
-	view?: ReviewViewOptions;
-}): Promise<ReviewServer> {
+export async function createReviewServer(
+	options: CreateReviewServerOptions,
+): Promise<ReviewServer> {
 	const {
 		patch,
 		taskPath,
 		view: initialView = DEFAULT_REVIEW_VIEW_OPTIONS,
+		onDecision,
 	} = options;
+	let announced = false;
 	const releaseStateLock = acquireTaskReviewLock(taskPath);
 	let store: ReviewStore;
 	try {
@@ -291,6 +302,13 @@ export async function createReviewServer(options: {
 			}
 			if (request.method === "POST" && url.pathname === `${apiPath}/decision`) {
 				const state = store.decide(decisionKind(await readJson(request)));
+				const decision = state.decision;
+				if (decision && onDecision && !announced) {
+					announced = true;
+					// The review lock stays held until the controller closes this server, so the
+					// transition must run outside the request turn that still owns the response.
+					response.once("finish", () => setImmediate(() => onDecision(decision)));
+				}
 				sendJson(response, 200, { state });
 				return;
 			}
@@ -346,4 +364,50 @@ export async function createReviewServer(options: {
 			}
 		},
 	};
+}
+
+/**
+ * The single Pi-process-owned live review server. Only one review may hold the task
+ * review lock, so serving another review, preparing reviewers, starting a correction,
+ * or shutting Pi down closes the previous server first.
+ */
+class ActiveReviewServer {
+	private current: ReviewServer | undefined;
+
+	async close(): Promise<void> {
+		const server = this.current;
+		this.current = undefined;
+		await server?.close();
+	}
+
+	async serve(options: CreateReviewServerOptions): Promise<ReviewServer> {
+		await this.close();
+		const server = await createReviewServer(options);
+		this.current = server;
+		return server;
+	}
+}
+
+export const activeReviewServer = new ActiveReviewServer();
+
+const OPENERS: Readonly<Record<string, readonly [string, readonly string[]]>> = {
+	darwin: ["open", []],
+	win32: ["cmd", ["/c", "start", ""]],
+};
+
+/** Hands the local capability URL to the OS default browser; makes no outbound request. */
+export function openSystemBrowser(url: string): Promise<void> {
+	const [command, prefix] = OPENERS[process.platform] ?? ["xdg-open", []];
+	return new Promise((resolve, reject) => {
+		const child = spawn(command, [...prefix, url], {
+			stdio: "ignore",
+			detached: true,
+			windowsHide: true,
+		});
+		child.once("error", reject);
+		child.once("spawn", () => {
+			child.unref();
+			resolve();
+		});
+	});
 }

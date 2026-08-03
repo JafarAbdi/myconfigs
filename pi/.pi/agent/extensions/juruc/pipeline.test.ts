@@ -82,8 +82,17 @@ try {
 		{ SessionManager },
 		{ prepareReview, registerJuruc },
 		{ runtimePaths },
-		{ loadTask },
-		{ findTaskSession, loadTaskDocument, registerTaskReviewerStart, saveTaskDocument },
+		{ loadTask, saveTask },
+		{
+			addTaskReviewComment,
+			currentTaskCorrectionRound,
+			decideTaskReview,
+			findTaskSession,
+			loadTaskDocument,
+			registerTaskReviewerStart,
+			saveTaskDocument,
+		},
+		{ activeReviewServer },
 		{ demoReviewPatch, demoReviewTask },
 	] = await Promise.all([
 		import("./runtime-harness.ts"),
@@ -92,6 +101,7 @@ try {
 		import("./runtime.ts"),
 		import("./tasks.ts"),
 		import("./task.ts"),
+		import("./review-server.ts"),
 		import("./review-fixture.ts"),
 	]);
 
@@ -120,6 +130,7 @@ try {
 		const slug = "qrspi-runtime-workflow";
 		const researchOutput = "Independent verified facts.\n";
 		const writtenPhases = new Set<number>();
+		const openedUrls: string[] = [];
 		const preImplementation: Array<{ stage: string; branch: boolean; worktree: boolean }> = [];
 		let injectedActivationFailure = false;
 		const questions = {
@@ -196,7 +207,13 @@ try {
 			promptTemplates: [],
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
-			registerJuruc: (pi) => registerJuruc(pi, { reviewerDriver }),
+			registerJuruc: (pi) =>
+				registerJuruc(pi, {
+					reviewerDriver,
+					openBrowser: async (url: string) => {
+						openedUrls.push(url);
+					},
+				}),
 			probe: (pi, record) => {
 				pi.on("session_start", () => {
 					record.activeTools = pi.getActiveTools();
@@ -336,6 +353,8 @@ try {
 				findTaskSession(task.document, { kind: "implementation", phase: 2 })?.path,
 			);
 			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
+			assert.equal(openedUrls.length, 1);
+			assert.match(openedUrls[0], /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/\?/u);
 			const round = task.document.reviewRounds[0];
 			assert.equal(round.baseCommit, task.document.repository.sourceHead);
 			assert.equal(round.headCommit, task.document.checkpoints[1].commit);
@@ -412,6 +431,7 @@ try {
 			await harness.runtime.session.prompt("Try a stale tool.");
 			assert.match(readFileSync(staleSessions.at(-1)!, "utf8"), /run \/juruc to resume/);
 		} finally {
+			await activeReviewServer.close();
 			await harness.dispose();
 		}
 	});
@@ -572,6 +592,290 @@ try {
 				throw new Error("terminal reviewers must skip");
 			},
 		});
+	});
+
+	await test("Send Feedback runs corrections and fresh rounds, /juruc reroutes persisted decisions, and Approve reaches done", async () => {
+		const source = join(scratch, "correction-flow");
+		mkdirSync(source);
+		git(source, "init", "-b", "main");
+		git(source, "config", "user.name", "JURUC pipeline test");
+		git(source, "config", "user.email", "juruc-pipeline@example.invalid");
+		writeFileSync(join(source, "tracked.txt"), "baseline\n");
+		git(source, "add", "-A");
+		git(source, "commit", "-m", "baseline");
+
+		const paths = runtimePaths(agentDir);
+		const slug = "correction-flow-task";
+		const verification = "node -e \"console.log('verified')\"";
+		const plan = {
+			phases: [{
+				id: "implement-change",
+				title: "Implement change",
+				goal: "Implement the candidate.",
+				fileScopes: ["tracked.txt"],
+				instructions: ["Never leak this plan rationale into a correction."],
+				verification: [verification],
+			}],
+		};
+		const reviewerCalls: string[] = [];
+		const reviewerDriver = async ({ kind }: { kind: string }) => {
+			reviewerCalls.push(kind);
+			return {
+				assistantMessages: [{
+					role: "assistant",
+					content: [{
+						type: "text",
+						text: kind === "deviation"
+							? '{"annotations":[{"filePath":"tracked.txt","side":"additions","line":1,"summary":"The candidate line is terse."}]}'
+							: '{"annotations":[]}',
+					}],
+					stopReason: "stop",
+				}],
+			};
+		};
+		const openedUrls: string[] = [];
+		const written = new Set<string>();
+		const synthesis = {
+			agent: "synthesizer",
+			task: "synthesize",
+			output: "Independent verified facts.\n",
+			stopReason: "stop",
+			steps: [],
+			turns: 1,
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			durationMs: 1,
+		};
+
+		const harness = await createRuntimeHarness({
+			agentDir,
+			cwd: source,
+			sessionManager: SessionManager.create(source),
+			promptTemplates: [],
+			stubTools: ["delegate"],
+			stubResult: (name) => name === "delegate" ? synthesis : undefined,
+			registerJuruc: (pi) =>
+				registerJuruc(pi, {
+					reviewerDriver,
+					openBrowser: async (url: string) => {
+						openedUrls.push(url);
+					},
+				}),
+			probe: (pi) => {
+				pi.on("session_start", () => {
+					try {
+						const task = loadTask(paths, slug);
+						const candidate = join(task.document.repository.worktree, "tracked.txt");
+						if (task.document.stage === "implementation" && !written.has("phase")) {
+							writeFileSync(candidate, "candidate\n");
+							written.add("phase");
+						}
+						const round = currentTaskCorrectionRound(task.document);
+						if (round && !written.has(`correction-${round.number}`)) {
+							writeFileSync(candidate, `candidate corrected ${round.number}\n`);
+							written.add(`correction-${round.number}`);
+						}
+					} catch {}
+				});
+			},
+		});
+
+		const correctionResponses = (round: number) => [
+			fauxAssistantMessage(
+				[fauxToolCall("juruc_run_verification", { command: verification })],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(
+				[fauxToolCall("juruc_finish_correction", {
+					resolution: `Applied every comment from round ${round}.`,
+					commitMessage: `Apply review feedback ${round}`,
+					verificationEvidence: [{
+						command: verification,
+						exitCode: 0,
+						summary: "Correction verification passed.",
+					}],
+				})],
+				{ stopReason: "toolUse" },
+			),
+		];
+		const comment = {
+			filePath: "tracked.txt",
+			side: "additions",
+			startLine: 1,
+			endLine: 1,
+			body: "Describe the candidate concretely.",
+		};
+		const post = async (url: URL, body: unknown): Promise<Response> =>
+			fetch(url, {
+				method: "POST",
+				body: JSON.stringify(body),
+				headers: { "content-type": "application/json" },
+			});
+		const settle = async (done: () => boolean): Promise<void> => {
+			for (let attempt = 0; attempt < 600; attempt += 1) {
+				if (done()) return;
+				await new Promise((resolve) => setTimeout(resolve, 50));
+			}
+			throw new Error(
+				`JURUC did not settle the routed transition: ${JSON.stringify(harness.notices.slice(-4))}`,
+			);
+		};
+
+		try {
+			harness.selections.push("New task…");
+			harness.editorValues.push("Correction flow task");
+			harness.setResponses([
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_set_questions", {
+						sharedUnderstanding: "Implement and correct the candidate.",
+						decisions: [],
+						acceptedAssumptions: [],
+						researchTargets: [],
+					})],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("delegate", { agent: "synthesizer", task: "Synthesize facts." })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("Research complete.", { stopReason: "stop" }),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_set_specification", {
+						summary: "Keep the candidate readable.",
+						requirements: ["The candidate is readable."],
+						nonGoals: [],
+						constraints: [],
+						acceptanceCriteria: ["Verification passes."],
+						decisions: [],
+					})],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_run_verification", { command: verification })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_finish_phase", {
+						resolution: "Implemented and verified.",
+						commitMessage: "Implement candidate",
+						verificationEvidence: [{
+							command: verification,
+							exitCode: 0,
+							summary: "Verification passed.",
+						}],
+					})],
+					{ stopReason: "toolUse" },
+				),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+			assert.equal(loadTask(paths, slug).document.stage, "review");
+			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
+			assert.equal(openedUrls.length, 1);
+			assert.match(openedUrls[0], /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/\?/u);
+			assert.ok(harness.notices.some((notice) => notice.includes(`review 1 is open at ${openedUrls[0]}`)));
+			assert.ok(harness.widgets.includes("Q✓ R✓ S✓ P✓ I✓ · review 1 · awaiting decision"));
+
+			const api = new URL("api/", openedUrls[0]);
+			assert.equal((await post(new URL("comments", api), comment)).status, 201);
+			harness.setResponses(correctionResponses(1));
+			assert.equal((await post(new URL("decision", api), { kind: "send-feedback" })).status, 200);
+			await settle(() => openedUrls.length === 2);
+
+			const corrected = loadTask(paths, slug);
+			assert.equal(corrected.document.stage, "review");
+			assert.equal(corrected.document.reviewRounds.length, 2);
+			const [firstRound, secondRound] = corrected.document.reviewRounds;
+			assert.equal(firstRound.decision?.kind, "send-feedback");
+			assert.equal(firstRound.humanComments.length, 1);
+			assert.equal(firstRound.correction?.result?.resolution, "Applied every comment from round 1.");
+			assert.deepEqual(firstRound.correction?.result?.verificationEvidence, [{
+				command: verification,
+				exitCode: 0,
+				summary: "Correction verification passed.",
+			}]);
+			assert.equal(secondRound.number, 2);
+			assert.equal(secondRound.baseCommit, corrected.document.repository.sourceHead);
+			assert.equal(secondRound.headCommit, firstRound.correction?.result?.commit);
+			assert.deepEqual(secondRound.humanComments, []);
+			assert.equal(secondRound.reviewers.deviation?.outcome?.status, "completed");
+			assert.equal(secondRound.reviewers.correctness?.outcome?.status, "completed");
+			assert.deepEqual(reviewerCalls, ["deviation", "correctness", "deviation", "correctness"]);
+			assert.equal(
+				git(corrected.document.repository.worktree, "log", "-1", "--format=%s"),
+				"Apply review feedback 1",
+			);
+			assert.equal(git(corrected.document.repository.worktree, "status", "--porcelain"), "");
+			assert.ok(harness.widgets.includes("Q✓ R✓ S✓ P✓ I✓ · correction 1 · verifying"));
+			assert.notEqual(openedUrls[1], openedUrls[0]);
+
+			const correctionSession = findTaskSession(corrected.document, {
+				kind: "correction",
+				round: 1,
+			})!.path;
+			const correctionText = readFileSync(correctionSession, "utf8");
+			assert.match(correctionText, /Describe the candidate concretely/);
+			assert.match(correctionText, /Deviation reviewer: The candidate line is terse/);
+			assert.match(correctionText, /Keep the candidate readable/);
+			assert.doesNotMatch(correctionText, /Never leak this plan rationale/);
+
+			// A persisted Send Feedback decision must route from state alone, exactly as it
+			// does after a Pi restart that lost the deciding server.
+			await activeReviewServer.close();
+			const timestamp = "2026-08-03T00:00:00.000Z";
+			saveTask(
+				corrected,
+				decideTaskReview(
+					addTaskReviewComment(
+						corrected.document,
+						comment,
+						"9abcdef0-1234-4234-8234-123456789abc",
+						timestamp,
+					),
+					"send-feedback",
+					timestamp,
+				),
+			);
+			harness.selections.push(`Correction flow task — ${slug} · review`);
+			harness.setResponses(correctionResponses(2));
+			await harness.runtime.session.prompt("/juruc");
+			await settle(() => openedUrls.length === 3);
+
+			const restarted = loadTask(paths, slug);
+			assert.equal(restarted.document.reviewRounds.length, 3);
+			assert.equal(restarted.document.reviewRounds[1].correction?.result?.commit,
+				restarted.document.reviewRounds[2].headCommit);
+			assert.equal(
+				git(restarted.document.repository.worktree, "log", "-1", "--format=%s"),
+				"Apply review feedback 2",
+			);
+			assert.equal(new Set(openedUrls).size, 3);
+			assert.ok(findTaskSession(restarted.document, { kind: "correction", round: 2 }));
+
+			// Approve on the commentless third round reaches done and closes the live server.
+			const finalApi = new URL("api/", openedUrls[2]);
+			assert.equal((await post(new URL("decision", finalApi), { kind: "approve" })).status, 200);
+			await settle(() => loadTask(paths, slug).document.stage === "done");
+			const done = loadTask(paths, slug);
+			assert.equal(done.document.reviewRounds.at(-1)?.decision?.kind, "approve");
+			assert.equal(done.document.reviewRounds.at(-1)?.correction, null);
+			await assert.rejects(fetch(new URL("state", finalApi)));
+			assert.ok(harness.widgets.includes("Q✓ R✓ S✓ P✓ I✓ · done"));
+			assert.ok(harness.notices.some((notice) => notice.includes(`${slug}: done · 1 phases`)));
+		} finally {
+			await activeReviewServer.close();
+			await harness.dispose();
+		}
+		assert.equal(
+			existsSync(join(loadTask(runtimePaths(agentDir), slug).directory, "task.json.review.lock")),
+			false,
+		);
 	});
 
 	await test("parallel synthesizer siblings cannot advance Research", async () => {

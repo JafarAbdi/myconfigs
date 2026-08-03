@@ -160,24 +160,21 @@ export async function persistCheckpointTask(
 }
 
 export function expectedTaskHead(task: TaskDocument): string {
-	return task.checkpoints.at(-1)?.commit ?? task.repository.sourceHead;
+	return task.reviewRounds.at(-1)?.headCommit ??
+		task.checkpoints.at(-1)?.commit ??
+		task.repository.sourceHead;
 }
 
 const VERIFICATION_TIMEOUT_MS = 120_000;
 const MAX_VERIFICATION_OUTPUT_BYTES = 50 * 1024;
 
-export function runDeclaredVerification(
-	task: TaskDocument,
+export function runVerificationCommand(
 	command: string,
+	cwd: string,
 	operations: VerificationOperations,
 	signal?: AbortSignal,
 	timeoutMs = VERIFICATION_TIMEOUT_MS,
 ): Promise<VerificationRunResult> {
-	const phase = currentTaskPhase(task);
-	if (task.stage !== "implementation" || !phase)
-		throw new Error("task has no active implementation phase");
-	if (!phase.verification.includes(command))
-		throw new Error("verification command is not declared by the active phase");
 	if (signal?.aborted)
 		return Promise.resolve({ command, output: "", truncated: false, cancelled: true, timedOut: false });
 
@@ -195,7 +192,7 @@ export function runDeclaredVerification(
 	};
 	return operations.exec(
 		command,
-		task.repository.worktree,
+		cwd,
 		{
 			onData: append,
 			signal,
@@ -219,6 +216,71 @@ export function runDeclaredVerification(
 			throw error;
 		},
 	);
+}
+
+export function runDeclaredVerification(
+	task: TaskDocument,
+	command: string,
+	operations: VerificationOperations,
+	signal?: AbortSignal,
+	timeoutMs = VERIFICATION_TIMEOUT_MS,
+): Promise<VerificationRunResult> {
+	const phase = currentTaskPhase(task);
+	if (task.stage !== "implementation" || !phase)
+		throw new Error("task has no active implementation phase");
+	if (!phase.verification.includes(command))
+		throw new Error("verification command is not declared by the active phase");
+	return runVerificationCommand(
+		command,
+		task.repository.worktree,
+		operations,
+		signal,
+		timeoutMs,
+	);
+}
+
+export async function runAuthoritativeVerification(
+	commands: readonly string[],
+	cwd: string,
+	operations: VerificationOperations,
+	signal?: AbortSignal,
+): Promise<void> {
+	for (const command of commands) {
+		const result = await runVerificationCommand(command, cwd, operations, signal);
+		if (result.cancelled)
+			throw new Error(`authoritative verification was cancelled: ${command}`);
+		if (result.timedOut)
+			throw new Error(`authoritative verification timed out: ${command}`);
+		if (result.exitCode === undefined)
+			throw new Error(`authoritative verification returned no exit code: ${command}`);
+		if (result.exitCode !== 0)
+			throw new Error(`authoritative verification exited with code ${result.exitCode}: ${command}`);
+	}
+}
+
+/** Stages the complete worktree candidate and keeps it only if Git matches every scope. */
+export async function stageScopedCandidate(
+	repository: TaskDocument["repository"],
+	fileScopes: readonly string[],
+	scopeLabel: string,
+): Promise<void> {
+	const stagedPaths = await stageAll(repository);
+	if (stagedPaths.length === 0)
+		throw new Error("unchanged candidate; refusing an empty commit");
+	const staged = new Set(stagedPaths);
+	try {
+		const matched = new Set(await stagedPathsMatchingScopes(repository, fileScopes));
+		const outside = stagedPaths.filter((path) => !matched.has(path));
+		if (outside.length)
+			throw new Error(`candidate paths outside ${scopeLabel}: ${outside.join(", ")}`);
+		const candidate = await inspectTaskWorktree(repository);
+		const unstagedPaths = candidate.paths.filter((path) => !staged.has(path));
+		if (unstagedPaths.length)
+			throw new Error(`git add -A could not stage the complete candidate: ${unstagedPaths.join(", ")}`);
+	} catch (error) {
+		await unstageAll(repository);
+		throw error;
+	}
 }
 
 function validatedVerificationEvidence(
@@ -293,37 +355,16 @@ export async function finishCurrentPhase(
 	const before = await inspectTaskWorktree(task.repository);
 	if (before.head !== expectedTaskHead(task))
 		throw new Error("implementation session changed Git HEAD outside JURUC");
-	for (const command of phase.verification) {
-		const result = await runDeclaredVerification(task, command, operations, signal);
-		if (result.cancelled)
-			throw new Error(`authoritative verification was cancelled: ${command}`);
-		if (result.timedOut)
-			throw new Error(`authoritative verification timed out: ${command}`);
-		if (result.exitCode === undefined)
-			throw new Error(`authoritative verification returned no exit code: ${command}`);
-		if (result.exitCode !== 0)
-			throw new Error(`authoritative verification exited with code ${result.exitCode}: ${command}`);
-	}
+	await runAuthoritativeVerification(
+		phase.verification,
+		task.repository.worktree,
+		operations,
+		signal,
+	);
 	const verified = await inspectTaskWorktree(task.repository);
 	if (verified.head !== expectedTaskHead(task))
 		throw new Error("verification command changed Git HEAD outside JURUC");
-	const stagedPaths = await stageAll(task.repository);
-	if (stagedPaths.length === 0)
-		throw new Error("unchanged candidate; refusing an empty checkpoint commit");
-	const staged = new Set(stagedPaths);
-	try {
-		const matched = new Set(await stagedPathsMatchingScopes(task.repository, phase.fileScopes));
-		const outside = stagedPaths.filter((path) => !matched.has(path));
-		if (outside.length)
-			throw new Error(`candidate paths outside active phase file scopes: ${outside.join(", ")}`);
-		const candidate = await inspectTaskWorktree(task.repository);
-		const unstagedPaths = candidate.paths.filter((path) => !staged.has(path));
-		if (unstagedPaths.length)
-			throw new Error(`git add -A could not stage the complete candidate: ${unstagedPaths.join(", ")}`);
-	} catch (error) {
-		await unstageAll(task.repository);
-		throw error;
-	}
+	await stageScopedCandidate(task.repository, phase.fileScopes, "active phase file scopes");
 	const commit = await commitStaged(task.repository, commitMessage);
 	return {
 		task: completeTaskPhase(task, resolution, verificationEvidence, commit),
