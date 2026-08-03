@@ -1,12 +1,15 @@
 import { spawn } from "node:child_process";
+import { isDeepStrictEqual } from "node:util";
 import {
 	completeTaskPhase,
 	currentTaskPhase,
 	findTaskSession,
 	MAX_TASK_TEXT_LENGTH,
+	validTaskDocument,
 	type TaskDocument,
 	type VerificationEvidence,
 } from "./task.ts";
+import type { StoredTask } from "./tasks.ts";
 import {
 	commitStaged,
 	inspectTaskWorktree,
@@ -88,6 +91,61 @@ export const FINISH_PHASE_SCHEMA = {
 export interface PhaseCompletionResult {
 	task: TaskDocument;
 	commit: string;
+}
+
+export interface CheckpointPersistenceOperations {
+	save(task: StoredTask, document: TaskDocument): StoredTask;
+	reload(): StoredTask;
+	recover(): Promise<void>;
+}
+
+export async function persistCheckpointTask(
+	oldTask: StoredTask,
+	newDocument: TaskDocument,
+	operations: CheckpointPersistenceOperations,
+): Promise<StoredTask> {
+	if (!validTaskDocument(oldTask.document) || !validTaskDocument(newDocument))
+		throw new Error("checkpoint persistence requires valid task documents");
+	try {
+		return operations.save(oldTask, newDocument);
+	} catch (saveError) {
+		let installed: StoredTask;
+		try {
+			installed = operations.reload();
+			if (!validTaskDocument(installed.document))
+				throw new Error("reloaded task.json is invalid");
+		} catch (reloadError) {
+			throw new AggregateError(
+				[saveError, reloadError],
+				"task persistence failed and installed task.json state is ambiguous; Git history was not changed",
+			);
+		}
+		if (isDeepStrictEqual(installed.document, newDocument)) {
+			try {
+				return operations.save(installed, newDocument);
+			} catch (retryError) {
+				throw new AggregateError(
+					[saveError, retryError],
+					"checkpoint task.json is installed but its durability retry failed; aligned Git commit was retained",
+				);
+			}
+		}
+		if (isDeepStrictEqual(installed.document, oldTask.document)) {
+			try {
+				await operations.recover();
+			} catch (recoveryError) {
+				throw new AggregateError(
+					[saveError, recoveryError],
+					"task persistence failed and its unrecorded commit could not be recovered",
+				);
+			}
+			throw saveError;
+		}
+		throw new AggregateError(
+			[saveError],
+			"task persistence failed and installed task.json state is ambiguous; Git history was not changed",
+		);
+	}
 }
 
 export function expectedTaskHead(task: TaskDocument): string {
@@ -224,6 +282,7 @@ function validatedVerificationEvidence(
 export async function finishCurrentPhase(
 	task: TaskDocument,
 	input: FinishPhaseInput,
+	signal?: AbortSignal,
 ): Promise<PhaseCompletionResult> {
 	if (task.stage !== "implementation" || !currentTaskPhase(task))
 		throw new Error("task has no active implementation phase");
@@ -246,7 +305,20 @@ export async function finishCurrentPhase(
 	const before = await inspectTaskWorktree(task.repository);
 	if (before.head !== expectedTaskHead(task))
 		throw new Error("implementation session changed Git HEAD outside JURUC");
-
+	for (const command of phase.verification) {
+		const result = await runDeclaredVerification(task, command, signal);
+		if (result.cancelled)
+			throw new Error(`authoritative verification was cancelled: ${command}`);
+		if (result.timedOut)
+			throw new Error(`authoritative verification timed out: ${command}`);
+		if (result.exitCode === undefined)
+			throw new Error(`authoritative verification returned no exit code: ${command}`);
+		if (result.exitCode !== 0)
+			throw new Error(`authoritative verification exited with code ${result.exitCode}: ${command}`);
+	}
+	const verified = await inspectTaskWorktree(task.repository);
+	if (verified.head !== expectedTaskHead(task))
+		throw new Error("verification command changed Git HEAD outside JURUC");
 	const stagedPaths = await stageAll(task.repository);
 	if (stagedPaths.length === 0)
 		throw new Error("unchanged candidate; refusing an empty checkpoint commit");

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { runtimePathsForRoot } from "./runtime.ts";
 import { appendTaskSession, confirmTaskQuestions } from "./task.ts";
+import { ensureTaskWorktree } from "./workspace.ts";
 import {
 	createTask,
 	findTaskBySession,
@@ -23,6 +25,10 @@ function paths() {
 	mkdirSync(join(root, "tasks"));
 	mkdirSync(join(root, "worktrees"));
 	return { root, paths: runtimePathsForRoot(root) };
+}
+
+function git(cwd: string, ...args: string[]): string {
+	return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
 function input(root: string, slug = "small-task") {
@@ -46,7 +52,7 @@ test("task names are simple valid branch-compatible slugs", () => {
 	assert.equal(validTaskSlug("../escape"), false);
 });
 
-test("create, save, load, and list use version 3 task.json", () => {
+test("create, save, load, and list use version 4 task.json", () => {
 	const fixture = paths();
 	try {
 		let task = createTask(fixture.paths, input(fixture.root));
@@ -100,12 +106,74 @@ test("uniqueSlug advances persisted collisions and removal is exact", () => {
 	}
 });
 
+test("tampered repository ownership cannot load, save, remove, or activate", async () => {
+	const fixture = paths();
+	try {
+		const sourceRoot = join(fixture.root, "source");
+		mkdirSync(sourceRoot);
+		git(sourceRoot, "init", "-b", "main");
+		git(sourceRoot, "config", "user.name", "JURUC Test");
+		git(sourceRoot, "config", "user.email", "juruc@example.invalid");
+		writeFileSync(join(sourceRoot, "tracked.txt"), "baseline\n");
+		git(sourceRoot, "add", "-A");
+		git(sourceRoot, "commit", "-m", "baseline");
+		const head = git(sourceRoot, "rev-parse", "HEAD");
+		const ownedInput = (slug: string) => ({
+			...input(fixture.root, slug),
+			repository: {
+				...input(fixture.root, slug).repository,
+				sourceRoot,
+				sourceHead: head,
+			},
+		});
+		const task = createTask(fixture.paths, ownedInput("task"));
+		const other = createTask(fixture.paths, ownedInput("other"));
+		await ensureTaskWorktree(task.document.repository);
+		await ensureTaskWorktree(other.document.repository);
+		const redirectedWorktree = {
+			...task.document,
+			repository: {
+				...task.document.repository,
+				worktree: other.document.repository.worktree,
+			},
+		};
+		assert.throws(() => saveTask(task, redirectedWorktree), /outside the managed task path/);
+		assert.throws(
+			() => removeTaskRecord({ directory: task.directory, document: redirectedWorktree }),
+			/outside the managed task path/,
+		);
+		assert.equal(existsSync(task.directory), true);
+
+		writeFileSync(join(task.directory, "task.json"), JSON.stringify(redirectedWorktree));
+		assert.throws(() => loadTask(fixture.paths, "task"), /outside the managed task path/);
+		await assert.rejects(
+			ensureTaskWorktree(redirectedWorktree.repository),
+			/already checked out|registration differs|branch differs/,
+		);
+		assert.equal(scanTasks(fixture.paths).find(({ summary }) => summary.slug === "task")?.task, undefined);
+
+		const redirectedBranch = {
+			...redirectedWorktree,
+			repository: {
+				...redirectedWorktree.repository,
+				branch: other.document.repository.branch,
+			},
+		};
+		writeFileSync(join(task.directory, "task.json"), JSON.stringify(redirectedBranch));
+		assert.throws(() => loadTask(fixture.paths, "task"), /task\.json is invalid/);
+		assert.equal(existsSync(other.directory), true);
+		assert.equal(existsSync(other.document.repository.worktree), true);
+	} finally {
+		rmSync(fixture.root, { recursive: true, force: true });
+	}
+});
+
 test("old and sidecar-only task directories are invalid without migration", () => {
 	const fixture = paths();
 	try {
 		const directory = join(fixture.paths.tasks, "legacy-task");
 		mkdirSync(directory);
-		writeFileSync(join(directory, "task.json"), JSON.stringify({ version: 2 }));
+		writeFileSync(join(directory, "task.json"), JSON.stringify({ version: 3 }));
 		const [entry] = scanTasks(fixture.paths);
 		assert.equal(entry.task, undefined);
 		assert.equal(entry.summary.stage, "invalid");

@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
-	chmodSync,
+	closeSync,
+	fchmodSync,
+	fsyncSync,
 	lstatSync,
+	openSync,
 	readFileSync,
 	realpathSync,
 	renameSync,
@@ -75,9 +78,21 @@ export function saveResearchBrief(taskDirectory: string, brief: string): void {
 		throw new Error(`${path} is not a regular file`);
 	const temporary = join(taskDirectory, `.research.md.${process.pid}.${randomUUID()}.tmp`);
 	try {
-		writeFileSync(temporary, brief, { encoding: "utf8", mode: 0o600, flag: "wx" });
-		chmodSync(temporary, 0o600);
+		const file = openSync(temporary, "wx", 0o600);
+		try {
+			writeFileSync(file, brief, "utf8");
+			fchmodSync(file, 0o600);
+			fsyncSync(file);
+		} finally {
+			closeSync(file);
+		}
 		renameSync(temporary, path);
+		const directory = openSync(taskDirectory, "r");
+		try {
+			fsyncSync(directory);
+		} finally {
+			closeSync(directory);
+		}
 	} catch (error) {
 		try {
 			unlinkSync(temporary);

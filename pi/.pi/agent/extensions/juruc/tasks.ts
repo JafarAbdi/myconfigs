@@ -1,14 +1,17 @@
 import {
+	closeSync,
 	existsSync,
+	fsyncSync,
 	lstatSync,
 	mkdtempSync,
+	openSync,
 	readFileSync,
 	readdirSync,
 	realpathSync,
 	renameSync,
 	rmSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
 	createTaskDocument,
 	findTaskSessionByPath,
@@ -69,6 +72,28 @@ export function taskDirectory(paths: RuntimePaths, slug: string): string {
 	return join(paths.tasks, slug);
 }
 
+function requireOwnedRepository(document: TaskDocument, expectedWorktree: string): void {
+	if (document.repository.branch !== document.slug)
+		throw new Error("task repository branch differs from task slug");
+	if (document.repository.worktree !== expectedWorktree)
+		throw new Error("task repository worktree is outside the managed task path");
+}
+
+function storedTaskWorktree(task: StoredTask): string {
+	if (basename(task.directory) !== task.document.slug)
+		throw new Error("task directory differs from task slug");
+	return join(dirname(dirname(task.directory)), "worktrees", task.document.slug);
+}
+
+function syncDirectory(path: string): void {
+	const directory = openSync(path, "r");
+	try {
+		fsyncSync(directory);
+	} finally {
+		closeSync(directory);
+	}
+}
+
 export function loadTask(paths: RuntimePaths, slug: string): StoredTask {
 	const directory = taskDirectory(paths, slug);
 	const stat = lstatSync(directory);
@@ -77,6 +102,7 @@ export function loadTask(paths: RuntimePaths, slug: string): StoredTask {
 	const document = loadTaskDocument(join(directory, "task.json"));
 	if (document.slug !== slug)
 		throw new Error(`${directory}: task slug differs from task.json`);
+	requireOwnedRepository(document, join(paths.worktrees, slug));
 	return { directory, document };
 }
 
@@ -87,29 +113,49 @@ export function createTask(
 	const directory = taskDirectory(paths, input.slug);
 	if (existsSync(directory)) throw new Error(`${directory}: task already exists`);
 	const document = createTaskDocument(input);
+	requireOwnedRepository(document, join(paths.worktrees, input.slug));
 	const temporary = mkdtempSync(join(paths.tasks, `.${input.slug}.`));
+	let installed = false;
 	try {
 		saveTaskDocument(join(temporary, "task.json"), document);
 		renameSync(temporary, directory);
-		return { directory, document };
+		installed = true;
 	} catch (error) {
-		rmSync(temporary, { recursive: true, force: true });
+		if (!installed) rmSync(temporary, { recursive: true, force: true });
 		throw error;
 	}
+	try {
+		syncDirectory(paths.tasks);
+	} catch (firstError) {
+		try {
+			syncDirectory(paths.tasks);
+		} catch (retryError) {
+			throw new AggregateError(
+				[firstError, retryError],
+				`${directory}: task directory is installed but parent durability remains uncertain`,
+			);
+		}
+	}
+	return { directory, document };
 }
 
 export function saveTask(task: StoredTask, document: TaskDocument): StoredTask {
 	if (task.document.slug !== document.slug)
 		throw new Error("cannot change a persisted task slug");
+	const expectedWorktree = storedTaskWorktree(task);
+	requireOwnedRepository(task.document, expectedWorktree);
+	requireOwnedRepository(document, expectedWorktree);
 	saveTaskDocument(join(task.directory, "task.json"), document);
 	return { directory: task.directory, document };
 }
 
 export function removeTaskRecord(task: StoredTask): void {
+	requireOwnedRepository(task.document, storedTaskWorktree(task));
 	const stat = lstatSync(task.directory, { throwIfNoEntry: false });
 	if (!stat?.isDirectory() || stat.isSymbolicLink() || realpathSync(task.directory) !== task.directory)
 		throw new Error(`${task.directory}: invalid task directory`);
 	rmSync(task.directory, { recursive: true });
+	syncDirectory(dirname(task.directory));
 }
 
 export interface ScannedTask {

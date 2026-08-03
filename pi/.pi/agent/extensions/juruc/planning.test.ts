@@ -91,8 +91,15 @@ test("accepted plan uses final exact phase schema", () => {
 		}],
 	});
 	const updated = confirmTaskPlan(planningTask(), input);
-	assert.equal(updated.stage, "implementation");
+	assert.equal(updated.stage, "plan");
 	assert.deepEqual(updated.plan, planFromInput(input));
+	assert.deepEqual(confirmTaskPlan(updated, input), updated);
+	assert.throws(
+		() => confirmTaskPlan(updated, {
+			phases: [{ ...input.phases[0], goal: "A changed accepted plan." }],
+		}),
+		/immutable/,
+	);
 	assert.throws(
 		() => confirmTaskPlan(planningTask(), { phases: [{ ...input.phases[0], fileScopes: ["../bad"] }] }),
 		/invalid/,

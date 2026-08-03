@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
+	closeSync,
+	fchmodSync,
+	fsyncSync,
 	lstatSync,
+	openSync,
 	readFileSync,
 	renameSync,
 	unlinkSync,
@@ -8,7 +12,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
-export const TASK_VERSION = 3 as const;
+export const TASK_VERSION = 4 as const;
 export const TASK_STAGES = [
 	"questions",
 	"research",
@@ -313,6 +317,11 @@ function samePhase(left: TaskPhase, right: TaskPhase): boolean {
 		sameList(left.verification, right.verification);
 }
 
+function samePlan(left: TaskPlan, right: TaskPlan): boolean {
+	return left.phases.length === right.phases.length &&
+		left.phases.every((phase, index) => samePhase(phase, right.phases[index]));
+}
+
 function validCheckpoint(value: unknown, phase: TaskPhase): value is CompletedTaskPhase {
 	const checkpoint = record(value);
 	if (
@@ -374,6 +383,7 @@ export function validTaskDocument(value: unknown): value is TaskDocument {
 		!validText(task.title) ||
 		!validText(task.request) ||
 		!validRepository(task.repository) ||
+		task.repository.branch !== task.slug ||
 		!validSessions(task.sessions) ||
 		!TASK_STAGES.includes(task.stage as TaskStage) ||
 		(task.questions !== null && !validQuestions(task.questions)) ||
@@ -394,7 +404,7 @@ export function validTaskDocument(value: unknown): value is TaskDocument {
 		case "specification":
 			return questions !== null && specification === null && plan === null && checkpoints.length === 0;
 		case "plan":
-			return questions !== null && specification !== null && plan === null && checkpoints.length === 0;
+			return questions !== null && specification !== null && checkpoints.length === 0;
 		case "implementation":
 			return questions !== null && specification !== null && plan !== null && checkpoints.length < plan.phases.length;
 		case "done":
@@ -465,7 +475,18 @@ export function confirmTaskSpecification(
 
 export function acceptTaskPlan(task: TaskDocument, plan: TaskPlan): TaskDocument {
 	if (task.stage !== "plan") throw new Error("task is not planning");
-	return checked({ ...task, stage: "implementation", plan: structuredClone(plan) });
+	if (task.plan) {
+		if (!validPlan(plan) || !samePlan(task.plan, plan))
+			throw new Error("accepted task plan is immutable");
+		return checked(task);
+	}
+	return checked({ ...task, plan: structuredClone(plan) });
+}
+
+export function activateTaskPlan(task: TaskDocument): TaskDocument {
+	if (task.stage !== "plan" || !task.plan || task.checkpoints.length)
+		throw new Error("task plan is not accepted and pending activation");
+	return checked({ ...task, stage: "implementation" });
 }
 
 export function currentTaskPhase(task: TaskDocument): TaskPhase | undefined {
@@ -519,14 +540,24 @@ export function saveTaskDocument(path: string, task: TaskDocument): void {
 	const existing = lstatSync(path, { throwIfNoEntry: false });
 	if (existing && (!existing.isFile() || existing.isSymbolicLink()))
 		throw new Error(`${path} is not a regular file`);
-	const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
+	const directory = dirname(path);
+	const temporary = join(directory, `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
 	try {
-		writeFileSync(temporary, serializeTaskDocument(task), {
-			encoding: "utf8",
-			flag: "wx",
-			mode: 0o600,
-		});
+		const file = openSync(temporary, "wx", 0o600);
+		try {
+			writeFileSync(file, serializeTaskDocument(task), "utf8");
+			fchmodSync(file, 0o600);
+			fsyncSync(file);
+		} finally {
+			closeSync(file);
+		}
 		renameSync(temporary, path);
+		const parent = openSync(directory, "r");
+		try {
+			fsyncSync(parent);
+		} finally {
+			closeSync(parent);
+		}
 	} catch (error) {
 		try {
 			unlinkSync(temporary);

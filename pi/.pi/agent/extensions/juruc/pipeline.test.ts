@@ -67,6 +67,15 @@ function git(cwd: string, ...args: string[]): string {
 	return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
+function gitSucceeds(cwd: string, ...args: string[]): boolean {
+	try {
+		execFileSync("git", args, { cwd, stdio: "ignore" });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 try {
 	const [
 		{ fauxAssistantMessage, fauxToolCall, createRuntimeHarness },
@@ -91,13 +100,26 @@ try {
 		git(source, "config", "user.name", "JURUC pipeline test");
 		git(source, "config", "user.email", "juruc-pipeline@example.invalid");
 		writeFileSync(join(source, "tracked.txt"), "baseline\n");
+		writeFileSync(
+			join(source, ".gitignore"),
+			".env*\nCLAUDE.local.md\n.claude/settings.local.json\n",
+		);
 		git(source, "add", "-A");
 		git(source, "commit", "-m", "baseline");
+		writeFileSync(join(source, ".env.local"), "PIPELINE_SECRET=local\n");
+		writeFileSync(join(source, "CLAUDE.local.md"), "local instructions\n");
+		mkdirSync(join(source, ".claude"));
+		writeFileSync(join(source, ".claude", "settings.local.json"), "{\"local\":true}\n");
+		mkdirSync(join(source, "nested"));
+		writeFileSync(join(source, "nested", ".env"), "nested must not copy\n");
+		writeFileSync(join(source, "other.local"), "other must not copy\n");
 
 		const paths = runtimePaths(agentDir);
 		const slug = "qrspi-runtime-workflow";
 		const researchOutput = "Independent verified facts.\n";
 		const writtenPhases = new Set<number>();
+		const preImplementation: Array<{ stage: string; branch: boolean; worktree: boolean }> = [];
+		let injectedActivationFailure = false;
 		const questions = {
 			sharedUnderstanding: "Implement the confirmed local workflow.",
 			decisions: ["Use two phases."],
@@ -168,6 +190,17 @@ try {
 					try {
 						const task = loadTask(paths, slug);
 						const phase = task.document.checkpoints.length;
+						if (["questions", "research", "specification", "plan"].includes(task.document.stage)) {
+							preImplementation.push({
+								stage: task.document.stage,
+								branch: gitSucceeds(source, "show-ref", "--verify", "--quiet", `refs/heads/${slug}`),
+								worktree: existsSync(task.document.repository.worktree),
+							});
+						}
+						if (task.document.stage === "plan" && !task.document.plan && !injectedActivationFailure) {
+							mkdirSync(task.document.repository.worktree);
+							injectedActivationFailure = true;
+						}
 						if (task.document.stage === "implementation" && !writtenPhases.has(phase)) {
 							writeFileSync(
 								join(task.document.repository.worktree, "tracked.txt"),
@@ -201,6 +234,25 @@ try {
 					[fauxToolCall("juruc_set_plan", plan)],
 					{ stopReason: "toolUse" },
 				),
+				fauxAssistantMessage("Activation remains pending.", { stopReason: "stop" }),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+
+			const pending = loadTask(paths, slug);
+			assert.equal(pending.document.stage, "plan");
+			assert.deepEqual(pending.document.plan, plan);
+			assert.equal(findTaskSession(pending.document, { kind: "implementation", phase: 1 }), undefined);
+			assert.equal(gitSucceeds(source, "show-ref", "--verify", "--quiet", `refs/heads/${slug}`), false);
+			assert.equal(existsSync(pending.document.repository.worktree), true);
+			assert.deepEqual(harness.instances.at(-1)!.pi.getActiveTools(), []);
+			assert.match(
+				readFileSync(findTaskSession(pending.document, { kind: "plan" })!.path, "utf8"),
+				/run \/juruc to retry/,
+			);
+			rmSync(pending.document.repository.worktree, { recursive: true });
+
+			harness.selections.push("QRSPI runtime workflow — qrspi-runtime-workflow · plan");
+			harness.setResponses([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_run_verification", { command: undeclaredVerification })],
 					{ stopReason: "toolUse" },
@@ -242,11 +294,26 @@ try {
 
 			const task = loadTask(paths, slug);
 			assert.equal(task.document.stage, "done");
+			assert.deepEqual(preImplementation.map(({ stage }) => stage), [
+				"questions",
+				"research",
+				"specification",
+				"plan",
+			]);
+			assert.ok(preImplementation.every(({ branch, worktree }) => !branch && !worktree));
 			assert.deepEqual(task.document.questions, questions);
 			assert.deepEqual(task.document.specification, specification);
 			assert.deepEqual(task.document.plan, plan);
 			assert.equal(task.document.checkpoints.length, 2);
 			assert.equal(readFileSync(join(task.directory, "research.md"), "utf8"), researchOutput);
+			assert.equal(readFileSync(join(task.document.repository.worktree, ".env.local"), "utf8"), "PIPELINE_SECRET=local\n");
+			assert.equal(readFileSync(join(task.document.repository.worktree, "CLAUDE.local.md"), "utf8"), "local instructions\n");
+			assert.equal(
+				readFileSync(join(task.document.repository.worktree, ".claude", "settings.local.json"), "utf8"),
+				"{\"local\":true}\n",
+			);
+			assert.equal(existsSync(join(task.document.repository.worktree, "nested", ".env")), false);
+			assert.equal(existsSync(join(task.document.repository.worktree, "other.local")), false);
 			assert.equal("research" in task.document, false);
 			assert.equal(new Set(task.document.sessions.map(({ path }) => path)).size, 6);
 			for (const kind of ["questions", "research", "specification", "plan"] as const)

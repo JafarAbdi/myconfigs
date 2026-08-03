@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
 	acceptTaskPlan,
+	activateTaskPlan,
 	appendTaskSession,
 	completeTaskPhase,
 	completeTaskResearch,
@@ -80,7 +81,7 @@ function implementationTask(): TaskDocument {
 	task = confirmTaskQuestions(task, questions);
 	task = completeTaskResearch(task);
 	task = confirmTaskSpecification(task, specification);
-	return acceptTaskPlan(task, plan);
+	return activateTaskPlan(acceptTaskPlan(task, plan));
 }
 
 const sessionRuns: TaskSessionRun[] = [
@@ -94,7 +95,7 @@ const sessionRuns: TaskSessionRun[] = [
 	{ kind: "correction", round: 1, path: "/sessions/correction-1.jsonl" },
 ];
 
-test("version 3 task.json round-trips atomically from Questions", () => {
+test("version 4 task.json round-trips atomically from Questions", () => {
 	const directory = mkdtempSync(join(tmpdir(), "juruc-task-"));
 	try {
 		const path = join(directory, "task.json");
@@ -106,6 +107,8 @@ test("version 3 task.json round-trips atomically from Questions", () => {
 		saveTaskDocument(path, task);
 		assert.deepEqual(loadTaskDocument(path), task);
 		assert.equal(readFileSync(path, "utf8"), serializeTaskDocument(task));
+		assert.equal(lstatSync(path).mode & 0o777, 0o600);
+		assert.deepEqual(readdirSync(directory), ["task.json"]);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
@@ -121,9 +124,18 @@ test("strict forward transitions produce Q to R to S to P to I", () => {
 	task = confirmTaskSpecification(task, specification);
 	assert.equal(task.stage, "plan");
 	task = acceptTaskPlan(task, plan);
+	assert.equal(task.stage, "plan");
+	assert.deepEqual(task.plan, plan);
+	assert.deepEqual(parseTaskDocument(serializeTaskDocument(task)), task);
+	assert.deepEqual(acceptTaskPlan(task, structuredClone(plan)), task);
+	assert.throws(
+		() => acceptTaskPlan(task, { phases: [{ ...first, goal: "Changed." }, second] }),
+		/immutable/,
+	);
+	task = activateTaskPlan(task);
 	assert.equal(task.stage, "implementation");
 	assert.deepEqual(currentTaskPhase(task), first);
-	assert.throws(() => acceptTaskPlan(task, plan), /not planning/);
+	assert.throws(() => activateTaskPlan(task), /pending activation/);
 });
 
 test("accepted plan is exact, nonempty, safe, and immutable in checkpoints", () => {
@@ -148,7 +160,7 @@ test("accepted plan is exact, nonempty, safe, and immutable in checkpoints", () 
 		assert.throws(() => parseTaskDocument(JSON.stringify(persisted)), /invalid/);
 	}
 
-	let task = appendTaskSession(acceptTaskPlan(base, plan), {
+	let task = appendTaskSession(activateTaskPlan(acceptTaskPlan(base, plan)), {
 		kind: "implementation",
 		phase: 1,
 		path: "/sessions/implementation-1.jsonl",
@@ -222,12 +234,13 @@ test("artifacts, sessions, stages, and old task shapes are strictly rejected", (
 		/invalid/,
 	);
 	for (const old of [
-		{ ...fresh, version: 2 },
+		{ ...fresh, version: 3 },
 		{ ...fresh, stage: "building" },
 		{ ...fresh, blockReason: null },
 		{ ...fresh, completed: [] },
 		{ ...fresh, research: {} },
 		{ ...fresh, researchComplete: false },
+		{ ...fresh, repository: { ...fresh.repository, branch: "other-task" } },
 	]) assert.throws(() => parseTaskDocument(JSON.stringify(old)), /invalid/);
 	assert.throws(() => parseTaskDocument("{"), /not valid JSON/);
 });

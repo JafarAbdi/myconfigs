@@ -9,13 +9,16 @@ import {
 	BUILD_TOOL_NAMES,
 	FINISH_PHASE_SCHEMA,
 	finishCurrentPhase,
+	persistCheckpointTask,
 	RUN_VERIFICATION_SCHEMA,
 	runDeclaredVerification,
 	type FinishPhaseInput,
 } from "./execution.ts";
 import {
 	acceptTaskPlan,
+	activateTaskPlan,
 	appendTaskSession,
+	completeTaskPhase,
 	completeTaskResearch,
 	confirmTaskQuestions,
 	confirmTaskSpecification,
@@ -26,7 +29,7 @@ import {
 	type TaskPhase,
 } from "./task.ts";
 import {
-	createTaskWorktree,
+	ensureTaskWorktree,
 	git,
 	workspaceStatus,
 	type RepositoryEvidence,
@@ -47,9 +50,11 @@ function initializeRepository(root: string): RepositoryEvidence {
 	return { root, head: run(root, "rev-parse", "HEAD"), branch: "main" };
 }
 
+const passingVerification = (name: string): string => `: # verify ${name}`;
+
 const phase = (
 	id: string,
-	verification = [`verify ${id}`],
+	verification = [passingVerification(id)],
 	fileScopes = ["tracked.txt"],
 ): TaskPhase => ({
 	id,
@@ -67,7 +72,14 @@ async function implementationTask(
 	const source = join(root, "source");
 	const repository = initializeRepository(source);
 	mkdirSync(join(root, "worktrees"));
-	const identity = await createTaskWorktree(repository, "task", join(root, "worktrees", "task"));
+	const identity = {
+		sourceRoot: repository.root,
+		baseBranch: repository.branch,
+		sourceHead: repository.head,
+		branch: "task",
+		worktree: join(root, "worktrees", "task"),
+	};
+	await ensureTaskWorktree(identity);
 	let task = createTaskDocument({
 		slug: "task",
 		title: "Task",
@@ -89,7 +101,7 @@ async function implementationTask(
 		acceptanceCriteria: ["All tests pass."],
 		decisions: [],
 	});
-	task = acceptTaskPlan(task, { phases });
+	task = activateTaskPlan(acceptTaskPlan(task, { phases }));
 	return appendTaskSession(task, {
 		kind: "implementation",
 		phase: 1,
@@ -193,7 +205,7 @@ test("declared verification reports cancellation and timeout", async () => {
 test("mismatched or nonzero evidence leaves the implementation phase resumable and unstaged", async () => {
 	const root = mkdtempSync(join(tmpdir(), "juruc-phase-fail-"));
 	try {
-		const commands = ["verify first", "verify second"];
+		const commands = [passingVerification("first"), passingVerification("second")];
 		const task = await implementationTask(root, [phase("one", commands)]);
 		writeFileSync(join(task.repository.worktree, "tracked.txt"), "candidate\n");
 		for (const input of [
@@ -216,6 +228,41 @@ test("mismatched or nonzero evidence leaves the implementation phase resumable a
 	}
 });
 
+test("fabricated zero evidence cannot hide a failing authoritative verification", async () => {
+	const root = mkdtempSync(join(tmpdir(), "juruc-phase-fabricated-verification-"));
+	try {
+		const command = "node -e \"process.exit(7)\"";
+		const task = await implementationTask(root, [phase("failing", [command])]);
+		writeFileSync(join(task.repository.worktree, "tracked.txt"), "candidate\n");
+		await assert.rejects(
+			finishCurrentPhase(task, finishInput([command])),
+			/authoritative verification exited with code 7/,
+		);
+		await assertUnstaged(task);
+		assert.deepEqual((await workspaceStatus(task.repository.worktree)).paths, ["tracked.txt"]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("finish-phase verification honors cancellation before staging", async () => {
+	const root = mkdtempSync(join(tmpdir(), "juruc-phase-cancelled-verification-"));
+	try {
+		const command = passingVerification("cancelled");
+		const task = await implementationTask(root, [phase("cancelled", [command])]);
+		writeFileSync(join(task.repository.worktree, "tracked.txt"), "candidate\n");
+		const controller = new AbortController();
+		controller.abort();
+		await assert.rejects(
+			finishCurrentPhase(task, finishInput([command]), controller.signal),
+			/authoritative verification was cancelled/,
+		);
+		await assertUnstaged(task);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("invalid persisted resolutions are rejected before staging", async () => {
 	const root = mkdtempSync(join(tmpdir(), "juruc-phase-resolution-"));
 	try {
@@ -227,7 +274,7 @@ test("invalid persisted resolutions are rejected before staging", async () => {
 			"x".repeat(MAX_TASK_TEXT_LENGTH + 1),
 		]) {
 			await assert.rejects(
-				finishCurrentPhase(task, { ...finishInput(["verify one"]), resolution }),
+				finishCurrentPhase(task, { ...finishInput([passingVerification("one")]), resolution }),
 				/phase resolution/,
 			);
 			await assertUnstaged(task);
@@ -243,7 +290,7 @@ test("successful exact-scope evidence commits a checkpoint and leaves the next p
 	try {
 		const task = await implementationTask(root);
 		writeFileSync(join(task.repository.worktree, "tracked.txt"), "candidate one\n");
-		const input = finishInput(["verify phase-one"]);
+		const input = finishInput([passingVerification("phase-one")]);
 		const result = await finishCurrentPhase(task, input);
 		assert.equal(result.task.stage, "implementation");
 		assert.equal(result.task.checkpoints.length, 1);
@@ -265,14 +312,14 @@ test("Git pathspec scopes accept globbed new files and scoped deletions", async 
 		mkdirSync(join(newTask.repository.worktree, "src"));
 		writeFileSync(join(newTask.repository.worktree, "src", "new.ts"), "new\n");
 		assert.equal(
-			(await finishCurrentPhase(newTask, finishInput(["verify new-file"]))).task.stage,
+			(await finishCurrentPhase(newTask, finishInput([passingVerification("new-file")]))).task.stage,
 			"done",
 		);
 
 		const deletedTask = await implementationTask(deletedRoot, [phase("delete", undefined, ["tracked.txt"])]);
 		rmSync(join(deletedTask.repository.worktree, "tracked.txt"));
 		assert.equal(
-			(await finishCurrentPhase(deletedTask, finishInput(["verify delete"]))).task.stage,
+			(await finishCurrentPhase(deletedTask, finishInput([passingVerification("delete")]))).task.stage,
 			"done",
 		);
 	} finally {
@@ -294,7 +341,7 @@ test("Git pathspec scopes preserve in-scope renames and reject cross-scope moves
 			join(inScope.repository.worktree, "renamed.txt"),
 		);
 		assert.equal(
-			(await finishCurrentPhase(inScope, finishInput(["verify rename-in"]))).task.stage,
+			(await finishCurrentPhase(inScope, finishInput([passingVerification("rename-in")]))).task.stage,
 			"done",
 		);
 
@@ -308,7 +355,7 @@ test("Git pathspec scopes preserve in-scope renames and reject cross-scope moves
 			join(crossScope.repository.worktree, "src", "tracked.txt"),
 		);
 		await assert.rejects(
-			finishCurrentPhase(crossScope, finishInput(["verify rename-cross"])),
+			finishCurrentPhase(crossScope, finishInput([passingVerification("rename-cross")])),
 			/outside active phase file scopes: tracked\.txt/,
 		);
 		await assertUnstaged(crossScope);
@@ -328,7 +375,7 @@ test("out-of-scope new paths are rejected and unstaged", async () => {
 		const task = await implementationTask(root, [phase("scoped", undefined, ["src/**"])]);
 		writeFileSync(join(task.repository.worktree, "outside.txt"), "outside\n");
 		await assert.rejects(
-			finishCurrentPhase(task, finishInput(["verify scoped"])),
+			finishCurrentPhase(task, finishInput([passingVerification("scoped")])),
 			/outside active phase file scopes: outside\.txt/,
 		);
 		await assertUnstaged(task);
@@ -342,11 +389,86 @@ test("final checkpoint reaches done and unchanged candidates are refused", async
 	const root = mkdtempSync(join(tmpdir(), "juruc-phase-final-"));
 	try {
 		const task = await implementationTask(root, [phase("only")]);
-		await assert.rejects(finishCurrentPhase(task, finishInput(["verify only"])), /unchanged candidate/);
+		await assert.rejects(
+			finishCurrentPhase(task, finishInput([passingVerification("only")])),
+			/unchanged candidate/,
+		);
 		writeFileSync(join(task.repository.worktree, "tracked.txt"), "complete\n");
-		const result = await finishCurrentPhase(task, finishInput(["verify only"]));
+		const result = await finishCurrentPhase(task, finishInput([passingVerification("only")]));
 		assert.equal(result.task.stage, "done");
 		assert.equal(result.task.checkpoints.length, 1);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("checkpoint persistence classifies installed old, new, failed retry, and ambiguous state", async () => {
+	const root = mkdtempSync(join(tmpdir(), "juruc-checkpoint-persistence-"));
+	try {
+		const task = await implementationTask(root, [phase("checkpoint")]);
+		const evidence = finishInput([passingVerification("checkpoint")]).verificationEvidence;
+		const next = completeTaskPhase(task, "Persisted checkpoint.", evidence, "a".repeat(40));
+		const oldStored = { directory: join(root, "task"), document: task };
+		const newStored = { directory: oldStored.directory, document: next };
+
+		const beforeInstall = new Error("save failed before rename");
+		let recoveries = 0;
+		await assert.rejects(
+			persistCheckpointTask(oldStored, next, {
+				save: () => { throw beforeInstall; },
+				reload: () => oldStored,
+				recover: async () => { recoveries++; },
+			}),
+			(error) => error === beforeInstall,
+		);
+		assert.equal(recoveries, 1);
+
+		const afterInstall = new Error("save reported failure after rename");
+		const savedFrom: typeof oldStored[] = [];
+		const installed = await persistCheckpointTask(oldStored, next, {
+			save: (stored, document) => {
+				savedFrom.push(stored);
+				if (savedFrom.length === 1) throw afterInstall;
+				return { directory: stored.directory, document };
+			},
+			reload: () => newStored,
+			recover: async () => { recoveries++; },
+		});
+		assert.deepEqual(installed.document, next);
+		assert.equal(savedFrom[1], newStored);
+		assert.equal(recoveries, 1);
+
+		let retryRecoveries = 0;
+		await assert.rejects(
+			persistCheckpointTask(oldStored, next, {
+				save: () => { throw new Error("durability write failed"); },
+				reload: () => newStored,
+				recover: async () => { retryRecoveries++; },
+			}),
+			(error) => error instanceof AggregateError &&
+				/aligned Git commit was retained/.test(error.message),
+		);
+		assert.equal(retryRecoveries, 0);
+
+		const unknownStored = {
+			directory: oldStored.directory,
+			document: { ...task, title: "Unexpected installed task" },
+		};
+		let ambiguousRecoveries = 0;
+		for (const reload of [
+			() => unknownStored,
+			() => { throw new Error("task.json unreadable"); },
+		]) {
+			await assert.rejects(
+				persistCheckpointTask(oldStored, next, {
+					save: () => { throw new Error("save failed"); },
+					reload,
+					recover: async () => { ambiguousRecoveries++; },
+				}),
+				(error) => error instanceof AggregateError && /ambiguous/.test(error.message),
+			);
+		}
+		assert.equal(ambiguousRecoveries, 0);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -359,7 +481,10 @@ test("implementation-authored commits are rejected", async () => {
 		writeFileSync(join(task.repository.worktree, "tracked.txt"), "unauthorized\n");
 		run(task.repository.worktree, "add", "-A");
 		run(task.repository.worktree, "commit", "-m", "unauthorized");
-		await assert.rejects(finishCurrentPhase(task, finishInput(["verify one"])), /changed Git HEAD/);
+		await assert.rejects(
+			finishCurrentPhase(task, finishInput([passingVerification("one")])),
+			/changed Git HEAD/,
+		);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

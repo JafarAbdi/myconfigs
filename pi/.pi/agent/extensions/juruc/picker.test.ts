@@ -8,7 +8,7 @@ test("non-TUI task options remain concise", () => {
 			slug: "small-task",
 			title: "Small task",
 			request: "Simplify it.",
-			stage: "specification",
+			stage: "plan",
 			modified: new Date(0),
 			valid: true,
 		},
@@ -16,7 +16,7 @@ test("non-TUI task options remain concise", () => {
 	assert.deepEqual(options, [
 		{ label: "New task…", choice: { action: "new" } },
 		{
-			label: "Small task — small-task · specification",
+			label: "Small task — small-task · plan",
 			choice: { action: "select", slug: "small-task" },
 		},
 	]);

@@ -22,6 +22,7 @@ import {
 	expectedTaskHead,
 	FINISH_PHASE_SCHEMA,
 	finishCurrentPhase,
+	persistCheckpointTask,
 	RUN_VERIFICATION_SCHEMA,
 	runDeclaredVerification,
 	type FinishPhaseInput,
@@ -64,6 +65,7 @@ import {
 } from "./specification.ts";
 import { lifecycleLine } from "./status.ts";
 import {
+	activateTaskPlan,
 	appendTaskSession,
 	currentTaskPhase,
 	findTaskSession,
@@ -87,7 +89,9 @@ import {
 	validTaskSlug,
 } from "./tasks.ts";
 import {
-	createTaskWorktree,
+	copyTaskLocalFiles,
+	ensureTaskWorktree,
+	hasTaskWorktreeRegistration,
 	inspectTaskWorktree,
 	prepareRepository,
 	recoverUnrecordedTaskCommits,
@@ -263,7 +267,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			case "specification":
 				return SPECIFICATION_TOOL_NAMES;
 			case "plan":
-				return PLANNING_TOOL_NAMES;
+				return task.plan ? [] : PLANNING_TOOL_NAMES;
 			case "implementation":
 				return BUILD_TOOL_NAMES;
 			case "done":
@@ -445,6 +449,26 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		);
 	}
 
+	async function activatePendingPlan(
+		ctx: ExtensionContext,
+		task: StoredTask,
+	): Promise<StoredTask> {
+		if (task.document.stage !== "plan" || !task.document.plan)
+			throw new Error(`${task.document.slug}: task has no accepted plan pending activation`);
+		showStatus(ctx, task);
+		if (taskForSession(ctx)?.document.slug === task.document.slug)
+			activateTools(ctx, task);
+		try {
+			await ensureTaskWorktree(task.document.repository);
+			await copyTaskLocalFiles(task.document.repository);
+			return saveTask(task, activateTaskPlan(task.document));
+		} catch (error) {
+			throw new Error(
+				`${task.document.slug}: plan accepted but workspace activation failed; run /juruc to retry — ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+
 	async function openPlan(
 		ctx: ExtensionCommandContext,
 		selected: StoredTask,
@@ -452,6 +476,11 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		let task = selected;
 		if (task.document.stage !== "plan" || !task.document.specification)
 			throw new Error(`${task.document.slug}: task is not ready for planning`);
+		if (task.document.plan) {
+			task = await activatePendingPlan(ctx, task);
+			await openImplementation(ctx, task);
+			return;
+		}
 		let session = findTaskSession(task.document, { kind: "plan" })?.path;
 		if (!session) {
 			session = createManagedSession(
@@ -652,19 +681,29 @@ export function registerJuruc(pi: ExtensionAPI): void {
 	async function removeTask(ctx: ExtensionCommandContext, slug: string): Promise<void> {
 		try {
 			const task = loadTask(paths, slug);
-			const present = lstatSync(task.document.repository.worktree, { throwIfNoEntry: false });
+			const registered = await hasTaskWorktreeRegistration(task.document.repository);
+			const present = registered &&
+				lstatSync(task.document.repository.worktree, { throwIfNoEntry: false });
 			const status = present ? await inspectTaskWorktree(task.document.repository) : undefined;
 			const changes = status?.paths.length
 				? `\n\nThis discards uncommitted worktree changes:\n${status.paths.map((path) => `- ${path}`).join("\n")}`
 				: "";
+			const workspaceText = registered
+				? "task state and managed worktree"
+				: "task state (no managed worktree exists)";
 			const confirmed = await ctx.ui.confirm(
 				`Delete ${slug}?`,
-				`Remove its JURUC task state and managed worktree? Branch ${task.document.repository.branch} and its commits will remain. Session history will remain.${changes}`,
+				`Remove its ${workspaceText}? Branch ${task.document.repository.branch}, if present, will remain. Session history will remain.${changes}`,
 			);
 			if (!confirmed) return;
-			await removeTaskWorktree(task.document.repository);
+			if (registered) await removeTaskWorktree(task.document.repository);
 			removeTaskRecord(task);
-			ctx.ui.notify(`${slug}: task and worktree removed; branch retained`, "info");
+			ctx.ui.notify(
+				registered
+					? `${slug}: task and worktree removed; branch retained`
+					: `${slug}: task removed; branch retained if present`,
+				"info",
+			);
 		} catch (error) {
 			ctx.ui.notify(
 				`${slug}: deletion failed — ${error instanceof Error ? error.message : String(error)}`,
@@ -693,8 +732,18 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			(message) => ctx.ui.notify(message, "info"),
 		);
 		if (!repository) return;
-		const identity = await createTaskWorktree(repository, slug, join(paths.worktrees, slug));
-		const task = createTask(paths, { slug, title, request, repository: identity });
+		const task = createTask(paths, {
+			slug,
+			title,
+			request,
+			repository: {
+				sourceRoot: repository.root,
+				baseBranch: repository.branch,
+				sourceHead: repository.head,
+				branch: slug,
+				worktree: join(paths.worktrees, slug),
+			},
+		});
 		await openQuestions(ctx, task);
 	}
 
@@ -761,11 +810,12 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		executionMode: "sequential",
 		async execute(_id, params: SetPlanInput, _signal, _onUpdate, ctx) {
 			const task = ownedTask(ctx, "plan", "plan");
-			const updated = saveTask(task, confirmTaskPlan(task.document, params));
-			showStatus(ctx, updated);
-			activateTools(ctx, updated);
+			const pending = saveTask(task, confirmTaskPlan(task.document, params));
+			showStatus(ctx, pending);
+			activateTools(ctx, pending);
+			const updated = await activatePendingPlan(ctx, pending);
 			return {
-				content: [{ type: "text" as const, text: "Plan persisted. Starting implementation." }],
+				content: [{ type: "text" as const, text: "Plan persisted and workspace activated. Starting implementation." }],
 				details: { slug: updated.document.slug, stage: updated.document.stage },
 				terminate: true,
 			};
@@ -802,26 +852,19 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		description: "Validate phase evidence, stage the candidate, and create its checkpoint commit.",
 		parameters: FINISH_PHASE_SCHEMA as never,
 		executionMode: "sequential",
-		async execute(_id, params: FinishPhaseInput, _signal, _onUpdate, ctx) {
+		async execute(_id, params: FinishPhaseInput, signal, _onUpdate, ctx) {
 			const task = ownedTask(ctx, "implementation", "implementation");
-			const result = await finishCurrentPhase(task.document, params);
-			let updated: StoredTask;
-			try {
-				updated = saveTask(task, result.task);
-			} catch (error) {
-				try {
+			const result = await finishCurrentPhase(task.document, params, signal);
+			const updated = await persistCheckpointTask(task, result.task, {
+				save: saveTask,
+				reload: () => loadTask(paths, task.document.slug),
+				recover: async () => {
 					await recoverUnrecordedTaskCommits(
 						task.document.repository,
 						expectedTaskHead(task.document),
 					);
-				} catch (recoveryError) {
-					throw new AggregateError(
-						[error, recoveryError],
-						"task persistence failed and its unrecorded commit could not be recovered",
-					);
-				}
-				throw error;
-			}
+				},
+			});
 			showStatus(ctx, updated);
 			activateTools(ctx, updated);
 			return {

@@ -14,6 +14,8 @@ export interface LifecyclePlace {
 }
 
 export function lifecyclePlace(task: TaskDocument): LifecyclePlace {
+	if (task.stage === "plan" && task.plan)
+		return { active: "plan", detail: "plan accepted · activation pending" };
 	if (task.stage !== "implementation" && task.stage !== "done")
 		return { active: task.stage, detail: task.stage };
 	if (task.stage === "done") return { active: "done", detail: "done" };

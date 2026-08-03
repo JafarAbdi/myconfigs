@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	readdirSync,
 	realpathSync,
 	rmSync,
 	writeFileSync,
@@ -61,6 +63,8 @@ test("research.md is atomically persisted and current file contents are authorit
 		const exact = "facts with unicode π\n";
 		assert.equal(saveResearchBrief(directory, exact), undefined);
 		assert.equal(readFileSync(join(directory, "research.md"), "utf8"), exact);
+		assert.equal(lstatSync(join(directory, "research.md")).mode & 0o777, 0o600);
+		assert.deepEqual(readdirSync(directory), ["research.md"]);
 		writeFileSync(join(directory, "research.md"), "operator revision\n");
 		assert.equal(loadResearchBrief(directory), "operator revision\n");
 		rmSync(join(directory, "research.md"));

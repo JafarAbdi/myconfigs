@@ -3,6 +3,7 @@ import test from "node:test";
 import { lifecycleLine, lifecyclePlace } from "./status.ts";
 import {
 	acceptTaskPlan,
+	activateTaskPlan,
 	completeTaskPhase,
 	completeTaskResearch,
 	confirmTaskQuestions,
@@ -41,7 +42,7 @@ function implementationTask() {
 		acceptanceCriteria: ["Rail is exact."],
 		decisions: [],
 	});
-	return acceptTaskPlan(current, {
+	return activateTaskPlan(acceptTaskPlan(current, {
 		phases: [{
 			id: "show-status",
 			title: "Show status",
@@ -50,7 +51,7 @@ function implementationTask() {
 			instructions: ["Render status."],
 			verification: ["test status"],
 		}],
-	});
+	}));
 }
 
 test("status renders the exact compact QRSPI rail and context", () => {
@@ -74,6 +75,17 @@ test("status renders the exact compact QRSPI rail and context", () => {
 		decisions: [],
 	});
 	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P● I· · plan");
+	current = acceptTaskPlan(current, {
+		phases: [{
+			id: "show-status",
+			title: "Show status",
+			goal: "Show status.",
+			fileScopes: ["status.ts"],
+			instructions: ["Render status."],
+			verification: ["test status"],
+		}],
+	});
+	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P● I· · plan accepted · activation pending");
 });
 
 test("implementation and done spell out the active phase", () => {

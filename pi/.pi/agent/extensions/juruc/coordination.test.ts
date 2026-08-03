@@ -4,6 +4,7 @@ import { setTaskQuestions } from "./questions.ts";
 import { confirmTaskPlan } from "./planning.ts";
 import { setTaskSpecification } from "./specification.ts";
 import {
+	activateTaskPlan,
 	appendTaskSession,
 	completeTaskResearch,
 	createTaskDocument,
@@ -58,6 +59,9 @@ test("discovery transitions preserve one fresh typed run per stage", () => {
 			verification: ["npm test"],
 		}],
 	});
+	assert.equal(current.stage, "plan");
+	assert.ok(current.plan);
+	current = activateTaskPlan(current);
 	assert.equal(current.stage, "implementation");
 	assert.equal(current.sessions.length, 4);
 	assert.equal(findTaskSession(current, { kind: "plan" })?.path, "/sessions/plan.jsonl");
