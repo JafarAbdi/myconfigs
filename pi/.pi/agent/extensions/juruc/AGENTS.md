@@ -23,6 +23,7 @@ Provide one small Questions → Research → Specification → Plan → Implemen
 - I4: Reviewers cannot edit, retry, block acceptance, approve, or initiate correction. Only saved human comments cause correction, and only explicit human approval reaches `done`.
 - I5: JURUC validates persisted JSON, model output, filesystem results, Pi sessions, Git identity, patch identity, changed-line targets, verification evidence, and repository ownership at their boundaries.
 - I6: Pi owns ordinary `AGENTS.md`/`CLAUDE.md` discovery from each session cwd. JURUC does not scan changed files, inject context, persist context metadata, or compensate for misplaced context files.
+- I7: `AGENTS.md` is the operator-owned project contract and is read-only unless an accepted task explicitly changes a requirement, invariant, constraint, assumption, or non-goal. Preserve the R/I/C/A/N structure; never use it for checkpoint status or implementation notes.
 
 ## Constraints
 
