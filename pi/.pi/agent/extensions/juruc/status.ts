@@ -8,52 +8,81 @@ const RAIL = [
 	["implementation", "I"],
 ] as const;
 
+const DISCOVERY_CONTEXT = {
+	questions: "Questions",
+	research: "Research",
+	specification: "Specification",
+	plan: "Plan",
+} as const;
+
+export type RailRole = "completed" | "current" | "future";
+
+/** One glyph per role, so the state of every stage reads without colour. */
+const MARKERS: Record<RailRole, string> = { completed: "✓", current: "●", future: "○" };
+
+export interface RailCell {
+	marker: string;
+	label: string;
+	role: RailRole;
+}
+
 export interface LifecyclePlace {
 	active: TaskStage;
 	detail: string;
 }
 
 export function lifecyclePlace(task: TaskDocument): LifecyclePlace {
-	if (task.stage === "plan" && task.plan)
-		return { active: "plan", detail: "plan accepted · activation pending" };
+	if (task.stage === "plan" && task.plan) return { active: "plan", detail: "Plan · Ready" };
 	if (task.stage === "review") {
 		const round = task.reviewRounds.at(-1);
 		const number = round?.number ?? 1;
 		if (round?.decision?.kind === "send-feedback")
-			return { active: "review", detail: `correction ${number} · verifying` };
+			return { active: "review", detail: `Correction ${number} · Verifying` };
 		const reviewersReady = round && Object.values(round.reviewers).every((slot) => slot?.outcome);
 		return {
 			active: "review",
-			detail: `review ${number} · ${reviewersReady ? "awaiting decision" : "preparing"}`,
+			detail: `Review ${number} · ${reviewersReady ? "Awaiting decision" : "Preparing"}`,
 		};
 	}
-	if (task.stage !== "implementation" && task.stage !== "done")
-		return { active: task.stage, detail: task.stage };
-	if (task.stage === "done") return { active: "done", detail: "done" };
+	if (task.stage === "done") return { active: "done", detail: "Done" };
+	if (task.stage !== "implementation")
+		return { active: task.stage, detail: DISCOVERY_CONTEXT[task.stage] };
 	const phase = task.plan?.phases[task.checkpoints.length];
 	const total = task.plan?.phases.length ?? 0;
 	return {
 		active: "implementation",
 		detail: phase
-			? `phase ${task.checkpoints.length + 1}/${total} · ${phase.title}`
-			: "implementation",
+			? `Phase ${task.checkpoints.length + 1}/${total} · ${phase.title}`
+			: "Implementation",
 	};
 }
 
-export function lifecycleRail(task: TaskDocument): string {
+/** The five rail cells with the role each one plays right now; the TUI colours them. */
+export function lifecycleRail(task: TaskDocument): RailCell[] {
 	const activeIndex = RAIL.findIndex(([stage]) => stage === task.stage);
+	const past = task.stage === "review" || task.stage === "done";
 	return RAIL.map(([stage, label], index) => {
-		const marker = task.stage === "review" || task.stage === "done" || index < activeIndex
-			? "✓"
+		const role: RailRole = past || index < activeIndex
+			? "completed"
 			: stage === task.stage
-				? "●"
-				: "·";
-		return `${label}${marker}`;
-	}).join(" ");
+			? "current"
+			: "future";
+		return { marker: MARKERS[role], label, role };
+	});
+}
+
+/** One cell is its state marker, one space, and its stage label. */
+export function railCellText(cell: RailCell): string {
+	return `${cell.marker} ${cell.label}`;
+}
+
+/** Whitespace carries the whole hierarchy: two columns between cells, three before the context. */
+export function composeLifecycleLine(cells: readonly string[], detail: string): string {
+	return `${cells.join("  ")}   ${detail}`;
 }
 
 export function lifecycleLine(task: TaskDocument): string {
-	return `${lifecycleRail(task)} · ${lifecyclePlace(task).detail}`;
+	return composeLifecycleLine(lifecycleRail(task).map(railCellText), lifecyclePlace(task).detail);
 }
 
 /** The single muted picker context: the one authoritative next action, without titles. */

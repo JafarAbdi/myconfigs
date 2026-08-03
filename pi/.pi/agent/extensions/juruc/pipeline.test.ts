@@ -782,7 +782,7 @@ try {
 			assert.ok(harness.notices.some((notice) => notice.includes(`review 1 is open at ${openedUrls[0]}`)));
 			// An RPC session keeps the plain lifecycle line; the exact URL notification above is
 			// the only handoff.
-			assert.ok(harness.widgets.includes("Q✓ R✓ S✓ P✓ I✓ · review 1 · awaiting decision"));
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Awaiting decision"));
 
 			const api = new URL("api/", openedUrls[0]);
 			assert.equal((await post(new URL("comments", api), comment)).status, 201);
@@ -814,7 +814,7 @@ try {
 				"Apply review feedback 1",
 			);
 			assert.equal(git(corrected.document.repository.worktree, "status", "--porcelain"), "");
-			assert.ok(harness.widgets.includes("Q✓ R✓ S✓ P✓ I✓ · correction 1 · verifying"));
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Verifying"));
 			assert.notEqual(openedUrls[1], openedUrls[0]);
 
 			const correctionSession = findTaskSession(corrected.document, {
@@ -869,7 +869,7 @@ try {
 			assert.equal(done.document.reviewRounds.at(-1)?.decision?.kind, "approve");
 			assert.equal(done.document.reviewRounds.at(-1)?.correction, null);
 			await assert.rejects(fetch(new URL("state", finalApi)));
-			assert.ok(harness.widgets.includes("Q✓ R✓ S✓ P✓ I✓ · done"));
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Done"));
 			// The completed task shows branch, worktree, and short approved HEAD only.
 			const approvedHead = git(done.document.repository.worktree, "rev-parse", "HEAD");
 			const summary =
@@ -1058,9 +1058,15 @@ try {
 			assert.equal(findTaskSession(task.document, { kind: "questions" })!.path, questionsSession);
 			assert.equal(task.document.checkpoints.length, 1);
 			assert.equal(openedUrls.length, 1);
-			const link = (url: string) => `\x1b]8;;${url}\x07Open review ↗\x1b]8;;\x07`;
+			const action = "Open review ↗";
+			// The harness renders at width 80 and the action is pinned to the right edge.
+			const linked = (url: string) => {
+				const left = "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Awaiting decision";
+				const pad = " ".repeat(80 - left.length - action.length);
+				return `${left}${pad}\x1b]8;;${url}\x07${action}\x1b]8;;\x07`;
+			};
 			assert.ok(resumed.widgets.includes(
-				`Q✓ R✓ S✓ P✓ I✓ · review 1 · awaiting decision · ${link(openedUrls[0])}`,
+				linked(openedUrls[0]),
 			));
 
 			// /juruc on the same open review reuses the live capability URL.
@@ -1077,7 +1083,7 @@ try {
 			assert.notEqual(openedUrls[2], openedUrls[0]);
 			assert.equal(new URL(openedUrls[2]).pathname === new URL(openedUrls[0]).pathname, false);
 			assert.ok(resumed.widgets.includes(
-				`Q✓ R✓ S✓ P✓ I✓ · review 1 · awaiting decision · ${link(openedUrls[2])}`,
+				linked(openedUrls[2]),
 			));
 			assert.equal(
 				resumed.widgets.filter((line) => line.includes(openedUrls[0])).length,

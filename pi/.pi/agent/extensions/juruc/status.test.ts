@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { lifecycleLine, lifecyclePlace, taskContext } from "./status.ts";
+import { lifecycleLine, lifecyclePlace, lifecycleRail, taskContext } from "./status.ts";
 import {
 	acceptTaskPlan,
 	activateTaskPlan,
@@ -15,6 +15,7 @@ import {
 	decideTaskReview,
 	registerTaskCorrectionStart,
 	registerTaskReviewerStart,
+	type TaskDocument,
 } from "./task.ts";
 
 function task() {
@@ -60,18 +61,23 @@ function implementationTask() {
 	}));
 }
 
-test("status renders the exact compact QRSPI rail and context", () => {
+/** The markers already show the states; the roles are what the TUI paints. */
+const roles = (document: TaskDocument) =>
+	lifecycleRail(document).map((entry) => entry.role).join(" ");
+
+test("status renders the exact quiet QRSPI rail and context", () => {
 	let current = task();
-	assert.equal(lifecycleLine(current), "Q● R· S· P· I· · questions");
+	assert.equal(lifecycleLine(current), "● Q  ○ R  ○ S  ○ P  ○ I   Questions");
+	assert.equal(roles(current), "current future future future future");
 	current = confirmTaskQuestions(current, {
 		sharedUnderstanding: "Show status.",
 		decisions: [],
 		acceptedAssumptions: [],
 		researchTargets: [],
 	});
-	assert.equal(lifecycleLine(current), "Q✓ R● S· P· I· · research");
+	assert.equal(lifecycleLine(current), "✓ Q  ● R  ○ S  ○ P  ○ I   Research");
 	current = completeTaskResearch(current);
-	assert.equal(lifecycleLine(current), "Q✓ R✓ S● P· I· · specification");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ● S  ○ P  ○ I   Specification");
 	current = confirmTaskSpecification(current, {
 		summary: "Show it.",
 		requirements: ["Show stage."],
@@ -80,7 +86,7 @@ test("status renders the exact compact QRSPI rail and context", () => {
 		acceptanceCriteria: ["Rail is exact."],
 		decisions: [],
 	});
-	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P● I· · plan");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ● P  ○ I   Plan");
 	current = acceptTaskPlan(current, {
 		phases: [{
 			id: "show-status",
@@ -91,20 +97,21 @@ test("status renders the exact compact QRSPI rail and context", () => {
 			verification: ["test status"],
 		}],
 	});
-	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P● I· · plan accepted · activation pending");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ● P  ○ I   Plan · Ready");
+	assert.equal(roles(current), "completed completed completed current future");
 });
 
 test("implementation and review spell out the active phase", () => {
 	let current = implementationTask();
-	assert.equal(lifecyclePlace(current).detail, "phase 1/1 · Show status");
-	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I● · phase 1/1 · Show status");
+	assert.equal(lifecyclePlace(current).detail, "Phase 1/1 · Show status");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ● I   Phase 1/1 · Show status");
 	current = completeTaskPhase(
 		current,
 		"Done.",
 		[{ command: "test status", exitCode: 0, summary: "Passed." }],
 		"2".repeat(40),
 	);
-	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · review 1 · preparing");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Preparing");
 	current = completeTaskReviewer(
 		registerTaskReviewerStart(current, "deviation", "/sessions/deviation.jsonl"),
 		"deviation",
@@ -115,7 +122,9 @@ test("implementation and review spell out the active phase", () => {
 		"correctness",
 		{ status: "completed", annotations: [] },
 	);
-	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · review 1 · awaiting decision");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Awaiting decision");
+	// Review and done leave the rail entirely behind.
+	assert.equal(roles(current), "completed completed completed completed completed");
 });
 
 test("a pending or running correction and a fresh round spell out their own context", () => {
@@ -149,10 +158,10 @@ test("a pending or running correction and a fresh round spell out their own cont
 		body: "Rename the rail helper.",
 	}, "12345678-1234-4234-8234-123456789abc", "2026-08-03T00:00:00.000Z");
 	current = decideTaskReview(current, "send-feedback", "2026-08-03T00:00:00.000Z");
-	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · correction 1 · verifying");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Verifying");
 
 	current = registerTaskCorrectionStart(current, "/sessions/correction-1.jsonl");
-	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · correction 1 · verifying");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Verifying");
 
 	current = completeTaskCorrection(
 		current,
@@ -160,7 +169,7 @@ test("a pending or running correction and a fresh round spell out their own cont
 		[{ command: "test status", exitCode: 0, summary: "Passed." }],
 		"3".repeat(40),
 	);
-	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · review 2 · preparing");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 2 · Preparing");
 });
 
 test("the picker context names only the single next action", () => {

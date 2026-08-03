@@ -121,11 +121,13 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 				if (typeof content[0] === "string") widgets.push(content[0]);
 				return;
 			}
-			// Factory widgets are rendered exactly as the TUI renders them, at a fixed width.
+			// Factory widgets are rendered exactly as the TUI renders them, at a fixed width,
+			// against an identity theme so the assertions stay plain text.
 			if (typeof content !== "function") return;
+			const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
 			const component = (content as (tui: unknown, theme: unknown) => {
 				render(width: number): string[];
-			})({}, {});
+			})({}, theme);
 			const [line] = component.render(widgetWidth);
 			if (typeof line === "string") widgets.push(line);
 		},
