@@ -3,7 +3,7 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	composeLifecycleLine,
-	lifecyclePlace,
+	lifecycleDetail,
 	lifecycleRail,
 	type RailCell,
 	railCellText,
@@ -38,20 +38,21 @@ export interface StatusLineOptions {
 export function statusLine(task: TaskDocument, options: StatusLineOptions): string {
 	const { width, reviewUrl, theme } = options;
 	const rail = lifecycleRail(task);
-	const place = lifecyclePlace(task);
 	const paint = (cell: RailCell) => {
 		const text = railCellText(cell);
 		if (!theme) return text;
-		if (cell.role === "current") return theme.bold(theme.fg("accent", text));
+		// The opened stage carries full weight; a ready one is the same accent unbolded, so
+		// the eye finds the next step without mistaking it for a live session.
+		if (cell.role === "opened") return theme.bold(theme.fg("accent", text));
+		if (cell.role === "ready") return theme.fg("accent", text);
 		if (cell.role === "future") return theme.fg("dim", text);
 		// Done stays legible without competing with the current cell: the tick keeps its
 		// success colour while the label recedes.
 		return `${theme.fg("success", cell.marker)} ${theme.fg("muted", cell.label)}`;
 	};
-	const detail = theme
-		? theme.fg(task.stage === "done" ? "success" : "text", place.detail)
-		: place.detail;
-	const line = composeLifecycleLine(rail.map(paint), detail);
+	const detail = lifecycleDetail(task);
+	const painted = theme ? theme.fg(task.stage === "done" ? "success" : "text", detail) : detail;
+	const line = composeLifecycleLine(rail.map(paint), painted);
 	if (reviewUrl) {
 		// The rail is the floor: with less room than rail, gap, and action, the action goes.
 		const budget = width - visibleWidth(REVIEW_LINK_TEXT) - ACTION_GAP;

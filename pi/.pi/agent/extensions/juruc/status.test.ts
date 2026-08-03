@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { lifecycleLine, lifecyclePlace, lifecycleRail, taskContext } from "./status.ts";
+import { lifecycleDetail, lifecycleLine, lifecycleRail, taskContext } from "./status.ts";
 import {
 	acceptTaskPlan,
 	activateTaskPlan,
 	addTaskReviewComment,
+	appendTaskSession,
 	completeTaskCorrection,
 	completeTaskPhase,
 	completeTaskResearch,
@@ -16,7 +17,11 @@ import {
 	registerTaskCorrectionStart,
 	registerTaskReviewerStart,
 	type TaskDocument,
+	type TaskSessionRun,
 } from "./task.ts";
+
+/** Opening a stage is exactly one typed session run; nothing else records it. */
+const opened = (document: TaskDocument, run: TaskSessionRun) => appendTaskSession(document, run);
 
 function task() {
 	return createTaskDocument({
@@ -34,21 +39,30 @@ function task() {
 }
 
 function implementationTask() {
-	let current = confirmTaskQuestions(task(), {
-		sharedUnderstanding: "Show status.",
-		decisions: [],
-		acceptedAssumptions: [],
-		researchTargets: [],
-	});
-	current = completeTaskResearch(current);
-	current = confirmTaskSpecification(current, {
-		summary: "Show it.",
-		requirements: ["Show stage."],
-		nonGoals: [],
-		constraints: [],
-		acceptanceCriteria: ["Rail is exact."],
-		decisions: [],
-	});
+	let current = confirmTaskQuestions(
+		opened(task(), { kind: "questions", path: "/sessions/questions.jsonl" }),
+		{
+			sharedUnderstanding: "Show status.",
+			decisions: [],
+			acceptedAssumptions: [],
+			researchTargets: [],
+		},
+	);
+	current = completeTaskResearch(
+		opened(current, { kind: "research", path: "/sessions/research.jsonl" }),
+	);
+	current = confirmTaskSpecification(
+		opened(current, { kind: "specification", path: "/sessions/specification.jsonl" }),
+		{
+			summary: "Show it.",
+			requirements: ["Show stage."],
+			nonGoals: [],
+			constraints: [],
+			acceptanceCriteria: ["Rail is exact."],
+			decisions: [],
+		},
+	);
+	current = opened(current, { kind: "plan", path: "/sessions/plan.jsonl" });
 	return activateTaskPlan(acceptTaskPlan(current, {
 		phases: [{
 			id: "show-status",
@@ -65,18 +79,26 @@ function implementationTask() {
 const roles = (document: TaskDocument) =>
 	lifecycleRail(document).map((entry) => entry.role).join(" ");
 
-test("status renders the exact quiet QRSPI rail and context", () => {
+test("every stage is ready before its session exists and opened once it does", () => {
 	let current = task();
+	assert.equal(lifecycleLine(current), "○ Q  ○ R  ○ S  ○ P  ○ I   Questions · Ready");
+	assert.equal(roles(current), "ready future future future future");
+	current = opened(current, { kind: "questions", path: "/sessions/questions.jsonl" });
 	assert.equal(lifecycleLine(current), "● Q  ○ R  ○ S  ○ P  ○ I   Questions");
-	assert.equal(roles(current), "current future future future future");
+	assert.equal(roles(current), "opened future future future future");
 	current = confirmTaskQuestions(current, {
 		sharedUnderstanding: "Show status.",
 		decisions: [],
 		acceptedAssumptions: [],
 		researchTargets: [],
 	});
+	assert.equal(lifecycleLine(current), "✓ Q  ○ R  ○ S  ○ P  ○ I   Research · Ready");
+	assert.equal(roles(current), "completed ready future future future");
+	current = opened(current, { kind: "research", path: "/sessions/research.jsonl" });
 	assert.equal(lifecycleLine(current), "✓ Q  ● R  ○ S  ○ P  ○ I   Research");
 	current = completeTaskResearch(current);
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ○ S  ○ P  ○ I   Specification · Ready");
+	current = opened(current, { kind: "specification", path: "/sessions/specification.jsonl" });
 	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ● S  ○ P  ○ I   Specification");
 	current = confirmTaskSpecification(current, {
 		summary: "Show it.",
@@ -86,6 +108,8 @@ test("status renders the exact quiet QRSPI rail and context", () => {
 		acceptanceCriteria: ["Rail is exact."],
 		decisions: [],
 	});
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ○ P  ○ I   Plan · Ready");
+	current = opened(current, { kind: "plan", path: "/sessions/plan.jsonl" });
 	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ● P  ○ I   Plan");
 	current = acceptTaskPlan(current, {
 		phases: [{
@@ -97,13 +121,19 @@ test("status renders the exact quiet QRSPI rail and context", () => {
 			verification: ["test status"],
 		}],
 	});
-	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ● P  ○ I   Plan · Ready");
-	assert.equal(roles(current), "completed completed completed current future");
+	// An accepted plan whose workspace activation has not run yet still reads as the
+	// implementation phase one Enter would open.
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ○ I   Phase 1/1 · Ready");
+	assert.equal(roles(current), "completed completed completed completed ready");
+	assert.equal(lifecycleLine(activateTaskPlan(current)), lifecycleLine(current));
 });
 
 test("implementation and review spell out the active phase", () => {
 	let current = implementationTask();
-	assert.equal(lifecyclePlace(current).detail, "Phase 1/1 · Show status");
+	assert.equal(lifecycleDetail(current), "Phase 1/1 · Ready");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ○ I   Phase 1/1 · Ready");
+	current = opened(current, { kind: "implementation", phase: 1, path: "/sessions/phase-1.jsonl" });
+	assert.equal(lifecycleDetail(current), "Phase 1/1 · Show status");
 	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ● I   Phase 1/1 · Show status");
 	current = completeTaskPhase(
 		current,
@@ -111,7 +141,12 @@ test("implementation and review spell out the active phase", () => {
 		[{ command: "test status", exitCode: 0, summary: "Passed." }],
 		"2".repeat(40),
 	);
-	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Preparing");
+	// The final checkpoint only creates the round; opening Review is what starts reviewers.
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Ready");
+	assert.equal(
+		lifecycleLine(registerTaskReviewerStart(current, "deviation", "/sessions/pending.jsonl")),
+		"✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Preparing",
+	);
 	current = completeTaskReviewer(
 		registerTaskReviewerStart(current, "deviation", "/sessions/deviation.jsonl"),
 		"deviation",
@@ -157,10 +192,10 @@ test("a pending or running correction and a fresh round spell out their own cont
 		endLine: 1,
 		body: "Rename the rail helper.",
 	}, "12345678-1234-4234-8234-123456789abc", "2026-08-03T00:00:00.000Z");
-	current = decideTaskReview(current, "send-feedback", "2026-08-03T00:00:00.000Z");
-	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Verifying");
+	const decided = decideTaskReview(current, "send-feedback", "2026-08-03T00:00:00.000Z");
+	assert.equal(lifecycleLine(decided), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Ready");
 
-	current = registerTaskCorrectionStart(current, "/sessions/correction-1.jsonl");
+	current = registerTaskCorrectionStart(decided, "/sessions/correction-1.jsonl");
 	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Verifying");
 
 	current = completeTaskCorrection(
@@ -169,7 +204,27 @@ test("a pending or running correction and a fresh round spell out their own cont
 		[{ command: "test status", exitCode: 0, summary: "Passed." }],
 		"3".repeat(40),
 	);
-	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 2 · Preparing");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 2 · Ready");
+
+	const approved = decideTaskReview(
+		completeTaskReviewer(
+			registerTaskReviewerStart(
+				completeTaskReviewer(
+					registerTaskReviewerStart(current, "deviation", "/sessions/deviation-2.jsonl"),
+					"deviation",
+					{ status: "completed", annotations: [] },
+				),
+				"correctness",
+				"/sessions/correctness-2.jsonl",
+			),
+			"correctness",
+			{ status: "completed", annotations: [] },
+		),
+		"approve",
+		"2026-08-03T00:00:00.000Z",
+	);
+	assert.equal(lifecycleLine(approved), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Done");
+	assert.equal(roles(approved), "completed completed completed completed completed");
 });
 
 test("the picker context names only the single next action", () => {

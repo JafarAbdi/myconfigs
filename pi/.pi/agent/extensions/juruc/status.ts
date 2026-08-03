@@ -1,4 +1,4 @@
-import type { TaskDocument, TaskStage } from "./task.ts";
+import { currentTaskReviewRound, findTaskSession, type TaskDocument } from "./task.ts";
 
 const RAIL = [
 	["questions", "Q"],
@@ -8,6 +8,8 @@ const RAIL = [
 	["implementation", "I"],
 ] as const;
 
+type RailStage = (typeof RAIL)[number][0];
+
 const DISCOVERY_CONTEXT = {
 	questions: "Questions",
 	research: "Research",
@@ -15,10 +17,19 @@ const DISCOVERY_CONTEXT = {
 	plan: "Plan",
 } as const;
 
-export type RailRole = "completed" | "current" | "future";
+export type RailRole = "completed" | "ready" | "opened" | "future";
 
-/** One glyph per role, so the state of every stage reads without colour. */
-const MARKERS: Record<RailRole, string> = { completed: "✓", current: "●", future: "○" };
+/**
+ * One glyph per role, so the state of every stage reads without colour. `○` is any stage
+ * whose session does not exist yet, and `●` says that session has been opened; neither
+ * says anything about model streaming, which the Pi working indicator owns.
+ */
+const MARKERS: Record<RailRole, string> = {
+	completed: "✓",
+	ready: "○",
+	opened: "●",
+	future: "○",
+};
 
 export interface RailCell {
 	marker: string;
@@ -26,47 +37,60 @@ export interface RailCell {
 	role: RailRole;
 }
 
-export interface LifecyclePlace {
-	active: TaskStage;
-	detail: string;
+/** The rail stage that owns the next action, or none once the rail is wholly behind. */
+function currentRailStage(task: TaskDocument): RailStage | undefined {
+	// An accepted plan ends planning; only its workspace activation may still be pending.
+	if (task.stage === "plan" && task.plan) return "implementation";
+	if (task.stage === "review" || task.stage === "done") return undefined;
+	return task.stage;
 }
 
-export function lifecyclePlace(task: TaskDocument): LifecyclePlace {
-	if (task.stage === "plan" && task.plan) return { active: "plan", detail: "Plan · Ready" };
-	if (task.stage === "review") {
-		const round = task.reviewRounds.at(-1);
-		const number = round?.number ?? 1;
-		if (round?.decision?.kind === "send-feedback")
-			return { active: "review", detail: `Correction ${number} · Verifying` };
-		const reviewersReady = round && Object.values(round.reviewers).every((slot) => slot?.outcome);
-		return {
-			active: "review",
-			detail: `Review ${number} · ${reviewersReady ? "Awaiting decision" : "Preparing"}`,
-		};
-	}
-	if (task.stage === "done") return { active: "done", detail: "Done" };
-	if (task.stage !== "implementation")
-		return { active: task.stage, detail: DISCOVERY_CONTEXT[task.stage] };
+/** Whether this stage's own managed session already exists, which is what `●` reports. */
+function stageOpened(task: TaskDocument, stage: RailStage): boolean {
+	return Boolean(
+		stage === "implementation"
+			? findTaskSession(task, { kind: stage, phase: task.checkpoints.length + 1 })
+			: findTaskSession(task, { kind: stage }),
+	);
+}
+
+function reviewDetail(task: TaskDocument): string {
+	const round = currentTaskReviewRound(task);
+	if (!round) return "Review 1 · Ready";
+	if (round.decision?.kind === "send-feedback")
+		return `Correction ${round.number} · ${round.correction ? "Verifying" : "Ready"}`;
+	const slots = Object.values(round.reviewers);
+	if (slots.every((slot) => slot?.outcome)) return `Review ${round.number} · Awaiting decision`;
+	return `Review ${round.number} · ${slots.some((slot) => slot) ? "Preparing" : "Ready"}`;
+}
+
+/** The one plain-spoken context line: what is happening, or what one Enter would start. */
+export function lifecycleDetail(task: TaskDocument): string {
+	if (task.stage === "done") return "Done";
+	if (task.stage === "review") return reviewDetail(task);
+	const stage = currentRailStage(task)!;
+	const ready = !stageOpened(task, stage);
+	if (stage !== "implementation")
+		return ready ? `${DISCOVERY_CONTEXT[stage]} · Ready` : DISCOVERY_CONTEXT[stage];
 	const phase = task.plan?.phases[task.checkpoints.length];
-	const total = task.plan?.phases.length ?? 0;
-	return {
-		active: "implementation",
-		detail: phase
-			? `Phase ${task.checkpoints.length + 1}/${total} · ${phase.title}`
-			: "Implementation",
-	};
+	if (!phase) return "Implementation";
+	const position = `Phase ${task.checkpoints.length + 1}/${task.plan!.phases.length}`;
+	return ready ? `${position} · Ready` : `${position} · ${phase.title}`;
 }
 
 /** The five rail cells with the role each one plays right now; the TUI colours them. */
 export function lifecycleRail(task: TaskDocument): RailCell[] {
-	const activeIndex = RAIL.findIndex(([stage]) => stage === task.stage);
-	const past = task.stage === "review" || task.stage === "done";
-	return RAIL.map(([stage, label], index) => {
-		const role: RailRole = past || index < activeIndex
+	const stage = currentRailStage(task);
+	const activeIndex = stage ? RAIL.findIndex(([name]) => name === stage) : RAIL.length;
+	const opened = stage !== undefined && stageOpened(task, stage);
+	return RAIL.map(([, label], index) => {
+		const role: RailRole = index < activeIndex
 			? "completed"
-			: stage === task.stage
-			? "current"
-			: "future";
+			: index > activeIndex
+			? "future"
+			: opened
+			? "opened"
+			: "ready";
 		return { marker: MARKERS[role], label, role };
 	});
 }
@@ -82,7 +106,7 @@ export function composeLifecycleLine(cells: readonly string[], detail: string): 
 }
 
 export function lifecycleLine(task: TaskDocument): string {
-	return composeLifecycleLine(lifecycleRail(task).map(railCellText), lifecyclePlace(task).detail);
+	return composeLifecycleLine(lifecycleRail(task).map(railCellText), lifecycleDetail(task));
 }
 
 /** The single muted picker context: the one authoritative next action, without titles. */

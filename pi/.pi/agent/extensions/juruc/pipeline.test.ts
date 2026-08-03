@@ -105,7 +105,7 @@ try {
 		import("./review-fixture.ts"),
 	]);
 
-	await test("runtime automatically cuts over Q to R to S to P to fresh implementation phases", async () => {
+	await test("one explicit /juruc opens exactly one fresh Q, R, S, P, or implementation stage", async () => {
 		const source = join(scratch, "source");
 		mkdirSync(source);
 		git(source, "init", "-b", "main");
@@ -243,30 +243,47 @@ try {
 			},
 		});
 
+		// Every stage boundary stops; the operator's next /juruc resumes the owning task
+		// directly, so only the very first invocation goes through the picker.
+		const advance = async (responses: unknown[]) => {
+			harness.setResponses(responses);
+			await harness.runtime.session.prompt("/juruc");
+		};
+
 		try {
 			harness.selections.push("New task…");
 			harness.editorValues.push("QRSPI runtime workflow");
-			harness.setResponses([
+			await advance([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_set_questions", questions)],
 					{ stopReason: "toolUse" },
 				),
+			]);
+			const interviewed = loadTask(paths, slug);
+			assert.equal(interviewed.document.stage, "research");
+			assert.equal(findTaskSession(interviewed.document, { kind: "research" }), undefined);
+
+			await advance([
 				fauxAssistantMessage(
 					[fauxToolCall("delegate", { agent: "synthesizer", task: "Synthesize facts." })],
 					{ stopReason: "toolUse" },
 				),
 				fauxAssistantMessage("Research complete.", { stopReason: "stop" }),
+			]);
+			assert.equal(loadTask(paths, slug).document.stage, "specification");
+
+			await advance([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_set_specification", specification)],
 					{ stopReason: "toolUse" },
 				),
-				fauxAssistantMessage(
-					[fauxToolCall("juruc_set_plan", plan)],
-					{ stopReason: "toolUse" },
-				),
+			]);
+			assert.equal(loadTask(paths, slug).document.stage, "plan");
+
+			await advance([
+				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
 				fauxAssistantMessage("Activation remains pending.", { stopReason: "stop" }),
 			]);
-			await harness.runtime.session.prompt("/juruc");
 
 			const pending = loadTask(paths, slug);
 			assert.equal(pending.document.stage, "plan");
@@ -281,8 +298,8 @@ try {
 			);
 			rmSync(pending.document.repository.worktree, { recursive: true });
 
-			harness.selections.push("QRSPI runtime workflow — qrspi-runtime-workflow · plan");
-			harness.setResponses([
+			// A retried activation opens implementation phase 1 without reopening the picker.
+			await advance([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_run_verification", { command: undeclaredVerification })],
 					{ stopReason: "toolUse" },
@@ -303,6 +320,15 @@ try {
 					})],
 					{ stopReason: "toolUse" },
 				),
+			]);
+			const checkpointed = loadTask(paths, slug);
+			assert.equal(checkpointed.document.checkpoints.length, 1);
+			assert.equal(
+				findTaskSession(checkpointed.document, { kind: "implementation", phase: 2 }),
+				undefined,
+			);
+
+			await advance([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_run_verification", { command: phaseTwoVerification })],
 					{ stopReason: "toolUse" },
@@ -320,7 +346,20 @@ try {
 					{ stopReason: "toolUse" },
 				),
 			]);
-			await harness.runtime.session.prompt("/juruc");
+
+			// The final checkpoint creates the round only: reviewers, the server, and the
+			// browser wait for the explicit /juruc that opens Review.
+			const committed = loadTask(paths, slug);
+			assert.equal(committed.document.stage, "review");
+			assert.deepEqual(committed.document.reviewRounds[0].reviewers, {
+				deviation: null,
+				correctness: null,
+			});
+			assert.deepEqual(reviewerCalls, []);
+			assert.deepEqual(openedUrls, []);
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Ready"));
+
+			await advance([]);
 
 			const task = loadTask(paths, slug);
 			assert.equal(task.document.stage, "review");
@@ -727,10 +766,18 @@ try {
 			);
 		};
 
+		const advance = async (responses: unknown[]) => {
+			harness.setResponses(responses);
+			await harness.runtime.session.prompt("/juruc");
+		};
+		const idle = async () => {
+			await harness.runtime.session.agent.waitForIdle();
+		};
+
 		try {
 			harness.selections.push("New task…");
 			harness.editorValues.push("Correction flow task");
-			harness.setResponses([
+			await advance([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_set_questions", {
 						sharedUnderstanding: "Implement and correct the candidate.",
@@ -740,11 +787,15 @@ try {
 					})],
 					{ stopReason: "toolUse" },
 				),
+			]);
+			await advance([
 				fauxAssistantMessage(
 					[fauxToolCall("delegate", { agent: "synthesizer", task: "Synthesize facts." })],
 					{ stopReason: "toolUse" },
 				),
 				fauxAssistantMessage("Research complete.", { stopReason: "stop" }),
+			]);
+			await advance([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_set_specification", {
 						summary: "Keep the candidate readable.",
@@ -756,7 +807,11 @@ try {
 					})],
 					{ stopReason: "toolUse" },
 				),
+			]);
+			await advance([
 				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
+			]);
+			await advance([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_run_verification", { command: verification })],
 					{ stopReason: "toolUse" },
@@ -774,7 +829,8 @@ try {
 					{ stopReason: "toolUse" },
 				),
 			]);
-			await harness.runtime.session.prompt("/juruc");
+			assert.deepEqual(reviewerCalls, []);
+			await advance([]);
 			assert.equal(loadTask(paths, slug).document.stage, "review");
 			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
 			assert.equal(openedUrls.length, 1);
@@ -788,7 +844,15 @@ try {
 			assert.equal((await post(new URL("comments", api), comment)).status, 201);
 			harness.setResponses(correctionResponses(1));
 			assert.equal((await post(new URL("decision", api), { kind: "send-feedback" })).status, 200);
-			await settle(() => openedUrls.length === 2);
+			// Send Feedback still opens its correction session; only the fresh cumulative
+			// round it commits waits for one explicit /juruc.
+			await settle(() => loadTask(paths, slug).document.reviewRounds.length === 2);
+			await idle();
+			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
+			assert.equal(openedUrls.length, 1);
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Ready"));
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 2 · Ready"));
+			await advance([]);
 
 			const corrected = loadTask(paths, slug);
 			assert.equal(corrected.document.stage, "review");
@@ -844,10 +908,12 @@ try {
 					timestamp,
 				),
 			);
-			harness.selections.push(`Correction flow task — ${slug} · review`);
 			harness.setResponses(correctionResponses(2));
 			await harness.runtime.session.prompt("/juruc");
-			await settle(() => openedUrls.length === 3);
+			await settle(() => loadTask(paths, slug).document.reviewRounds.length === 3);
+			await idle();
+			await advance([]);
+			assert.equal(openedUrls.length, 3);
 
 			const restarted = loadTask(paths, slug);
 			assert.equal(restarted.document.reviewRounds.length, 3);
@@ -903,7 +969,7 @@ try {
 		);
 	});
 
-	await test("a fresh Pi TUI runtime resumes managed discovery and refreshes the live review link", async () => {
+	await test("one TUI Enter crosses each stage boundary, keeps drafts, and survives restart", async () => {
 		const source = join(scratch, "restart-flow");
 		mkdirSync(source);
 		git(source, "init", "-b", "main");
@@ -917,17 +983,28 @@ try {
 		const slug = "restart-flow-task";
 		const verification = "node -e \"console.log('verified')\"";
 		const plan = {
-			phases: [{
-				id: "implement-change",
-				title: "Implement change",
-				goal: "Implement the candidate.",
-				fileScopes: ["tracked.txt"],
-				instructions: ["Write the candidate."],
-				verification: [verification],
-			}],
+			phases: [
+				{
+					id: "implement-change",
+					title: "Implement change",
+					goal: "Implement the candidate.",
+					fileScopes: ["tracked.txt"],
+					instructions: ["Write the candidate."],
+					verification: [verification],
+				},
+				{
+					id: "connect-change",
+					title: "Connect change",
+					goal: "Complete the candidate.",
+					fileScopes: ["tracked.txt"],
+					instructions: ["Write the integrated candidate."],
+					verification: [verification],
+				},
+			],
 		};
 		const openedUrls: string[] = [];
-		const written = new Set<string>();
+		const reviewerCalls: string[] = [];
+		const written = new Set<number>();
 		// The TUI picker resolves through its custom component instead of a select dialog.
 		const picks: unknown[] = [];
 		const synthesis = {
@@ -959,13 +1036,16 @@ try {
 				stubResult: (name) => name === "delegate" ? synthesis : undefined,
 				registerJuruc: (pi) =>
 					registerJuruc(pi, {
-						reviewerDriver: async () => ({
-							assistantMessages: [{
-								role: "assistant",
-								content: [{ type: "text", text: '{"annotations":[]}' }],
-								stopReason: "stop",
-							}],
-						}),
+						reviewerDriver: async ({ kind }: { kind: string }) => {
+							reviewerCalls.push(kind);
+							return {
+								assistantMessages: [{
+									role: "assistant",
+									content: [{ type: "text", text: '{"annotations":[]}' }],
+									stopReason: "stop",
+								}],
+							};
+						},
 						openBrowser: async (url: string) => {
 							openedUrls.push(url);
 						},
@@ -974,19 +1054,30 @@ try {
 					pi.on("session_start", () => {
 						try {
 							const task = loadTask(paths, slug);
-							if (task.document.stage === "implementation" && !written.has("phase")) {
+							const phase = task.document.checkpoints.length;
+							if (task.document.stage === "implementation" && !written.has(phase)) {
 								writeFileSync(
 									join(task.document.repository.worktree, "tracked.txt"),
-									"candidate\n",
+									`candidate ${phase + 1}\n`,
 								);
-								written.add("phase");
+								written.add(phase);
+							}
+							// Negative keys are correction rounds; positive ones are phase positions.
+							const round = currentTaskCorrectionRound(task.document);
+							if (round && !written.has(-round.number)) {
+								writeFileSync(
+									join(task.document.repository.worktree, "tracked.txt"),
+									`candidate corrected ${round.number}\n`,
+								);
+								written.add(-round.number);
 							}
 						} catch {}
 					});
 				},
 			});
 
-		// One Pi runtime creates the task and is interrupted inside the Questions interview.
+		// One Pi runtime creates the task and runs a genuine multi-turn interview: the
+		// confirmation arrives on a later user prompt, not on the kickoff turn.
 		const interrupted = await runtime();
 		let questionsSession: string;
 		try {
@@ -996,18 +1087,15 @@ try {
 				fauxAssistantMessage("Which outcome do you want?", { stopReason: "stop" }),
 			]);
 			await interrupted.runtime.session.prompt("/juruc");
-			const pending = loadTask(paths, slug);
-			assert.equal(pending.document.stage, "questions");
-			questionsSession = findTaskSession(pending.document, { kind: "questions" })!.path;
-		} finally {
-			await interrupted.dispose();
-		}
+			const asking = loadTask(paths, slug);
+			assert.equal(asking.document.stage, "questions");
+			assert.equal(interrupted.getEditorText(), "");
+			assert.ok(interrupted.widgets.includes("● Q  ○ R  ○ S  ○ P  ○ I   Questions"));
+			questionsSession = findTaskSession(asking.document, { kind: "questions" })!.path;
 
-		// A fresh runtime resumes that managed session from task.json alone.
-		const resumed = await runtime();
-		try {
-			picks.push({ action: "select", slug });
-			resumed.setResponses([
+			// An occupied editor is never touched, so the result text may not promise Enter.
+			interrupted.setEditorText("half-written answer");
+			interrupted.setResponses([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_set_questions", {
 						sharedUnderstanding: "Implement and review the candidate.",
@@ -1017,11 +1105,47 @@ try {
 					})],
 					{ stopReason: "toolUse" },
 				),
+			]);
+			await interrupted.runtime.session.prompt("The terminal outcome.");
+			const pending = loadTask(paths, slug);
+			assert.equal(pending.document.stage, "research");
+			assert.equal(findTaskSession(pending.document, { kind: "research" }), undefined);
+			assert.equal(interrupted.getEditorText(), "half-written answer");
+			const interviewText = readFileSync(questionsSession, "utf8");
+			assert.match(interviewText, /Questions confirmed\. Research ready\./);
+			assert.doesNotMatch(interviewText, /Press Enter/);
+			assert.ok(interrupted.widgets.includes("✓ Q  ○ R  ○ S  ○ P  ○ I   Research · Ready"));
+			assert.equal(picks.length, 0);
+		} finally {
+			await interrupted.dispose();
+		}
+
+		// A fresh runtime lost only the editor text; /juruc resumes from task.json alone.
+		const resumed = await runtime();
+		try {
+			assert.equal(resumed.getEditorText(), "");
+			picks.push({ action: "select", slug });
+			resumed.setResponses([
 				fauxAssistantMessage(
 					[fauxToolCall("delegate", { agent: "synthesizer", task: "Synthesize facts." })],
 					{ stopReason: "toolUse" },
 				),
 				fauxAssistantMessage("Research complete.", { stopReason: "stop" }),
+			]);
+			await resumed.runtime.session.prompt("/juruc");
+			const researched = loadTask(paths, slug);
+			assert.equal(researched.document.stage, "specification");
+			assert.equal(findTaskSession(researched.document, { kind: "questions" })!.path, questionsSession);
+			assert.equal(findTaskSession(researched.document, { kind: "specification" }), undefined);
+			assert.equal(resumed.getEditorText(), "/juruc");
+			assert.ok(resumed.notices.includes(
+				`${slug}: research saved. Specification ready. Press Enter to continue.`,
+			));
+			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ○ S  ○ P  ○ I   Specification · Ready"));
+
+			// From here every boundary is one Enter on the pre-filled command, and the owning
+			// session resumes its own task without ever showing the picker again.
+			resumed.setResponses([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_set_specification", {
 						summary: "Keep the candidate readable.",
@@ -1033,7 +1157,23 @@ try {
 					})],
 					{ stopReason: "toolUse" },
 				),
+			]);
+			await resumed.submitEditor();
+			assert.equal(loadTask(paths, slug).document.stage, "plan");
+			assert.equal(resumed.getEditorText(), "/juruc");
+			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ○ P  ○ I   Plan · Ready"));
+
+			resumed.setResponses([
 				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
+			]);
+			await resumed.submitEditor();
+			const planned = loadTask(paths, slug);
+			assert.equal(planned.document.stage, "implementation");
+			assert.equal(findTaskSession(planned.document, { kind: "implementation", phase: 1 }), undefined);
+			assert.equal(resumed.getEditorText(), "/juruc");
+			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ○ I   Phase 1/2 · Ready"));
+
+			const phaseResponses = (position: number) => [
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_run_verification", { command: verification })],
 					{ stopReason: "toolUse" },
@@ -1041,7 +1181,7 @@ try {
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_finish_phase", {
 						resolution: "Implemented and verified.",
-						commitMessage: "Implement candidate",
+						commitMessage: `Implement candidate ${position}`,
 						verificationEvidence: [{
 							command: verification,
 							exitCode: 0,
@@ -1050,14 +1190,31 @@ try {
 					})],
 					{ stopReason: "toolUse" },
 				),
-			]);
-			await resumed.runtime.session.prompt("/juruc");
+			];
+			resumed.setResponses(phaseResponses(1));
+			await resumed.submitEditor();
+			assert.equal(loadTask(paths, slug).document.checkpoints.length, 1);
+			assert.equal(resumed.getEditorText(), "/juruc");
+			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ○ I   Phase 2/2 · Ready"));
 
+			resumed.setResponses(phaseResponses(2));
+			await resumed.submitEditor();
+			const committed = loadTask(paths, slug);
+			assert.equal(committed.document.stage, "review");
+			assert.equal(committed.document.checkpoints.length, 2);
+			// Reviewers, the server, and the browser all wait for the Enter that opens Review.
+			assert.deepEqual(reviewerCalls, []);
+			assert.deepEqual(openedUrls, []);
+			assert.equal(resumed.getEditorText(), "/juruc");
+			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Ready"));
+
+			await resumed.submitEditor();
 			const task = loadTask(paths, slug);
-			assert.equal(task.document.stage, "review");
-			assert.equal(findTaskSession(task.document, { kind: "questions" })!.path, questionsSession);
-			assert.equal(task.document.checkpoints.length, 1);
+			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
 			assert.equal(openedUrls.length, 1);
+			// Review is the last stage before a human decision, so nothing is pre-filled.
+			assert.equal(resumed.getEditorText(), "");
+			assert.equal(picks.length, 0);
 			const action = "Open review ↗";
 			// The harness renders at width 80 and the action is pinned to the right edge.
 			const linked = (url: string) => {
@@ -1070,14 +1227,12 @@ try {
 			));
 
 			// /juruc on the same open review reuses the live capability URL.
-			picks.push({ action: "select", slug });
 			await resumed.runtime.session.prompt("/juruc");
 			assert.deepEqual(openedUrls, [openedUrls[0], openedUrls[0]]);
 			assert.equal(loadTask(paths, slug).document.reviewRounds.length, 1);
 
 			// Once the server process is gone, /juruc issues a fresh capability URL.
 			await activeReviewServer.close();
-			picks.push({ action: "select", slug });
 			await resumed.runtime.session.prompt("/juruc");
 			assert.equal(openedUrls.length, 3);
 			assert.notEqual(openedUrls[2], openedUrls[0]);
@@ -1089,6 +1244,61 @@ try {
 				resumed.widgets.filter((line) => line.includes(openedUrls[0])).length,
 				2,
 			);
+
+			// Send Feedback keeps its explicit-decision behaviour and opens the correction
+			// itself; the fresh cumulative round is one more pre-filled Enter.
+			const api = new URL("api/", openedUrls[2]);
+			const post = async (path: string, body: unknown): Promise<Response> =>
+				fetch(new URL(path, api), {
+					method: "POST",
+					body: JSON.stringify(body),
+					headers: { "content-type": "application/json" },
+				});
+			assert.equal((await post("comments", {
+				filePath: "tracked.txt",
+				side: "additions",
+				startLine: 1,
+				endLine: 1,
+				body: "Describe the candidate concretely.",
+			})).status, 201);
+			resumed.setResponses([
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_run_verification", { command: verification })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_finish_correction", {
+						resolution: "Applied every comment from round 1.",
+						commitMessage: "Apply review feedback 1",
+						verificationEvidence: [{
+							command: verification,
+							exitCode: 0,
+							summary: "Correction verification passed.",
+						}],
+					})],
+					{ stopReason: "toolUse" },
+				),
+			]);
+			assert.equal((await post("decision", { kind: "send-feedback" })).status, 200);
+			for (let attempt = 0; loadTask(paths, slug).document.reviewRounds.length < 2; attempt += 1) {
+				if (attempt === 600)
+					throw new Error(`the correction never committed: ${JSON.stringify(resumed.notices.slice(-4))}`);
+				await new Promise((resolve) => setTimeout(resolve, 50));
+			}
+			await resumed.runtime.session.agent.waitForIdle();
+			assert.equal(openedUrls.length, 3);
+			assert.equal(resumed.getEditorText(), "/juruc");
+			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 2 · Ready"));
+
+			await resumed.submitEditor();
+			assert.equal(openedUrls.length, 4);
+			assert.deepEqual(reviewerCalls, [
+				"deviation",
+				"correctness",
+				"deviation",
+				"correctness",
+			]);
+			assert.equal(picks.length, 0);
 		} finally {
 			await activeReviewServer.close();
 			await resumed.dispose();
@@ -1176,6 +1386,12 @@ try {
 			},
 		});
 
+		// Each pre-filled Enter opens exactly one stage, all the way to the open review.
+		const enter = async (responses: unknown[]) => {
+			harness.setResponses(responses);
+			await harness.submitEditor();
+		};
+
 		try {
 			picks.push({ action: "new" });
 			harness.editorValues.push("Active deletion task");
@@ -1189,11 +1405,16 @@ try {
 					})],
 					{ stopReason: "toolUse" },
 				),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+			await enter([
 				fauxAssistantMessage(
 					[fauxToolCall("delegate", { agent: "synthesizer", task: "Synthesize facts." })],
 					{ stopReason: "toolUse" },
 				),
 				fauxAssistantMessage("Research complete.", { stopReason: "stop" }),
+			]);
+			await enter([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_set_specification", {
 						summary: "Keep the candidate readable.",
@@ -1205,7 +1426,11 @@ try {
 					})],
 					{ stopReason: "toolUse" },
 				),
+			]);
+			await enter([
 				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
+			]);
+			await enter([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_run_verification", { command: verification })],
 					{ stopReason: "toolUse" },
@@ -1223,7 +1448,8 @@ try {
 					{ stopReason: "toolUse" },
 				),
 			]);
-			await harness.runtime.session.prompt("/juruc");
+			await enter([]);
+			assert.equal(picks.length, 0);
 
 			const reviewed = loadTask(paths, slug);
 			assert.equal(reviewed.document.stage, "review");
@@ -1272,10 +1498,10 @@ try {
 			// One Enter on the pre-filled command creates the next task from the source repository.
 			picks.push({ action: "new" });
 			harness.editorValues.push("I want to support terminal based");
-			harness.setResponses([
+			await enter([
 				fauxAssistantMessage("Which outcome do you want?", { stopReason: "stop" }),
 			]);
-			await harness.runtime.session.prompt(harness.getEditorText());
+			assert.equal(harness.getEditorText(), "");
 			assert.equal(loadTask(paths, nextSlug).document.stage, "questions");
 			assert.equal(harness.notices.some((notice) => notice.includes("invalid Git branch name")), false);
 
@@ -1331,6 +1557,9 @@ try {
 					acceptedAssumptions: [],
 					researchTargets: [],
 				})], { stopReason: "toolUse" }),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+			harness.setResponses([
 				fauxAssistantMessage([
 					fauxToolCall("delegate", { agent: "synthesizer", task: "first" }),
 					fauxToolCall("delegate", { agent: "synthesizer", task: "second" }),

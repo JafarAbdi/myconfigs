@@ -7,12 +7,16 @@ import { acquireTestLock } from "./test-lock.ts";
 import {
 	acceptTaskPlan,
 	activateTaskPlan,
+	appendTaskSession,
 	completeTaskPhase,
 	completeTaskResearch,
+	completeTaskReviewer,
 	confirmTaskQuestions,
 	confirmTaskSpecification,
 	createTaskDocument,
+	registerTaskReviewerStart,
 	type TaskDocument,
+	type TaskSessionRun,
 } from "./task.ts";
 
 const extensionDirectory = dirname(fileURLToPath(import.meta.url));
@@ -46,6 +50,7 @@ const LINK = `\x1b]8;;${URL_SENTINEL}\x07${REVIEW_LINK_TEXT}\x1b]8;;\x07`;
 
 /** Every rail is five marked cells, so all three stages below are exactly as wide. */
 const QUESTIONS_RAIL = "● Q  ○ R  ○ S  ○ P  ○ I";
+const RESEARCH_READY_RAIL = "✓ Q  ○ R  ○ S  ○ P  ○ I";
 const IMPLEMENTATION_RAIL = "✓ Q  ✓ R  ✓ S  ✓ P  ● I";
 const REVIEW_RAIL = "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I";
 
@@ -60,13 +65,17 @@ const theme = {
 };
 const paint = (color: string) => (body: string) => theme.fg(color, body);
 const [muted, dim, accent, body] = [paint("muted"), paint("dim"), paint("accent"), paint("text")];
-/** The three cell shapes: a success tick beside a muted label, bold accent, and flat dim. */
+/** The four cell shapes: tick beside muted label, bold accent, flat accent, and flat dim. */
 const done = (label: string) => `${paint("success")("✓")} ${muted(label)}`;
 const active = (cell: string) => theme.bold(accent(cell));
+const next = (cell: string) => accent(cell);
 
 /** The action is flush against the right edge; the padding is whatever is left over. */
 const rightAligned = (left: string, width: number) =>
 	`${left}${" ".repeat(width - visibleWidth(left) - visibleWidth(REVIEW_LINK_TEXT))}${LINK}`;
+
+/** Opening a stage is exactly one typed session run; nothing else records it. */
+const opened = (document: TaskDocument, run: TaskSessionRun) => appendTaskSession(document, run);
 
 function newTask(): TaskDocument {
 	return createTaskDocument({
@@ -83,8 +92,13 @@ function newTask(): TaskDocument {
 	});
 }
 
-function researchTask(): TaskDocument {
-	return confirmTaskQuestions(newTask(), {
+function questionsTask(): TaskDocument {
+	return opened(newTask(), { kind: "questions", path: "/sessions/questions.jsonl" });
+}
+
+/** Research confirmed but not yet opened: the one line that shows the ready cell. */
+function researchReadyTask(): TaskDocument {
+	return confirmTaskQuestions(questionsTask(), {
 		sharedUnderstanding: "Show the review link.",
 		decisions: [],
 		acceptedAssumptions: [],
@@ -92,43 +106,80 @@ function researchTask(): TaskDocument {
 	});
 }
 
+function researchTask(): TaskDocument {
+	return opened(researchReadyTask(), { kind: "research", path: "/sessions/research.jsonl" });
+}
+
 function reviewTask(title: string): TaskDocument {
 	let current = completeTaskResearch(researchTask());
-	current = confirmTaskSpecification(current, {
-		summary: "Show it.",
-		requirements: ["Show the link."],
-		nonGoals: [],
-		constraints: [],
-		acceptanceCriteria: ["The link is whole."],
-		decisions: [],
-	});
-	return activateTaskPlan(acceptTaskPlan(current, {
-		phases: [{
-			id: "show-link",
-			title,
-			goal: "Show the link.",
-			fileScopes: ["status-widget.ts"],
-			instructions: ["Render the link."],
-			verification: ["test status"],
-		}],
-	}));
+	current = confirmTaskSpecification(
+		opened(current, { kind: "specification", path: "/sessions/specification.jsonl" }),
+		{
+			summary: "Show it.",
+			requirements: ["Show the link."],
+			nonGoals: [],
+			constraints: [],
+			acceptanceCriteria: ["The link is whole."],
+			decisions: [],
+		},
+	);
+	current = activateTaskPlan(
+		acceptTaskPlan(opened(current, { kind: "plan", path: "/sessions/plan.jsonl" }), {
+			phases: [{
+				id: "show-link",
+				title,
+				goal: "Show the link.",
+				fileScopes: ["status-widget.ts"],
+				instructions: ["Render the link."],
+				verification: ["test status"],
+			}],
+		}),
+	);
+	return opened(current, { kind: "implementation", phase: 1, path: "/sessions/phase-1.jsonl" });
 }
 
 function awaitingDecision(title = "Show link"): TaskDocument {
-	return completeTaskPhase(
+	const reviewed = completeTaskPhase(
 		reviewTask(title),
 		"Done.",
 		[{ command: "test status", exitCode: 0, summary: "Passed." }],
 		"2".repeat(40),
 	);
+	return completeTaskReviewer(
+		registerTaskReviewerStart(
+			completeTaskReviewer(
+				registerTaskReviewerStart(reviewed, "deviation", "/sessions/deviation.jsonl"),
+				"deviation",
+				{ status: "completed", annotations: [] },
+			),
+			"correctness",
+			"/sessions/correctness.jsonl",
+		),
+		"correctness",
+		{ status: "completed", annotations: [] },
+	);
 }
 
 test("the questions line is one clean rail, three spaces, and one word", () => {
-	assert.equal(statusLine(newTask(), { width: 80 }), `${QUESTIONS_RAIL}   Questions`);
+	assert.equal(statusLine(questionsTask(), { width: 80 }), `${QUESTIONS_RAIL}   Questions`);
 	assert.equal(
-		statusLine(newTask(), { width: 80, theme: theme as never }),
+		statusLine(questionsTask(), { width: 80, theme: theme as never }),
 		`${active("● Q")}  ${dim("○ R")}  ${dim("○ S")}  ${dim("○ P")}  ${dim("○ I")}   ${
 			body("Questions")
+		}`,
+	);
+});
+
+test("a ready stage keeps the accent without the weight of an opened session", () => {
+	// Plain text tells ready from future by position alone; colour is what separates them.
+	assert.equal(
+		statusLine(researchReadyTask(), { width: 80 }),
+		`${RESEARCH_READY_RAIL}   Research · Ready`,
+	);
+	assert.equal(
+		statusLine(researchReadyTask(), { width: 80, theme: theme as never }),
+		`${done("Q")}  ${next("○ R")}  ${dim("○ S")}  ${dim("○ P")}  ${dim("○ I")}   ${
+			body("Research · Ready")
 		}`,
 	);
 });
@@ -160,13 +211,13 @@ test("the TUI ticks what is done, accents where the task is, and dims what is ah
 
 test("a live review renders one BEL-terminated OSC 8 link against the right edge", () => {
 	const line = statusLine(awaitingDecision(), { width: 80, reviewUrl: URL_SENTINEL });
-	assert.equal(line, rightAligned(`${REVIEW_RAIL}   Review 1 · Preparing`, 80));
+	assert.equal(line, rightAligned(`${REVIEW_RAIL}   Review 1 · Awaiting decision`, 80));
 	assert.equal(visibleWidth(line), 80);
 	assert.equal(line.includes(URL_SENTINEL), true);
 	// Without the action the line keeps its natural length instead of padding out.
 	assert.equal(
 		statusLine(awaitingDecision(), { width: 80 }),
-		`${REVIEW_RAIL}   Review 1 · Preparing`,
+		`${REVIEW_RAIL}   Review 1 · Awaiting decision`,
 	);
 });
 

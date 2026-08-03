@@ -147,10 +147,12 @@ type CurrentSessionKind = DiscoverySessionKind | "implementation" | "correction"
 /** The one task-owned session kind that may act right now, if any. */
 function activeSessionKind(task: TaskDocument): CurrentSessionKind | undefined {
 	switch (task.stage) {
+		// An accepted plan ends the Plan session even while its workspace activation is pending.
+		case "plan":
+			return task.plan ? undefined : "plan";
 		case "questions":
 		case "research":
 		case "specification":
-		case "plan":
 		case "implementation":
 			return task.stage;
 		case "review":
@@ -182,6 +184,22 @@ function regularFile(path: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Offers the next stage to the operator by pre-filling the command one Enter away.
+ * Terminal-only, because editor text is pure presentation: JURUC never reads it back,
+ * never persists it, and never overwrites a draft the operator is already writing.
+ */
+function offerNextStage(ctx: ExtensionContext): boolean {
+	if (ctx.mode !== "tui" || ctx.ui.getEditorText().trim()) return false;
+	ctx.ui.setEditorText("/juruc");
+	return true;
+}
+
+/** Truthful boundary text: what JURUC persisted, what is ready, and what it now costs. */
+function readyText(ctx: ExtensionContext, persisted: string, next: string): string {
+	return `${persisted} ${next} ready.${offerNextStage(ctx) ? " Press Enter to continue." : ""}`;
 }
 
 function expectedCwd(task: StoredTask): string {
@@ -514,7 +532,6 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		stage: TaskDocument["stage"],
 		prompt: string,
 		resumePrompt: string,
-		after?: (ctx: ReplacementContext) => Promise<void>,
 	): Promise<void> {
 		if (!regularFile(path)) throw new Error(`${path}: managed session is unavailable`);
 		const first = !sessionHasUserMessage(path);
@@ -524,7 +541,6 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				if (current.document.stage !== stage || !findTaskSessionByPath(current.document, path))
 					throw new Error(`${task.document.slug}: task changed during session switch`);
 				await replacement.sendUserMessage(first ? prompt : resumePrompt);
-				await after?.(replacement);
 			},
 		});
 		if (result.cancelled)
@@ -556,10 +572,6 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			"questions",
 			questionsPrompt(task.document.request),
 			"Resume the one-choice-at-a-time interview and call juruc_set_questions only after explicit confirmation.",
-			async (replacement) => {
-				const current = loadTask(paths, task.document.slug);
-				if (current.document.stage === "research") await openResearch(replacement, current);
-			},
 		);
 	}
 
@@ -593,11 +605,6 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				task.document.repository.sourceRoot,
 			),
 			"Resume proportional factual research and finish with a tool-free synthesizer report.",
-			async (replacement) => {
-				const current = loadTask(paths, task.document.slug);
-				if (current.document.stage === "specification")
-					await openSpecification(replacement, current);
-			},
 		);
 	}
 
@@ -628,10 +635,6 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			"specification",
 			specificationPrompt(task.document.request, questions, researchText),
 			"Resume the implementation-neutral specification and call juruc_set_specification as the sole tool call.",
-			async (replacement) => {
-				const current = loadTask(paths, task.document.slug);
-				if (current.document.stage === "plan") await openPlan(replacement, current);
-			},
 		);
 	}
 
@@ -686,11 +689,6 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			"plan",
 			planningPrompt(specification),
 			"Resume the immutable implementation plan and call juruc_set_plan only after explicit acceptance.",
-			async (replacement) => {
-				const current = loadTask(paths, task.document.slug);
-				if (current.document.stage === "implementation")
-					await openImplementation(replacement, current);
-			},
 		);
 	}
 
@@ -726,27 +724,6 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			"implementation",
 			implementationPrompt(task),
 			"Resume only the authoritative active phase and its dirty worktree; verify it and call juruc_finish_phase when all evidence is zero.",
-			async (replacement) => {
-				const current = loadTask(paths, task.document.slug);
-				if (
-					current.document.stage === "implementation" &&
-					!currentRun(current.document, "implementation")
-				) {
-					await openImplementation(replacement, current);
-					return;
-				}
-				// The captured `ctx` is stale here, so report through the live replacement.
-				if (current.document.stage === "review") {
-					try {
-						await openReview(replacement, current);
-					} catch (error) {
-						replacement.ui.notify(
-							`${task.document.slug}: final phase committed but its first review round did not open; run /juruc — ${error instanceof Error ? error.message : String(error)}`,
-							"warning",
-						);
-					}
-				}
-			},
 		);
 	}
 
@@ -869,21 +846,6 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			"review",
 			correctionPrompt(task.document, currentTaskReviewRound(task.document)!),
 			"Resume only the saved human comments for this round; verify with accepted Plan commands and call juruc_finish_correction when all evidence is zero.",
-			async (replacement) => {
-				// The captured `ctx` is stale here, so report through the live replacement.
-				try {
-					const current = loadTask(paths, task.document.slug);
-					if (
-						current.document.stage === "review" &&
-						!currentTaskReviewRound(current.document)!.decision
-					) await openReview(replacement, current);
-				} catch (error) {
-					replacement.ui.notify(
-						`${task.document.slug}: correction committed but its fresh review round did not open; run /juruc — ${error instanceof Error ? error.message : String(error)}`,
-						"warning",
-					);
-				}
-			},
 		);
 	}
 
@@ -1073,8 +1035,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 							: `${slug}: task removed; branch retained if present`,
 						"info",
 					);
-					if (replacement.mode === "tui" && !replacement.ui.getEditorText().trim())
-						replacement.ui.setEditorText("/juruc");
+					offerNextStage(replacement);
 				} catch (error) {
 					replacement.ui.notify(
 						`${slug}: deletion failed — ${error instanceof Error ? error.message : String(error)}`,
@@ -1187,6 +1148,14 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		if (!ctx.hasUI) throw new Error("/juruc requires TUI or RPC extension-UI support");
 		await ctx.waitForIdle();
 		if (args.trim()) ctx.ui.notify("/juruc does not accept arguments", "warning");
+		// A managed session whose own run is finished resumes its own authoritative task, so
+		// one Enter crosses one stage boundary. A completed task still opens the picker: done
+		// has no next stage, and its final session must stay able to delete it.
+		const owner = taskForSession(ctx);
+		if (owner && owner.document.stage !== "done" && !activeSession(ctx, owner)) {
+			await openTask(ctx, owner.document.slug);
+			return;
+		}
 		while (true) {
 			const choice = await pickTask(ctx, listTasks(paths));
 			if (choice.action === "cancel") return;
@@ -1212,7 +1181,10 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			showStatus(ctx, updated);
 			activateTools(ctx, updated);
 			return {
-				content: [{ type: "text" as const, text: "Questions confirmed. Starting Research." }],
+				content: [{
+					type: "text" as const,
+					text: readyText(ctx, "Questions confirmed.", "Research"),
+				}],
 				details: { slug: updated.document.slug, stage: updated.document.stage },
 				terminate: true,
 			};
@@ -1231,7 +1203,10 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			showStatus(ctx, updated);
 			activateTools(ctx, updated);
 			return {
-				content: [{ type: "text" as const, text: "Specification persisted. Starting Plan." }],
+				content: [{
+					type: "text" as const,
+					text: readyText(ctx, "Specification persisted.", "Plan"),
+				}],
 				details: { slug: updated.document.slug, stage: updated.document.stage },
 				terminate: true,
 			};
@@ -1251,7 +1226,10 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			activateTools(ctx, pending);
 			const updated = await activatePendingPlan(ctx, pending);
 			return {
-				content: [{ type: "text" as const, text: "Plan persisted and workspace activated. Starting implementation." }],
+				content: [{
+					type: "text" as const,
+					text: readyText(ctx, "Plan persisted and workspace activated.", "Implementation phase 1"),
+				}],
 				details: { slug: updated.document.slug, stage: updated.document.stage },
 				terminate: true,
 			};
@@ -1309,7 +1287,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				verificationOperations,
 				signal,
 			);
-			let updated = await persistCheckpointTask(task, result.task, {
+			const updated = await persistCheckpointTask(task, result.task, {
 				save: saveTask,
 				reload: () => loadTask(paths, task.document.slug),
 				recover: async () => {
@@ -1321,22 +1299,21 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			});
 			showStatus(ctx, updated);
 			activateTools(ctx, updated);
-			if (updated.document.stage === "review") {
-				await prepareReview({
-					taskPath: join(updated.directory, "task.json"),
-					parentSession: currentSessionPath(ctx),
-					readPatch,
-					reviewerDriver: dependencies.reviewerDriver,
-				});
-				updated = loadTask(paths, updated.document.slug);
-				showStatus(ctx, updated);
-			}
+			// Reviewers, the server, and the browser belong to opening Review, not to
+			// committing the last phase.
+			const review = updated.document.stage === "review"
+				? currentTaskReviewRound(updated.document)!.number
+				: undefined;
 			return {
 				content: [{
 					type: "text" as const,
-					text: updated.document.stage === "review"
-						? "Final phase verified and committed. Review prepared."
-						: "Phase verified and committed. Starting the next phase.",
+					text: review
+						? readyText(ctx, "Final phase verified and committed.", `Review ${review}`)
+						: readyText(
+							ctx,
+							"Phase verified and committed.",
+							`Phase ${updated.document.checkpoints.length + 1}`,
+						),
 				}],
 				details: { commit: result.commit, stage: updated.document.stage },
 				terminate: true,
@@ -1370,15 +1347,17 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			});
 			showStatus(ctx, updated);
 			activateTools(ctx, updated);
+			const round = currentTaskReviewRound(updated.document)!;
 			return {
 				content: [{
 					type: "text" as const,
-					text: "Correction verified and committed. Starting a fresh cumulative review round.",
+					text: readyText(
+						ctx,
+						"Correction verified and committed.",
+						`Fresh cumulative review ${round.number}`,
+					),
 				}],
-				details: {
-					commit: result.commit,
-					round: currentTaskReviewRound(updated.document)?.number,
-				},
+				details: { commit: result.commit, round: round.number },
 				terminate: true,
 			};
 		},
@@ -1406,12 +1385,12 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				return { block: true, reason: `${event.toolName} requires an active JURUC session` };
 			return;
 		}
-		const stage = task.document.stage;
 		const kind = activeSession(ctx, task);
+		// The stale session cannot know which stage is ready now, only that this one is over.
 		if (!kind)
 			return {
 				block: true,
-				reason: `This JURUC session is stale; run /juruc to resume the active ${stage} session`,
+				reason: "This JURUC session is stale; run /juruc to resume this task",
 			};
 		if (JURUC_TOOLS.has(event.toolName) && !isSoleCurrentToolCall(ctx, event))
 			return { block: true, reason: `${event.toolName} must be the sole tool call in its assistant message` };
@@ -1460,7 +1439,10 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			const updated = saveTask(task, completeTaskResearch(task.document));
 			showStatus(ctx, updated);
 			activateTools(ctx, updated);
-			ctx.ui.notify(`${pending.slug}: research saved`, "info");
+			ctx.ui.notify(
+				`${pending.slug}: ${readyText(ctx, "research saved.", "Specification")}`,
+				"info",
+			);
 		} catch (error) {
 			ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 		}

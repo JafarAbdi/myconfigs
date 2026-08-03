@@ -67,6 +67,10 @@ export interface RuntimeHarness {
 	widgets: string[];
 	/** The text JURUC left in the core input editor. */
 	getEditorText: () => string;
+	/** Types into the editor, so tests can prove JURUC never overwrites a draft. */
+	setEditorText: (text: string) => void;
+	/** Presses Enter: submits the editor's exact text and clears it, as the TUI does. */
+	submitEditor: () => Promise<void>;
 	/** Records `with:N` for the instance whose closure is running the callback. */
 	noteWithSession: (instance: number) => void;
 	setResponses: (responses: unknown[]) => void;
@@ -296,6 +300,15 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 		notices,
 		widgets,
 		getEditorText: () => editorText,
+		setEditorText: (text: string) => {
+			editorText = text;
+		},
+		submitEditor: async () => {
+			const submitted = editorText;
+			if (!submitted.trim()) throw new Error("the editor is empty; nothing to submit");
+			editorText = "";
+			await runtime.session.prompt(submitted);
+		},
 		noteWithSession: (instance: number) => events.push(`with:${instance}`),
 		setResponses: (responses: unknown[]) => faux.setResponses(responses as never),
 		appendResponses: (responses: unknown[]) => faux.appendResponses(responses as never),
