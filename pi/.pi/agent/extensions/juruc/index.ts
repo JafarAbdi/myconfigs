@@ -780,7 +780,6 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		// Never touch the captured `pi` here: a routed decision runs this after session
 		// replacement, where the old extension instance's tool handle is already stale.
 		showStatus(ctx, task);
-		ctx.ui.notify(`${slug}: review ${round.number} is open at ${url}`, "info");
 		try {
 			await openBrowser(url);
 		} catch (error) {

@@ -20,7 +20,7 @@ export interface ReviewViewOptions {
 }
 
 export const DEFAULT_REVIEW_VIEW_OPTIONS: ReviewViewOptions = {
-	mode: "auto",
+	mode: "stack",
 	lineNumbers: true,
 	wrap: false,
 	hunkHeaders: true,
@@ -171,7 +171,7 @@ function renderViewMenu(
 		${option("wrap", "Line wrap", "w")}
 		${option("hunkHeaders", "Hunk metadata", "m")}
 		${option("agentNotes", "Agent notes", "a")}
-		<button type="button" id="sidebar-toggle" role="menuitemcheckbox" aria-checked="true" data-shortcut="s"><span>Sidebar</span><kbd>s</kbd><span class="option-check" aria-hidden="true">✓</span></button>
+		<button type="button" id="sidebar-toggle" role="menuitemcheckbox" aria-checked="false" data-shortcut="s"><span>Sidebar</span><kbd>s</kbd><span class="option-check" aria-hidden="true"></span></button>
 	</div>
 </details>`;
 }
@@ -275,7 +275,7 @@ export class ReviewRenderer {
 	<title>JURUC local review</title>
 	<link rel="stylesheet" href="${escapeHtml(basePath)}review.css">
 </head>
-<body data-api-base="${escapeHtml(basePath)}api/" data-review-range="${escapeHtml(reviewRange)}" data-mode="${options.mode}" data-resolved-mode="${resolvedMode}" data-layout="${resolvedMode === "stack" ? "unified" : "split"}">
+<body class="sidebar-hidden" data-api-base="${escapeHtml(basePath)}api/" data-review-range="${escapeHtml(reviewRange)}" data-mode="${options.mode}" data-resolved-mode="${resolvedMode}" data-layout="${resolvedMode === "stack" ? "unified" : "split"}">
 	<header class="topbar">
 		<div class="review-title" title="Exact range: ${escapeHtml(reviewRange)}"><strong>Review</strong><span>${this.patch.files.length} file${this.patch.files.length === 1 ? "" : "s"}</span></div>
 		<div class="topbar-actions">

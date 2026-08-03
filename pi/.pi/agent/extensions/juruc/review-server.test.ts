@@ -53,7 +53,7 @@ test("loopback capability server persists comment CRUD and only records explicit
 		assert.equal(address.hostname, "127.0.0.1");
 		assert.notEqual(address.port, "0");
 		assert.deepEqual(Object.fromEntries(address.searchParams), {
-			mode: "auto",
+			mode: "stack",
 			"line-numbers": "on",
 			wrap: "off",
 			"hunk-headers": "on",
@@ -73,11 +73,15 @@ test("loopback capability server persists comment CRUD and only records explicit
 		assert.match(page.headers.get("content-security-policy") ?? "", /font-src 'none'/u);
 		const pageHtml = await page.text();
 		assert.match(pageHtml, /JURUC local review/u);
-		assert.match(pageHtml, /data-mode="auto" data-resolved-mode="split"/u);
+		assert.match(
+			pageHtml,
+			/data-mode="stack" data-resolved-mode="stack" data-layout="unified"/u,
+		);
+		assert.match(pageHtml, /data-diff-type="single"/u);
 		assert.ok(pageHtml.includes(`data-api-base="${address.pathname}api/"`));
 
 		const configuredUrl = new URL(first.url);
-		configuredUrl.searchParams.set("mode", "stack");
+		configuredUrl.searchParams.set("mode", "split");
 		configuredUrl.searchParams.set("line-numbers", "off");
 		configuredUrl.searchParams.set("wrap", "on");
 		configuredUrl.searchParams.set("hunk-headers", "off");
@@ -85,14 +89,19 @@ test("loopback capability server persists comment CRUD and only records explicit
 		const configured = await fetch(configuredUrl);
 		assert.equal(configured.status, 200);
 		const configuredHtml = await configured.text();
-		assert.match(configuredHtml, /data-resolved-mode="stack"/u);
+		assert.match(configuredHtml, /data-mode="split" data-resolved-mode="split"/u);
+		assert.match(configuredHtml, /data-diff-type="split"/u);
 		assert.match(configuredHtml, /data-disable-line-numbers=""/u);
 		assert.match(configuredHtml, /data-overflow="wrap"/u);
 		assert.doesNotMatch(configuredHtml, />Agent note</u);
 		assert.ok(configuredHtml.includes(
-			`href="${address.pathname}?mode=split&amp;line-numbers=off&amp;wrap=on&amp;hunk-headers=off&amp;agent-notes=off"`,
+			`href="${address.pathname}?mode=stack&amp;line-numbers=off&amp;wrap=on&amp;hunk-headers=off&amp;agent-notes=off"`,
 		));
-		const autoStackUrl = new URL(first.url);
+		const autoUrl = new URL(first.url);
+		autoUrl.searchParams.set("mode", "auto");
+		const autoHtml = await (await fetch(autoUrl)).text();
+		assert.match(autoHtml, /data-mode="auto" data-resolved-mode="split"/u);
+		const autoStackUrl = new URL(autoUrl);
 		autoStackUrl.searchParams.set("auto-layout", "stack");
 		assert.match(await (await fetch(autoStackUrl)).text(), /data-resolved-mode="stack"/u);
 

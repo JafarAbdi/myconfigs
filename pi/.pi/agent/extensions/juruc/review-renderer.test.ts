@@ -6,6 +6,7 @@ import test from "node:test";
 import {
 	isFeedbackSubmitShortcut,
 	isReviewDecisionDisabled,
+	savedSidebarVisible,
 	singleLineSelection,
 	targetFromComposedPath,
 } from "./review-browser.js";
@@ -36,13 +37,19 @@ test("Pierre SSR output uses declarative Shadow DOM and grouped public annotatio
 			body: "Add a regression test for whitespace-only input.",
 		});
 		const renderer = new ReviewRenderer(patch);
-		const stackView = { ...DEFAULT_REVIEW_VIEW_OPTIONS, mode: "stack" as const };
-		const html = await renderer.render(store.snapshot(), stackView, "/capability/");
+		const html = await renderer.render(
+			store.snapshot(),
+			DEFAULT_REVIEW_VIEW_OPTIONS,
+			"/capability/",
+		);
 
 		assert.match(html, /<template shadowrootmode="open">/u);
 		assert.match(html, /<style data-core-css="">/u);
 		assert.match(html, /data-mode="stack"/u);
 		assert.match(html, /data-layout="unified"/u);
+		assert.match(html, /<body class="sidebar-hidden"/u);
+		assert.match(html, /id="sidebar-toggle"[^>]*aria-checked="false"/u);
+		assert.match(html, /<span class="option-check" aria-hidden="true"><\/span>/u);
 		assert.match(html, /data-review-range="1{40}\.\.\.2{40}"/u);
 		assert.doesNotMatch(html, /SHA-256|patch-digest/u);
 		assert.match(html, /data-diff-type="single"/u);
@@ -168,6 +175,15 @@ test("renderer reports an empty cumulative patch clearly", async () => {
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
+});
+
+test("the sidebar stays hidden unless this review explicitly saved visible", () => {
+	assert.equal(savedSidebarVisible(() => null), false);
+	assert.equal(savedSidebarVisible(() => "hidden"), false);
+	assert.equal(savedSidebarVisible(() => "visible"), true);
+	assert.equal(savedSidebarVisible(() => {
+		throw new Error("storage unavailable");
+	}), false);
 });
 
 test("decision guards disable approval with comments and recover consistently", () => {

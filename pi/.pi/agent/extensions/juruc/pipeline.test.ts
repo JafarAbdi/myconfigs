@@ -839,9 +839,8 @@ try {
 			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
 			assert.equal(openedUrls.length, 1);
 			assert.match(openedUrls[0], /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/\?/u);
-			assert.ok(harness.notices.some((notice) => notice.includes(`review 1 is open at ${openedUrls[0]}`)));
-			// An RPC session keeps the plain lifecycle line; the exact URL notification above is
-			// the only handoff.
+			assert.equal(harness.notices.some((notice) => notice.includes(openedUrls[0])), false);
+			// RPC keeps its plain lifecycle fallback while the browser still opens directly.
 			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Awaiting decision"));
 
 			const api = new URL("api/", openedUrls[0]);
@@ -1230,6 +1229,7 @@ try {
 			assert.ok(resumed.widgets.includes(
 				linked(openedUrls[0]),
 			));
+			assert.equal(resumed.notices.some((notice) => notice.includes(openedUrls[0])), false);
 
 			// /juruc on the same open review reuses the live capability URL.
 			await resumed.runtime.session.prompt("/juruc");

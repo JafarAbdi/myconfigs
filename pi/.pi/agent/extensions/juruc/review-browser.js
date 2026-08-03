@@ -39,6 +39,14 @@ export function isReviewDecisionDisabled(kind, state) {
 		(kind === "approve" ? state.humanComments.length > 0 : state.humanComments.length === 0);
 }
 
+export function savedSidebarVisible(readPreference) {
+	try {
+		return readPreference() === "visible";
+	} catch {
+		return false;
+	}
+}
+
 if (typeof document !== "undefined") {
 	const apiBase = document.body.dataset.apiBase;
 	const reviewRange = document.body.dataset.reviewRange;
@@ -80,11 +88,10 @@ if (typeof document !== "undefined") {
 		} catch {}
 	}
 
-	try {
-		setSidebarVisible(localStorage.getItem(sidebarKey) !== "hidden", false);
-	} catch {
-		setSidebarVisible(true, false);
-	}
+	setSidebarVisible(
+		savedSidebarVisible(() => localStorage.getItem(sidebarKey)),
+		false,
+	);
 	sidebarToggle.addEventListener("click", () =>
 		setSidebarVisible(document.body.classList.contains("sidebar-hidden")),
 	);
