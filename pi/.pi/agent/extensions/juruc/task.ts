@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
-export const TASK_VERSION = 6 as const;
+export const TASK_VERSION = 7 as const;
 export const TASK_STAGES = [
 	"questions",
 	"research",
@@ -73,6 +73,21 @@ export interface TaskReviewerSlot {
 	outcome: ReviewerOutcome | null;
 }
 
+export interface TaskCorrectionFeedback {
+	sharedUnderstanding: string;
+	corrections: string[];
+	decisions: string[];
+	acceptedAssumptions: string[];
+}
+
+export interface TaskCorrectionPlan {
+	goal: string;
+	fileScopes: string[];
+	dependencies: string[];
+	instructions: string[];
+	verification: string[];
+}
+
 export interface TaskCorrectionResult {
 	resolution: string;
 	verificationEvidence: VerificationEvidence[];
@@ -80,7 +95,15 @@ export interface TaskCorrectionResult {
 }
 
 export interface TaskCorrection {
-	sessionPath: string;
+	feedbackGrill: {
+		sessionPath: string;
+		confirmedFeedback: TaskCorrectionFeedback | null;
+	} | null;
+	correctionPlan: {
+		sessionPath: string;
+		acceptedPlan: TaskCorrectionPlan | null;
+	} | null;
+	sessionPath: string | null;
 	result: TaskCorrectionResult | null;
 }
 
@@ -98,13 +121,13 @@ export type TaskSessionRun =
 	| { kind: DiscoverySessionKind; path: string }
 	| { kind: "implementation"; phase: number; path: string }
 	| { kind: ReviewerSessionKind; round: number; path: string }
-	| { kind: "correction"; round: number; path: string };
+	| { kind: "feedback-grill" | "correction-plan" | "correction"; round: number; path: string };
 
 export type TaskSessionKey =
 	| { kind: DiscoverySessionKind }
 	| { kind: "implementation"; phase: number }
 	| { kind: ReviewerSessionKind; round: number }
-	| { kind: "correction"; round: number };
+	| { kind: "feedback-grill" | "correction-plan" | "correction"; round: number };
 
 export interface TaskRepository {
 	sourceRoot: string;
@@ -273,6 +296,8 @@ function validSessionRun(value: unknown): value is TaskSessionRun {
 			return exactKeys(run, ["kind", "phase", "path"]) && positiveInteger(run.phase);
 		case "deviation-review":
 		case "correctness-review":
+		case "feedback-grill":
+		case "correction-plan":
 		case "correction":
 			return exactKeys(run, ["kind", "round", "path"]) && positiveInteger(run.round);
 		default:
@@ -286,6 +311,8 @@ function sessionLogicalKey(run: TaskSessionRun | TaskSessionKey): string {
 			return `${run.kind}:${run.phase}`;
 		case "deviation-review":
 		case "correctness-review":
+		case "feedback-grill":
+		case "correction-plan":
 		case "correction":
 			return `${run.kind}:${run.round}`;
 		default:
@@ -411,6 +438,24 @@ function samePlan(left: TaskPlan, right: TaskPlan): boolean {
 		left.phases.every((phase, index) => samePhase(phase, right.phases[index]));
 }
 
+function sameCorrectionFeedback(
+	left: TaskCorrectionFeedback,
+	right: TaskCorrectionFeedback,
+): boolean {
+	return left.sharedUnderstanding === right.sharedUnderstanding &&
+		sameList(left.corrections, right.corrections) &&
+		sameList(left.decisions, right.decisions) &&
+		sameList(left.acceptedAssumptions, right.acceptedAssumptions);
+}
+
+function sameCorrectionPlan(left: TaskCorrectionPlan, right: TaskCorrectionPlan): boolean {
+	return left.goal === right.goal &&
+		sameList(left.fileScopes, right.fileScopes) &&
+		sameList(left.dependencies, right.dependencies) &&
+		sameList(left.instructions, right.instructions) &&
+		sameList(left.verification, right.verification);
+}
+
 function validCheckpoint(value: unknown, phase: TaskPhase): value is CompletedTaskPhase {
 	const checkpoint = record(value);
 	if (
@@ -522,45 +567,120 @@ function validReviewDecision(value: unknown): value is ReviewDecision {
 	);
 }
 
-function validCorrectionResult(
-	value: unknown,
-	accepted: ReadonlySet<string>,
-): value is TaskCorrectionResult {
-	const result = record(value);
-	if (
-		!result ||
-		!exactKeys(result, ["resolution", "verificationEvidence", "commit"]) ||
-		!validCleanText(result.resolution) ||
-		!Array.isArray(result.verificationEvidence) ||
-		result.verificationEvidence.length === 0 ||
-		!result.verificationEvidence.every(
-			(evidence) =>
-				validVerificationEvidence(evidence) && evidence.exitCode === 0 &&
-				accepted.has(evidence.command),
-		) ||
-		typeof result.commit !== "string" ||
-		!OBJECT_ID.test(result.commit)
-	) return false;
-	const commands = result.verificationEvidence.map(({ command }) => command);
-	return new Set(commands).size === commands.length;
-}
-
-function validCorrection(value: unknown, accepted: ReadonlySet<string>): value is TaskCorrection {
-	const correction = record(value);
+function validCorrectionFeedback(value: unknown): value is TaskCorrectionFeedback {
+	const feedback = record(value);
 	return Boolean(
-		correction &&
-			exactKeys(correction, ["sessionPath", "result"]) &&
-			validCleanText(correction.sessionPath) &&
-			isAbsolute(correction.sessionPath as string) &&
-			(correction.result === null || validCorrectionResult(correction.result, accepted)),
+		feedback &&
+			exactKeys(feedback, [
+				"sharedUnderstanding",
+				"corrections",
+				"decisions",
+				"acceptedAssumptions",
+			]) &&
+			validCleanText(feedback.sharedUnderstanding) &&
+			validOrderedTextList(feedback.corrections, true) &&
+			validUniqueTextList(feedback.decisions) &&
+			validUniqueTextList(feedback.acceptedAssumptions),
 	);
 }
 
-function validReviewRound(
+function validCorrectionPlan(value: unknown): value is TaskCorrectionPlan {
+	const plan = record(value);
+	return Boolean(
+		plan &&
+			exactKeys(plan, [
+				"goal",
+				"fileScopes",
+				"dependencies",
+				"instructions",
+				"verification",
+			]) &&
+			validCleanText(plan.goal) &&
+			Array.isArray(plan.fileScopes) &&
+			plan.fileScopes.length > 0 &&
+			plan.fileScopes.every(validFileScope) &&
+			new Set(plan.fileScopes).size === plan.fileScopes.length &&
+			validUniqueTextList(plan.dependencies) &&
+			validOrderedTextList(plan.instructions, true) &&
+			validUniqueTextList(plan.verification, true),
+	);
+}
+
+function validCorrectionResult(
 	value: unknown,
-	index: number,
-	accepted: ReadonlySet<string>,
-): value is TaskReviewRound {
+	plan: TaskCorrectionPlan,
+): value is TaskCorrectionResult {
+	const result = record(value);
+	return Boolean(
+		result &&
+			exactKeys(result, ["resolution", "verificationEvidence", "commit"]) &&
+			validCleanText(result.resolution) &&
+			Array.isArray(result.verificationEvidence) &&
+			result.verificationEvidence.length === plan.verification.length &&
+			result.verificationEvidence.every(
+				(evidence, index) =>
+					validVerificationEvidence(evidence) &&
+					evidence.command === plan.verification[index] &&
+					evidence.exitCode === 0,
+			) &&
+			typeof result.commit === "string" &&
+			OBJECT_ID.test(result.commit),
+	);
+}
+
+function validSessionSlot(value: unknown): boolean {
+	const slot = record(value);
+	return Boolean(
+		slot &&
+			validCleanText(slot.sessionPath) &&
+			isAbsolute(slot.sessionPath as string),
+	);
+}
+
+function validCorrection(value: unknown): value is TaskCorrection {
+	const correction = record(value);
+	if (!correction || !exactKeys(correction, [
+		"feedbackGrill",
+		"correctionPlan",
+		"sessionPath",
+		"result",
+	])) return false;
+
+	const feedbackGrill = correction.feedbackGrill === null
+		? null
+		: record(correction.feedbackGrill);
+	if (feedbackGrill && (
+		!exactKeys(feedbackGrill, ["sessionPath", "confirmedFeedback"]) ||
+		!validSessionSlot(feedbackGrill) ||
+		(feedbackGrill.confirmedFeedback !== null &&
+			!validCorrectionFeedback(feedbackGrill.confirmedFeedback))
+	)) return false;
+	if (correction.feedbackGrill !== null && !feedbackGrill) return false;
+
+	const correctionPlan = correction.correctionPlan === null
+		? null
+		: record(correction.correctionPlan);
+	if (correctionPlan && (
+		!exactKeys(correctionPlan, ["sessionPath", "acceptedPlan"]) ||
+		!validSessionSlot(correctionPlan) ||
+		(correctionPlan.acceptedPlan !== null &&
+			!validCorrectionPlan(correctionPlan.acceptedPlan))
+	)) return false;
+	if (correction.correctionPlan !== null && !correctionPlan) return false;
+
+	const confirmedFeedback = feedbackGrill?.confirmedFeedback as TaskCorrectionFeedback | null | undefined;
+	const acceptedPlan = correctionPlan?.acceptedPlan as TaskCorrectionPlan | null | undefined;
+	if (correctionPlan && !confirmedFeedback) return false;
+	if (correction.sessionPath !== null &&
+		(!validCleanText(correction.sessionPath) || !isAbsolute(correction.sessionPath as string) || !acceptedPlan))
+		return false;
+	if (correction.result !== null &&
+		(correction.sessionPath === null || !acceptedPlan || !validCorrectionResult(correction.result, acceptedPlan)))
+		return false;
+	return true;
+}
+
+function validReviewRound(value: unknown, index: number): value is TaskReviewRound {
 	const round = record(value);
 	if (
 		!round ||
@@ -578,7 +698,7 @@ function validReviewRound(
 		!OBJECT_ID.test(round.baseCommit) ||
 		typeof round.headCommit !== "string" ||
 		!OBJECT_ID.test(round.headCommit) ||
-		(round.correction !== null && !validCorrection(round.correction, accepted))
+		(round.correction !== null && !validCorrection(round.correction))
 	) return false;
 	const reviewers = record(round.reviewers);
 	if (
@@ -602,7 +722,7 @@ function validReviewRound(
 	if (!terminal) return false;
 	return round.decision.kind === "approve"
 		? comments.length === 0 && round.correction === null
-		: comments.length > 0;
+		: comments.length > 0 && round.correction !== null;
 }
 
 function validReviewRounds(
@@ -610,11 +730,7 @@ function validReviewRounds(
 	repository: TaskRepository,
 	checkpoints: readonly CompletedTaskPhase[],
 ): value is TaskReviewRound[] {
-	// Validated checkpoints mirror the accepted Plan phases, so their commands are exactly the
-	// accepted verification commands a correction may report.
-	const accepted = new Set(checkpoints.flatMap((checkpoint) => checkpoint.verification));
-	if (!Array.isArray(value) || !value.every((round, index) => validReviewRound(round, index, accepted)))
-		return false;
+	if (!Array.isArray(value) || !value.every(validReviewRound)) return false;
 	for (const [index, round] of (value as TaskReviewRound[]).entries()) {
 		const expectedHead = index === 0
 			? checkpoints.at(-1)?.commit
@@ -665,6 +781,14 @@ function validSessionRelationships(
 				if (round?.reviewers[kind]?.sessionPath !== run.path) return false;
 				break;
 			}
+			case "feedback-grill":
+				if (rounds[run.round - 1]?.correction?.feedbackGrill?.sessionPath !== run.path)
+					return false;
+				break;
+			case "correction-plan":
+				if (rounds[run.round - 1]?.correction?.correctionPlan?.sessionPath !== run.path)
+					return false;
+				break;
 			case "correction":
 				if (rounds[run.round - 1]?.correction?.sessionPath !== run.path) return false;
 				break;
@@ -680,10 +804,16 @@ function validSessionRelationships(
 			)) return false;
 		}
 		const correction = round.correction;
-		if (correction && !sessions.some(
-			(run) => run.kind === "correction" && run.round === round.number &&
-				run.path === correction.sessionPath,
-		)) return false;
+		if (!correction) continue;
+		for (const [kind, sessionPath] of [
+			["feedback-grill", correction.feedbackGrill?.sessionPath],
+			["correction-plan", correction.correctionPlan?.sessionPath],
+			["correction", correction.sessionPath],
+		] as const) {
+			if (sessionPath && !sessions.some(
+				(run) => run.kind === kind && run.round === round.number && run.path === sessionPath,
+			)) return false;
+		}
 	}
 	return true;
 }
@@ -1016,7 +1146,21 @@ export function decideTaskReview(
 	return checked({
 		...task,
 		stage: kind === "approve" ? "done" : "review",
-		reviewRounds: [...task.reviewRounds.slice(0, -1), { ...round, decision }],
+		reviewRounds: [
+			...task.reviewRounds.slice(0, -1),
+			{
+				...round,
+				decision,
+				correction: kind === "send-feedback"
+					? {
+						feedbackGrill: null,
+						correctionPlan: null,
+						sessionPath: null,
+						result: null,
+					}
+					: null,
+			},
+		],
 	});
 }
 
@@ -1024,18 +1168,122 @@ export function currentTaskCorrectionRound(task: TaskDocument): TaskReviewRound 
 	const round = currentTaskReviewRound(task);
 	return task.stage === "review" &&
 		round?.decision?.kind === "send-feedback" &&
-		round.correction !== null &&
+		typeof round.correction?.sessionPath === "string" &&
 		round.correction.result === null
 		? round
 		: undefined;
 }
 
-function requireFeedbackRound(task: TaskDocument): TaskReviewRound {
+function requireFeedbackRound(task: TaskDocument): TaskReviewRound & { correction: TaskCorrection } {
 	const round = currentTaskReviewRound(task);
 	if (task.stage !== "review" || !round) throw new Error("task has no current review round");
-	if (round.decision?.kind !== "send-feedback")
+	if (round.decision?.kind !== "send-feedback" || !round.correction)
 		throw new Error("task review round has no Send Feedback decision");
-	return round;
+	return round as TaskReviewRound & { correction: TaskCorrection };
+}
+
+function requireFreshSessionPath(task: TaskDocument, sessionPath: string, label: string): void {
+	if (!validCleanText(sessionPath) || !isAbsolute(sessionPath))
+		throw new Error(`${label} session path must be absolute`);
+	if (findTaskSessionByPath(task, sessionPath))
+		throw new Error(`session path is already recorded: ${sessionPath}`);
+}
+
+export function registerTaskFeedbackGrillStart(
+	task: TaskDocument,
+	sessionPath: string,
+): TaskDocument {
+	const round = requireFeedbackRound(task);
+	requireFreshSessionPath(task, sessionPath, "feedback-grill");
+	if (round.correction!.feedbackGrill) throw new Error("feedback grill has already started");
+	if (findSession(task.sessions, { kind: "feedback-grill", round: round.number }))
+		throw new Error("feedback-grill session is already recorded");
+	return checked({
+		...task,
+		sessions: [...task.sessions, { kind: "feedback-grill", round: round.number, path: sessionPath }],
+		reviewRounds: [
+			...task.reviewRounds.slice(0, -1),
+			{
+				...round,
+				correction: {
+					...round.correction!,
+					feedbackGrill: { sessionPath, confirmedFeedback: null },
+				},
+			},
+		],
+	});
+}
+
+export function confirmTaskCorrectionFeedback(
+	task: TaskDocument,
+	feedback: TaskCorrectionFeedback,
+): TaskDocument {
+	const round = requireFeedbackRound(task);
+	const grill = round.correction!.feedbackGrill;
+	if (!grill) throw new Error("feedback grill has not started");
+	if (grill.confirmedFeedback) {
+		if (!validCorrectionFeedback(feedback) ||
+			!sameCorrectionFeedback(grill.confirmedFeedback, feedback))
+			throw new Error("confirmed correction feedback is immutable");
+		return checked(task);
+	}
+	if (!validCorrectionFeedback(feedback)) throw new Error("invalid correction feedback");
+	return replaceCurrentReviewRound(task, {
+		...round,
+		correction: {
+			...round.correction!,
+			feedbackGrill: { ...grill, confirmedFeedback: structuredClone(feedback) },
+		},
+	});
+}
+
+export function registerTaskCorrectionPlanStart(
+	task: TaskDocument,
+	sessionPath: string,
+): TaskDocument {
+	const round = requireFeedbackRound(task);
+	if (!round.correction!.feedbackGrill?.confirmedFeedback)
+		throw new Error("correction plan requires confirmed feedback");
+	requireFreshSessionPath(task, sessionPath, "correction-plan");
+	if (round.correction!.correctionPlan) throw new Error("correction plan has already started");
+	if (findSession(task.sessions, { kind: "correction-plan", round: round.number }))
+		throw new Error("correction-plan session is already recorded");
+	return checked({
+		...task,
+		sessions: [...task.sessions, { kind: "correction-plan", round: round.number, path: sessionPath }],
+		reviewRounds: [
+			...task.reviewRounds.slice(0, -1),
+			{
+				...round,
+				correction: {
+					...round.correction!,
+					correctionPlan: { sessionPath, acceptedPlan: null },
+				},
+			},
+		],
+	});
+}
+
+export function acceptTaskCorrectionPlan(
+	task: TaskDocument,
+	plan: TaskCorrectionPlan,
+): TaskDocument {
+	const round = requireFeedbackRound(task);
+	const planning = round.correction!.correctionPlan;
+	if (!planning) throw new Error("correction plan has not started");
+	if (planning.acceptedPlan) {
+		if (!validCorrectionPlan(plan) || !sameCorrectionPlan(planning.acceptedPlan, plan))
+			throw new Error("accepted correction plan is immutable");
+		return checked(task);
+	}
+	if (!validCorrectionPlan(plan)) throw new Error("invalid correction plan");
+	return replaceCurrentReviewRound(task, {
+		...round,
+		correction: {
+			...round.correction!,
+			correctionPlan: { ...planning, acceptedPlan: structuredClone(plan) },
+		},
+	});
 }
 
 export function registerTaskCorrectionStart(
@@ -1043,11 +1291,10 @@ export function registerTaskCorrectionStart(
 	sessionPath: string,
 ): TaskDocument {
 	const round = requireFeedbackRound(task);
-	if (!validCleanText(sessionPath) || !isAbsolute(sessionPath))
-		throw new Error("correction session path must be absolute");
-	if (round.correction) throw new Error("correction has already started");
-	if (findTaskSessionByPath(task, sessionPath))
-		throw new Error(`session path is already recorded: ${sessionPath}`);
+	if (!round.correction!.correctionPlan?.acceptedPlan)
+		throw new Error("correction implementation requires an accepted correction plan");
+	requireFreshSessionPath(task, sessionPath, "correction");
+	if (round.correction!.sessionPath) throw new Error("correction has already started");
 	if (findSession(task.sessions, { kind: "correction", round: round.number }))
 		throw new Error("correction session is already recorded");
 	return checked({
@@ -1055,7 +1302,7 @@ export function registerTaskCorrectionStart(
 		sessions: [...task.sessions, { kind: "correction", round: round.number, path: sessionPath }],
 		reviewRounds: [
 			...task.reviewRounds.slice(0, -1),
-			{ ...round, correction: { sessionPath, result: null } },
+			{ ...round, correction: { ...round.correction!, sessionPath } },
 		],
 	});
 }
@@ -1067,8 +1314,8 @@ export function completeTaskCorrection(
 	commit: string,
 ): TaskDocument {
 	const round = requireFeedbackRound(task);
-	if (!round.correction) throw new Error("correction has not started");
-	if (round.correction.result) throw new Error("correction is already complete");
+	if (!round.correction!.sessionPath) throw new Error("correction has not started");
+	if (round.correction!.result) throw new Error("correction is already complete");
 	return checked({
 		...task,
 		reviewRounds: [
@@ -1076,7 +1323,7 @@ export function completeTaskCorrection(
 			{
 				...round,
 				correction: {
-					sessionPath: round.correction.sessionPath,
+					...round.correction!,
 					result: {
 						resolution,
 						verificationEvidence: structuredClone(verificationEvidence),

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { lifecycleDetail, lifecycleLine, lifecycleRail, taskContext } from "./status.ts";
 import {
+	acceptTaskCorrectionPlan,
 	acceptTaskPlan,
 	activateTaskPlan,
 	addTaskReviewComment,
@@ -10,11 +11,14 @@ import {
 	completeTaskPhase,
 	completeTaskResearch,
 	completeTaskReviewer,
+	confirmTaskCorrectionFeedback,
 	confirmTaskQuestions,
 	confirmTaskSpecification,
 	createTaskDocument,
 	decideTaskReview,
+	registerTaskCorrectionPlanStart,
 	registerTaskCorrectionStart,
+	registerTaskFeedbackGrillStart,
 	registerTaskReviewerStart,
 	type TaskDocument,
 	type TaskSessionRun,
@@ -192,11 +196,29 @@ test("a pending or running correction and a fresh round spell out their own cont
 		endLine: 1,
 		body: "Rename the rail helper.",
 	}, "12345678-1234-4234-8234-123456789abc", "2026-08-03T00:00:00.000Z");
-	const decided = decideTaskReview(current, "send-feedback", "2026-08-03T00:00:00.000Z");
-	assert.equal(lifecycleLine(decided), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Ready");
-
-	current = registerTaskCorrectionStart(decided, "/sessions/correction-1.jsonl");
-	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Verifying");
+	current = decideTaskReview(current, "send-feedback", "2026-08-03T00:00:00.000Z");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Feedback Grill 1 · Ready");
+	current = registerTaskFeedbackGrillStart(current, "/sessions/feedback-1.jsonl");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Feedback Grill 1 · Clarifying");
+	current = confirmTaskCorrectionFeedback(current, {
+		sharedUnderstanding: "Rename the rail helper.",
+		corrections: ["Rename the rail helper."],
+		decisions: [],
+		acceptedAssumptions: [],
+	});
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction Plan 1 · Ready");
+	current = registerTaskCorrectionPlanStart(current, "/sessions/correction-plan-1.jsonl");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction Plan 1 · Planning");
+	current = acceptTaskCorrectionPlan(current, {
+		goal: "Rename the rail helper.",
+		fileScopes: ["status.ts"],
+		dependencies: [],
+		instructions: ["Rename the helper."],
+		verification: ["test status"],
+	});
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Ready");
+	current = registerTaskCorrectionStart(current, "/sessions/correction-1.jsonl");
+	assert.equal(lifecycleLine(current), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Implementing");
 
 	current = completeTaskCorrection(
 		current,
@@ -295,6 +317,25 @@ test("the picker context names only the single next action", () => {
 		"send-feedback",
 		"2026-08-03T00:00:00.000Z",
 	);
+	assert.equal(taskContext(current), "feedback grill 1");
+	current = registerTaskFeedbackGrillStart(current, "/sessions/feedback-1.jsonl");
+	assert.equal(taskContext(current), "feedback grill 1");
+	current = confirmTaskCorrectionFeedback(current, {
+		sharedUnderstanding: "Rename the rail helper.",
+		corrections: ["Rename the rail helper."],
+		decisions: [],
+		acceptedAssumptions: [],
+	});
+	assert.equal(taskContext(current), "correction plan 1");
+	current = registerTaskCorrectionPlanStart(current, "/sessions/correction-plan-1.jsonl");
+	assert.equal(taskContext(current), "correction plan 1");
+	current = acceptTaskCorrectionPlan(current, {
+		goal: "Rename the rail helper.",
+		fileScopes: ["status.ts"],
+		dependencies: [],
+		instructions: ["Rename the helper."],
+		verification: ["test status"],
+	});
 	assert.equal(taskContext(current), "correction 1");
 	current = registerTaskCorrectionStart(current, "/sessions/correction-1.jsonl");
 	assert.equal(taskContext(current), "correction 1");

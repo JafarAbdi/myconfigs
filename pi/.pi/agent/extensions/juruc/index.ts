@@ -38,6 +38,27 @@ import {
 	runCorrectionVerification,
 	type FinishCorrectionInput,
 } from "./correction.ts";
+import {
+	acceptCorrectionPlan,
+	CORRECTION_PLAN_DECISION_TITLE,
+	CORRECTION_PLAN_DECISION_UNRESOLVED,
+	CORRECTION_PLAN_DECISIONS,
+	CORRECTION_PLAN_REVISION_TITLE,
+	correctionPlanningPrompt,
+	CORRECTION_PLANNING_INSTRUCTION,
+	CORRECTION_PLANNING_TOOL_NAMES,
+	correctionPlanRevisionRequest,
+	SET_CORRECTION_PLAN_SCHEMA,
+	type SetCorrectionPlanInput,
+} from "./correction-planning.ts";
+import {
+	feedbackPrompt,
+	FEEDBACK_INSTRUCTION,
+	FEEDBACK_TOOL_NAMES,
+	SET_FEEDBACK_SCHEMA,
+	setTaskFeedback,
+	type SetFeedbackInput,
+} from "./feedback.ts";
 import { taskOptions, type TaskChoice } from "./picker.ts";
 import {
 	confirmTaskPlan,
@@ -103,7 +124,9 @@ import {
 	findTaskSession,
 	findTaskSessionByPath,
 	loadTaskDocument,
+	registerTaskCorrectionPlanStart,
 	registerTaskCorrectionStart,
+	registerTaskFeedbackGrillStart,
 	registerTaskReviewerStart,
 	saveTaskDocument,
 	type DiscoverySessionKind,
@@ -142,12 +165,18 @@ const JURUC_TOOLS = new Set([
 	"juruc_set_questions",
 	"juruc_set_specification",
 	"juruc_set_plan",
+	"juruc_set_feedback",
+	"juruc_set_correction_plan",
 	"juruc_run_verification",
 	"juruc_finish_phase",
 	"juruc_finish_correction",
 ]);
 const RESEARCH_AGENTS = new Set<string>(RESEARCH_AGENT_NAMES);
-type CurrentSessionKind = DiscoverySessionKind | "implementation" | "correction";
+type CurrentSessionKind = DiscoverySessionKind |
+	"implementation" |
+	"feedback-grill" |
+	"correction-plan" |
+	"correction";
 
 /** The one task-owned session kind that may act right now, if any. */
 function activeSessionKind(task: TaskDocument): CurrentSessionKind | undefined {
@@ -160,8 +189,16 @@ function activeSessionKind(task: TaskDocument): CurrentSessionKind | undefined {
 		case "specification":
 		case "implementation":
 			return task.stage;
-		case "review":
-			return currentTaskCorrectionRound(task) ? "correction" : undefined;
+		case "review": {
+			const round = currentTaskReviewRound(task);
+			const correction = round?.decision?.kind === "send-feedback"
+				? round.correction
+				: undefined;
+			if (!correction) return undefined;
+			if (!correction.feedbackGrill?.confirmedFeedback) return "feedback-grill";
+			if (!correction.correctionPlan?.acceptedPlan) return "correction-plan";
+			return correction.result ? undefined : "correction";
+		}
 		case "done":
 			return undefined;
 	}
@@ -443,8 +480,8 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 	function currentRun(task: TaskDocument, kind: CurrentSessionKind): TaskSessionRun | undefined {
 		if (kind === "implementation")
 			return findTaskSession(task, { kind, phase: task.checkpoints.length + 1 });
-		if (kind === "correction") {
-			const round = currentTaskCorrectionRound(task);
+		if (kind === "feedback-grill" || kind === "correction-plan" || kind === "correction") {
+			const round = currentTaskReviewRound(task);
 			return round ? findTaskSession(task, { kind, round: round.number }) : undefined;
 		}
 		return findTaskSession(task, { kind });
@@ -474,6 +511,10 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				return task.plan ? [] : PLANNING_TOOL_NAMES;
 			case "implementation":
 				return BUILD_TOOL_NAMES;
+			case "feedback-grill":
+				return FEEDBACK_TOOL_NAMES;
+			case "correction-plan":
+				return CORRECTION_PLANNING_TOOL_NAMES;
 			case "correction":
 				return CORRECTION_TOOL_NAMES;
 		}
@@ -729,7 +770,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		);
 	}
 
-	/** Routes the persisted decision once the deciding response and its server are done. */
+	/** Closes the decided review and reports the persisted boundary without starting work. */
 	function routeReviewDecision(
 		ctx: ExtensionCommandContext,
 		slug: string,
@@ -744,12 +785,15 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 					await viewDone(ctx, task);
 					return;
 				}
-				await ctx.waitForIdle();
-				await openReview(ctx, task);
+				const round = currentTaskReviewRound(task.document)!;
+				ctx.ui.notify(
+					`${slug}: ${readyText(ctx, "Send Feedback recorded.", `Feedback Grill ${round.number}`)}`,
+					"info",
+				);
 			} catch (error) {
 				try {
 					ctx.ui.notify(
-						`${slug}: decision recorded but JURUC could not continue automatically; run /juruc — ${error instanceof Error ? error.message : String(error)}`,
+						`${slug}: decision recorded but JURUC could not close its review cleanly; run /juruc — ${error instanceof Error ? error.message : String(error)}`,
 						"warning",
 					);
 				} catch {}
@@ -786,10 +830,14 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		const round = currentTaskReviewRound(task.document)!;
 		if (round.decision?.kind === "send-feedback") {
 			await activeReviewServer.close();
-			showStatus(ctx, task);
-			await openCorrection(ctx, task);
+			const correction = round.correction!;
+			if (!correction.feedbackGrill?.confirmedFeedback) await openFeedbackGrill(ctx, task);
+			else if (!correction.correctionPlan?.acceptedPlan) await openCorrectionPlan(ctx, task);
+			else await openCorrection(ctx, task);
 			return;
 		}
+		if (round.decision)
+			throw new Error(`${task.document.slug}: review round is already decided`);
 		if (Object.values(round.reviewers).some((slot) => !slot?.outcome)) {
 			await activeReviewServer.close();
 			showStatus(ctx, task);
@@ -810,14 +858,82 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		await serveReview(ctx, task);
 	}
 
+	async function openFeedbackGrill(
+		ctx: ExtensionCommandContext,
+		selected: StoredTask,
+	): Promise<void> {
+		let task = selected;
+		const round = currentTaskReviewRound(task.document)!;
+		if (
+			round.decision?.kind !== "send-feedback" ||
+			!round.correction ||
+			round.correction.feedbackGrill?.confirmedFeedback ||
+			!task.document.specification
+		) throw new Error(`${task.document.slug}: task has no pending feedback grill`);
+		let session = round.correction.feedbackGrill?.sessionPath;
+		if (!session) {
+			session = createManagedSession(
+				task.document.repository.worktree,
+				`${task.document.slug} · feedback grill ${round.number}`,
+				"juruc-feedback-instruction",
+				FEEDBACK_INSTRUCTION,
+			);
+			task = saveTask(task, registerTaskFeedbackGrillStart(task.document, session));
+		}
+		await switchAndSend(
+			ctx,
+			task,
+			session,
+			"review",
+			feedbackPrompt(task.document.specification, round.humanComments),
+			"Resume clarifying the saved human comments and call juruc_set_feedback only after explicit confirmation.",
+		);
+	}
+
+	async function openCorrectionPlan(
+		ctx: ExtensionCommandContext,
+		selected: StoredTask,
+	): Promise<void> {
+		let task = selected;
+		const round = currentTaskReviewRound(task.document)!;
+		const feedback = round.correction?.feedbackGrill?.confirmedFeedback;
+		if (
+			round.decision?.kind !== "send-feedback" ||
+			!feedback ||
+			round.correction?.correctionPlan?.acceptedPlan ||
+			!task.document.specification
+		) throw new Error(`${task.document.slug}: task has no pending correction plan`);
+		let session = round.correction.correctionPlan?.sessionPath;
+		if (!session) {
+			session = createManagedSession(
+				task.document.repository.worktree,
+				`${task.document.slug} · correction plan ${round.number}`,
+				"juruc-correction-planning-instruction",
+				CORRECTION_PLANNING_INSTRUCTION,
+			);
+			task = saveTask(task, registerTaskCorrectionPlanStart(task.document, session));
+		}
+		await switchAndSend(
+			ctx,
+			task,
+			session,
+			"review",
+			correctionPlanningPrompt(task.document.specification, feedback),
+			"Resume the bounded correction plan and call juruc_set_correction_plan to reopen JURUC's correction-plan decision selector.",
+		);
+	}
+
 	async function openCorrection(
 		ctx: ExtensionCommandContext,
 		selected: StoredTask,
 	): Promise<void> {
 		let task = selected;
 		const round = currentTaskReviewRound(task.document)!;
-		if (round.decision?.kind !== "send-feedback" || round.correction?.result)
-			throw new Error(`${task.document.slug}: task has no pending correction`);
+		if (
+			round.decision?.kind !== "send-feedback" ||
+			!round.correction?.correctionPlan?.acceptedPlan ||
+			round.correction.result
+		) throw new Error(`${task.document.slug}: task has no pending correction`);
 		if (await recoverUnrecordedTaskCommits(
 			task.document.repository,
 			expectedTaskHead(task.document),
@@ -829,7 +945,6 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				`${task.document.slug} · correction ${round.number}`,
 				"juruc-correction-instruction",
 				CORRECTION_INSTRUCTION,
-				findTaskSession(task.document, { kind: "correctness-review", round: round.number })?.path,
 			);
 			task = saveTask(task, registerTaskCorrectionStart(task.document, session));
 		}
@@ -839,7 +954,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			session,
 			"review",
 			correctionPrompt(task.document, currentTaskReviewRound(task.document)!),
-			"Resume only the saved human comments for this round; verify with accepted Plan commands and call juruc_finish_correction when all evidence is zero.",
+			"Resume only the accepted correction plan and confirmed feedback; run every correction-plan command and call juruc_finish_correction when all evidence is zero.",
 		);
 	}
 
@@ -1253,9 +1368,78 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 	});
 
 	pi.registerTool({
+		name: "juruc_set_feedback",
+		label: "Confirm JURUC feedback",
+		description: "Persist explicitly confirmed correction feedback and offer Correction Plan.",
+		parameters: SET_FEEDBACK_SCHEMA as never,
+		executionMode: "sequential",
+		async execute(_id, params: SetFeedbackInput, _signal, _onUpdate, ctx) {
+			const task = ownedTask(ctx, "feedback-grill");
+			const updated = saveTask(task, setTaskFeedback(task.document, params));
+			showStatus(ctx, updated);
+			activateTools(ctx, updated);
+			const round = currentTaskReviewRound(updated.document)!;
+			return {
+				content: [{
+					type: "text" as const,
+					text: readyText(ctx, "Feedback confirmed.", `Correction Plan ${round.number}`),
+				}],
+				details: { slug: updated.document.slug, round: round.number },
+				terminate: true,
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "juruc_set_correction_plan",
+		label: "Decide JURUC correction plan",
+		description:
+			"Open JURUC's correction-plan selector. Accept persists the immutable nested plan; Revise returns operator feedback; Cancel changes nothing.",
+		parameters: SET_CORRECTION_PLAN_SCHEMA as never,
+		executionMode: "sequential",
+		async execute(_id, params: SetCorrectionPlanInput, _signal, _onUpdate, ctx) {
+			const task = ownedTask(ctx, "correction-plan");
+			if (!ctx.hasUI)
+				throw new Error("correction-plan acceptance requires TUI or RPC extension-UI support");
+			// Validate in memory before showing a choice that could persist the proposal.
+			const accepted = acceptCorrectionPlan(task.document, params);
+			const decision = await ctx.ui.select(
+				CORRECTION_PLAN_DECISION_TITLE,
+				Object.values(CORRECTION_PLAN_DECISIONS),
+			);
+			if (decision === CORRECTION_PLAN_DECISIONS.revise) {
+				const feedback = await ctx.ui.input(CORRECTION_PLAN_REVISION_TITLE);
+				if (feedback?.trim())
+					return {
+						content: [{ type: "text" as const, text: correctionPlanRevisionRequest(feedback) }],
+						details: { slug: task.document.slug, round: currentTaskReviewRound(task.document)!.number },
+					};
+			}
+			if (decision !== CORRECTION_PLAN_DECISIONS.accept)
+				return {
+					content: [{ type: "text" as const, text: CORRECTION_PLAN_DECISION_UNRESOLVED }],
+					details: { slug: task.document.slug, round: currentTaskReviewRound(task.document)!.number },
+					terminate: true,
+				};
+			const updated = saveTask(task, accepted);
+			showStatus(ctx, updated);
+			activateTools(ctx, updated);
+			const round = currentTaskReviewRound(updated.document)!;
+			return {
+				content: [{
+					type: "text" as const,
+					text: readyText(ctx, "Correction plan persisted.", `Correction ${round.number}`),
+				}],
+				details: { slug: updated.document.slug, round: round.number },
+				terminate: true,
+			};
+		},
+	});
+
+	pi.registerTool({
 		name: "juruc_run_verification",
 		label: "Run JURUC verification",
-		description: "Run one exact verification command the active implementation phase or accepted Plan declared.",
+		description: "Run one exact verification command declared by the active implementation phase or accepted correction plan.",
 		parameters: RUN_VERIFICATION_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: RunVerificationInput, signal, _onUpdate, ctx) {
@@ -1340,7 +1524,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 	pi.registerTool({
 		name: "juruc_finish_correction",
 		label: "Finish JURUC correction",
-		description: "Validate correction evidence, stage the candidate, and create its correction commit.",
+		description: "Validate accepted correction-plan evidence, stage the candidate, and create its correction commit.",
 		parameters: FINISH_CORRECTION_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: FinishCorrectionInput, signal, _onUpdate, ctx) {
@@ -1430,9 +1614,11 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			kind === "questions" ? ["juruc_set_questions"]
 				: kind === "specification" ? ["juruc_set_specification"]
 					: kind === "plan" ? ["juruc_set_plan"]
-						: kind === "implementation"
-							? ["juruc_run_verification", "juruc_finish_phase"]
-							: ["juruc_run_verification", "juruc_finish_correction"];
+						: kind === "feedback-grill" ? ["juruc_set_feedback"]
+							: kind === "correction-plan" ? ["juruc_set_correction_plan"]
+								: kind === "implementation"
+									? ["juruc_run_verification", "juruc_finish_phase"]
+									: ["juruc_run_verification", "juruc_finish_correction"];
 		if (JURUC_TOOLS.has(event.toolName) && !expectedTools.includes(event.toolName))
 			return { block: true, reason: `${event.toolName} is unavailable in a ${kind} session` };
 	});

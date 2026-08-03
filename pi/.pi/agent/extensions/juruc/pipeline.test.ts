@@ -669,6 +669,19 @@ try {
 				verification: [verification],
 			}],
 		};
+		const confirmedFeedback = {
+			sharedUnderstanding: "INCLUDED_CONFIRMED_FEEDBACK",
+			corrections: ["Describe the candidate concretely."],
+			decisions: ["Keep the candidate readable."],
+			acceptedAssumptions: [],
+		};
+		const correctionPlan = {
+			goal: "INCLUDED_CORRECTION_PLAN",
+			fileScopes: ["tracked.txt"],
+			dependencies: [],
+			instructions: ["Describe the candidate concretely."],
+			verification: [verification],
+		};
 		const reviewerCalls: string[] = [];
 		const reviewerDriver = async ({ kind }: { kind: string }) => {
 			reviewerCalls.push(kind);
@@ -713,8 +726,9 @@ try {
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
 			registerJuruc: (pi) => registerJuruc(pi, { reviewerDriver }),
-			probe: (pi) => {
+			probe: (pi, record) => {
 				pi.on("session_start", () => {
+					record.activeTools = pi.getActiveTools();
 					try {
 						const task = loadTask(paths, slug);
 						const candidate = join(task.document.repository.worktree, "tracked.txt");
@@ -732,6 +746,18 @@ try {
 			},
 		});
 
+		const feedbackResponses = () => [
+			fauxAssistantMessage(
+				[fauxToolCall("juruc_set_feedback", confirmedFeedback)],
+				{ stopReason: "toolUse" },
+			),
+		];
+		const correctionPlanResponses = (proposal = correctionPlan) => [
+			fauxAssistantMessage(
+				[fauxToolCall("juruc_set_correction_plan", proposal)],
+				{ stopReason: "toolUse" },
+			),
+		];
 		const correctionResponses = (round: number) => [
 			fauxAssistantMessage(
 				[fauxToolCall("juruc_run_verification", { command: verification })],
@@ -851,15 +877,62 @@ try {
 
 			const api = new URL("api/", firstUrl);
 			assert.equal((await post(new URL("comments", api), comment)).status, 201);
-			harness.setResponses(correctionResponses(1));
+			const sessionsBeforeDecision = harness.instances.length;
 			assert.equal((await post(new URL("decision", api), { kind: "send-feedback" })).status, 200);
-			// Send Feedback still opens its correction session; only the fresh cumulative
-			// round it commits waits for one explicit /juruc.
-			await settle(() => loadTask(paths, slug).document.reviewRounds.length === 2);
+			await settle(() => liveReviewUrl(loadTask(paths, slug)) === undefined);
 			await idle();
-			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
-			assert.equal(liveReviewUrl(loadTask(paths, slug)), undefined);
+			const decided = loadTask(paths, slug);
+			assert.equal(harness.instances.length, sessionsBeforeDecision);
+			assert.equal(findTaskSession(decided.document, { kind: "feedback-grill", round: 1 }), undefined);
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Feedback Grill 1 · Ready"));
+
+			await advance(feedbackResponses());
+			const grilled = loadTask(paths, slug);
+			assert.equal(harness.instances.length, sessionsBeforeDecision + 1);
+			assert.deepEqual(grilled.document.reviewRounds[0].correction?.feedbackGrill?.confirmedFeedback,
+				confirmedFeedback);
+			assert.equal(findTaskSession(grilled.document, { kind: "correction-plan", round: 1 }), undefined);
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction Plan 1 · Ready"));
+
+			// Revise returns the exact words to the model; Cancel then persists nothing.
+			const revision = "  Keep the correction bounded to the reviewed file.  ";
+			harness.selections.push("Revise plan", "Cancel");
+			harness.inputValues.push(revision);
+			await advance([
+				...correctionPlanResponses(),
+				...correctionPlanResponses({ ...correctionPlan, instructions: [revision.trim()] }),
+			]);
+			const rejectedPlan = loadTask(paths, slug);
+			assert.equal(harness.instances.length, sessionsBeforeDecision + 2);
+			assert.equal(rejectedPlan.document.reviewRounds[0].correction?.correctionPlan?.acceptedPlan, null);
+			const planSession = findTaskSession(rejectedPlan.document, { kind: "correction-plan", round: 1 })!.path;
+			assert.match(readFileSync(planSession, "utf8"), /Keep the correction bounded to the reviewed file/);
+
+			harness.selections.push(
+				`Correction flow task — ${slug} · review`,
+				"Accept plan",
+			);
+			await advance(correctionPlanResponses());
+			const plannedCorrection = loadTask(paths, slug);
+			assert.equal(harness.instances.length, sessionsBeforeDecision + 3);
+			assert.deepEqual(plannedCorrection.document.reviewRounds[0].correction?.correctionPlan?.acceptedPlan,
+				correctionPlan);
+			assert.equal(findTaskSession(plannedCorrection.document, { kind: "correction", round: 1 }), undefined);
 			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Ready"));
+
+			await advance(correctionResponses(1));
+			assert.equal(harness.instances.length, sessionsBeforeDecision + 4);
+			assert.deepEqual(harness.instances[sessionsBeforeDecision].activeTools,
+				["read", "grep", "find", "ls", "juruc_set_feedback"]);
+			for (const index of [sessionsBeforeDecision + 1, sessionsBeforeDecision + 2])
+				assert.deepEqual(harness.instances[index].activeTools,
+					["read", "grep", "find", "ls", "juruc_set_correction_plan"]);
+			assert.deepEqual(harness.instances[sessionsBeforeDecision + 3].activeTools, [
+				"read", "edit", "write", "grep", "find", "ls",
+				"juruc_run_verification", "juruc_finish_correction",
+			]);
+			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Implementing"));
 			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 2 · Ready"));
 			await advance([]);
 
@@ -887,20 +960,40 @@ try {
 				"Apply review feedback 1",
 			);
 			assert.equal(git(corrected.document.repository.worktree, "status", "--porcelain"), "");
-			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Verifying"));
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Implementing"));
 			const secondUrl = requireLiveReviewUrl(corrected);
 			servedUrls.push(secondUrl);
 			assert.notEqual(secondUrl, firstUrl);
 
+			const feedbackSession = findTaskSession(corrected.document, {
+				kind: "feedback-grill",
+				round: 1,
+			})!.path;
+			const correctionPlanSession = findTaskSession(corrected.document, {
+				kind: "correction-plan",
+				round: 1,
+			})!.path;
 			const correctionSession = findTaskSession(corrected.document, {
 				kind: "correction",
 				round: 1,
 			})!.path;
+			for (const path of [feedbackSession, correctionPlanSession, correctionSession]) {
+				const [header] = readFileSync(path, "utf8").split("\n", 1);
+				assert.equal(Object.hasOwn(JSON.parse(header), "parentSession"), false);
+				assert.equal(realpathSync(SessionManager.open(path).getCwd()),
+					realpathSync(corrected.document.repository.worktree));
+			}
+			const feedbackText = readFileSync(feedbackSession, "utf8");
+			assert.match(feedbackText, /Describe the candidate concretely/);
+			assert.match(feedbackText, /Keep the candidate readable/);
+			assert.doesNotMatch(feedbackText, /Never leak this plan rationale|The candidate line is terse/);
+			const correctionPlanText = readFileSync(correctionPlanSession, "utf8");
+			assert.match(correctionPlanText, /INCLUDED_CONFIRMED_FEEDBACK/);
+			assert.doesNotMatch(correctionPlanText, /Never leak this plan rationale|The candidate line is terse/);
 			const correctionText = readFileSync(correctionSession, "utf8");
-			assert.match(correctionText, /Describe the candidate concretely/);
-			assert.match(correctionText, /Deviation reviewer: The candidate line is terse/);
-			assert.match(correctionText, /Keep the candidate readable/);
-			assert.doesNotMatch(correctionText, /Never leak this plan rationale/);
+			assert.match(correctionText, /INCLUDED_CONFIRMED_FEEDBACK/);
+			assert.match(correctionText, /INCLUDED_CORRECTION_PLAN/);
+			assert.doesNotMatch(correctionText, /Never leak this plan rationale|The candidate line is terse/);
 
 			// A persisted Send Feedback decision must route from state alone, exactly as it
 			// does after a Pi restart that lost the deciding server.
@@ -919,10 +1012,12 @@ try {
 					timestamp,
 				),
 			);
-			harness.setResponses(correctionResponses(2));
-			await harness.runtime.session.prompt("/juruc");
-			await settle(() => loadTask(paths, slug).document.reviewRounds.length === 3);
-			await idle();
+			const sessionsBeforeRestartedFlow = harness.instances.length;
+			await advance(feedbackResponses());
+			harness.selections.push("Accept plan");
+			await advance(correctionPlanResponses());
+			await advance(correctionResponses(2));
+			assert.equal(harness.instances.length, sessionsBeforeRestartedFlow + 3);
 			await advance([]);
 
 			const restarted = loadTask(paths, slug);
@@ -1013,6 +1108,19 @@ try {
 					verification: [verification],
 				},
 			],
+		};
+		const confirmedFeedback = {
+			sharedUnderstanding: "Describe the candidate concretely.",
+			corrections: ["Describe the candidate concretely."],
+			decisions: [],
+			acceptedAssumptions: [],
+		};
+		const correctionPlan = {
+			goal: "Describe the candidate concretely.",
+			fileScopes: ["tracked.txt"],
+			dependencies: [],
+			instructions: ["Update the candidate description."],
+			verification: [verification],
 		};
 		const servedUrls: string[] = [];
 		const reviewerCalls: string[] = [];
@@ -1251,8 +1359,8 @@ try {
 			assert.ok(resumed.widgets.includes(linked(replacementUrl)));
 			assert.equal(resumed.widgets.filter((line) => line.includes(firstUrl)).length, 2);
 
-			// Send Feedback keeps its explicit-decision behaviour and opens the correction
-			// itself; the fresh cumulative round is one more pre-filled Enter.
+			// The browser only records the decision. Each following pre-filled Enter opens
+			// exactly one fresh nested session, in order.
 			const api = new URL("api/", replacementUrl);
 			const post = async (path: string, body: unknown): Promise<Response> =>
 				fetch(new URL(path, api), {
@@ -1267,6 +1375,34 @@ try {
 				endLine: 1,
 				body: "Describe the candidate concretely.",
 			})).status, 201);
+			const sessionsBeforeDecision = resumed.instances.length;
+			assert.equal((await post("decision", { kind: "send-feedback" })).status, 200);
+			for (let attempt = 0; resumed.getEditorText() !== "/juruc"; attempt += 1) {
+				if (attempt === 200) throw new Error("Send Feedback did not offer Feedback Grill");
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			assert.equal(resumed.instances.length, sessionsBeforeDecision);
+			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Feedback Grill 1 · Ready"));
+
+			resumed.setResponses([
+				fauxAssistantMessage([fauxToolCall("juruc_set_feedback", confirmedFeedback)],
+					{ stopReason: "toolUse" }),
+			]);
+			await resumed.submitEditor();
+			assert.equal(resumed.instances.length, sessionsBeforeDecision + 1);
+			assert.equal(resumed.getEditorText(), "/juruc");
+			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction Plan 1 · Ready"));
+
+			resumed.selections.push("Accept plan");
+			resumed.setResponses([
+				fauxAssistantMessage([fauxToolCall("juruc_set_correction_plan", correctionPlan)],
+					{ stopReason: "toolUse" }),
+			]);
+			await resumed.submitEditor();
+			assert.equal(resumed.instances.length, sessionsBeforeDecision + 2);
+			assert.equal(resumed.getEditorText(), "/juruc");
+			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Ready"));
+
 			resumed.setResponses([
 				fauxAssistantMessage(
 					[fauxToolCall("juruc_run_verification", { command: verification })],
@@ -1285,13 +1421,8 @@ try {
 					{ stopReason: "toolUse" },
 				),
 			]);
-			assert.equal((await post("decision", { kind: "send-feedback" })).status, 200);
-			for (let attempt = 0; loadTask(paths, slug).document.reviewRounds.length < 2; attempt += 1) {
-				if (attempt === 600)
-					throw new Error(`the correction never committed: ${JSON.stringify(resumed.notices.slice(-4))}`);
-				await new Promise((resolve) => setTimeout(resolve, 50));
-			}
-			await resumed.runtime.session.agent.waitForIdle();
+			await resumed.submitEditor();
+			assert.equal(resumed.instances.length, sessionsBeforeDecision + 3);
 			assert.equal(liveReviewUrl(loadTask(paths, slug)), undefined);
 			assert.equal(resumed.getEditorText(), "/juruc");
 			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 2 · Ready"));

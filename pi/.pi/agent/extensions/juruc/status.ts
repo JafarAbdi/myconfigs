@@ -57,8 +57,14 @@ function stageOpened(task: TaskDocument, stage: RailStage): boolean {
 function reviewDetail(task: TaskDocument): string {
 	const round = currentTaskReviewRound(task);
 	if (!round) return "Review 1 · Ready";
-	if (round.decision?.kind === "send-feedback")
-		return `Correction ${round.number} · ${round.correction ? "Verifying" : "Ready"}`;
+	if (round.decision?.kind === "send-feedback") {
+		const correction = round.correction!;
+		if (!correction.feedbackGrill?.confirmedFeedback)
+			return `Feedback Grill ${round.number} · ${correction.feedbackGrill ? "Clarifying" : "Ready"}`;
+		if (!correction.correctionPlan?.acceptedPlan)
+			return `Correction Plan ${round.number} · ${correction.correctionPlan ? "Planning" : "Ready"}`;
+		return `Correction ${round.number} · ${correction.sessionPath ? "Implementing" : "Ready"}`;
+	}
 	const slots = Object.values(round.reviewers);
 	if (slots.every((slot) => slot?.outcome)) return `Review ${round.number} · Awaiting decision`;
 	return `Review ${round.number} · ${slots.some((slot) => slot) ? "Preparing" : "Ready"}`;
@@ -118,7 +124,10 @@ export function taskContext(task: TaskDocument): string {
 	if (task.stage === "review") {
 		const round = task.reviewRounds.at(-1);
 		const number = round?.number ?? 1;
-		return round?.decision?.kind === "send-feedback" ? `correction ${number}` : `review ${number}`;
+		if (round?.decision?.kind !== "send-feedback") return `review ${number}`;
+		if (!round.correction?.feedbackGrill?.confirmedFeedback) return `feedback grill ${number}`;
+		if (!round.correction.correctionPlan?.acceptedPlan) return `correction plan ${number}`;
+		return `correction ${number}`;
 	}
 	return task.stage;
 }
