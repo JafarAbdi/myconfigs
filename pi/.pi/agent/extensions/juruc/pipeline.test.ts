@@ -94,6 +94,7 @@ try {
 		},
 		{ activeReviewServer },
 		{ demoReviewPatch, demoReviewTask },
+		{ PLAN_DECISION_TITLE, PLAN_DECISION_UNRESOLVED, PLAN_REVISION_TITLE },
 	] = await Promise.all([
 		import("./runtime-harness.ts"),
 		import("@earendil-works/pi-coding-agent"),
@@ -103,6 +104,7 @@ try {
 		import("./task.ts"),
 		import("./review-server.ts"),
 		import("./review-fixture.ts"),
+		import("./planning.ts"),
 	]);
 
 	await test("one explicit /juruc opens exactly one fresh Q, R, S, P, or implementation stage", async () => {
@@ -280,6 +282,7 @@ try {
 			]);
 			assert.equal(loadTask(paths, slug).document.stage, "plan");
 
+			harness.selections.push("Accept plan");
 			await advance([
 				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
 				fauxAssistantMessage("Activation remains pending.", { stopReason: "stop" }),
@@ -808,6 +811,7 @@ try {
 					{ stopReason: "toolUse" },
 				),
 			]);
+			harness.selections.push("Accept plan");
 			await advance([
 				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
 			]);
@@ -1163,6 +1167,7 @@ try {
 			assert.equal(resumed.getEditorText(), "/juruc");
 			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ○ P  ○ I   Plan · Ready"));
 
+			resumed.selections.push("Accept plan");
 			resumed.setResponses([
 				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
 			]);
@@ -1427,6 +1432,7 @@ try {
 					{ stopReason: "toolUse" },
 				),
 			]);
+			harness.selections.push("Accept plan");
 			await enter([
 				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
 			]);
@@ -1572,6 +1578,187 @@ try {
 			assert.equal(delegateExecutions, 0);
 			assert.equal(existsSync(join(task.directory, "research.md")), false);
 			assert.match(readFileSync(findTaskSession(task.document, { kind: "research" })!.path, "utf8"), /sole tool call/);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	await test("the native plan selector owns acceptance, and only Accept touches the workspace", async () => {
+		const source = join(scratch, "plan-decision");
+		mkdirSync(source);
+		git(source, "init", "-b", "main");
+		git(source, "config", "user.name", "JURUC pipeline test");
+		git(source, "config", "user.email", "juruc-pipeline@example.invalid");
+		writeFileSync(join(source, "tracked.txt"), "baseline\n");
+		git(source, "add", "-A");
+		git(source, "commit", "-m", "baseline");
+
+		const paths = runtimePaths(agentDir);
+		const slug = "plan-decision-task";
+		const verification = "node -e \"console.log('verified')\"";
+		const phase = (id: string, title: string) => ({
+			id,
+			title,
+			goal: "Implement the candidate.",
+			fileScopes: ["tracked.txt"],
+			instructions: ["Write the candidate."],
+			verification: [verification],
+		});
+		const proposed = { phases: [phase("implement-change", "Implement change")] };
+		const revised = {
+			phases: [phase("implement-change", "Implement change"), phase("connect-change", "Connect change")],
+		};
+		const feedback = "  Split the work into two phases.\nKeep each verification exact.  ";
+		// The picker resolves through its TUI component, so every select is a plan decision.
+		const picks: unknown[] = [];
+		const decisions: Array<string | undefined> = [];
+		const feedbacks: Array<string | undefined> = [];
+		const shown: Array<{ title: string; options: string[] }> = [];
+		const asked: string[] = [];
+		const synthesis = {
+			agent: "synthesizer",
+			task: "synthesize",
+			output: "Independent verified facts.\n",
+			stopReason: "stop",
+			steps: [],
+			turns: 1,
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			durationMs: 1,
+		};
+
+		const harness = await createRuntimeHarness({
+			agentDir,
+			cwd: source,
+			sessionManager: SessionManager.create(source),
+			promptTemplates: [],
+			mode: "tui",
+			custom: async () => picks.shift(),
+			select: async (title: string, options: string[]) => {
+				shown.push({ title, options: [...options] });
+				return decisions.shift();
+			},
+			input: async (title: string) => {
+				asked.push(title);
+				return feedbacks.shift();
+			},
+			stubTools: ["delegate"],
+			stubResult: (name) => name === "delegate" ? synthesis : undefined,
+			registerJuruc,
+		});
+
+		const branchExists = () =>
+			gitSucceeds(source, "show-ref", "--verify", "--quiet", `refs/heads/${slug}`);
+		const propose = async (message: string, sent: unknown) => {
+			harness.setResponses([
+				fauxAssistantMessage([fauxToolCall("juruc_set_plan", sent)], { stopReason: "toolUse" }),
+				fauxAssistantMessage("The plan stands as presented.", { stopReason: "stop" }),
+			]);
+			await harness.runtime.session.prompt(message);
+		};
+
+		try {
+			picks.push({ action: "new" });
+			harness.editorValues.push("Plan decision task");
+			harness.setResponses([
+				fauxAssistantMessage([fauxToolCall("juruc_set_questions", {
+					sharedUnderstanding: "Decide the plan through the selector.",
+					decisions: [],
+					acceptedAssumptions: [],
+					researchTargets: [],
+				})], { stopReason: "toolUse" }),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+			harness.setResponses([
+				fauxAssistantMessage(
+					[fauxToolCall("delegate", { agent: "synthesizer", task: "Synthesize facts." })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("Research complete.", { stopReason: "stop" }),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+			harness.setResponses([
+				fauxAssistantMessage([fauxToolCall("juruc_set_specification", {
+					summary: "Keep the candidate readable.",
+					requirements: ["The candidate is readable."],
+					nonGoals: [],
+					constraints: [],
+					acceptanceCriteria: ["Verification passes."],
+					decisions: [],
+				})], { stopReason: "toolUse" }),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+			assert.equal(loadTask(paths, slug).document.stage, "plan");
+
+			// Revise keeps the turn: the model gets the operator's exact words back, presents the
+			// replacement plan, and reaches the selector again without anything having moved.
+			decisions.push("Revise plan", "Cancel");
+			feedbacks.push(feedback);
+			harness.setResponses([
+				fauxAssistantMessage([fauxToolCall("juruc_set_plan", proposed)], { stopReason: "toolUse" }),
+				fauxAssistantMessage([fauxToolCall("juruc_set_plan", revised)], { stopReason: "toolUse" }),
+				fauxAssistantMessage("The plan stands as presented.", { stopReason: "stop" }),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+
+			const rejected = loadTask(paths, slug);
+			const planSession = findTaskSession(rejected.document, { kind: "plan" })!.path;
+			assert.equal(rejected.document.stage, "plan");
+			assert.equal(rejected.document.plan, null);
+			assert.equal(branchExists(), false);
+			assert.equal(existsSync(rejected.document.repository.worktree), false);
+			const revisedSession = readFileSync(planSession, "utf8");
+			assert.ok(revisedSession.includes("Operator revision feedback:"));
+			const revisionResult = SessionManager.open(planSession).getBranch().find(
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolName === "juruc_set_plan" &&
+					entry.message.content.some(
+						(part) => part.type === "text" && part.text.includes("Operator revision feedback:"),
+					),
+			);
+			assert.ok(revisionResult?.type === "message" && revisionResult.message.role === "toolResult");
+			const revisionText = revisionResult.message.content.find((part) => part.type === "text")?.text;
+			assert.ok(revisionText?.includes(feedback));
+			assert.deepEqual(asked, [PLAN_REVISION_TITLE]);
+			assert.equal(shown.length, 2);
+
+			// An abandoned feedback dialog and Esc likewise decide nothing at all.
+			decisions.push("Revise plan", undefined);
+			feedbacks.push(undefined);
+			for (const attempt of ["Reconsider the plan.", "One more look."]) {
+				await propose(attempt, proposed);
+				assert.deepEqual(loadTask(paths, slug).document, rejected.document);
+				assert.equal(branchExists(), false);
+				assert.equal(existsSync(rejected.document.repository.worktree), false);
+			}
+			assert.deepEqual(asked, [PLAN_REVISION_TITLE, PLAN_REVISION_TITLE]);
+			assert.ok(readFileSync(planSession, "utf8").includes(PLAN_DECISION_UNRESOLVED));
+
+			// Accept persists the replacement plan the operator saw, then activates the workspace.
+			decisions.push("Accept plan");
+			await propose("The revised plan is ready.", revised);
+			const accepted = loadTask(paths, slug);
+			assert.equal(accepted.document.stage, "implementation");
+			assert.deepEqual(accepted.document.plan, revised);
+			assert.equal(branchExists(), true);
+			assert.equal(existsSync(join(accepted.document.repository.worktree, "tracked.txt")), true);
+
+			assert.equal(shown.length, 5);
+			for (const dialog of shown) {
+				assert.equal(dialog.title, PLAN_DECISION_TITLE);
+				assert.deepEqual(dialog.options, ["Accept plan", "Revise plan", "Cancel"]);
+			}
+			assert.equal(decisions.length, 0);
+			assert.equal(feedbacks.length, 0);
+			assert.equal(picks.length, 0);
 		} finally {
 			await harness.dispose();
 		}

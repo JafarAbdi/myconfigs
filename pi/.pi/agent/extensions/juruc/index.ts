@@ -41,9 +41,15 @@ import {
 import { taskOptions, type TaskChoice } from "./picker.ts";
 import {
 	confirmTaskPlan,
+	PLAN_DECISION_TITLE,
+	PLAN_DECISION_UNRESOLVED,
+	PLAN_DECISIONS,
+	PLAN_REVISION_TITLE,
 	planningPrompt,
 	PLANNING_INSTRUCTION,
+	PLANNING_RESUME_INSTRUCTION,
 	PLANNING_TOOL_NAMES,
+	planRevisionRequest,
 	SET_PLAN_SCHEMA,
 	type SetPlanInput,
 } from "./planning.ts";
@@ -688,7 +694,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			session,
 			"plan",
 			planningPrompt(specification),
-			"Resume the immutable implementation plan and call juruc_set_plan only after explicit acceptance.",
+			PLANNING_RESUME_INSTRUCTION,
 		);
 	}
 
@@ -1215,13 +1221,35 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 
 	pi.registerTool({
 		name: "juruc_set_plan",
-		label: "Set JURUC plan",
-		description: "Persist the explicitly accepted immutable plan and start implementation.",
+		label: "Decide JURUC plan",
+		description:
+			"Offer the proposed plan to JURUC's plan decision selector, which owns human acceptance. Accepting persists the immutable plan and starts implementation; revising returns operator feedback; cancelling changes nothing. Never ask the operator to type an acceptance phrase.",
 		parameters: SET_PLAN_SCHEMA as never,
 		executionMode: "sequential",
 		async execute(_id, params: SetPlanInput, _signal, _onUpdate, ctx) {
 			const task = ownedTask(ctx, "plan");
-			const pending = saveTask(task, confirmTaskPlan(task.document, params));
+			if (!ctx.hasUI) throw new Error("plan acceptance requires TUI or RPC extension-UI support");
+			// Validate the whole proposal before the operator decides, so Accept can only ever
+			// persist a plan JURUC already knows it accepts, and a rejected one leaves no trace.
+			const accepted = confirmTaskPlan(task.document, params);
+			const decision = await ctx.ui.select(PLAN_DECISION_TITLE, Object.values(PLAN_DECISIONS));
+			if (decision === PLAN_DECISIONS.revise) {
+				const feedback = await ctx.ui.input(PLAN_REVISION_TITLE);
+				// The run continues so the model revises and reopens the selector; an abandoned
+				// feedback dialog decided nothing, so it stops exactly like Cancel.
+				if (feedback?.trim())
+					return {
+						content: [{ type: "text" as const, text: planRevisionRequest(feedback) }],
+						details: { slug: task.document.slug, stage: task.document.stage },
+					};
+			}
+			if (decision !== PLAN_DECISIONS.accept)
+				return {
+					content: [{ type: "text" as const, text: PLAN_DECISION_UNRESOLVED }],
+					details: { slug: task.document.slug, stage: task.document.stage },
+					terminate: true,
+				};
+			const pending = saveTask(task, accepted);
 			showStatus(ctx, pending);
 			activateTools(ctx, pending);
 			const updated = await activatePendingPlan(ctx, pending);

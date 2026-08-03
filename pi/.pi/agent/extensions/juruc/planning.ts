@@ -10,7 +10,35 @@ export const PLANNING_INSTRUCTION = `Create the smallest ordered implementation 
 
 Inspect repository facts with read-only tools. Do not inspect Research, Questions, prior transcripts, or invent requirements. Each phase must be incrementally complete after its predecessors and declare a unique kebab-case id, title, goal, safe repository-relative file scopes, ordered implementation instructions, and exact runnable verification commands. Keep phases minimal and include relevant tests.
 
-Present the complete plan to the operator and require explicit human acceptance. The accepted plan is final and immutable. Only after acceptance, call juruc_set_plan as the sole tool call.`;
+Present the complete plan to the operator, then call juruc_set_plan as the sole tool call. That tool opens JURUC's plan decision selector, which owns human acceptance: never ask the operator to type an acceptance phrase or to confirm the plan in chat. When the operator asks to revise, address the returned feedback, present the complete replacement plan, and call juruc_set_plan again. An accepted plan is final and immutable.`;
+
+export const PLANNING_RESUME_INSTRUCTION =
+	"Resume the implementation plan, present it complete, and call juruc_set_plan to open JURUC's plan decision selector; never ask the operator to type an acceptance phrase.";
+
+/** Acceptance happens here and nowhere else, so the title states what accepting costs. */
+export const PLAN_DECISION_TITLE =
+	"Accept this plan? Acceptance is final and the accepted plan is immutable.";
+export const PLAN_DECISIONS = {
+	accept: "Accept plan",
+	revise: "Revise plan",
+	cancel: "Cancel",
+} as const;
+export const PLAN_REVISION_TITLE = "What should the revised plan change?";
+
+/** Cancel, Esc, and an abandoned feedback dialog all decide nothing and change nothing. */
+export const PLAN_DECISION_UNRESOLVED =
+	"The operator did not accept the plan. Nothing was persisted and the task is unchanged. Stop and wait for the operator.";
+
+export function planRevisionRequest(feedback: string): string {
+	return [
+		"The operator chose Revise plan. Nothing was persisted and the task is unchanged.",
+		"",
+		"Operator revision feedback:",
+		feedback,
+		"",
+		"Revise the plan accordingly, present the complete replacement plan, and call juruc_set_plan again to reopen the decision selector. Never ask the operator to type an acceptance phrase.",
+	].join("\n");
+}
 
 export const PLANNING_TOOL_NAMES = [
 	"read",

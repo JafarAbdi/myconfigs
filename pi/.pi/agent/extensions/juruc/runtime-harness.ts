@@ -40,6 +40,7 @@ export interface HarnessOptions {
 	/** Result `details` a stub tool returns, letting tests supply delegate payloads. */
 	stubResult?: (name: string, args: unknown) => unknown;
 	select?: (title: string, options: string[]) => Promise<string | undefined>;
+	input?: (title: string) => Promise<string | undefined>;
 	editor?: (title: string) => Promise<string | undefined>;
 	confirm?: (title: string, message: string) => Promise<boolean>;
 	/** Extension bind mode; `tui` exercises terminal-only UI such as factory widgets. */
@@ -77,6 +78,7 @@ export interface RuntimeHarness {
 	appendResponses: (responses: unknown[]) => void;
 	cancelNextSwitch: () => void;
 	selections: string[];
+	inputValues: Array<string | undefined>;
 	editorValues: Array<string | undefined>;
 	confirmations: boolean[];
 	dispose: () => Promise<void>;
@@ -105,6 +107,7 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 	const notices: string[] = [];
 	const widgets: string[] = [];
 	const selections: string[] = [];
+	const inputValues: Array<string | undefined> = [];
 	const editorValues: Array<string | undefined> = [];
 	const confirmations: boolean[] = [];
 	const widgetWidth = options.widgetWidth ?? 80;
@@ -114,7 +117,7 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 	const uiContext = {
 		select: options.select ?? (async () => selections.shift()),
 		confirm: options.confirm ?? (async () => confirmations.shift() ?? false),
-		input: async () => undefined,
+		input: options.input ?? (async () => inputValues.shift()),
 		editor: options.editor ?? (async () => editorValues.shift()),
 		notify: (message: string) => {
 			notices.push(message);
@@ -314,6 +317,7 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 		appendResponses: (responses: unknown[]) => faux.appendResponses(responses as never),
 		cancelNextSwitch: () => { cancelNextSwitch = true; },
 		selections,
+		inputValues,
 		editorValues,
 		confirmations,
 		dispose: async () => {
