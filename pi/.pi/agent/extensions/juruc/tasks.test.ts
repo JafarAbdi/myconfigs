@@ -52,7 +52,7 @@ test("task names are simple valid branch-compatible slugs", () => {
 	assert.equal(validTaskSlug("../escape"), false);
 });
 
-test("create, save, load, and list use version 4 task.json", () => {
+test("create, save, load, and list use version 5 task.json", () => {
 	const fixture = paths();
 	try {
 		let task = createTask(fixture.paths, input(fixture.root));
@@ -78,12 +78,11 @@ test("session ownership resolves scoped runs", () => {
 	try {
 		let task = createTask(fixture.paths, input(fixture.root));
 		task = saveTask(task, appendTaskSession(task.document, {
-			kind: "implementation",
-			phase: 3,
-			path: "/sessions/implementation-3.jsonl",
+			kind: "questions",
+			path: "/sessions/questions.jsonl",
 		}));
 		assert.equal(
-			findTaskBySession(fixture.paths, "/sessions/implementation-3.jsonl")?.document.slug,
+			findTaskBySession(fixture.paths, "/sessions/questions.jsonl")?.document.slug,
 			"small-task",
 		);
 		assert.equal(findTaskBySession(fixture.paths, "/sessions/missing.jsonl"), undefined);

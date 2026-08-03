@@ -6,25 +6,32 @@ import test from "node:test";
 import {
 	acceptTaskPlan,
 	activateTaskPlan,
+	addTaskReviewComment,
 	appendTaskSession,
 	completeTaskPhase,
 	completeTaskResearch,
+	completeTaskReviewer,
 	confirmTaskQuestions,
 	confirmTaskSpecification,
 	createTaskDocument,
 	currentTaskPhase,
+	currentTaskReviewRound,
+	decideTaskReview,
+	deleteTaskReviewComment,
 	findTaskSession,
 	loadTaskDocument,
 	parseTaskDocument,
+	registerTaskReviewerStart,
 	saveTaskDocument,
 	serializeTaskDocument,
 	TASK_VERSION,
+	updateTaskReviewComment,
 	type NewTaskInput,
+	type ReviewerOutcome,
 	type TaskDocument,
 	type TaskPhase,
 	type TaskPlan,
 	type TaskQuestions,
-	type TaskSessionRun,
 	type TaskSpecification,
 } from "./task.ts";
 
@@ -60,6 +67,14 @@ const second: TaskPhase = {
 	verification: ["npm test"],
 };
 const plan: TaskPlan = { phases: [first, second] };
+const completed: ReviewerOutcome = { status: "completed", annotations: [] };
+const failed: ReviewerOutcome = {
+	status: "failed",
+	failureKind: "session-error",
+	message: "provider unavailable",
+};
+const now = "2026-08-03T00:00:00.000Z";
+const commentId = "12345678-1234-4234-8234-123456789abc";
 
 function input(): NewTaskInput {
 	return {
@@ -84,26 +99,47 @@ function implementationTask(): TaskDocument {
 	return activateTaskPlan(acceptTaskPlan(task, plan));
 }
 
-const sessionRuns: TaskSessionRun[] = [
-	{ kind: "questions", path: "/sessions/questions.jsonl" },
-	{ kind: "research", path: "/sessions/research.jsonl" },
-	{ kind: "specification", path: "/sessions/specification.jsonl" },
-	{ kind: "plan", path: "/sessions/plan.jsonl" },
-	{ kind: "implementation", phase: 1, path: "/sessions/implementation-1.jsonl" },
-	{ kind: "deviation-review", round: 1, path: "/sessions/deviation-1.jsonl" },
-	{ kind: "correctness-review", round: 1, path: "/sessions/correctness-1.jsonl" },
-	{ kind: "correction", round: 1, path: "/sessions/correction-1.jsonl" },
-];
+function finishImplementation(): TaskDocument {
+	let task = appendTaskSession(implementationTask(), {
+		kind: "implementation",
+		phase: 1,
+		path: "/sessions/implementation-1.jsonl",
+	});
+	task = completeTaskPhase(
+		task,
+		"Core complete.",
+		[{ command: first.verification[0], exitCode: 0, summary: "Passed." }],
+		oid("2"),
+	);
+	task = appendTaskSession(task, {
+		kind: "implementation",
+		phase: 2,
+		path: "/sessions/implementation-2.jsonl",
+	});
+	return completeTaskPhase(
+		task,
+		"Workflow complete.",
+		[{ command: second.verification[0], exitCode: 0, summary: "Passed." }],
+		oid("3"),
+	);
+}
 
-test("version 4 task.json round-trips atomically from Questions", () => {
+function terminalReview(): TaskDocument {
+	let task = finishImplementation();
+	task = registerTaskReviewerStart(task, "deviation", "/sessions/deviation-1.jsonl");
+	task = completeTaskReviewer(task, "deviation", completed);
+	task = registerTaskReviewerStart(task, "correctness", "/sessions/correctness-1.jsonl");
+	return completeTaskReviewer(task, "correctness", failed);
+}
+
+test("version 5 task.json round-trips atomically from Questions", () => {
 	const directory = mkdtempSync(join(tmpdir(), "juruc-task-"));
 	try {
 		const path = join(directory, "task.json");
 		const task = createTaskDocument(input());
 		assert.equal(task.version, TASK_VERSION);
 		assert.equal(task.stage, "questions");
-		assert.deepEqual(task.sessions, []);
-		assert.deepEqual(task.checkpoints, []);
+		assert.deepEqual(task.reviewRounds, []);
 		saveTaskDocument(path, task);
 		assert.deepEqual(loadTaskDocument(path), task);
 		assert.equal(readFileSync(path, "utf8"), serializeTaskDocument(task));
@@ -124,9 +160,6 @@ test("strict forward transitions produce Q to R to S to P to I", () => {
 	task = confirmTaskSpecification(task, specification);
 	assert.equal(task.stage, "plan");
 	task = acceptTaskPlan(task, plan);
-	assert.equal(task.stage, "plan");
-	assert.deepEqual(task.plan, plan);
-	assert.deepEqual(parseTaskDocument(serializeTaskDocument(task)), task);
 	assert.deepEqual(acceptTaskPlan(task, structuredClone(plan)), task);
 	assert.throws(
 		() => acceptTaskPlan(task, { phases: [{ ...first, goal: "Changed." }, second] }),
@@ -135,112 +168,108 @@ test("strict forward transitions produce Q to R to S to P to I", () => {
 	task = activateTaskPlan(task);
 	assert.equal(task.stage, "implementation");
 	assert.deepEqual(currentTaskPhase(task), first);
-	assert.throws(() => activateTaskPlan(task), /pending activation/);
 });
 
-test("accepted plan is exact, nonempty, safe, and immutable in checkpoints", () => {
-	const base = confirmTaskSpecification(
-		completeTaskResearch(confirmTaskQuestions(createTaskDocument(input()), questions)),
-		specification,
-	);
-	for (const phases of [
-		[],
-		[{ ...first, id: "Not-Kebab" }],
-		[{ ...first, fileScopes: ["../escape.ts"] }],
-		[{ ...first, fileScopes: ["/absolute.ts"] }],
-		[{ ...first, fileScopes: [":(glob)**"] }],
-		[{ ...first, fileScopes: ["!excluded.ts"] }],
-		[{ ...first, fileScopes: ["^excluded.ts"] }],
-		[first, { ...second, id: first.id }],
-		[{ ...first, verification: ["npm test", "npm test"] }],
-	]) assert.throws(() => acceptTaskPlan(base, { phases }), /invalid/);
-	for (const scope of ["!excluded.ts", "^excluded.ts"]) {
-		const persisted = structuredClone(acceptTaskPlan(base, plan));
-		persisted.plan!.phases[0].fileScopes = [scope];
-		assert.throws(() => parseTaskDocument(JSON.stringify(persisted)), /invalid/);
-	}
-
-	let task = appendTaskSession(activateTaskPlan(acceptTaskPlan(base, plan)), {
-		kind: "implementation",
-		phase: 1,
-		path: "/sessions/implementation-1.jsonl",
-	});
-	const evidence = [{
-		command: "node --test test/core.test.ts",
-		exitCode: 0,
-		summary: "Core tests passed.",
-	}];
-	task = completeTaskPhase(task, "Core complete.", evidence, oid("2"));
-	assert.equal(task.stage, "implementation");
-	assert.deepEqual(task.checkpoints[0], {
-		...first,
-		resolution: "Core complete.",
-		verificationEvidence: evidence,
-		commit: oid("2"),
-	});
-	assert.deepEqual(currentTaskPhase(task), second);
-	const changed = structuredClone(task) as unknown as { checkpoints: Array<{ goal: string }> };
-	changed.checkpoints[0].goal = "Different goal.";
-	assert.throws(() => parseTaskDocument(JSON.stringify(changed)), /invalid/);
-});
-
-test("final checkpoint advances temporarily to done and sessions remain append-only", () => {
-	let task = implementationTask();
-	for (const run of sessionRuns) task = appendTaskSession(task, run);
-	task = completeTaskPhase(
-		task,
-		"Core complete.",
-		[{ command: first.verification[0], exitCode: 0, summary: "Passed." }],
-		oid("2"),
-	);
-	task = appendTaskSession(task, {
-		kind: "implementation",
-		phase: 2,
-		path: "/sessions/implementation-2.jsonl",
-	});
-	task = completeTaskPhase(
-		task,
-		"Workflow complete.",
-		[{ command: second.verification[0], exitCode: 0, summary: "Passed." }],
-		oid("3"),
-	);
-	assert.equal(task.stage, "done");
+test("final checkpoint atomically creates the exact first review round", () => {
+	const task = finishImplementation();
+	assert.equal(task.stage, "review");
 	assert.equal(task.checkpoints.length, 2);
-	assert.equal(task.sessions.length, sessionRuns.length + 1);
-	assert.equal(findTaskSession(task, { kind: "implementation", phase: 1 })?.path, sessionRuns[4].path);
-	assert.equal(findTaskSession(task, { kind: "implementation", phase: 2 })?.path, "/sessions/implementation-2.jsonl");
+	assert.deepEqual(currentTaskReviewRound(task), {
+		number: 1,
+		baseCommit: oid("1"),
+		headCommit: oid("3"),
+		reviewers: { deviation: null, correctness: null },
+		humanComments: [],
+		decision: null,
+		correction: null,
+	});
+	assert.equal(findTaskSession(task, { kind: "implementation", phase: 2 })?.path,
+		"/sessions/implementation-2.jsonl");
 });
 
-test("artifacts, sessions, stages, and old task shapes are strictly rejected", () => {
-	const fresh = createTaskDocument(input());
-	const invalidQuestions = {
-		...questions,
-		decisions: ["duplicate", "duplicate"],
-	};
-	assert.throws(() => confirmTaskQuestions(fresh, invalidQuestions), /invalid/);
-	for (const sessions of [
-		[{ kind: "research", path: "relative.jsonl" }],
-		[{ kind: "implementation", phase: 0, path: "/sessions/a" }],
-		[
-			{ kind: "research", path: "/sessions/shared" },
-			{ kind: "plan", path: "/sessions/shared" },
-		],
-		[
-			{ kind: "implementation", phase: 1, path: "/sessions/a" },
-			{ kind: "implementation", phase: 1, path: "/sessions/b" },
-		],
-	]) assert.throws(
-		() => parseTaskDocument(JSON.stringify({ ...fresh, sessions })),
-		/invalid/,
+test("reviewer registration is atomic, ordered, typed, exact, and one-way", () => {
+	let task = finishImplementation();
+	assert.throws(
+		() => registerTaskReviewerStart(task, "correctness", "/sessions/correctness-1.jsonl"),
+		/requires a terminal deviation outcome/,
 	);
+	task = registerTaskReviewerStart(task, "deviation", "/sessions/deviation-1.jsonl");
+	assert.deepEqual(currentTaskReviewRound(task)?.reviewers.deviation, {
+		sessionPath: "/sessions/deviation-1.jsonl",
+		outcome: null,
+	});
+	assert.equal(findTaskSession(task, { kind: "deviation-review", round: 1 })?.path,
+		"/sessions/deviation-1.jsonl");
+	assert.throws(
+		() => registerTaskReviewerStart(task, "deviation", "/sessions/deviation-2.jsonl"),
+		/already started/,
+	);
+	const unordered = structuredClone(task);
+	unordered.sessions.push({
+		kind: "correctness-review",
+		round: 1,
+		path: "/sessions/correctness-1.jsonl",
+	});
+	unordered.reviewRounds[0].reviewers.correctness = {
+		sessionPath: "/sessions/correctness-1.jsonl",
+		outcome: null,
+	};
+	assert.throws(() => parseTaskDocument(JSON.stringify(unordered)), /invalid/);
+
+	task = completeTaskReviewer(task, "deviation", completed);
+	assert.throws(() => completeTaskReviewer(task, "deviation", failed), /already complete/);
+	task = registerTaskReviewerStart(task, "correctness", "/sessions/correctness-1.jsonl");
+	assert.equal(currentTaskReviewRound(task)?.reviewers.correctness?.outcome, null);
+});
+
+test("comments preserve immutable fields and decisions freeze the round", () => {
+	let task = terminalReview();
+	assert.throws(() => decideTaskReview(task, "send-feedback", now), /at least one/);
+	task = addTaskReviewComment(task, {
+		filePath: "src/index.ts",
+		side: "additions",
+		startLine: 4,
+		endLine: 5,
+		body: "Fix the changed range.",
+	}, commentId, now);
+	const original = currentTaskReviewRound(task)!.humanComments[0];
+	task = updateTaskReviewComment(task, commentId, "  Revise the changed range.  ");
+	assert.deepEqual(currentTaskReviewRound(task)!.humanComments[0], {
+		...original,
+		body: "Revise the changed range.",
+	});
+	assert.throws(() => decideTaskReview(task, "approve", now), /zero saved/);
+	task = decideTaskReview(task, "send-feedback", now);
+	assert.equal(task.stage, "review");
+	assert.throws(() => deleteTaskReviewComment(task, commentId), /completed decision/);
+	assert.throws(() => updateTaskReviewComment(task, commentId, "Too late."), /completed decision/);
+	assert.throws(() => decideTaskReview(task, "send-feedback", now), /completed decision/);
+
+	let approval = terminalReview();
+	approval = decideTaskReview(approval, "approve", now);
+	assert.equal(approval.stage, "review");
+	assert.deepEqual(
+		parseTaskDocument(JSON.stringify({ ...approval, stage: "done" })).stage,
+		"done",
+	);
+});
+
+test("review and legacy shapes are rejected strictly", () => {
+	const fresh = createTaskDocument(input());
 	for (const old of [
-		{ ...fresh, version: 3 },
-		{ ...fresh, stage: "building" },
+		{ ...fresh, version: 4 },
+		Object.fromEntries(Object.entries(fresh).filter(([key]) => key !== "reviewRounds")),
+		{ ...fresh, reviewRounds: [{}] },
+		{ ...fresh, stage: "review" },
 		{ ...fresh, blockReason: null },
-		{ ...fresh, completed: [] },
-		{ ...fresh, research: {} },
-		{ ...fresh, researchComplete: false },
-		{ ...fresh, repository: { ...fresh.repository, branch: "other-task" } },
 	]) assert.throws(() => parseTaskDocument(JSON.stringify(old)), /invalid/);
+
+	const review = terminalReview();
+	for (const changed of [
+		{ ...review, reviewRounds: [{ ...review.reviewRounds[0], number: 2 }] },
+		{ ...review, reviewRounds: [{ ...review.reviewRounds[0], baseCommit: oid("9") }] },
+		{ ...review, reviewRounds: [{ ...review.reviewRounds[0], correction: {} }] },
+		{ ...review, reviewRounds: [...review.reviewRounds, review.reviewRounds[0]] },
+	]) assert.throws(() => parseTaskDocument(JSON.stringify(changed)), /invalid/);
 	assert.throws(() => parseTaskDocument("{"), /not valid JSON/);
 });

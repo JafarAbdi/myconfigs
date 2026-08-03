@@ -64,16 +64,30 @@ import {
 	specificationPrompt,
 	type SetSpecificationInput,
 } from "./specification.ts";
+import { readGitReviewPatch, type ReviewPatch } from "./review-git.ts";
+import { acquireTaskReviewLock } from "./review-lock.ts";
+import {
+	drivePiReviewer,
+	runReviewer,
+	type ReviewerDriver,
+} from "./reviewers.ts";
 import { lifecycleLine } from "./status.ts";
 import {
 	activateTaskPlan,
 	appendTaskSession,
+	completeTaskResearch,
+	completeTaskReviewer,
 	currentTaskPhase,
+	currentTaskReviewRound,
 	findTaskSession,
 	findTaskSessionByPath,
-	completeTaskResearch,
+	loadTaskDocument,
+	registerTaskReviewerStart,
+	saveTaskDocument,
 	type DiscoverySessionKind,
+	type ReviewerKind,
 	type TaskDocument,
+	type TaskReviewRound,
 	type TaskSessionRun,
 } from "./task.ts";
 import {
@@ -135,7 +149,8 @@ function regularFile(path: string): boolean {
 }
 
 function expectedCwd(task: StoredTask): string {
-	if (task.document.stage === "implementation") return task.document.repository.worktree;
+	if (task.document.stage === "implementation" || task.document.stage === "review")
+		return task.document.repository.worktree;
 	if (task.document.stage === "specification") return task.directory;
 	return task.document.repository.sourceRoot;
 }
@@ -237,7 +252,108 @@ function isSoleCurrentToolCall(
 	return calls.length === 1 && calls[0].id === event.toolCallId && calls[0].name === event.toolName;
 }
 
-export function registerJuruc(pi: ExtensionAPI): void {
+export type ReviewPatchReader = (
+	repository: string,
+	baseCommit: string,
+	headCommit: string,
+) => Promise<ReviewPatch>;
+
+export interface PrepareReviewInput {
+	taskPath: string;
+	parentSession?: string;
+	readPatch?: ReviewPatchReader;
+	reviewerDriver?: ReviewerDriver;
+}
+
+function requireSameReviewRound(task: TaskDocument, expected: TaskReviewRound): TaskReviewRound {
+	const round = currentTaskReviewRound(task);
+	if (
+		task.stage !== "review" ||
+		!round ||
+		round.number !== expected.number ||
+		round.baseCommit !== expected.baseCommit ||
+		round.headCommit !== expected.headCommit
+	) throw new Error("authoritative review round changed during preparation");
+	return round;
+}
+
+async function prepareReviewLocked(input: PrepareReviewInput): Promise<TaskDocument> {
+	const readPatch = input.readPatch ?? readGitReviewPatch;
+	const reviewerDriver = input.reviewerDriver ?? drivePiReviewer;
+	let task = loadTaskDocument(input.taskPath);
+	const expected = currentTaskReviewRound(task);
+	if (task.stage !== "review" || !expected || !task.specification || !task.plan)
+		throw new Error("task is not ready for review preparation");
+	const patch = await readPatch(
+		task.repository.worktree,
+		expected.baseCommit,
+		expected.headCommit,
+	);
+	if (
+		patch.identity.baseOid !== expected.baseCommit ||
+		patch.identity.headOid !== expected.headCommit
+	) throw new Error("review patch identity differs from the persisted review round");
+
+	for (const kind of ["deviation", "correctness"] as const satisfies readonly ReviewerKind[]) {
+		task = loadTaskDocument(input.taskPath);
+		let round = requireSameReviewRound(task, expected);
+		const slot = round.reviewers[kind];
+		if (slot?.outcome) continue;
+		if (slot) {
+			task = completeTaskReviewer(task, kind, {
+				status: "failed",
+				failureKind: "session-error",
+				message: "reviewer session was interrupted before a terminal outcome was persisted",
+			});
+			saveTaskDocument(input.taskPath, task);
+			continue;
+		}
+		if (!task.specification || !task.plan)
+			throw new Error("authoritative review artifacts changed during preparation");
+
+		const reviewerInput = {
+			worktree: task.repository.worktree,
+			patch,
+			specification: task.specification,
+			checkpoints: task.checkpoints,
+			...(input.parentSession ? { parentSession: input.parentSession } : {}),
+			onSessionCreated: async (sessionPath: string) => {
+				const current = loadTaskDocument(input.taskPath);
+				requireSameReviewRound(current, expected);
+				saveTaskDocument(
+					input.taskPath,
+					registerTaskReviewerStart(current, kind, sessionPath),
+				);
+			},
+		};
+		const result = kind === "deviation"
+			? await runReviewer({ ...reviewerInput, kind, plan: task.plan }, reviewerDriver)
+			: await runReviewer({ ...reviewerInput, kind }, reviewerDriver);
+		task = loadTaskDocument(input.taskPath);
+		round = requireSameReviewRound(task, expected);
+		if (round.reviewers[kind]?.sessionPath !== result.sessionPath)
+			throw new Error(`${kind} reviewer session differs from authoritative task.json`);
+		task = completeTaskReviewer(task, kind, result.outcome);
+		saveTaskDocument(input.taskPath, task);
+	}
+	return loadTaskDocument(input.taskPath);
+}
+
+export async function prepareReview(input: PrepareReviewInput): Promise<TaskDocument> {
+	const releaseReviewLock = acquireTaskReviewLock(input.taskPath);
+	try {
+		return await prepareReviewLocked(input);
+	} finally {
+		releaseReviewLock();
+	}
+}
+
+export interface JurucDependencies {
+	readPatch?: ReviewPatchReader;
+	reviewerDriver?: ReviewerDriver;
+}
+
+export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies = {}): void {
 	const paths = runtimePaths(getAgentDir());
 	const verificationOperations = createLocalBashOperations();
 	const pendingSynthesis = new Map<string, { slug: string; session: string }>();
@@ -272,6 +388,8 @@ export function registerJuruc(pi: ExtensionAPI): void {
 				return task.plan ? [] : PLANNING_TOOL_NAMES;
 			case "implementation":
 				return BUILD_TOOL_NAMES;
+			case "review":
+				return [];
 			case "done":
 				return undefined;
 		}
@@ -287,6 +405,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		}
 		const stage = task.document.stage;
 		if (
+			stage === "review" ||
 			stage === "done" ||
 			currentRun(task.document, stage)?.path !== session ||
 			!sameWorkingDirectory(ctx, task)
@@ -388,6 +507,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		let task = selected;
 		if (task.document.stage !== "research" || !task.document.questions)
 			throw new Error(`${task.document.slug}: task is not ready for research`);
+		const questions = task.document.questions;
 		let session = findTaskSession(task.document, { kind: "research" })?.path;
 		if (!session) {
 			session = createManagedSession(
@@ -406,7 +526,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			"research",
 			researchKickoff(
 				task.document.request,
-				task.document.questions,
+				questions,
 				task.document.repository.sourceRoot,
 			),
 			"Resume proportional factual research and finish with a tool-free synthesizer report.",
@@ -425,6 +545,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		let task = selected;
 		if (task.document.stage !== "specification" || !task.document.questions)
 			throw new Error(`${task.document.slug}: task is not ready for specification`);
+		const questions = task.document.questions;
 		const researchText = loadResearchBrief(task.directory);
 		let session = findTaskSession(task.document, { kind: "specification" })?.path;
 		if (!session) {
@@ -442,7 +563,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			task,
 			session,
 			"specification",
-			specificationPrompt(task.document.request, task.document.questions, researchText),
+			specificationPrompt(task.document.request, questions, researchText),
 			"Resume the implementation-neutral specification and call juruc_set_specification as the sole tool call.",
 			async (replacement) => {
 				const current = loadTask(paths, task.document.slug);
@@ -478,6 +599,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		let task = selected;
 		if (task.document.stage !== "plan" || !task.document.specification)
 			throw new Error(`${task.document.slug}: task is not ready for planning`);
+		const specification = task.document.specification;
 		if (task.document.plan) {
 			task = await activatePendingPlan(ctx, task);
 			await openImplementation(ctx, task);
@@ -499,7 +621,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			task,
 			session,
 			"plan",
-			planningPrompt(task.document.specification),
+			planningPrompt(specification),
 			"Resume the immutable implementation plan and call juruc_set_plan only after explicit acceptance.",
 			async (replacement) => {
 				const current = loadTask(paths, task.document.slug);
@@ -551,6 +673,28 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		);
 	}
 
+	async function openReview(ctx: ExtensionCommandContext, selected: StoredTask): Promise<void> {
+		let task = selected;
+		if (task.document.stage !== "review")
+			throw new Error(`${task.document.slug}: task is not in review`);
+		const round = currentTaskReviewRound(task.document)!;
+		if (Object.values(round.reviewers).some((slot) => !slot?.outcome)) {
+			const parentSession = findTaskSession(task.document, {
+				kind: "implementation",
+				phase: task.document.plan!.phases.length,
+			})?.path;
+			await prepareReview({
+				taskPath: join(task.directory, "task.json"),
+				...(parentSession ? { parentSession } : {}),
+				...dependencies,
+			});
+			task = loadTask(paths, task.document.slug);
+		}
+		showStatus(ctx, task);
+		activateTools(ctx, task);
+		ctx.ui.notify(`${task.document.slug}: review prepared`, "info");
+	}
+
 	async function viewDone(ctx: ExtensionCommandContext, task: StoredTask): Promise<void> {
 		ctx.ui.notify(
 			`${task.document.slug}: done · ${task.document.checkpoints.length} phases · ${task.document.repository.branch}`,
@@ -575,6 +719,9 @@ export function registerJuruc(pi: ExtensionAPI): void {
 				return;
 			case "implementation":
 				await openImplementation(ctx, task);
+				return;
+			case "review":
+				await openReview(ctx, task);
 				return;
 			case "done":
 				await viewDone(ctx, task);
@@ -867,7 +1014,7 @@ export function registerJuruc(pi: ExtensionAPI): void {
 				verificationOperations,
 				signal,
 			);
-			const updated = await persistCheckpointTask(task, result.task, {
+			let updated = await persistCheckpointTask(task, result.task, {
 				save: saveTask,
 				reload: () => loadTask(paths, task.document.slug),
 				recover: async () => {
@@ -879,14 +1026,23 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			});
 			showStatus(ctx, updated);
 			activateTools(ctx, updated);
+			if (updated.document.stage === "review") {
+				await prepareReview({
+					taskPath: join(updated.directory, "task.json"),
+					parentSession: currentSessionPath(ctx),
+					...dependencies,
+				});
+				updated = loadTask(paths, updated.document.slug);
+				showStatus(ctx, updated);
+			}
 			return {
 				content: [{
 					type: "text" as const,
-					text: result.task.stage === "done"
-						? "Final phase verified, committed, and completed. Task done."
+					text: updated.document.stage === "review"
+						? "Final phase verified and committed. Review prepared."
 						: "Phase verified and committed. Starting the next phase.",
 				}],
-				details: { commit: result.commit, stage: result.task.stage },
+				details: { commit: result.commit, stage: updated.document.stage },
 				terminate: true,
 			};
 		},
@@ -915,9 +1071,8 @@ export function registerJuruc(pi: ExtensionAPI): void {
 			return;
 		}
 		const stage = task.document.stage;
-		const kind = stage as CurrentSessionKind;
-		const active = stage !== "done" &&
-			currentRun(task.document, kind)?.path === session &&
+		const active = stage !== "review" && stage !== "done" &&
+			currentRun(task.document, stage)?.path === session &&
 			sameWorkingDirectory(ctx, task);
 		if (!active)
 			return {

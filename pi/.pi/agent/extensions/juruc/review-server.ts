@@ -1,20 +1,13 @@
-import { randomBytes, randomUUID } from "node:crypto";
-import {
-	closeSync,
-	mkdirSync,
-	openSync,
-	readFileSync,
-	unlinkSync,
-	writeFileSync,
-} from "node:fs";
+import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
 	createServer,
 	type IncomingMessage,
 	type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
-import { dirname } from "node:path";
-import type { AgentAnnotation, ReviewState } from "./review-state.ts";
+import { acquireTaskReviewLock } from "./review-lock.ts";
+import type { ReviewState } from "./review-state.ts";
 import { ReviewStateError, ReviewStore } from "./review-state.ts";
 import type { ReviewPatch } from "./review-git.ts";
 import {
@@ -54,7 +47,7 @@ class HttpError extends Error {
 
 export interface ReviewServer {
 	url: string;
-	statePath: string;
+	taskPath: string;
 	close(): Promise<void>;
 }
 
@@ -217,86 +210,20 @@ function commentId(pathname: string, commentsPath: string): string | undefined {
 	}
 }
 
-function processExists(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code !== "ESRCH";
-	}
-}
-
-function acquireStateLock(statePath: string): () => void {
-	mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
-	const path = `${statePath}.lock`;
-	const token = randomUUID();
-	for (let attempt = 0; attempt < 2; attempt += 1) {
-		let descriptor: number;
-		try {
-			descriptor = openSync(path, "wx", 0o600);
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-			let owner: { pid?: unknown };
-			try {
-				owner = JSON.parse(readFileSync(path, "utf8")) as { pid?: unknown };
-			} catch {
-				throw new Error(`review lock is invalid; remove ${path} after confirming no server is running`);
-			}
-			if (
-				typeof owner.pid === "number" &&
-				Number.isSafeInteger(owner.pid) &&
-				owner.pid > 0 &&
-				processExists(owner.pid)
-			)
-				throw new Error(`another review server already owns ${statePath}`);
-			try {
-				unlinkSync(path);
-			} catch (unlinkError) {
-				if ((unlinkError as NodeJS.ErrnoException).code !== "ENOENT") throw unlinkError;
-			}
-			continue;
-		}
-		try {
-			writeFileSync(descriptor, `${JSON.stringify({ pid: process.pid, token })}\n`);
-		} catch (error) {
-			closeSync(descriptor);
-			try {
-				unlinkSync(path);
-			} catch {}
-			throw error;
-		}
-		let released = false;
-		return () => {
-			if (released) return;
-			released = true;
-			closeSync(descriptor);
-			try {
-				const owner = JSON.parse(readFileSync(path, "utf8")) as { token?: unknown };
-				if (owner.token === token) unlinkSync(path);
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-			}
-		};
-	}
-	throw new Error(`could not acquire review lock for ${statePath}`);
-}
-
 export async function createReviewServer(options: {
 	patch: ReviewPatch;
-	statePath: string;
-	agentAnnotations?: readonly AgentAnnotation[];
+	taskPath: string;
 	view?: ReviewViewOptions;
 }): Promise<ReviewServer> {
 	const {
 		patch,
-		statePath,
-		agentAnnotations = [],
+		taskPath,
 		view: initialView = DEFAULT_REVIEW_VIEW_OPTIONS,
 	} = options;
-	const releaseStateLock = acquireStateLock(statePath);
+	const releaseStateLock = acquireTaskReviewLock(taskPath);
 	let store: ReviewStore;
 	try {
-		store = new ReviewStore(statePath, patch, agentAnnotations);
+		store = new ReviewStore(taskPath, patch);
 	} catch (error) {
 		releaseStateLock();
 		throw error;
@@ -405,7 +332,7 @@ export async function createReviewServer(options: {
 	let closed = false;
 	return {
 		url,
-		statePath,
+		taskPath,
 		async close() {
 			if (closed) return;
 			closed = true;

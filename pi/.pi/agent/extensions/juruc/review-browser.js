@@ -34,6 +34,11 @@ export function isFeedbackSubmitShortcut(event) {
 	return event.key === "Enter" && Boolean(event.ctrlKey || event.metaKey) && !event.altKey;
 }
 
+export function isReviewDecisionDisabled(kind, state) {
+	return Boolean(state.decision) ||
+		(kind === "approve" ? state.humanComments.length > 0 : state.humanComments.length === 0);
+}
+
 if (typeof document !== "undefined") {
 	const apiBase = document.body.dataset.apiBase;
 	const reviewRange = document.body.dataset.reviewRange;
@@ -372,8 +377,7 @@ if (typeof document !== "undefined") {
 			} catch (error) {
 				setStatus(error.message, true);
 				for (const action of document.querySelectorAll("[data-decision]"))
-					action.disabled = review.state.decision ||
-						(action.dataset.decision === "send-feedback" && review.state.humanComments.length === 0);
+					action.disabled = isReviewDecisionDisabled(action.dataset.decision, review.state);
 			}
 		});
 

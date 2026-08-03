@@ -5,12 +5,13 @@ import { join } from "node:path";
 import test from "node:test";
 import {
 	isFeedbackSubmitShortcut,
+	isReviewDecisionDisabled,
 	singleLineSelection,
 	targetFromComposedPath,
 } from "./review-browser.js";
 import {
-	DEMO_AGENT_ANNOTATIONS,
 	demoReviewPatch,
+	demoReviewTask,
 } from "./review-fixture.ts";
 import { reviewPatchFromText } from "./review-git.ts";
 import {
@@ -18,16 +19,15 @@ import {
 	ReviewRenderer,
 } from "./review-renderer.ts";
 import { ReviewStore } from "./review-state.ts";
+import { saveTaskDocument } from "./task.ts";
 
 test("Pierre SSR output uses declarative Shadow DOM and grouped public annotation slots", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "juruc-review-render-"));
 	try {
 		const patch = demoReviewPatch();
-		const store = new ReviewStore(
-			join(directory, "state.json"),
-			patch,
-			DEMO_AGENT_ANNOTATIONS,
-		);
+		const taskPath = join(directory, "task.json");
+		saveTaskDocument(taskPath, demoReviewTask());
+		const store = new ReviewStore(taskPath, patch);
 		store.addComment({
 			filePath: "src/greeting.ts",
 			side: "additions",
@@ -59,6 +59,7 @@ test("Pierre SSR output uses declarative Shadow DOM and grouped public annotatio
 		assert.match(html, />Your feedback</u);
 		assert.match(html, /class="edit-comment"/u);
 		assert.match(html, /class="delete-comment"/u);
+		assert.match(html, /data-decision="approve" disabled/u);
 		assert.match(html, /data-indicators="bars"/u);
 		assert.match(html, /href="#file-0"/u);
 		assert.match(html, /class="additions">\+2/u);
@@ -117,7 +118,11 @@ index 1111111..2222222 100644
 			"1".repeat(40),
 			"2".repeat(40),
 		);
-		const store = new ReviewStore(join(directory, "state.json"), patch);
+		const taskPath = join(directory, "task.json");
+		saveTaskDocument(taskPath, demoReviewTask({
+			deviation: { status: "completed", annotations: [] },
+		}));
+		const store = new ReviewStore(taskPath, patch);
 		const renderer = new ReviewRenderer(patch);
 		const withoutStyles = (html: string): string =>
 			html.replaceAll(/<style[^>]*>[\s\S]*?<\/style>/gu, "");
@@ -143,7 +148,16 @@ test("renderer reports an empty cumulative patch clearly", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "juruc-review-render-empty-"));
 	try {
 		const patch = reviewPatchFromText("", "1".repeat(40), "2".repeat(40));
-		const store = new ReviewStore(join(directory, "state.json"), patch);
+		const taskPath = join(directory, "task.json");
+		const task = demoReviewTask({
+			deviation: { status: "completed", annotations: [] },
+		});
+		task.repository.sourceHead = "1".repeat(40);
+		task.checkpoints[0].commit = "2".repeat(40);
+		task.reviewRounds[0].baseCommit = "1".repeat(40);
+		task.reviewRounds[0].headCommit = "2".repeat(40);
+		saveTaskDocument(taskPath, task);
+		const store = new ReviewStore(taskPath, patch);
 		const html = await new ReviewRenderer(patch).render(
 			store.snapshot(),
 			DEFAULT_REVIEW_VIEW_OPTIONS,
@@ -154,6 +168,17 @@ test("renderer reports an empty cumulative patch clearly", async () => {
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
+});
+
+test("decision guards disable approval with comments and recover consistently", () => {
+	assert.equal(isReviewDecisionDisabled("approve", { decision: null, humanComments: [] }), false);
+	assert.equal(isReviewDecisionDisabled("approve", { decision: null, humanComments: [{}] }), true);
+	assert.equal(isReviewDecisionDisabled("send-feedback", { decision: null, humanComments: [] }), true);
+	assert.equal(isReviewDecisionDisabled("send-feedback", { decision: null, humanComments: [{}] }), false);
+	assert.equal(isReviewDecisionDisabled("approve", {
+		decision: { kind: "approve" },
+		humanComments: [],
+	}), true);
 });
 
 test("feedback submission requires Ctrl+Enter or Cmd+Enter", () => {

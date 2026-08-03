@@ -1,7 +1,6 @@
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 import { spawn } from "node:child_process";
-
-export type ReviewSide = "deletions" | "additions";
+import type { ReviewSide } from "./task.ts";
 
 export interface PatchIdentity {
 	baseOid: string;

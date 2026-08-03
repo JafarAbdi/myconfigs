@@ -18,30 +18,24 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
-import type { ReviewPatch, ReviewSide } from "./review-git.ts";
+import type { ReviewPatch } from "./review-git.ts";
 import type {
 	CompletedTaskPhase,
+	ReviewerAnnotation,
+	ReviewerKind,
+	ReviewerOutcome,
 	ReviewerSessionKind,
 	TaskPlan,
 	TaskSpecification,
 	VerificationEvidence,
 } from "./task.ts";
 
-export type ReviewerKind = "deviation" | "correctness";
-
-export interface ReviewerAnnotation {
-	filePath: string;
-	side: ReviewSide;
-	line: number;
-	summary: string;
-	rationale?: string;
-}
-
-export type ReviewerFailureKind = "malformed-output" | "session-error";
-
-export type ReviewerOutcome =
-	| { status: "completed"; annotations: ReviewerAnnotation[] }
-	| { status: "failed"; failureKind: ReviewerFailureKind; message: string };
+export type {
+	ReviewerAnnotation,
+	ReviewerFailureKind,
+	ReviewerKind,
+	ReviewerOutcome,
+} from "./task.ts";
 
 export interface ReviewerRunResult {
 	kind: ReviewerKind;
@@ -262,7 +256,9 @@ export async function drivePiReviewer(
 	input: ReviewerDriverInput,
 	sessionFactory: ReviewerSessionFactory = createReviewerSession,
 ): Promise<ReviewerDriverOutput> {
-	const settingsManager = SettingsManager.create(input.cwd, getAgentDir());
+	const settingsManager = SettingsManager.create(input.cwd, getAgentDir(), {
+		projectTrusted: false,
+	});
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: input.cwd,
 		agentDir: getAgentDir(),
@@ -318,6 +314,7 @@ export type ReviewerRunInput = {
 	checkpoints: readonly CompletedTaskPhase[];
 	parentSession?: string;
 	sessionDirectory?: string;
+	onSessionCreated?: (sessionPath: string) => Promise<void>;
 } & (
 	| { kind: "deviation"; plan: TaskPlan }
 	| { kind: "correctness"; plan?: never }
@@ -427,6 +424,7 @@ export async function runReviewer(
 	if (!sessionPath || !isAbsolute(sessionPath))
 		throw new Error("reviewer session manager did not create an absolute persistent path");
 	persistReviewerSession(sessionManager, sessionPath, input.kind);
+	await input.onSessionCreated?.(sessionPath);
 
 	let output: ReviewerDriverOutput;
 	try {

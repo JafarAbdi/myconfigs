@@ -277,6 +277,44 @@ test("top-level reviewer runs once, preserves valid output, and creates fresh ab
 	}
 });
 
+test("reviewer callback runs after durable session and before the driver", async () => {
+	const root = mkdtempSync(join(tmpdir(), "juruc-reviewer-callback-"));
+	mkdirSync(join(root, "sessions"));
+	try {
+		const order: string[] = [];
+		const result = await runReviewer({
+			...baseRunInput(root),
+			async onSessionCreated(path) {
+				assertPersistedReviewerSession(path);
+				order.push("callback");
+			},
+		}, async () => {
+			order.push("driver");
+			return { assistantMessages: [assistant('{"annotations":[]}')] };
+		});
+		assert.equal(result.outcome.status, "completed");
+		assert.deepEqual(order, ["callback", "driver"]);
+
+		let driverCalls = 0;
+		await assert.rejects(
+			runReviewer({
+				...baseRunInput(root),
+				async onSessionCreated(path) {
+					assertPersistedReviewerSession(path);
+					throw new Error("task persistence failed");
+				},
+			}, async () => {
+				driverCalls++;
+				return { assistantMessages: [] };
+			}),
+			/task persistence failed/,
+		);
+		assert.equal(driverCalls, 0);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("top-level reviewer does not retry driver, malformed output, or session failures", async () => {
 	const root = mkdtempSync(join(tmpdir(), "juruc-reviewer-failure-"));
 	mkdirSync(join(root, "sessions"));
@@ -340,8 +378,25 @@ test("Pi reviewer driver disables resources, tools, retry, and compaction for on
 	const sessions = join(root, "sessions");
 	mkdirSync(sessions);
 	const settingsPath = join(reviewerAgentDir, "settings.json");
-	const configuredSettings = JSON.stringify({ defaultThinkingLevel: "high" });
+	const configuredSettings = JSON.stringify({
+		defaultThinkingLevel: "high",
+		defaultProvider: "global-provider",
+		defaultModel: "global-model",
+		transport: "sse",
+	});
 	writeFileSync(settingsPath, configuredSettings);
+	const projectDirectory = join(root, ".pi");
+	mkdirSync(projectDirectory);
+	const projectSettingsPath = join(projectDirectory, "settings.json");
+	const hostileProjectSettings = JSON.stringify({
+		defaultThinkingLevel: "off",
+		defaultProvider: "hostile-provider",
+		defaultModel: "hostile-model",
+		transport: "websocket",
+		compaction: { enabled: true, reserveTokens: 999_999, keepRecentTokens: 999_999 },
+		retry: { enabled: true, maxRetries: 99 },
+	});
+	writeFileSync(projectSettingsPath, hostileProjectSettings);
 	const correctnessInput: ReviewerRunInput = {
 		kind: "correctness",
 		worktree: root,
@@ -386,7 +441,12 @@ test("Pi reviewer driver disables resources, tools, retry, and compaction for on
 		assert.equal(capturedOptions?.noTools, "all");
 		assert.deepEqual(capturedOptions?.tools, []);
 		assert.equal(capturedOptions?.thinkingLevel, undefined);
+		assert.equal(capturedOptions?.settingsManager?.isProjectTrusted(), false);
+		assert.deepEqual(capturedOptions?.settingsManager?.getProjectSettings(), {});
 		assert.equal(capturedOptions?.settingsManager?.getDefaultThinkingLevel(), "high");
+		assert.equal(capturedOptions?.settingsManager?.getDefaultProvider(), "global-provider");
+		assert.equal(capturedOptions?.settingsManager?.getDefaultModel(), "global-model");
+		assert.equal(capturedOptions?.settingsManager?.getTransport(), "sse");
 		assert.equal(capturedOptions?.settingsManager?.getRetryEnabled(), false);
 		assert.equal(capturedOptions?.settingsManager?.getRetrySettings().maxRetries, 0);
 		assert.equal(capturedOptions?.settingsManager?.getProviderRetrySettings().maxRetries, 0);
@@ -414,6 +474,7 @@ test("Pi reviewer driver disables resources, tools, retry, and compaction for on
 		assertPersistedReviewerSession(failed.sessionPath, "correctness");
 		assert.equal(failedDispose, 1);
 		assert.equal(readFileSync(settingsPath, "utf8"), configuredSettings);
+		assert.equal(readFileSync(projectSettingsPath, "utf8"), hostileProjectSettings);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

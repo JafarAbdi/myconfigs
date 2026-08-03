@@ -6,9 +6,11 @@ import {
 	activateTaskPlan,
 	completeTaskPhase,
 	completeTaskResearch,
+	completeTaskReviewer,
 	confirmTaskQuestions,
 	confirmTaskSpecification,
 	createTaskDocument,
+	registerTaskReviewerStart,
 } from "./task.ts";
 
 function task() {
@@ -88,7 +90,7 @@ test("status renders the exact compact QRSPI rail and context", () => {
 	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P● I· · plan accepted · activation pending");
 });
 
-test("implementation and done spell out the active phase", () => {
+test("implementation and review spell out the active phase", () => {
 	let current = implementationTask();
 	assert.equal(lifecyclePlace(current).detail, "phase 1/1 · Show status");
 	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I● · phase 1/1 · Show status");
@@ -98,5 +100,16 @@ test("implementation and done spell out the active phase", () => {
 		[{ command: "test status", exitCode: 0, summary: "Passed." }],
 		"2".repeat(40),
 	);
-	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · done");
+	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · review 1 · preparing");
+	current = completeTaskReviewer(
+		registerTaskReviewerStart(current, "deviation", "/sessions/deviation.jsonl"),
+		"deviation",
+		{ status: "completed", annotations: [] },
+	);
+	current = completeTaskReviewer(
+		registerTaskReviewerStart(current, "correctness", "/sessions/correctness.jsonl"),
+		"correctness",
+		{ status: "completed", annotations: [] },
+	);
+	assert.equal(lifecycleLine(current), "Q✓ R✓ S✓ P✓ I✓ · review 1 · awaiting decision");
 });

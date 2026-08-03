@@ -1,17 +1,18 @@
-# JURUC C5 Contract
+# JURUC C6 Contract
 
 ## Objective
 
-Run one strict Questions → Research → Specification → Plan → Implementation workflow with fresh bounded sessions, durable authoritative artifacts, deferred workspace activation, phase-declared verification, and extension-owned local commits. Provide isolated advisory deviation and correctness reviewer primitives without making review reachable from the task lifecycle.
+Run one strict Questions → Research → Specification → Plan → Implementation → Review workflow with fresh bounded sessions, durable authoritative artifacts, deferred workspace activation, phase-declared verification, extension-owned local commits, and two isolated advisory reviewers. Persist the immutable first review round and route tested browser review mutations through authoritative `task.json` without starting a production review server.
 
 ## Lifecycle
 
-- Stages are exactly `questions`, `research`, `specification`, `plan`, `implementation`, and `done`.
-- `task.json` version 4 has no compatibility parser.
+- Stages are exactly `questions`, `research`, `specification`, `plan`, `implementation`, `review`, and `done`.
+- `task.json` version 5 has no compatibility parser or migration.
 - Transitions move forward only. Plan has two valid states: planning with `plan: null`, and accepted activation-pending with an immutable plan. `activateTaskPlan` alone advances the accepted plan to Implementation.
 - Plan acceptance is persisted before any task branch or worktree side effect. An activation failure leaves the accepted plan pending; `/juruc` retries workspace preparation directly and never asks the model to re-plan.
 - Pending Plan displays `plan accepted · activation pending` and its old Plan session has zero active tools.
 - Failed implementation verification leaves the active phase open and resumable. There is no blocked lifecycle, backtracking, replanning, renewed research, or plan extension.
+- The final checkpoint atomically creates review round 1 at exact `sourceHead...final checkpoint commit` and enters Review. C6 can record and freeze a decision but does not operationally advance approval to Done or feedback to correction.
 
 ## Artifacts
 
@@ -20,7 +21,8 @@ Run one strict Questions → Research → Specification → Plan → Implementat
 - Specification records implementation-neutral summary, requirements, non-goals, constraints, acceptance criteria, and decisions.
 - The explicitly accepted Plan is immutable and contains ordered final-shape phases with unique kebab-case IDs, titles, goals, safe repository-relative Git pathspec scopes, instructions, and exact verification commands.
 - Completed phases are stored once in append-only `checkpoints`. Every checkpoint copies its accepted phase and adds ordered all-zero verification evidence, resolution, and commit OID.
-- Session history is one append-only typed list with globally unique absolute paths and logical scopes.
+- Review round 1 stores exact base/head commits, deviation and correctness slots, advisory outcomes, human comments, an optional explicit decision, and literal `correction: null`. Later rounds and corrections are invalid in version 5.
+- Session history is one append-only typed list with globally unique absolute paths and logical scopes. Reviewer slots and typed reviewer sessions correspond exactly; orphan reviewer sessions are invalid.
 
 ## Information Diets and Tools
 
@@ -31,6 +33,7 @@ Run one strict Questions → Research → Specification → Plan → Implementat
 - Implementation receives only validated Specification, its authoritative phase, and relevant checkpoint facts. Its tools are read/edit/write/grep/find/ls, `juruc_run_verification`, and `juruc_finish_phase`; it has no unrestricted shell and cannot commit.
 - Model workflow tools are exactly `juruc_set_questions`, `juruc_set_specification`, `juruc_set_plan`, `juruc_run_verification`, and `juruc_finish_phase`.
 - Every workflow tool requires the active task-owned session, correct working directory, registration, and a sole tool call. Stale task sessions have zero tools and block every tool call with `/juruc` guidance; non-task sessions retain normal tools.
+- Review owns no active model session or tools. `/juruc` only prepares pending or interrupted advisory reviewers and emits a neutral notification; it does not start a server or open a browser.
 - `juruc_run_verification` runs only an exact command from the active human-accepted phase in the managed worktree, with bounded time and output. The model may rerun commands and then submit exact structured evidence to `juruc_finish_phase`; JURUC reruns every declared command in order and requires real zero exits immediately before staging.
 
 ## Deferred Workspace
@@ -52,14 +55,23 @@ Run one strict Questions → Research → Specification → Plan → Implementat
 
 ## Advisory Reviewers
 
-- C5 defines two reviewer kinds: factual deviation and bounded correctness. They are deliberately unreachable from `task.json`, `/juruc`, and extension tools until C6; there are no review stages, rounds, transitions, or index wiring.
+- C6 runs two reviewer kinds sequentially for the persisted round: factual deviation, then bounded correctness.
 - Deviation receives only validated Specification, accepted Plan authoritative phase fields, cumulative patch identity/text, and projected checkpoint verification evidence. It reports concrete divergence from required or accepted behavior, not style or speculation.
 - Correctness receives only validated Specification, cumulative patch identity/text, and projected checkpoint verification evidence (phase id/title plus evidence). It receives no accepted Plan object, goals, scopes, or instructions and reports only concrete introduced correctness, security, data-loss, or error-handling defects.
-- Each reviewer durably persists a fresh mode-0600 Pi session header and reviewer label before one model call, rooted at the task worktree with optional parent-session metadata. It loads no extensions/skills/prompts/themes/project context, has zero tools, uses normal configured model reasoning, and disables agent/provider retries and compaction only through non-persistent settings overrides.
+- Each reviewer durably persists a fresh mode-0600 Pi session header and reviewer label before one model call, rooted at the task worktree with optional parent-session metadata. It then invokes a persistence callback that atomically registers the typed running slot before any driver call. Callback failure rejects and invokes no driver. The reviewer loads no extensions/skills/prompts/themes/project context, has zero tools, uses normal configured model reasoning, and disables agent/provider retries and compaction only through non-persistent settings overrides.
 - Patch content is untrusted data, never instructions. A reviewer emits exactly one final canonical JSON text block, optionally alongside normal thinking blocks. Parsing is byte-bounded, rejects duplicate object members and noncanonical escapes while allowing ordinary pretty whitespace/key order, is all-or-nothing and exact-field, and permits annotations only on exact changed-side lines in the immutable cumulative patch.
-- Reviewer outcomes are advisory completed annotations or bounded `malformed-output`/`session-error` failures. Reviewers never retry, edit, execute, block, correct, or mutate task lifecycle state.
+- Reviewer outcomes are advisory completed annotations or bounded `malformed-output`/`session-error` failures. Reviewers never retry, edit, execute, block, or correct.
+- Review preparation reloads authoritative state, reads and identity-checks the fixed cumulative patch once, and persists each terminal outcome before continuing. Terminal slots skip; a persisted running slot becomes an interrupted `session-error` and never reruns; a null slot may start. Patch or persistence infrastructure failure leaves the round resumable, while provider or malformed-output failure does not block the next reviewer.
+
+## Task-backed Browser Adapter
+
+- Browser DTO version 1 is a projection only. Completed deviation annotations precede completed correctness annotations with stable labels; reviewer failures are omitted.
+- `ReviewStore` captures one exact latest task round and reloads strict `task.json` on every snapshot or mutation. It requires matching patch identity and two terminal reviewers, and validates every projected annotation and comment against exact changed lines.
+- Comment create/update/delete and decisions use task-domain mutators and `saveTaskDocument`; there is no `review.json` sidecar. Comment edits change only the body. Completed decisions freeze the round. Approve requires zero saved comments; Send Feedback requires at least one.
+- The tested loopback server accepts `taskPath`, locks that task review path, and exposes the existing stable routes, but C6 does not import or call it from `index.ts`. The SSR and browser guards disable Approve for completed reviews or any saved comment and preserve unsaved drafts.
 
 ## Deferred Work
 
-- Lifecycle-reachable review orchestration, authoritative review rounds, browser feedback, corrections, explicit final acceptance, and final review TUI remain C6+ work.
+- Production review-server lifecycle, browser opening, correction sessions/execution/verification/commits, additional cumulative rounds, and operational decision transitions remain C7.
+- OSC links, final picker/status polish, completed-task summary, and final interruption coverage remain C8.
 - No PR creation, push, deployment, publication, remote review, accounts, telemetry, or collaboration features.

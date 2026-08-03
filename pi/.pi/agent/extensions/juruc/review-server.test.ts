@@ -4,13 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-	DEMO_AGENT_ANNOTATIONS,
 	demoReviewPatch,
+	demoReviewTask,
 } from "./review-fixture.ts";
 import {
 	createReviewServer,
 	type ReviewServer,
 } from "./review-server.ts";
+import { saveTaskDocument } from "./task.ts";
 
 const comment = {
 	filePath: "src/greeting.ts",
@@ -38,17 +39,15 @@ async function json(
 
 test("loopback capability server persists comment CRUD and only records explicit decisions", { timeout: 120_000 }, async () => {
 	const directory = mkdtempSync(join(tmpdir(), "juruc-review-server-"));
-	const statePath = join(directory, "review.json");
+	const taskPath = join(directory, "task.json");
 	const patch = demoReviewPatch();
+	saveTaskDocument(taskPath, demoReviewTask());
 	let first: ReviewServer | undefined;
 	let second: ReviewServer | undefined;
 	let third: ReviewServer | undefined;
 	try {
-		first = await createReviewServer({
-			patch,
-			statePath,
-			agentAnnotations: DEMO_AGENT_ANNOTATIONS,
-		});
+		first = await createReviewServer({ patch, taskPath });
+		assert.equal(first.taskPath, taskPath);
 		const address = new URL(first.url);
 		assert.equal(address.hostname, "127.0.0.1");
 		assert.notEqual(address.port, "0");
@@ -60,8 +59,8 @@ test("loopback capability server persists comment CRUD and only records explicit
 			"agent-notes": "on",
 		});
 		await assert.rejects(
-			createReviewServer({ patch, statePath }),
-			/another review server already owns/u,
+			createReviewServer({ patch, taskPath }),
+			/another review operation already owns/u,
 		);
 
 		const hidden = await fetch(`${address.origin}/`);
@@ -148,13 +147,18 @@ test("loopback capability server persists comment CRUD and only records explicit
 		assert.equal(revisedResponse.status, 200);
 		const revised = (await revisedResponse.json()).state.humanComments[0];
 		assert.deepEqual(revised, { ...created, body: revisedBody });
+		const approvalWithComments = await json(new URL("decision", api).href, "POST", {
+			kind: "approve",
+		});
+		assert.equal(approvalWithComments.status, 409);
+		assert.match((await approvalWithComments.json()).error, /zero saved human comments/u);
 		const retarget = await json(
 			new URL(`comments/${created.id}`, api).href,
 			"PATCH",
 			{ body: revisedBody, startLine: 3 },
 		);
 		assert.equal(retarget.status, 400);
-		assert.equal(statSync(statePath).mode & 0o777, 0o600);
+		assert.equal(statSync(taskPath).mode & 0o777, 0o600);
 		const forbidden = await fetch(new URL("state", api), {
 			headers: { origin: "https://example.invalid" },
 		});
@@ -164,7 +168,7 @@ test("loopback capability server persists comment CRUD and only records explicit
 		first = undefined;
 		await assert.rejects(fetch(address.href));
 
-		second = await createReviewServer({ patch, statePath });
+		second = await createReviewServer({ patch, taskPath });
 		assert.notEqual(second.url, address.href);
 		const restartedApi = new URL("api/", second.url);
 		const restarted = await (await fetch(new URL("state", restartedApi))).json();
@@ -186,7 +190,7 @@ test("loopback capability server persists comment CRUD and only records explicit
 		await second.close();
 		second = undefined;
 
-		third = await createReviewServer({ patch, statePath });
+		third = await createReviewServer({ patch, taskPath });
 		const completed = await (
 			await fetch(new URL("api/state", third.url))
 		).json();

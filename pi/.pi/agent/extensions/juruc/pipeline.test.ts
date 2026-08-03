@@ -80,10 +80,11 @@ try {
 	const [
 		{ fauxAssistantMessage, fauxToolCall, createRuntimeHarness },
 		{ SessionManager },
-		{ registerJuruc },
+		{ prepareReview, registerJuruc },
 		{ runtimePaths },
 		{ loadTask },
-		{ findTaskSession },
+		{ findTaskSession, loadTaskDocument, registerTaskReviewerStart, saveTaskDocument },
+		{ demoReviewPatch, demoReviewTask },
 	] = await Promise.all([
 		import("./runtime-harness.ts"),
 		import("@earendil-works/pi-coding-agent"),
@@ -91,6 +92,7 @@ try {
 		import("./runtime.ts"),
 		import("./tasks.ts"),
 		import("./task.ts"),
+		import("./review-fixture.ts"),
 	]);
 
 	await test("runtime automatically cuts over Q to R to S to P to fresh implementation phases", async () => {
@@ -158,6 +160,17 @@ try {
 				},
 			],
 		};
+		const reviewerCalls: string[] = [];
+		const reviewerDriver = async (input: { kind: string }) => {
+			reviewerCalls.push(input.kind);
+			return {
+				assistantMessages: [{
+					role: "assistant",
+					content: [{ type: "text", text: '{"annotations":[]}' }],
+					stopReason: "stop",
+				}],
+			};
+		};
 		const synthesis = {
 			agent: "synthesizer",
 			task: "synthesize",
@@ -183,7 +196,7 @@ try {
 			promptTemplates: [],
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
-			registerJuruc,
+			registerJuruc: (pi) => registerJuruc(pi, { reviewerDriver }),
 			probe: (pi, record) => {
 				pi.on("session_start", () => {
 					record.activeTools = pi.getActiveTools();
@@ -293,7 +306,7 @@ try {
 			await harness.runtime.session.prompt("/juruc");
 
 			const task = loadTask(paths, slug);
-			assert.equal(task.document.stage, "done");
+			assert.equal(task.document.stage, "review");
 			assert.deepEqual(preImplementation.map(({ stage }) => stage), [
 				"questions",
 				"research",
@@ -315,13 +328,22 @@ try {
 			assert.equal(existsSync(join(task.document.repository.worktree, "nested", ".env")), false);
 			assert.equal(existsSync(join(task.document.repository.worktree, "other.local")), false);
 			assert.equal("research" in task.document, false);
-			assert.equal(new Set(task.document.sessions.map(({ path }) => path)).size, 6);
+			assert.equal(new Set(task.document.sessions.map(({ path }) => path)).size, 8);
 			for (const kind of ["questions", "research", "specification", "plan"] as const)
 				assert.ok(findTaskSession(task.document, { kind }));
 			assert.notEqual(
 				findTaskSession(task.document, { kind: "implementation", phase: 1 })?.path,
 				findTaskSession(task.document, { kind: "implementation", phase: 2 })?.path,
 			);
+			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
+			const round = task.document.reviewRounds[0];
+			assert.equal(round.baseCommit, task.document.repository.sourceHead);
+			assert.equal(round.headCommit, task.document.checkpoints[1].commit);
+			assert.equal(round.reviewers.deviation?.outcome?.status, "completed");
+			assert.equal(round.reviewers.correctness?.outcome?.status, "completed");
+			assert.ok(findTaskSession(task.document, { kind: "deviation-review", round: 1 }));
+			assert.ok(findTaskSession(task.document, { kind: "correctness-review", round: 1 }));
+			assert.equal(existsSync(join(task.directory, "review.json")), false);
 
 			assert.equal(harness.instances.length, 7);
 			assert.ok(harness.instances[0].activeTools?.includes("read"));
@@ -392,6 +414,164 @@ try {
 		} finally {
 			await harness.dispose();
 		}
+	});
+
+	await test("review preparation is resumable, sequential, and crash-safe", async () => {
+		const root = join(scratch, "review-preparation");
+		mkdirSync(root);
+		const worktree = join(root, "worktree");
+		const source = join(root, "source");
+		mkdirSync(worktree);
+		mkdirSync(source);
+		const freshTask = () => {
+			const task = demoReviewTask();
+			task.repository.sourceRoot = source;
+			task.repository.worktree = worktree;
+			task.sessions = [];
+			task.reviewRounds[0].reviewers = { deviation: null, correctness: null };
+			return task;
+		};
+		const patch = demoReviewPatch();
+		const failedPath = join(root, "patch-failed.json");
+		saveTaskDocument(failedPath, freshTask());
+		let failedDriverCalls = 0;
+		await assert.rejects(
+			prepareReview({
+				taskPath: failedPath,
+				readPatch: async () => { throw new Error("patch infrastructure failed"); },
+				reviewerDriver: async () => {
+					failedDriverCalls++;
+					return { assistantMessages: [] };
+				},
+			}),
+			/patch infrastructure failed/,
+		);
+		assert.equal(failedDriverCalls, 0);
+		assert.deepEqual(loadTaskDocument(failedPath).reviewRounds[0].reviewers, {
+			deviation: null,
+			correctness: null,
+		});
+
+		const concurrentPath = join(root, "concurrent.json");
+		saveTaskDocument(concurrentPath, freshTask());
+		let releaseDeviation!: () => void;
+		const deviationGate = new Promise<void>((resolve) => { releaseDeviation = resolve; });
+		let signalDeviationStarted!: () => void;
+		const deviationStarted = new Promise<void>((resolve) => { signalDeviationStarted = resolve; });
+		const concurrentCalls: string[] = [];
+		const firstPreparation = prepareReview({
+			taskPath: concurrentPath,
+			readPatch: async () => patch,
+			reviewerDriver: async ({ kind }) => {
+				concurrentCalls.push(kind);
+				if (kind === "deviation") {
+					signalDeviationStarted();
+					await deviationGate;
+				}
+				return {
+					assistantMessages: [{
+						role: "assistant",
+						content: [{ type: "text", text: '{"annotations":[]}' }],
+						stopReason: "stop",
+					}],
+				};
+			},
+		});
+		await deviationStarted;
+		const running = loadTaskDocument(concurrentPath).reviewRounds[0];
+		assert.equal(running.reviewers.deviation?.outcome, null);
+		assert.equal(running.reviewers.correctness, null);
+		let secondPatchReads = 0;
+		let secondDriverCalls = 0;
+		await assert.rejects(
+			prepareReview({
+				taskPath: concurrentPath,
+				readPatch: async () => {
+					secondPatchReads++;
+					return patch;
+				},
+				reviewerDriver: async () => {
+					secondDriverCalls++;
+					return { assistantMessages: [] };
+				},
+			}),
+			/another review operation already owns/,
+		);
+		assert.equal(secondPatchReads, 0);
+		assert.equal(secondDriverCalls, 0);
+		assert.deepEqual(concurrentCalls, ["deviation"]);
+		const stillRunning = loadTaskDocument(concurrentPath).reviewRounds[0];
+		assert.equal(stillRunning.reviewers.deviation?.outcome, null);
+		assert.equal(stillRunning.reviewers.correctness, null);
+		releaseDeviation();
+		await firstPreparation;
+		assert.deepEqual(concurrentCalls, ["deviation", "correctness"]);
+		assert.equal(existsSync(`${concurrentPath}.review.lock`), false);
+
+		const advisoryPath = join(root, "advisory.json");
+		saveTaskDocument(advisoryPath, freshTask());
+		const calls: string[] = [];
+		await prepareReview({
+			taskPath: advisoryPath,
+			readPatch: async () => patch,
+			reviewerDriver: async ({ kind }) => {
+				calls.push(kind);
+				return {
+					assistantMessages: [{
+						role: "assistant",
+						content: [{ type: "text", text: '{"annotations":[]}' }],
+						stopReason: kind === "deviation" ? "error" : "stop",
+						errorMessage: kind === "deviation" ? "provider failed" : undefined,
+					}],
+				};
+			},
+		});
+		const advisory = loadTaskDocument(advisoryPath).reviewRounds[0];
+		assert.deepEqual(calls, ["deviation", "correctness"]);
+		assert.equal(advisory.reviewers.deviation?.outcome?.status, "failed");
+		assert.equal(advisory.reviewers.correctness?.outcome?.status, "completed");
+
+		const interruptedPath = join(root, "interrupted.json");
+		let interrupted = registerTaskReviewerStart(
+			freshTask(),
+			"deviation",
+			join(root, "interrupted-session.jsonl"),
+		);
+		saveTaskDocument(interruptedPath, interrupted);
+		const resumedCalls: string[] = [];
+		await prepareReview({
+			taskPath: interruptedPath,
+			readPatch: async () => patch,
+			reviewerDriver: async ({ kind }) => {
+				resumedCalls.push(kind);
+				return {
+					assistantMessages: [{
+						role: "assistant",
+						content: [{ type: "text", text: '{"annotations":[]}' }],
+						stopReason: "stop",
+					}],
+				};
+			},
+		});
+		interrupted = loadTaskDocument(interruptedPath);
+		assert.deepEqual(resumedCalls, ["correctness"]);
+		assert.equal(
+			interrupted.reviewRounds[0].reviewers.deviation?.outcome?.status,
+			"failed",
+		);
+		assert.match(
+			interrupted.reviewRounds[0].reviewers.deviation?.outcome?.status === "failed"
+				? interrupted.reviewRounds[0].reviewers.deviation!.outcome.message
+				: "",
+			/interrupted/,
+		);
+		await prepareReview({
+			taskPath: interruptedPath,
+			readPatch: async () => patch,
+			reviewerDriver: async () => {
+				throw new Error("terminal reviewers must skip");
+			},
+		});
 	});
 
 	await test("parallel synthesizer siblings cannot advance Research", async () => {

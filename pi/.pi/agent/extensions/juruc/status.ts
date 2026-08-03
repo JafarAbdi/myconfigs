@@ -16,6 +16,18 @@ export interface LifecyclePlace {
 export function lifecyclePlace(task: TaskDocument): LifecyclePlace {
 	if (task.stage === "plan" && task.plan)
 		return { active: "plan", detail: "plan accepted · activation pending" };
+	if (task.stage === "review") {
+		const round = task.reviewRounds.at(-1);
+		const reviewersReady = round && Object.values(round.reviewers).every((slot) => slot?.outcome);
+		const detail = round?.decision?.kind === "approve"
+			? "approved"
+			: round?.decision?.kind === "send-feedback"
+				? "feedback sent"
+				: reviewersReady
+					? "awaiting decision"
+					: "preparing";
+		return { active: "review", detail: `review ${round?.number ?? 1} · ${detail}` };
+	}
 	if (task.stage !== "implementation" && task.stage !== "done")
 		return { active: task.stage, detail: task.stage };
 	if (task.stage === "done") return { active: "done", detail: "done" };
@@ -33,7 +45,7 @@ export function lifecycleLine(task: TaskDocument): string {
 	const place = lifecyclePlace(task);
 	const activeIndex = RAIL.findIndex(([stage]) => stage === task.stage);
 	const rail = RAIL.map(([stage, label], index) => {
-		const marker = task.stage === "done" || index < activeIndex
+		const marker = task.stage === "review" || task.stage === "done" || index < activeIndex
 			? "✓"
 			: stage === task.stage
 				? "●"

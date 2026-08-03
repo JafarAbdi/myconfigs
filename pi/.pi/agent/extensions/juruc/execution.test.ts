@@ -366,14 +366,14 @@ test("Git pathspec scopes accept globbed new files and scoped deletions", async 
 		writeFileSync(join(newTask.repository.worktree, "src", "new.ts"), "new\n");
 		assert.equal(
 			(await finishCurrentPhase(newTask, finishInput([passingVerification("new-file")]))).task.stage,
-			"done",
+			"review",
 		);
 
 		const deletedTask = await implementationTask(deletedRoot, [phase("delete", undefined, ["tracked.txt"])]);
 		rmSync(join(deletedTask.repository.worktree, "tracked.txt"));
 		assert.equal(
 			(await finishCurrentPhase(deletedTask, finishInput([passingVerification("delete")]))).task.stage,
-			"done",
+			"review",
 		);
 	} finally {
 		rmSync(newRoot, { recursive: true, force: true });
@@ -395,7 +395,7 @@ test("Git pathspec scopes preserve in-scope renames and reject cross-scope moves
 		);
 		assert.equal(
 			(await finishCurrentPhase(inScope, finishInput([passingVerification("rename-in")]))).task.stage,
-			"done",
+			"review",
 		);
 
 		const crossScope = await implementationTask(
@@ -438,7 +438,7 @@ test("out-of-scope new paths are rejected and unstaged", async () => {
 	}
 });
 
-test("final checkpoint reaches done and unchanged candidates are refused", async () => {
+test("final checkpoint creates review round and unchanged candidates are refused", async () => {
 	const root = mkdtempSync(join(tmpdir(), "juruc-phase-final-"));
 	try {
 		const task = await implementationTask(root, [phase("only")]);
@@ -448,8 +448,10 @@ test("final checkpoint reaches done and unchanged candidates are refused", async
 		);
 		writeFileSync(join(task.repository.worktree, "tracked.txt"), "complete\n");
 		const result = await finishCurrentPhase(task, finishInput([passingVerification("only")]));
-		assert.equal(result.task.stage, "done");
+		assert.equal(result.task.stage, "review");
 		assert.equal(result.task.checkpoints.length, 1);
+		assert.equal(result.task.reviewRounds[0].baseCommit, task.repository.sourceHead);
+		assert.equal(result.task.reviewRounds[0].headCommit, result.commit);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

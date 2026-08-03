@@ -2,22 +2,18 @@ import assert from "node:assert/strict";
 import {
 	mkdtempSync,
 	readdirSync,
-	readFileSync,
 	rmSync,
 	statSync,
-	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-	DEMO_AGENT_ANNOTATIONS,
 	demoReviewPatch,
+	demoReviewTask,
 } from "./review-fixture.ts";
-import {
-	parseReviewState,
-	ReviewStore,
-} from "./review-state.ts";
+import { ReviewStateError, ReviewStore } from "./review-state.ts";
+import { saveTaskDocument } from "./task.ts";
 
 const validComment = {
 	filePath: "src/greeting.ts",
@@ -27,111 +23,129 @@ const validComment = {
 	body: "Keep the fallback and add a focused test.",
 };
 
-test("review state validates changed targets and persists atomically with mode 0600", () => {
-	const directory = mkdtempSync(join(tmpdir(), "juruc-review-state-"));
-	try {
-		const path = join(directory, "review.json");
-		const patch = demoReviewPatch();
-		const store = new ReviewStore(path, patch, DEMO_AGENT_ANNOTATIONS);
-		assert.equal(statSync(path).mode & 0o777, 0o600);
-		assert.equal(store.snapshot().agentAnnotations.length, 1);
+function fixture(prefix: string) {
+	const directory = mkdtempSync(join(tmpdir(), prefix));
+	const taskPath = join(directory, "task.json");
+	saveTaskDocument(taskPath, demoReviewTask());
+	return { directory, taskPath, patch: demoReviewPatch() };
+}
 
-		assert.throws(
-			() =>
-				store.addComment({
-					...validComment,
-					endLine: 4,
-				}),
-			/not a changed line/,
-		);
-		assert.throws(
-			() => store.addComment({ ...validComment, side: "deletions" }),
-			/not a changed line/,
-		);
-		assert.throws(
-			() => store.addComment({ ...validComment, filePath: "missing.ts" }),
-			/not in this patch/,
-		);
+test("task-backed review state reloads strict task.json and persists CRUD with mode 0600", () => {
+	const { directory, taskPath, patch } = fixture("juruc-review-state-");
+	try {
+		const store = new ReviewStore(taskPath, patch);
+		assert.equal(store.snapshot().agentAnnotations.length, 1);
+		assert.equal(store.snapshot().agentAnnotations[0].source, "Deviation reviewer");
+		for (const invalid of [
+			{ ...validComment, endLine: 4 },
+			{ ...validComment, side: "deletions" },
+			{ ...validComment, filePath: ` ${validComment.filePath}` },
+			{ ...validComment, filePath: "missing.ts" },
+		]) assert.throws(() => store.addComment(invalid), ReviewStateError);
 
 		const saved = store.addComment(validComment);
-		assert.equal(saved.humanComments.length, 1);
 		const original = saved.humanComments[0];
 		const updated = store.updateComment(original.id, { body: "  Revised feedback.  " });
-		assert.deepEqual(updated.humanComments[0], {
-			...original,
-			body: "Revised feedback.",
-		});
+		assert.deepEqual(updated.humanComments[0], { ...original, body: "Revised feedback." });
 		assert.throws(
 			() => store.updateComment(original.id, { body: "No.", startLine: 3 }),
 			/invalid fields/,
 		);
 		assert.throws(
 			() => store.updateComment("00000000-0000-4000-8000-000000000000", { body: "No." }),
-			/not found/,
+			(error) => error instanceof ReviewStateError && error.status === 404,
 		);
-		assert.deepEqual(readdirSync(directory), ["review.json"]);
-		assert.deepEqual(
-			parseReviewState(readFileSync(path, "utf8"), patch),
-			updated,
-		);
+		assert.equal(statSync(taskPath).mode & 0o777, 0o600);
+		assert.deepEqual(readdirSync(directory), ["task.json"]);
+		assert.deepEqual(new ReviewStore(taskPath, patch).snapshot(), updated);
 
-		const restarted = new ReviewStore(path, patch);
-		assert.deepEqual(restarted.snapshot(), updated);
-		assert.equal(statSync(path).mode & 0o777, 0o600);
+		assert.equal(store.deleteComment(original.id).humanComments.length, 0);
+		assert.deepEqual(readdirSync(directory), ["task.json"]);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
 });
 
-test("review decisions are explicit, final, and guard Send Feedback", () => {
-	const directory = mkdtempSync(join(tmpdir(), "juruc-review-decision-"));
+test("decisions enforce comment guards and freeze authoritative rounds", () => {
+	const feedback = fixture("juruc-review-feedback-");
+	const approval = fixture("juruc-review-approval-");
 	try {
-		const patch = demoReviewPatch();
-		const feedbackPath = join(directory, "feedback.json");
-		const feedback = new ReviewStore(feedbackPath, patch);
+		const feedbackStore = new ReviewStore(feedback.taskPath, feedback.patch);
 		assert.throws(
-			() => feedback.decide("send-feedback"),
-			/at least one saved human comment/,
+			() => feedbackStore.decide("send-feedback"),
+			(error) => error instanceof ReviewStateError && error.status === 409,
 		);
-		feedback.addComment(validComment);
-		const completed = feedback.decide("send-feedback");
+		feedbackStore.addComment(validComment);
+		assert.throws(
+			() => feedbackStore.decide("approve"),
+			(error) => error instanceof ReviewStateError && error.status === 409,
+		);
+		const completed = feedbackStore.decide("send-feedback");
 		assert.equal(completed.decision?.kind, "send-feedback");
-		assert.throws(() => feedback.addComment(validComment), /already has a completed decision/);
 		assert.throws(
-			() => feedback.updateComment(completed.humanComments[0].id, { body: "Too late." }),
-			/already has a completed decision/,
+			() => feedbackStore.addComment(validComment),
+			(error) => error instanceof ReviewStateError && error.status === 409,
 		);
-		assert.throws(
-			() => feedback.deleteComment(completed.humanComments[0].id),
-			/already has a completed decision/,
-		);
-		assert.throws(() => feedback.decide("approve"), /already has a completed decision/);
-		assert.deepEqual(new ReviewStore(feedbackPath, patch).snapshot(), completed);
+		assert.throws(() => feedbackStore.deleteComment(completed.humanComments[0].id), /completed decision/);
+		assert.deepEqual(new ReviewStore(feedback.taskPath, feedback.patch).snapshot(), completed);
 
-		const approval = new ReviewStore(join(directory, "approval.json"), patch);
-		assert.equal(approval.decide("approve").decision?.kind, "approve");
+		const approved = new ReviewStore(approval.taskPath, approval.patch).decide("approve");
+		assert.equal(approved.decision?.kind, "approve");
+	} finally {
+		rmSync(feedback.directory, { recursive: true, force: true });
+		rmSync(approval.directory, { recursive: true, force: true });
+	}
+});
+
+test("review readiness omits failures and rejects invalid projections", () => {
+	const directory = mkdtempSync(join(tmpdir(), "juruc-review-projection-"));
+	const taskPath = join(directory, "task.json");
+	const patch = demoReviewPatch();
+	try {
+		saveTaskDocument(taskPath, demoReviewTask({
+			deviation: {
+				status: "failed",
+				failureKind: "malformed-output",
+				message: "invalid JSON",
+			},
+			correctness: {
+				status: "completed",
+				annotations: [{
+					filePath: "src/greeting.ts",
+					side: "additions",
+					line: 3,
+					summary: "Concrete correctness issue.",
+				}],
+			},
+		}));
+		assert.deepEqual(new ReviewStore(taskPath, patch).snapshot().agentAnnotations.map(
+			({ source }) => source,
+		), ["Correctness reviewer"]);
+
+		const invalid = demoReviewTask();
+		const outcome = invalid.reviewRounds[0].reviewers.deviation!.outcome!;
+		if (outcome.status === "completed") outcome.annotations[0].line = 1;
+		saveTaskDocument(taskPath, invalid);
+		assert.throws(() => new ReviewStore(taskPath, patch), /not a changed line/);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
 });
 
-test("persisted review state rejects extra fields and a different patch", () => {
-	const directory = mkdtempSync(join(tmpdir(), "juruc-review-invalid-"));
+test("store detects stale authoritative patch identity on every snapshot", () => {
+	const { directory, taskPath, patch } = fixture("juruc-review-stale-");
 	try {
-		const patch = demoReviewPatch();
-		const path = join(directory, "review.json");
-		const store = new ReviewStore(path, patch);
-		writeFileSync(path, JSON.stringify({ ...store.snapshot(), unexpected: true }));
-		assert.throws(() => new ReviewStore(path, patch), /invalid fields/);
-
-		writeFileSync(
-			path,
-			JSON.stringify({
-				...store.snapshot(),
-				patch: { ...store.snapshot().patch, headOid: "3".repeat(40) },
-			}),
+		const store = new ReviewStore(taskPath, patch);
+		const changed = demoReviewTask();
+		changed.repository.sourceHead = "3".repeat(40);
+		changed.checkpoints[0].commit = "4".repeat(40);
+		changed.reviewRounds[0].baseCommit = "3".repeat(40);
+		changed.reviewRounds[0].headCommit = "4".repeat(40);
+		saveTaskDocument(taskPath, changed);
+		assert.throws(
+			() => store.snapshot(),
+			(error) => error instanceof ReviewStateError && error.status === 409,
 		);
-		assert.throws(() => new ReviewStore(path, patch), /different patch/);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}

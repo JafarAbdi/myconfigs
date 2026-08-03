@@ -1,6 +1,7 @@
 import { getLineAnnotationName } from "@pierre/diffs";
 import { preloadFileDiff } from "@pierre/diffs/ssr";
-import type { ReviewPatch, ReviewPatchFile, ReviewSide } from "./review-git.ts";
+import type { ReviewPatch, ReviewPatchFile } from "./review-git.ts";
+import type { ReviewSide } from "./task.ts";
 import type {
 	AgentAnnotation,
 	HumanComment,
@@ -264,6 +265,7 @@ export class ReviewRenderer {
 			`<a href="#file-${index}"${index === 0 ? ' aria-current="location"' : ""} title="${escapeHtml(file.filePath)}"><span class="sidebar-path">${escapeHtml(file.filePath)}</span><span class="file-counts"><span class="additions">+${file.changed.additions.length}</span><span class="deletions">-${file.changed.deletions.length}</span></span></a>`,
 		).join("");
 		const completed = state.decision !== null;
+		const approveDisabled = completed || state.humanComments.length > 0;
 		const reviewRange = `${state.patch.baseOid}...${state.patch.headOid}`;
 		return `<!doctype html>
 <html lang="en">
@@ -298,7 +300,7 @@ export class ReviewRenderer {
 		<div class="decision-inner">
 			<p id="browser-status" role="status" aria-live="polite">${completed ? "This review is complete." : `${state.humanComments.length} saved feedback comment${state.humanComments.length === 1 ? "" : "s"}.`}</p>
 			<div class="decision-actions">
-				<button type="button" class="button approve" data-decision="approve"${completed ? " disabled" : ""}>Approve</button>
+				<button type="button" class="button approve" data-decision="approve"${approveDisabled ? " disabled" : ""}>Approve</button>
 				<button type="button" class="button feedback" data-decision="send-feedback"${completed || state.humanComments.length === 0 ? " disabled" : ""}>Send Feedback</button>
 			</div>
 		</div>

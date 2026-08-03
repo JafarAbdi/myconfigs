@@ -1,52 +1,32 @@
-import { randomUUID } from "node:crypto";
+import type { PatchIdentity, ReviewPatch } from "./review-git.ts";
 import {
-	chmodSync,
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	renameSync,
-	unlinkSync,
-	writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
-import type {
-	PatchIdentity,
-	ReviewPatch,
-	ReviewSide,
-} from "./review-git.ts";
+	addTaskReviewComment,
+	currentTaskReviewRound,
+	decideTaskReview,
+	deleteTaskReviewComment,
+	loadTaskDocument,
+	saveTaskDocument,
+	updateTaskReviewComment,
+	type HumanComment,
+	type HumanCommentInput,
+	type ReviewDecision,
+	type ReviewDecisionKind,
+	type ReviewerAnnotation,
+	type ReviewerKind,
+	type ReviewSide,
+	type TaskDocument,
+	type TaskReviewRound,
+} from "./task.ts";
 
-export interface AgentAnnotation {
-	filePath: string;
-	side: ReviewSide;
-	line: number;
+export type {
+	HumanComment,
+	HumanCommentInput,
+	ReviewDecision,
+	ReviewDecisionKind,
+} from "./task.ts";
+
+export interface AgentAnnotation extends ReviewerAnnotation {
 	source: string;
-	summary: string;
-	rationale?: string;
-}
-
-export interface HumanComment {
-	id: string;
-	filePath: string;
-	side: ReviewSide;
-	startLine: number;
-	endLine: number;
-	body: string;
-	createdAt: string;
-}
-
-export interface HumanCommentInput {
-	filePath: string;
-	side: ReviewSide;
-	startLine: number;
-	endLine: number;
-	body: string;
-}
-
-export type ReviewDecisionKind = "approve" | "send-feedback";
-
-export interface ReviewDecision {
-	kind: ReviewDecisionKind;
-	decidedAt: string;
 }
 
 export interface ReviewState {
@@ -66,32 +46,34 @@ export class ReviewStateError extends Error {
 	}
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-
 function record(value: unknown, label: string): Record<string, unknown> {
 	if (value === null || typeof value !== "object" || Array.isArray(value))
 		throw new ReviewStateError(`${label} must be an object`);
 	return value as Record<string, unknown>;
 }
 
-function exactKeys(
-	value: Record<string, unknown>,
-	required: readonly string[],
-	optional: readonly string[] = [],
-): void {
-	const allowed = new Set([...required, ...optional]);
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): void {
 	if (
-		required.some((key) => !(key in value)) ||
-		Object.keys(value).some((key) => !allowed.has(key))
-	)
-		throw new ReviewStateError("review state has invalid fields");
+		Object.keys(value).length !== keys.length ||
+		keys.some((key) => !Object.hasOwn(value, key))
+	) throw new ReviewStateError("review mutation has invalid fields");
 }
 
-function text(value: unknown, label: string, maximum: number): string {
-	if (typeof value !== "string" || !value.trim() || value.length > maximum)
-		throw new ReviewStateError(`${label} must be non-empty and at most ${maximum} characters`);
+function cleanText(value: unknown, label: string, maximum: number): string {
+	if (
+		typeof value !== "string" ||
+		!value ||
+		value !== value.trim() ||
+		value.includes("\0") ||
+		value.length > maximum
+	) throw new ReviewStateError(`${label} must be trimmed, non-empty, NUL-free, and at most ${maximum} characters`);
 	return value;
+}
+
+function bodyText(value: unknown): string {
+	if (typeof value !== "string")
+		throw new ReviewStateError("comment body must be text");
+	return cleanText(value.trim(), "comment body", 10_000);
 }
 
 function line(value: unknown, label: string): number {
@@ -106,28 +88,7 @@ function side(value: unknown): ReviewSide {
 	return value;
 }
 
-function timestamp(value: unknown, label: string): string {
-	if (
-		typeof value !== "string" ||
-		Number.isNaN(Date.parse(value)) ||
-		new Date(value).toISOString() !== value
-	)
-		throw new ReviewStateError(`${label} must be an ISO timestamp`);
-	return value;
-}
-
-function patchIdentity(value: unknown): PatchIdentity {
-	const input = record(value, "patch");
-	exactKeys(input, ["baseOid", "headOid"]);
-	if (!OID.test(input.baseOid as string) || !OID.test(input.headOid as string))
-		throw new ReviewStateError("patch object IDs must be full hexadecimal OIDs");
-	return {
-		baseOid: input.baseOid as string,
-		headOid: input.headOid as string,
-	};
-}
-
-function validatesTarget(
+function validateTarget(
 	patch: ReviewPatch,
 	filePath: string,
 	targetSide: ReviewSide,
@@ -141,262 +102,170 @@ function validatesTarget(
 	const changed = new Set(file.changed[targetSide]);
 	for (let current = startLine; current <= endLine; current += 1)
 		if (!changed.has(current))
-			throw new ReviewStateError(
-				`${filePath}: ${targetSide} line ${current} is not a changed line`,
-			);
-}
-
-function agentAnnotation(value: unknown, patch: ReviewPatch): AgentAnnotation {
-	const input = record(value, "agent annotation");
-	exactKeys(input, ["filePath", "side", "line", "source", "summary"], ["rationale"]);
-	const annotation = {
-		filePath: text(input.filePath, "agent filePath", 4_096),
-		side: side(input.side),
-		line: line(input.line, "agent line"),
-		source: text(input.source, "agent source", 100),
-		summary: text(input.summary, "agent summary", 2_000),
-		...(input.rationale === undefined
-			? {}
-			: { rationale: text(input.rationale, "agent rationale", 5_000) }),
-	};
-	validatesTarget(
-		patch,
-		annotation.filePath,
-		annotation.side,
-		annotation.line,
-		annotation.line,
-	);
-	return annotation;
+			throw new ReviewStateError(`${filePath}: ${targetSide} line ${current} is not a changed line`);
 }
 
 function commentInput(value: unknown, patch: ReviewPatch): HumanCommentInput {
 	const input = record(value, "human comment");
 	exactKeys(input, ["filePath", "side", "startLine", "endLine", "body"]);
 	const comment = {
-		filePath: text(input.filePath, "comment filePath", 4_096),
+		filePath: cleanText(input.filePath, "comment filePath", 4_096),
 		side: side(input.side),
 		startLine: line(input.startLine, "comment startLine"),
 		endLine: line(input.endLine, "comment endLine"),
-		body: text(input.body, "comment body", 10_000).trim(),
+		body: bodyText(input.body),
 	};
-	validatesTarget(
-		patch,
-		comment.filePath,
-		comment.side,
-		comment.startLine,
-		comment.endLine,
-	);
+	validateTarget(patch, comment.filePath, comment.side, comment.startLine, comment.endLine);
 	return comment;
 }
 
 function commentBody(value: unknown): string {
 	const input = record(value, "comment update");
 	exactKeys(input, ["body"]);
-	return text(input.body, "comment body", 10_000).trim();
+	return bodyText(input.body);
 }
 
-function humanComment(value: unknown, patch: ReviewPatch): HumanComment {
-	const input = record(value, "human comment");
-	exactKeys(input, [
-		"id",
-		"filePath",
-		"side",
-		"startLine",
-		"endLine",
-		"body",
-		"createdAt",
-	]);
-	if (typeof input.id !== "string" || !UUID.test(input.id))
-		throw new ReviewStateError("comment id must be a UUID");
-	return {
-		id: input.id,
-		...commentInput(
-			{
-				filePath: input.filePath,
-				side: input.side,
-				startLine: input.startLine,
-				endLine: input.endLine,
-				body: input.body,
-			},
-			patch,
-		),
-		createdAt: timestamp(input.createdAt, "comment createdAt"),
-	};
+function validateAnnotation(patch: ReviewPatch, annotation: ReviewerAnnotation): void {
+	validateTarget(patch, annotation.filePath, annotation.side, annotation.line, annotation.line);
 }
 
-function decision(value: unknown): ReviewDecision | null {
-	if (value === null) return null;
-	const input = record(value, "decision");
-	exactKeys(input, ["kind", "decidedAt"]);
-	if (input.kind !== "approve" && input.kind !== "send-feedback")
-		throw new ReviewStateError("decision kind is invalid");
-	return {
-		kind: input.kind,
-		decidedAt: timestamp(input.decidedAt, "decision decidedAt"),
-	};
-}
-
-export function parseReviewState(source: string, patch: ReviewPatch): ReviewState {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(source);
-	} catch {
-		throw new ReviewStateError("review state is not valid JSON");
+function projectAnnotations(round: TaskReviewRound, patch: ReviewPatch): AgentAnnotation[] {
+	const projected: AgentAnnotation[] = [];
+	for (const [kind, source] of [
+		["deviation", "Deviation reviewer"],
+		["correctness", "Correctness reviewer"],
+	] as const satisfies readonly (readonly [ReviewerKind, string])[]) {
+		const outcome = round.reviewers[kind]?.outcome;
+		if (outcome?.status !== "completed") continue;
+		for (const annotation of outcome.annotations) {
+			validateAnnotation(patch, annotation);
+			projected.push({ ...structuredClone(annotation), source });
+		}
 	}
-	const input = record(parsed, "review state");
-	exactKeys(input, [
-		"version",
-		"patch",
-		"agentAnnotations",
-		"humanComments",
-		"decision",
-	]);
-	if (input.version !== 1) throw new ReviewStateError("review state version is invalid");
-	if (!Array.isArray(input.agentAnnotations) || !Array.isArray(input.humanComments))
-		throw new ReviewStateError("review annotations and comments must be arrays");
-	const identity = patchIdentity(input.patch);
-	if (
-		identity.baseOid !== patch.identity.baseOid ||
-		identity.headOid !== patch.identity.headOid
-	)
-		throw new ReviewStateError("saved review state belongs to a different patch");
-	const humanComments = input.humanComments.map((item) => humanComment(item, patch));
-	if (new Set(humanComments.map(({ id }) => id)).size !== humanComments.length)
-		throw new ReviewStateError("review state contains duplicate comment IDs");
-	const completedDecision = decision(input.decision);
-	if (completedDecision?.kind === "send-feedback" && humanComments.length === 0)
-		throw new ReviewStateError("saved Send Feedback decision has no human comments");
-	return {
-		version: 1,
-		patch: identity,
-		agentAnnotations: input.agentAnnotations.map((item) => agentAnnotation(item, patch)),
-		humanComments,
-		decision: completedDecision,
-	};
+	return projected;
 }
 
-function saveAtomic(path: string, state: ReviewState): void {
-	const directory = dirname(path);
-	mkdirSync(directory, { recursive: true, mode: 0o700 });
-	const temporary = join(directory, `.${randomUUID()}.tmp`);
-	try {
-		writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, {
-			encoding: "utf8",
-			flag: "wx",
-			mode: 0o600,
-		});
-		chmodSync(temporary, 0o600);
-		renameSync(temporary, path);
-		chmodSync(path, 0o600);
-	} catch (error) {
-		try {
-			unlinkSync(temporary);
-		} catch {}
-		throw error;
-	}
-}
-
-export function resetReviewState(path: string): void {
-	try {
-		unlinkSync(path);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-	}
+function domainError(error: unknown): never {
+	if (error instanceof ReviewStateError) throw error;
+	const message = error instanceof Error ? error.message : String(error);
+	if (/not found/u.test(message)) throw new ReviewStateError(message, 404);
+	if (/completed decision|current review|terminal outcomes|already|requires/u.test(message))
+		throw new ReviewStateError(message, 409);
+	throw new ReviewStateError(message, 400);
 }
 
 export class ReviewStore {
-	readonly path: string;
+	readonly taskPath: string;
 	private readonly patch: ReviewPatch;
-	private state: ReviewState;
+	private readonly roundNumber: number;
+	private readonly identity: PatchIdentity;
 
-	constructor(
-		path: string,
-		patch: ReviewPatch,
-		initialAgentAnnotations: readonly AgentAnnotation[] = [],
-	) {
-		this.path = path;
+	constructor(taskPath: string, patch: ReviewPatch) {
+		this.taskPath = taskPath;
 		this.patch = patch;
-		if (existsSync(path)) {
-			this.state = parseReviewState(readFileSync(path, "utf8"), patch);
-			chmodSync(path, 0o600);
-			return;
+		this.identity = { ...patch.identity };
+		let task: TaskDocument;
+		try {
+			task = loadTaskDocument(taskPath);
+		} catch (error) {
+			throw new ReviewStateError(
+				`authoritative task.json is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+				409,
+			);
 		}
-		this.state = {
+		const round = currentTaskReviewRound(task);
+		if (!round) throw new ReviewStateError("task has no current review round", 409);
+		this.roundNumber = round.number;
+		this.stateFrom(task);
+	}
+
+	private stateFrom(task: TaskDocument): ReviewState {
+		const round = currentTaskReviewRound(task);
+		if (
+			(task.stage !== "review" && task.stage !== "done") ||
+			!round ||
+			round.number !== this.roundNumber ||
+			round.baseCommit !== this.identity.baseOid ||
+			round.headCommit !== this.identity.headOid
+		) throw new ReviewStateError("review round or patch identity is stale", 409);
+		if (!round.reviewers.deviation?.outcome || !round.reviewers.correctness?.outcome)
+			throw new ReviewStateError("both reviewers must be terminal before browser review", 409);
+		for (const comment of round.humanComments)
+			validateTarget(this.patch, comment.filePath, comment.side, comment.startLine, comment.endLine);
+		return {
 			version: 1,
-			patch: { ...patch.identity },
-			agentAnnotations: initialAgentAnnotations.map((item) =>
-				agentAnnotation(item, patch),
-			),
-			humanComments: [],
-			decision: null,
+			patch: { ...this.identity },
+			agentAnnotations: projectAnnotations(round, this.patch),
+			humanComments: structuredClone(round.humanComments),
+			decision: structuredClone(round.decision),
 		};
-		saveAtomic(this.path, this.state);
+	}
+
+	private load(): { task: TaskDocument; state: ReviewState } {
+		let task: TaskDocument;
+		try {
+			task = loadTaskDocument(this.taskPath);
+		} catch (error) {
+			throw new ReviewStateError(
+				`authoritative task.json is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+				409,
+			);
+		}
+		return { task, state: this.stateFrom(task) };
 	}
 
 	snapshot(): ReviewState {
-		return structuredClone(this.state);
+		return this.load().state;
 	}
 
-	private requireOpen(): void {
-		if (this.state.decision)
-			throw new ReviewStateError("this review already has a completed decision", 409);
-	}
-
-	private commit(next: ReviewState): ReviewState {
-		saveAtomic(this.path, next);
-		this.state = next;
-		return this.snapshot();
+	private save(task: TaskDocument): ReviewState {
+		saveTaskDocument(this.taskPath, task);
+		return this.stateFrom(task);
 	}
 
 	addComment(value: unknown): ReviewState {
-		this.requireOpen();
-		const input = commentInput(value, this.patch);
-		return this.commit({
-			...this.state,
-			humanComments: [
-				...this.state.humanComments,
-				{
-					id: randomUUID(),
-					...input,
-					createdAt: new Date().toISOString(),
-				},
-			],
-		});
+		const { task } = this.load();
+		let updated: TaskDocument;
+		try {
+			updated = addTaskReviewComment(task, commentInput(value, this.patch));
+		} catch (error) {
+			domainError(error);
+		}
+		return this.save(updated);
 	}
 
 	updateComment(id: string, value: unknown): ReviewState {
-		this.requireOpen();
-		if (!this.state.humanComments.some((comment) => comment.id === id))
-			throw new ReviewStateError("comment not found", 404);
-		const body = commentBody(value);
-		return this.commit({
-			...this.state,
-			humanComments: this.state.humanComments.map((comment) =>
-				comment.id === id ? { ...comment, body } : comment,
-			),
-		});
+		const { task } = this.load();
+		let updated: TaskDocument;
+		try {
+			updated = updateTaskReviewComment(task, id, commentBody(value));
+		} catch (error) {
+			domainError(error);
+		}
+		return this.save(updated);
 	}
 
 	deleteComment(id: string): ReviewState {
-		this.requireOpen();
-		const comments = this.state.humanComments.filter((comment) => comment.id !== id);
-		if (comments.length === this.state.humanComments.length)
-			throw new ReviewStateError("comment not found", 404);
-		return this.commit({ ...this.state, humanComments: comments });
+		const { task } = this.load();
+		let updated: TaskDocument;
+		try {
+			updated = deleteTaskReviewComment(task, id);
+		} catch (error) {
+			domainError(error);
+		}
+		return this.save(updated);
 	}
 
 	decide(kind: unknown): ReviewState {
-		this.requireOpen();
 		if (kind !== "approve" && kind !== "send-feedback")
 			throw new ReviewStateError("decision kind is invalid");
-		if (kind === "send-feedback" && this.state.humanComments.length === 0)
-			throw new ReviewStateError(
-				"Send Feedback requires at least one saved human comment",
-				409,
-			);
-		return this.commit({
-			...this.state,
-			decision: { kind, decidedAt: new Date().toISOString() },
-		});
+		const { task } = this.load();
+		let updated: TaskDocument;
+		try {
+			updated = decideTaskReview(task, kind);
+		} catch (error) {
+			domainError(error);
+		}
+		return this.save(updated);
 	}
 }

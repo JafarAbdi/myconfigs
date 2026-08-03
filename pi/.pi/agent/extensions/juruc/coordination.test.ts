@@ -27,20 +27,25 @@ function task() {
 }
 
 test("discovery transitions preserve one fresh typed run per stage", () => {
-	let current = task();
-	for (const [kind, path] of [
-		["questions", "/sessions/questions.jsonl"],
-		["research", "/sessions/research.jsonl"],
-		["specification", "/sessions/specification.jsonl"],
-		["plan", "/sessions/plan.jsonl"],
-	] as const) current = appendTaskSession(current, { kind, path });
+	let current = appendTaskSession(task(), {
+		kind: "questions",
+		path: "/sessions/questions.jsonl",
+	});
 	current = setTaskQuestions(current, {
 		sharedUnderstanding: "Confirmed target.",
 		decisions: [],
 		acceptedAssumptions: [],
 		researchTargets: [],
 	});
+	current = appendTaskSession(current, {
+		kind: "research",
+		path: "/sessions/research.jsonl",
+	});
 	current = completeTaskResearch(current);
+	current = appendTaskSession(current, {
+		kind: "specification",
+		path: "/sessions/specification.jsonl",
+	});
 	current = setTaskSpecification(current, {
 		summary: "Specified target.",
 		requirements: ["Implement it."],
@@ -48,6 +53,10 @@ test("discovery transitions preserve one fresh typed run per stage", () => {
 		constraints: [],
 		acceptanceCriteria: ["It works."],
 		decisions: [],
+	});
+	current = appendTaskSession(current, {
+		kind: "plan",
+		path: "/sessions/plan.jsonl",
 	});
 	current = confirmTaskPlan(current, {
 		phases: [{
