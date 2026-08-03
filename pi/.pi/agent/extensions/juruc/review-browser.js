@@ -1,9 +1,11 @@
 export function targetFromComposedPath(path) {
+	let explicitCommentControl = false;
 	let lineTarget;
 	let filePath;
 	for (const node of path) {
 		const data = node && typeof node === "object" ? node.dataset : undefined;
 		if (!data) continue;
+		if (typeof data.utilityButton === "string") explicitCommentControl = true;
 		if (typeof data.filePath === "string") filePath = data.filePath;
 		if (
 			!lineTarget &&
@@ -18,7 +20,9 @@ export function targetFromComposedPath(path) {
 				};
 		}
 	}
-	return lineTarget && filePath ? { filePath, ...lineTarget } : undefined;
+	return explicitCommentControl && lineTarget && filePath
+		? { filePath, ...lineTarget }
+		: undefined;
 }
 
 export function singleLineSelection(target) {
@@ -147,14 +151,11 @@ if (typeof document !== "undefined") {
 		}
 		for (const host of document.querySelectorAll("diffs-container"))
 			for (
-				const node of host.shadowRoot?.querySelectorAll(
-					'[data-line-type="change-addition"], [data-line-type="change-deletion"]',
+				const control of host.shadowRoot?.querySelectorAll(
+					"[data-gutter-utility-slot]",
 				) || []
-			) {
-				node.removeAttribute("tabindex");
-				node.removeAttribute("role");
-				node.setAttribute("aria-disabled", "true");
-			}
+			)
+				control.remove();
 		selection = undefined;
 		editingCommentId = undefined;
 		textarea.value = "";
@@ -261,20 +262,28 @@ if (typeof document !== "undefined") {
 		showSelection();
 	}
 
-	for (const host of document.querySelectorAll("diffs-container"))
-		for (
-			const node of host.shadowRoot?.querySelectorAll(
-				'[data-line][data-line-type="change-addition"], [data-line][data-line-type="change-deletion"]',
-			) || []
-		) {
-			node.tabIndex = 0;
-			node.setAttribute("role", "button");
-			const side = node.dataset.lineType === "change-addition" ? "new" : "old";
-			node.setAttribute(
-				"aria-label",
-				`Comment on ${host.dataset.filePath}, ${side} line ${node.dataset.line}`,
-			);
-		}
+	if (document.body.dataset.completed !== "true")
+		for (const host of document.querySelectorAll("diffs-container"))
+			for (
+				const line of host.shadowRoot?.querySelectorAll(
+					'[data-gutter] [data-column-number][data-line-type="change-addition"], [data-gutter] [data-column-number][data-line-type="change-deletion"]',
+				) || []
+			) {
+				const side = line.dataset.lineType === "change-addition" ? "new" : "old";
+				const utility = document.createElement("div");
+				const button = document.createElement("button");
+				utility.dataset.gutterUtilitySlot = "";
+				button.dataset.utilityButton = "";
+				button.type = "button";
+				button.textContent = "+";
+				button.setAttribute(
+					"aria-label",
+					`Comment on ${host.dataset.filePath}, ${side} line ${line.dataset.columnNumber}`,
+				);
+				button.title = "Add review comment";
+				utility.append(button);
+				line.append(utility);
+			}
 
 	document.addEventListener("click", async (event) => {
 		if (document.body.dataset.completed === "true") return;
@@ -349,12 +358,6 @@ if (typeof document !== "undefined") {
 				return;
 			}
 		}
-		if (event.key !== "Enter" && event.key !== " ") return;
-		if (!review || review.state.decision) return;
-		const target = targetFromComposedPath(event.composedPath());
-		if (!target) return;
-		event.preventDefault();
-		selectLine(target, event.shiftKey);
 	});
 
 	textarea.addEventListener("input", saveDraft);

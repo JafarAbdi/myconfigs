@@ -364,6 +364,7 @@ export interface PrepareReviewInput {
 	parentSession?: string;
 	readPatch?: ReviewPatchReader;
 	reviewerDriver?: ReviewerDriver;
+	onProgress?: (task: TaskDocument) => void;
 }
 
 function reviewRoundIdentity(task: StoredTask, round: TaskReviewRound): ReviewServerIdentity {
@@ -411,48 +412,55 @@ async function prepareReviewLocked(input: PrepareReviewInput): Promise<TaskDocum
 		patch.identity.headOid !== expected.headCommit
 	) throw new Error("review patch identity differs from the persisted review round");
 
-	for (const kind of ["deviation", "correctness"] as const satisfies readonly ReviewerKind[]) {
+	const persist = (next: TaskDocument): void => {
+		saveTaskDocument(input.taskPath, next);
+		input.onProgress?.(next);
+	};
+	const kinds = ["deviation", "correctness"] as const satisfies readonly ReviewerKind[];
+	for (const kind of kinds) {
 		task = loadTaskDocument(input.taskPath);
-		let round = requireSameReviewRound(task, expected);
-		const slot = round.reviewers[kind];
-		if (slot?.outcome) continue;
-		if (slot) {
-			task = completeTaskReviewer(task, kind, {
-				status: "failed",
-				failureKind: "session-error",
-				message: "reviewer session was interrupted before a terminal outcome was persisted",
-			});
-			saveTaskDocument(input.taskPath, task);
-			continue;
-		}
-		if (!task.specification || !task.plan)
-			throw new Error("authoritative review artifacts changed during preparation");
+		const slot = requireSameReviewRound(task, expected).reviewers[kind];
+		if (!slot || slot.outcome) continue;
+		task = completeTaskReviewer(task, kind, {
+			status: "failed",
+			failureKind: "session-error",
+			message: "reviewer session was interrupted before a terminal outcome was persisted",
+		});
+		persist(task);
+	}
 
+	task = loadTaskDocument(input.taskPath);
+	const pending = kinds.filter(
+		(kind) => requireSameReviewRound(task, expected).reviewers[kind] === null,
+	);
+	const settled = await Promise.allSettled(pending.map(async (kind) => {
+		const current = loadTaskDocument(input.taskPath);
+		requireSameReviewRound(current, expected);
+		if (!current.specification || !current.plan)
+			throw new Error("authoritative review artifacts changed during preparation");
 		const reviewerInput = {
-			worktree: task.repository.worktree,
+			worktree: current.repository.worktree,
 			patch,
-			specification: task.specification,
-			checkpoints: task.checkpoints,
+			specification: current.specification,
+			checkpoints: current.checkpoints,
 			...(input.parentSession ? { parentSession: input.parentSession } : {}),
 			onSessionCreated: async (sessionPath: string) => {
-				const current = loadTaskDocument(input.taskPath);
-				requireSameReviewRound(current, expected);
-				saveTaskDocument(
-					input.taskPath,
-					registerTaskReviewerStart(current, kind, sessionPath),
-				);
+				const registered = loadTaskDocument(input.taskPath);
+				requireSameReviewRound(registered, expected);
+				persist(registerTaskReviewerStart(registered, kind, sessionPath));
 			},
 		};
 		const result = kind === "deviation"
-			? await runReviewer({ ...reviewerInput, kind, plan: task.plan }, reviewerDriver)
+			? await runReviewer({ ...reviewerInput, kind, plan: current.plan }, reviewerDriver)
 			: await runReviewer({ ...reviewerInput, kind }, reviewerDriver);
-		task = loadTaskDocument(input.taskPath);
-		round = requireSameReviewRound(task, expected);
+		const completed = loadTaskDocument(input.taskPath);
+		const round = requireSameReviewRound(completed, expected);
 		if (round.reviewers[kind]?.sessionPath !== result.sessionPath)
 			throw new Error(`${kind} reviewer session differs from authoritative task.json`);
-		task = completeTaskReviewer(task, kind, result.outcome);
-		saveTaskDocument(input.taskPath, task);
-	}
+		persist(completeTaskReviewer(completed, kind, result.outcome));
+	}));
+	const rejected = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+	if (rejected) throw rejected.reason;
 	return loadTaskDocument(input.taskPath);
 }
 
@@ -808,7 +816,11 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		})();
 	}
 
-	async function serveReview(ctx: ExtensionCommandContext, task: StoredTask): Promise<void> {
+	async function serveReview(
+		ctx: ExtensionCommandContext,
+		task: StoredTask,
+		preparedPatch?: ReviewPatch,
+	): Promise<void> {
 		const round = currentTaskReviewRound(task.document)!;
 		const slug = task.document.slug;
 		const identity = reviewRoundIdentity(task, round);
@@ -817,7 +829,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		// only a closed one issues a fresh URL.
 		if (!activeReviewServer.reuse(identity, onDecision))
 			await activeReviewServer.serve({
-				patch: await readPatch(
+				patch: preparedPatch ?? await readPatch(
 					task.document.repository.worktree,
 					round.baseCommit,
 					round.headCommit,
@@ -845,6 +857,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		}
 		if (round.decision)
 			throw new Error(`${task.document.slug}: review round is already decided`);
+		let preparedPatch: ReviewPatch | undefined;
 		if (Object.values(round.reviewers).some((slot) => !slot?.outcome)) {
 			await activeReviewServer.close();
 			showStatus(ctx, task);
@@ -857,12 +870,19 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			await prepareReview({
 				taskPath: join(task.directory, "task.json"),
 				...(parentSession ? { parentSession } : {}),
-				readPatch,
+				readPatch: async (...arguments_) => {
+					preparedPatch = await readPatch(...arguments_);
+					return preparedPatch;
+				},
 				reviewerDriver: dependencies.reviewerDriver,
+				onProgress: (document) => {
+					task = { ...task, document };
+					showStatus(ctx, task);
+				},
 			});
 			task = loadTask(paths, task.document.slug);
 		}
-		await serveReview(ctx, task);
+		await serveReview(ctx, task, preparedPatch);
 	}
 
 	async function openFeedbackGrill(

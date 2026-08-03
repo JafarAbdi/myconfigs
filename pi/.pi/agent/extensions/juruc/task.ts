@@ -709,9 +709,6 @@ function validReviewRound(value: unknown, index: number): value is TaskReviewRou
 		!Array.isArray(round.humanComments) ||
 		!round.humanComments.every(validHumanComment)
 	) return false;
-	const deviation = reviewers.deviation as TaskReviewerSlot | null;
-	const correctness = reviewers.correctness as TaskReviewerSlot | null;
-	if (correctness !== null && (deviation === null || deviation.outcome === null)) return false;
 	const comments = round.humanComments as HumanComment[];
 	if (new Set(comments.map(({ id }) => id)).size !== comments.length) return false;
 	if (round.decision === null) return round.correction === null;
@@ -1044,8 +1041,6 @@ export function registerTaskReviewerStart(
 		throw new Error("reviewer session path must be absolute");
 	if (round.reviewers[kind] !== null)
 		throw new Error(`${kind} reviewer has already started`);
-	if (kind === "correctness" && !round.reviewers.deviation?.outcome)
-		throw new Error("correctness reviewer requires a terminal deviation outcome");
 	if (findTaskSessionByPath(task, sessionPath))
 		throw new Error(`session path is already recorded: ${sessionPath}`);
 	const sessionKind = kind === "deviation" ? "deviation-review" : "correctness-review";

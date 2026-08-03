@@ -47,6 +47,9 @@ test("Pierre SSR output uses declarative Shadow DOM and grouped public annotatio
 
 		assert.match(html, /<template shadowrootmode="open">/u);
 		assert.match(html, /<style data-core-css="">/u);
+		assert.match(html, /<style data-unsafe-css="">[\s\S]*\[data-utility-button\]/u);
+		assert.match(html, /\[data-disable-line-numbers\] \[data-column-number\]/u);
+		assert.match(html, /@media \(hover: none\), \(pointer: coarse\)/u);
 		assert.match(html, /data-mode="stack"/u);
 		assert.match(html, /data-layout="unified"/u);
 		assert.match(html, /<body class="sidebar-hidden"/u);
@@ -73,6 +76,10 @@ test("Pierre SSR output uses declarative Shadow DOM and grouped public annotatio
 		assert.match(html, /href="#file-0"/u);
 		assert.match(html, /class="additions">\+2/u);
 		assert.match(html, /class="deletions">-1/u);
+		assert.match(
+			html,
+			/Click \+ on a changed line to comment; Shift-click \+ to extend a contiguous range\./u,
+		);
 		assert.match(html, /<span id="save-comment-label">Save feedback<\/span> <kbd>Ctrl\/⌘ Enter<\/kbd>/u);
 		assert.match(html, /src="\/capability\/review\.js"/u);
 		assert.match(html, /href="\/capability\/review\.css"/u);
@@ -242,8 +249,9 @@ test("feedback submission requires Ctrl+Enter or Cmd+Enter", () => {
 	assert.equal(isFeedbackSubmitShortcut({ key: " ", ctrlKey: true }), false);
 });
 
-test("the tiny browser adapter maps only Pierre changed-line composed paths", () => {
+test("the tiny browser adapter maps only explicit Pierre gutter controls", () => {
 	const target = targetFromComposedPath([
+		{ dataset: { utilityButton: "" } },
 		{ dataset: { line: "3", lineType: "change-addition" } },
 		{ dataset: { content: "" } },
 		{ dataset: { filePath: "src/greeting.ts" } },
@@ -261,6 +269,7 @@ test("the tiny browser adapter maps only Pierre changed-line composed paths", ()
 	});
 	assert.deepEqual(
 		targetFromComposedPath([
+			{ dataset: { utilityButton: "" } },
 			{ dataset: { columnNumber: "2", lineType: "change-deletion" } },
 			{ dataset: { filePath: "src/greeting.ts" } },
 		]),
@@ -268,6 +277,14 @@ test("the tiny browser adapter maps only Pierre changed-line composed paths", ()
 	);
 	assert.equal(
 		targetFromComposedPath([
+			{ dataset: { line: "3", lineType: "change-addition" } },
+			{ dataset: { filePath: "src/greeting.ts" } },
+		]),
+		undefined,
+	);
+	assert.equal(
+		targetFromComposedPath([
+			{ dataset: { utilityButton: "" } },
 			{ dataset: { line: "1", lineType: "context" } },
 			{ dataset: { filePath: "src/greeting.ts" } },
 		]),

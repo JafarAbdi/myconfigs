@@ -27,6 +27,31 @@ export const DEFAULT_REVIEW_VIEW_OPTIONS: ReviewViewOptions = {
 	agentNotes: true,
 };
 
+const COMMENT_CONTROL_CSS = `
+[data-column-number] {
+	position: relative;
+}
+[data-utility-button] {
+	opacity: 0;
+}
+[data-column-number]:hover [data-utility-button],
+[data-utility-button]:focus-visible {
+	opacity: 1;
+}
+[data-utility-button]:focus-visible {
+	outline: 2px solid #72aaff;
+	outline-offset: 1px;
+}
+[data-disable-line-numbers] [data-column-number] {
+	min-width: calc(1lh + 6px);
+}
+@media (hover: none), (pointer: coarse) {
+	[data-utility-button] {
+		opacity: 1;
+	}
+}
+`;
+
 interface AnnotationGroup {
 	side: ReviewSide;
 	line: number;
@@ -215,6 +240,7 @@ export class ReviewRenderer {
 					hunkSeparators: options.hunkHeaders ? "metadata" : "simple",
 					lineDiffType: "word-alt",
 					overflow: options.wrap ? "wrap" : "scroll",
+					unsafeCSS: COMMENT_CONTROL_CSS,
 				},
 			}).then(({ prerenderedHTML }) => prerenderedHTML);
 			this.cache.set(key, rendered);
@@ -287,7 +313,7 @@ export class ReviewRenderer {
 	<main class="review-shell">
 		<aside class="file-sidebar" aria-label="Changed files"><div class="sidebar-heading">Files</div><nav>${sidebar}</nav></aside>
 		<div class="review-content">
-			<section class="review-context"><span>Cumulative diff</span><span id="review-instruction">${completed ? "Read-only completion receipt." : "Select a changed line to comment; Shift-select a range."}</span></section>
+			<section class="review-context"><span>Cumulative diff</span><span id="review-instruction">${completed ? "Read-only completion receipt." : "Click + on a changed line to comment; Shift-click + to extend a contiguous range."}</span></section>
 			<div class="files">${files}</div>
 		</div>
 	</main>

@@ -237,12 +237,14 @@ test("final checkpoint atomically creates the exact first review round", () => {
 		"/sessions/implementation-2.jsonl");
 });
 
-test("reviewer registration is atomic, ordered, typed, exact, and one-way", () => {
+test("reviewer registration is atomic, independent, typed, exact, and one-way", () => {
 	let task = finishImplementation();
-	assert.throws(
-		() => registerTaskReviewerStart(task, "correctness", "/sessions/correctness-1.jsonl"),
-		/requires a terminal deviation outcome/,
-	);
+	task = registerTaskReviewerStart(task, "correctness", "/sessions/correctness-1.jsonl");
+	assert.deepEqual(currentTaskReviewRound(task)?.reviewers.correctness, {
+		sessionPath: "/sessions/correctness-1.jsonl",
+		outcome: null,
+	});
+	assert.deepEqual(parseTaskDocument(serializeTaskDocument(task)), task);
 	task = registerTaskReviewerStart(task, "deviation", "/sessions/deviation-1.jsonl");
 	assert.deepEqual(currentTaskReviewRound(task)?.reviewers.deviation, {
 		sessionPath: "/sessions/deviation-1.jsonl",
@@ -250,26 +252,16 @@ test("reviewer registration is atomic, ordered, typed, exact, and one-way", () =
 	});
 	assert.equal(findTaskSession(task, { kind: "deviation-review", round: 1 })?.path,
 		"/sessions/deviation-1.jsonl");
+	assert.equal(findTaskSession(task, { kind: "correctness-review", round: 1 })?.path,
+		"/sessions/correctness-1.jsonl");
 	assert.throws(
 		() => registerTaskReviewerStart(task, "deviation", "/sessions/deviation-2.jsonl"),
 		/already started/,
 	);
-	const unordered = structuredClone(task);
-	unordered.sessions.push({
-		kind: "correctness-review",
-		round: 1,
-		path: "/sessions/correctness-1.jsonl",
-	});
-	unordered.reviewRounds[0].reviewers.correctness = {
-		sessionPath: "/sessions/correctness-1.jsonl",
-		outcome: null,
-	};
-	assert.throws(() => parseTaskDocument(JSON.stringify(unordered)), /invalid/);
 
+	task = completeTaskReviewer(task, "correctness", completed);
 	task = completeTaskReviewer(task, "deviation", completed);
 	assert.throws(() => completeTaskReviewer(task, "deviation", failed), /already complete/);
-	task = registerTaskReviewerStart(task, "correctness", "/sessions/correctness-1.jsonl");
-	assert.equal(currentTaskReviewRound(task)?.reviewers.correctness?.outcome, null);
 });
 
 test("comments preserve immutable fields and decisions freeze the round", () => {

@@ -94,6 +94,7 @@ try {
 			saveTaskDocument,
 		},
 		reviewServerModule,
+		{ readGitReviewPatch },
 		{ demoReviewPatch, demoReviewTask },
 		{ PLAN_DECISION_TITLE, PLAN_DECISION_UNRESOLVED, PLAN_REVISION_TITLE },
 	] = await Promise.all([
@@ -104,6 +105,7 @@ try {
 		import("./tasks.ts"),
 		import("./task.ts"),
 		import("./review-server.ts"),
+		import("./review-git.ts"),
 		import("./review-fixture.ts"),
 		import("./planning.ts"),
 	]);
@@ -304,6 +306,7 @@ try {
 			],
 		};
 		const reviewerCalls: string[] = [];
+		let reviewPatchReads = 0;
 		const reviewerDriver = async (input: { kind: string }) => {
 			reviewerCalls.push(input.kind);
 			return {
@@ -339,7 +342,14 @@ try {
 			promptTemplates: [],
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
-			registerJuruc: (pi, taskNamer) => registerJuruc(pi, { reviewerDriver, taskNamer }),
+			registerJuruc: (pi, taskNamer) => registerJuruc(pi, {
+				readPatch: async (...arguments_) => {
+					reviewPatchReads++;
+					return readGitReviewPatch(...arguments_);
+				},
+				reviewerDriver,
+				taskNamer,
+			}),
 			probe: (pi, record) => {
 				pi.on("session_start", () => {
 					record.activeTools = pi.getActiveTools();
@@ -519,6 +529,8 @@ try {
 				findTaskSession(task.document, { kind: "implementation", phase: 2 })?.path,
 			);
 			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
+			assert.equal(reviewPatchReads, 1);
+			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Preparing"));
 			assert.match(requireLiveReviewUrl(task), /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/\?/u);
 			const round = task.document.reviewRounds[0];
 			assert.equal(round.baseCommit, task.document.repository.sourceHead);
@@ -601,7 +613,7 @@ try {
 		}
 	});
 
-	await test("review preparation is resumable, sequential, and crash-safe", async () => {
+	await test("review preparation starts and settles reviewers concurrently and recovers interruptions", async () => {
 		const root = join(scratch, "review-preparation");
 		mkdirSync(root);
 		const worktree = join(root, "worktree");
@@ -641,18 +653,21 @@ try {
 		saveTaskDocument(concurrentPath, freshTask());
 		let releaseDeviation!: () => void;
 		const deviationGate = new Promise<void>((resolve) => { releaseDeviation = resolve; });
-		let signalDeviationStarted!: () => void;
-		const deviationStarted = new Promise<void>((resolve) => { signalDeviationStarted = resolve; });
+		let signalBothStarted!: () => void;
+		const bothStarted = new Promise<void>((resolve) => { signalBothStarted = resolve; });
+		let signalCorrectnessCompleted!: () => void;
+		const correctnessCompleted = new Promise<void>((resolve) => {
+			signalCorrectnessCompleted = resolve;
+		});
 		const concurrentCalls: string[] = [];
+		const progress: Array<[boolean, boolean]> = [];
 		const firstPreparation = prepareReview({
 			taskPath: concurrentPath,
 			readPatch: async () => patch,
 			reviewerDriver: async ({ kind }) => {
 				concurrentCalls.push(kind);
-				if (kind === "deviation") {
-					signalDeviationStarted();
-					await deviationGate;
-				}
+				if (concurrentCalls.length === 2) signalBothStarted();
+				if (kind === "deviation") await deviationGate;
 				return {
 					assistantMessages: [{
 						role: "assistant",
@@ -661,11 +676,18 @@ try {
 					}],
 				};
 			},
+			onProgress: (document) => {
+				const reviewers = document.reviewRounds[0].reviewers;
+				progress.push([reviewers.deviation !== null, reviewers.correctness !== null]);
+				if (reviewers.correctness?.outcome) signalCorrectnessCompleted();
+			},
 		});
-		await deviationStarted;
+		await bothStarted;
+		await correctnessCompleted;
 		const running = loadTaskDocument(concurrentPath).reviewRounds[0];
 		assert.equal(running.reviewers.deviation?.outcome, null);
-		assert.equal(running.reviewers.correctness, null);
+		assert.equal(running.reviewers.correctness?.outcome?.status, "completed");
+		assert.deepEqual(progress.slice(0, 2), [[true, false], [true, true]]);
 		let secondPatchReads = 0;
 		let secondDriverCalls = 0;
 		await assert.rejects(
@@ -684,13 +706,13 @@ try {
 		);
 		assert.equal(secondPatchReads, 0);
 		assert.equal(secondDriverCalls, 0);
-		assert.deepEqual(concurrentCalls, ["deviation"]);
-		const stillRunning = loadTaskDocument(concurrentPath).reviewRounds[0];
-		assert.equal(stillRunning.reviewers.deviation?.outcome, null);
-		assert.equal(stillRunning.reviewers.correctness, null);
+		assert.deepEqual(concurrentCalls, ["deviation", "correctness"]);
 		releaseDeviation();
 		await firstPreparation;
-		assert.deepEqual(concurrentCalls, ["deviation", "correctness"]);
+		assert.equal(
+			loadTaskDocument(concurrentPath).reviewRounds[0].reviewers.deviation?.outcome?.status,
+			"completed",
+		);
 		assert.equal(existsSync(`${concurrentPath}.review.lock`), false);
 
 		const advisoryPath = join(root, "advisory.json");
@@ -720,7 +742,12 @@ try {
 		let interrupted = registerTaskReviewerStart(
 			freshTask(),
 			"deviation",
-			join(root, "interrupted-session.jsonl"),
+			join(root, "interrupted-deviation.jsonl"),
+		);
+		interrupted = registerTaskReviewerStart(
+			interrupted,
+			"correctness",
+			join(root, "interrupted-correctness.jsonl"),
 		);
 		saveTaskDocument(interruptedPath, interrupted);
 		const resumedCalls: string[] = [];
@@ -729,27 +756,15 @@ try {
 			readPatch: async () => patch,
 			reviewerDriver: async ({ kind }) => {
 				resumedCalls.push(kind);
-				return {
-					assistantMessages: [{
-						role: "assistant",
-						content: [{ type: "text", text: '{"annotations":[]}' }],
-						stopReason: "stop",
-					}],
-				};
+				return { assistantMessages: [] };
 			},
 		});
 		interrupted = loadTaskDocument(interruptedPath);
-		assert.deepEqual(resumedCalls, ["correctness"]);
-		assert.equal(
-			interrupted.reviewRounds[0].reviewers.deviation?.outcome?.status,
-			"failed",
-		);
-		assert.match(
-			interrupted.reviewRounds[0].reviewers.deviation?.outcome?.status === "failed"
-				? interrupted.reviewRounds[0].reviewers.deviation!.outcome.message
-				: "",
-			/interrupted/,
-		);
+		assert.deepEqual(resumedCalls, []);
+		for (const slot of Object.values(interrupted.reviewRounds[0].reviewers)) {
+			assert.equal(slot?.outcome?.status, "failed");
+			assert.match(slot?.outcome?.status === "failed" ? slot.outcome.message : "", /interrupted/);
+		}
 		await prepareReview({
 			taskPath: interruptedPath,
 			readPatch: async () => patch,
