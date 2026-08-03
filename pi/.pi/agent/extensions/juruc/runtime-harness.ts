@@ -18,6 +18,9 @@ export interface HarnessInstance {
 	instance: number;
 	pi: ExtensionAPI;
 	startContext?: ExtensionContext;
+	cwd?: string;
+	activeTools?: string[];
+	toolActivations: string[][];
 	rawManager?: unknown;
 }
 
@@ -25,10 +28,12 @@ export interface HarnessOptions {
 	agentDir: string;
 	cwd: string;
 	sessionManager: SessionManager;
-	/** Absolute canonical prompt-template files exposed through `pi.getCommands()`. */
+	/** Absolute prompt-template files exposed through `pi.getCommands()`. */
 	promptTemplates: readonly string[];
 	/** Extra tool names registered as stubs so JURUC profiles can activate. */
 	stubTools?: readonly string[];
+	/** Tool names hidden from JURUC registration checks. */
+	omitTools?: readonly string[];
 	/** Result `details` a stub tool returns, letting tests supply delegate payloads. */
 	stubResult?: (name: string, args: unknown) => unknown;
 	select?: (title: string, options: string[]) => Promise<string | undefined>;
@@ -126,8 +131,17 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 			resourceLoaderOptions: {
 				extensionFactories: [
 					(pi: ExtensionAPI) => {
-						const record: HarnessInstance = { instance: instances.length + 1, pi };
+						const record: HarnessInstance = {
+							instance: instances.length + 1,
+							pi,
+							toolActivations: [],
+						};
 						instances.push(record);
+						const setActiveTools = pi.setActiveTools.bind(pi);
+						pi.setActiveTools = (names) => {
+							record.toolActivations.push([...names]);
+							setActiveTools(names);
+						};
 						pi.registerProvider(provider, {
 							baseUrl: faux.getModel().baseUrl,
 							apiKey: "faux-key",
@@ -159,8 +173,14 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 									details: options.stubResult?.(name, args),
 								}),
 							});
+						if (options.omitTools?.length) {
+							const omitted = new Set(options.omitTools);
+							const getAllTools = pi.getAllTools.bind(pi);
+							pi.getAllTools = () => getAllTools().filter(({ name }) => !omitted.has(name));
+						}
 						pi.on("session_start", (_event, ctx) => {
 							record.startContext = ctx;
+							record.cwd = ctx.cwd;
 							record.rawManager = ctx.sessionManager;
 							events.push(`start:${record.instance}`);
 						});

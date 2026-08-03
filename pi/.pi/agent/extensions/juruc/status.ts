@@ -1,52 +1,42 @@
-import type { TaskDocument } from "./task.ts";
+import type { TaskDocument, TaskStage } from "./task.ts";
 
-export const LIFECYCLE_STAGES = ["research", "plan", "build", "done"] as const;
-export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number];
+const RAIL = [
+	["questions", "Q"],
+	["research", "R"],
+	["specification", "S"],
+	["plan", "P"],
+	["implementation", "I"],
+] as const;
 
 export interface LifecyclePlace {
-	active: LifecycleStage;
+	active: TaskStage;
 	detail: string;
 }
 
-export function lifecyclePlace(
-	task: TaskDocument,
-	activity?: "synthesizing",
-): LifecyclePlace {
-	if (task.stage === "research")
-		return {
-			active: "research",
-			detail: activity === "synthesizing" ? "synthesizing" : "researching",
-		};
-	if (task.stage === "planning")
-		return {
-			active: "plan",
-			detail: task.blockReason ? "replanning blocked phase" : "planning",
-		};
-	if (task.stage === "done") {
-		const completed = task.plan?.completed.length ?? 0;
-		return { active: "done", detail: `${completed}/${completed} phases` };
-	}
-	const completed = task.plan?.completed.length ?? 0;
-	const total = completed + (task.plan?.remaining.length ?? 0);
-	const progress = total ? `P${completed + 1}/${total}` : "";
-	const state = task.stage === "blocked"
-		? `blocked${task.blockReason ? `: ${task.blockReason}` : ""}`
-		: "building";
-	return { active: "build", detail: [progress, state].filter(Boolean).join(" · ") };
+export function lifecyclePlace(task: TaskDocument): LifecyclePlace {
+	if (task.stage !== "implementation" && task.stage !== "done")
+		return { active: task.stage, detail: task.stage };
+	if (task.stage === "done") return { active: "done", detail: "done" };
+	const phase = task.plan?.phases[task.checkpoints.length];
+	const total = task.plan?.phases.length ?? 0;
+	return {
+		active: "implementation",
+		detail: phase
+			? `phase ${task.checkpoints.length + 1}/${total} · ${phase.title}`
+			: "implementation",
+	};
 }
 
-export function lifecycleLine(
-	task: TaskDocument,
-	activity?: "synthesizing",
-): string {
-	const place = lifecyclePlace(task, activity);
-	const active = LIFECYCLE_STAGES.indexOf(place.active);
-	return LIFECYCLE_STAGES.map((stage, index) => {
-		const marker = task.stage === "done" || index < active
+export function lifecycleLine(task: TaskDocument): string {
+	const place = lifecyclePlace(task);
+	const activeIndex = RAIL.findIndex(([stage]) => stage === task.stage);
+	const rail = RAIL.map(([stage, label], index) => {
+		const marker = task.stage === "done" || index < activeIndex
 			? "✓"
-			: index === active
+			: stage === task.stage
 				? "●"
-				: "○";
-		return `${marker} ${stage}${index === active && place.detail ? ` · ${place.detail}` : ""}`;
-	}).join("  ");
+				: "·";
+		return `${label}${marker}`;
+	}).join(" ");
+	return `${rail} · ${place.detail}`;
 }

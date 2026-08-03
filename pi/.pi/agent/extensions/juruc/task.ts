@@ -8,21 +8,18 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
-export const TASK_VERSION = 2 as const;
+export const TASK_VERSION = 3 as const;
 export const TASK_STAGES = [
+	"questions",
 	"research",
-	"planning",
-	"building",
-	"blocked",
+	"specification",
+	"plan",
+	"implementation",
 	"done",
 ] as const;
 
 export type TaskStage = (typeof TASK_STAGES)[number];
-export type DiscoverySessionKind =
-	| "questions"
-	| "research"
-	| "specification"
-	| "plan";
+export type DiscoverySessionKind = "questions" | "research" | "specification" | "plan";
 export type ReviewerSessionKind = "deviation-review" | "correctness-review";
 
 export type TaskSessionRun =
@@ -45,12 +42,29 @@ export interface TaskRepository {
 	worktree: string;
 }
 
+export interface TaskQuestions {
+	sharedUnderstanding: string;
+	decisions: string[];
+	acceptedAssumptions: string[];
+	researchTargets: string[];
+}
+
+export interface TaskSpecification {
+	summary: string;
+	requirements: string[];
+	nonGoals: string[];
+	constraints: string[];
+	acceptanceCriteria: string[];
+	decisions: string[];
+}
+
 export interface TaskPhase {
+	id: string;
 	title: string;
-	objective: string;
-	successCriteria: string[];
+	goal: string;
+	fileScopes: string[];
+	instructions: string[];
 	verification: string[];
-	hints: string[];
 }
 
 export interface VerificationEvidence {
@@ -66,13 +80,7 @@ export interface CompletedTaskPhase extends TaskPhase {
 }
 
 export interface TaskPlan {
-	objective: string;
-	constraints: string[];
-	assumptions: string[];
-	nonGoals: string[];
-	successCriteria: string[];
-	completed: CompletedTaskPhase[];
-	remaining: TaskPhase[];
+	phases: TaskPhase[];
 }
 
 export interface TaskDocument {
@@ -83,17 +91,10 @@ export interface TaskDocument {
 	repository: TaskRepository;
 	stage: TaskStage;
 	sessions: TaskSessionRun[];
+	questions: TaskQuestions | null;
+	specification: TaskSpecification | null;
 	plan: TaskPlan | null;
-	blockReason: string | null;
-}
-
-export interface TaskPlanInput {
-	objective: string;
-	constraints: string[];
-	assumptions: string[];
-	nonGoals: string[];
-	successCriteria: string[];
-	remaining: TaskPhase[];
+	checkpoints: CompletedTaskPhase[];
 }
 
 export interface NewTaskInput {
@@ -105,7 +106,9 @@ export interface NewTaskInput {
 
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
-const MAX_TEXT_LENGTH = 100_000;
+const PHASE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const WINDOWS_ABSOLUTE = /^[A-Za-z]:[\\/]/u;
+export const MAX_TASK_TEXT_LENGTH = 100_000;
 const MAX_VERIFICATION_SUMMARY_LENGTH = 1_000;
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -114,42 +117,40 @@ function record(value: unknown): Record<string, unknown> | undefined {
 		: undefined;
 }
 
-function exactKeys(
-	value: Record<string, unknown>,
-	keys: readonly string[],
-): boolean {
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
 	const actual = Object.keys(value);
 	return actual.length === keys.length && actual.every((key) => keys.includes(key));
 }
 
 function validText(value: unknown, nonempty = true): value is string {
-	return (
-		typeof value === "string" &&
-		value.length <= MAX_TEXT_LENGTH &&
+	return typeof value === "string" &&
+		value.length <= MAX_TASK_TEXT_LENGTH &&
 		(!nonempty || value.trim().length > 0) &&
-		!value.includes("\0")
-	);
+		!value.includes("\0");
 }
 
-function validTextList(value: unknown, nonempty = false): value is string[] {
-	return (
-		Array.isArray(value) &&
+function validCleanText(value: unknown): value is string {
+	return validText(value) && value === value.trim();
+}
+
+function validUniqueTextList(value: unknown, nonempty = false): value is string[] {
+	return Array.isArray(value) &&
 		(!nonempty || value.length > 0) &&
-		value.every((item) => validText(item))
-	);
+		value.every(validCleanText) &&
+		new Set(value).size === value.length;
+}
+
+function validOrderedTextList(value: unknown, nonempty = false): value is string[] {
+	return Array.isArray(value) &&
+		(!nonempty || value.length > 0) &&
+		value.every(validCleanText);
 }
 
 function validRepository(value: unknown): value is TaskRepository {
 	const repository = record(value);
 	return Boolean(
 		repository &&
-			exactKeys(repository, [
-				"sourceRoot",
-				"baseBranch",
-				"sourceHead",
-				"branch",
-				"worktree",
-			]) &&
+			exactKeys(repository, ["sourceRoot", "baseBranch", "sourceHead", "branch", "worktree"]) &&
 			validText(repository.sourceRoot) &&
 			isAbsolute(repository.sourceRoot) &&
 			validText(repository.baseBranch) &&
@@ -168,8 +169,7 @@ function positiveInteger(value: unknown): value is number {
 
 function validSessionRun(value: unknown): value is TaskSessionRun {
 	const run = record(value);
-	if (!run || !validText(run.kind) || !validText(run.path) || !isAbsolute(run.path))
-		return false;
+	if (!run || !validText(run.kind) || !validText(run.path) || !isAbsolute(run.path)) return false;
 	switch (run.kind) {
 		case "questions":
 		case "research":
@@ -207,103 +207,148 @@ function validSessions(value: unknown): value is TaskSessionRun[] {
 	return new Set(paths).size === paths.length && new Set(keys).size === keys.length;
 }
 
+function validQuestions(value: unknown): value is TaskQuestions {
+	const questions = record(value);
+	return Boolean(
+		questions &&
+			exactKeys(questions, [
+				"sharedUnderstanding",
+				"decisions",
+				"acceptedAssumptions",
+				"researchTargets",
+			]) &&
+			validCleanText(questions.sharedUnderstanding) &&
+			validUniqueTextList(questions.decisions) &&
+			validUniqueTextList(questions.acceptedAssumptions) &&
+			validUniqueTextList(questions.researchTargets),
+	);
+}
+
+function validSpecification(value: unknown): value is TaskSpecification {
+	const specification = record(value);
+	return Boolean(
+		specification &&
+			exactKeys(specification, [
+				"summary",
+				"requirements",
+				"nonGoals",
+				"constraints",
+				"acceptanceCriteria",
+				"decisions",
+			]) &&
+			validCleanText(specification.summary) &&
+			validUniqueTextList(specification.requirements, true) &&
+			validUniqueTextList(specification.nonGoals) &&
+			validUniqueTextList(specification.constraints) &&
+			validUniqueTextList(specification.acceptanceCriteria, true) &&
+			validUniqueTextList(specification.decisions),
+	);
+}
+
+function validFileScope(value: unknown): value is string {
+	if (!validCleanText(value) || isAbsolute(value) || WINDOWS_ABSOLUTE.test(value)) return false;
+	if (["\\", ":", "!", "^"].some((prefix) => value.startsWith(prefix))) return false;
+	return !value.split(/[\\/]/u).includes("..");
+}
+
 function validPhase(value: unknown): value is TaskPhase {
 	const phase = record(value);
 	return Boolean(
 		phase &&
-			exactKeys(phase, [
-				"title",
-				"objective",
-				"successCriteria",
-				"verification",
-				"hints",
-			]) &&
-			validText(phase.title) &&
-			validText(phase.objective) &&
-			validTextList(phase.successCriteria, true) &&
-			validTextList(phase.verification, true) &&
-			new Set(phase.verification as string[]).size ===
-				(phase.verification as string[]).length &&
-			validTextList(phase.hints),
-	);
-}
-
-function validVerificationEvidence(
-	value: unknown,
-): value is VerificationEvidence {
-	const evidence = record(value);
-	return Boolean(
-		evidence &&
-			exactKeys(evidence, ["command", "exitCode", "summary"]) &&
-			validText(evidence.command) &&
-			Number.isInteger(evidence.exitCode) &&
-			validText(evidence.summary) &&
-			(evidence.summary as string).length <= MAX_VERIFICATION_SUMMARY_LENGTH,
-	);
-}
-
-function validCompletedPhase(value: unknown): value is CompletedTaskPhase {
-	const phase = record(value);
-	if (
-		!phase ||
-		!exactKeys(phase, [
-			"title",
-			"objective",
-			"successCriteria",
-			"verification",
-			"hints",
-			"resolution",
-			"verificationEvidence",
-			"commit",
-		])
-	)
-		return false;
-	const content = {
-		title: phase.title,
-		objective: phase.objective,
-		successCriteria: phase.successCriteria,
-		verification: phase.verification,
-		hints: phase.hints,
-	};
-	return (
-		validPhase(content) &&
-		validText(phase.resolution) &&
-		Array.isArray(phase.verificationEvidence) &&
-		phase.verificationEvidence.length === content.verification.length &&
-		phase.verificationEvidence.every(
-			(evidence, index) =>
-				validVerificationEvidence(evidence) &&
-				evidence.command === content.verification[index] &&
-				evidence.exitCode === 0,
-		) &&
-		typeof phase.commit === "string" &&
-		OBJECT_ID.test(phase.commit)
+			exactKeys(phase, ["id", "title", "goal", "fileScopes", "instructions", "verification"]) &&
+			typeof phase.id === "string" &&
+			PHASE_ID.test(phase.id) &&
+			validCleanText(phase.title) &&
+			validCleanText(phase.goal) &&
+			Array.isArray(phase.fileScopes) &&
+			phase.fileScopes.length > 0 &&
+			phase.fileScopes.every(validFileScope) &&
+			new Set(phase.fileScopes).size === phase.fileScopes.length &&
+			validOrderedTextList(phase.instructions, true) &&
+			validUniqueTextList(phase.verification, true),
 	);
 }
 
 function validPlan(value: unknown): value is TaskPlan {
 	const plan = record(value);
+	if (!plan || !exactKeys(plan, ["phases"]) || !Array.isArray(plan.phases) || !plan.phases.length)
+		return false;
+	if (!plan.phases.every(validPhase)) return false;
+	return new Set(plan.phases.map(({ id }) => id)).size === plan.phases.length;
+}
+
+function validVerificationEvidence(value: unknown): value is VerificationEvidence {
+	const evidence = record(value);
 	return Boolean(
-		plan &&
-			exactKeys(plan, [
-				"objective",
-				"constraints",
-				"assumptions",
-				"nonGoals",
-				"successCriteria",
-				"completed",
-				"remaining",
-			]) &&
-			validText(plan.objective) &&
-			validTextList(plan.constraints) &&
-			validTextList(plan.assumptions) &&
-			validTextList(plan.nonGoals) &&
-			validTextList(plan.successCriteria, true) &&
-			Array.isArray(plan.completed) &&
-			plan.completed.every(validCompletedPhase) &&
-			Array.isArray(plan.remaining) &&
-			plan.remaining.every(validPhase),
+		evidence &&
+			exactKeys(evidence, ["command", "exitCode", "summary"]) &&
+			validCleanText(evidence.command) &&
+			Number.isInteger(evidence.exitCode) &&
+			validCleanText(evidence.summary) &&
+			(evidence.summary as string).length <= MAX_VERIFICATION_SUMMARY_LENGTH,
 	);
+}
+
+function phaseFields(value: Record<string, unknown>): Record<string, unknown> {
+	return {
+		id: value.id,
+		title: value.title,
+		goal: value.goal,
+		fileScopes: value.fileScopes,
+		instructions: value.instructions,
+		verification: value.verification,
+	};
+}
+
+function sameList(left: readonly string[], right: readonly string[]): boolean {
+	return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function samePhase(left: TaskPhase, right: TaskPhase): boolean {
+	return left.id === right.id &&
+		left.title === right.title &&
+		left.goal === right.goal &&
+		sameList(left.fileScopes, right.fileScopes) &&
+		sameList(left.instructions, right.instructions) &&
+		sameList(left.verification, right.verification);
+}
+
+function validCheckpoint(value: unknown, phase: TaskPhase): value is CompletedTaskPhase {
+	const checkpoint = record(value);
+	if (
+		!checkpoint ||
+		!exactKeys(checkpoint, [
+			"id",
+			"title",
+			"goal",
+			"fileScopes",
+			"instructions",
+			"verification",
+			"resolution",
+			"verificationEvidence",
+			"commit",
+		])
+	) return false;
+	const copied = phaseFields(checkpoint);
+	if (!validPhase(copied) || !samePhase(copied, phase)) return false;
+	return validCleanText(checkpoint.resolution) &&
+		Array.isArray(checkpoint.verificationEvidence) &&
+		checkpoint.verificationEvidence.length === phase.verification.length &&
+		checkpoint.verificationEvidence.every(
+			(evidence, index) =>
+				validVerificationEvidence(evidence) &&
+				evidence.command === phase.verification[index] &&
+				evidence.exitCode === 0,
+		) &&
+		typeof checkpoint.commit === "string" &&
+		OBJECT_ID.test(checkpoint.commit);
+}
+
+function validCheckpoints(value: unknown, plan: TaskPlan | null): value is CompletedTaskPhase[] {
+	if (!Array.isArray(value)) return false;
+	if (!plan) return value.length === 0;
+	if (value.length > plan.phases.length) return false;
+	return value.every((checkpoint, index) => validCheckpoint(checkpoint, plan.phases[index]));
 }
 
 export function validTaskDocument(value: unknown): value is TaskDocument {
@@ -318,8 +363,10 @@ export function validTaskDocument(value: unknown): value is TaskDocument {
 			"repository",
 			"stage",
 			"sessions",
+			"questions",
+			"specification",
 			"plan",
-			"blockReason",
+			"checkpoints",
 		]) ||
 		task.version !== TASK_VERSION ||
 		typeof task.slug !== "string" ||
@@ -329,28 +376,30 @@ export function validTaskDocument(value: unknown): value is TaskDocument {
 		!validRepository(task.repository) ||
 		!validSessions(task.sessions) ||
 		!TASK_STAGES.includes(task.stage as TaskStage) ||
+		(task.questions !== null && !validQuestions(task.questions)) ||
+		(task.specification !== null && !validSpecification(task.specification)) ||
 		(task.plan !== null && !validPlan(task.plan)) ||
-		(task.blockReason !== null && !validText(task.blockReason))
-	)
-		return false;
+		!validCheckpoints(task.checkpoints, task.plan as TaskPlan | null)
+	) return false;
 
 	const stage = task.stage as TaskStage;
+	const questions = task.questions as TaskQuestions | null;
+	const specification = task.specification as TaskSpecification | null;
 	const plan = task.plan as TaskPlan | null;
-	const sessions = task.sessions as TaskSessionRun[];
-	if (stage === "blocked")
-		return Boolean(
-			plan?.remaining.length &&
-			findSession(sessions, {
-				kind: "implementation",
-				phase: plan.completed.length + 1,
-			}) &&
-			task.blockReason,
-		);
-	if (stage === "building")
-		return task.blockReason === null && Boolean(plan?.remaining.length);
-	if (stage === "done")
-		return task.blockReason === null && Boolean(plan && plan.remaining.length === 0);
-	return true;
+	const checkpoints = task.checkpoints as CompletedTaskPhase[];
+	switch (stage) {
+		case "questions":
+			return questions === null && specification === null && plan === null && checkpoints.length === 0;
+		case "research":
+		case "specification":
+			return questions !== null && specification === null && plan === null && checkpoints.length === 0;
+		case "plan":
+			return questions !== null && specification !== null && plan === null && checkpoints.length === 0;
+		case "implementation":
+			return questions !== null && specification !== null && plan !== null && checkpoints.length < plan.phases.length;
+		case "done":
+			return questions !== null && specification !== null && plan !== null && checkpoints.length === plan.phases.length;
+	}
 }
 
 function checked(task: TaskDocument): TaskDocument {
@@ -365,108 +414,62 @@ export function createTaskDocument(input: NewTaskInput): TaskDocument {
 		title: input.title,
 		request: input.request,
 		repository: structuredClone(input.repository),
-		stage: "research",
+		stage: "questions",
 		sessions: [],
+		questions: null,
+		specification: null,
 		plan: null,
-		blockReason: null,
+		checkpoints: [],
 	});
 }
 
-function findSession(
-	sessions: readonly TaskSessionRun[],
-	key: TaskSessionKey,
-): TaskSessionRun | undefined {
+function findSession(sessions: readonly TaskSessionRun[], key: TaskSessionKey): TaskSessionRun | undefined {
 	const logicalKey = sessionLogicalKey(key);
 	return sessions.find((run) => sessionLogicalKey(run) === logicalKey);
 }
 
-export function findTaskSession(
-	task: Pick<TaskDocument, "sessions">,
-	key: TaskSessionKey,
-): TaskSessionRun | undefined {
+export function findTaskSession(task: Pick<TaskDocument, "sessions">, key: TaskSessionKey): TaskSessionRun | undefined {
 	return findSession(task.sessions, key);
 }
 
-export function findTaskSessionByPath(
-	task: Pick<TaskDocument, "sessions">,
-	path: string,
-): TaskSessionRun | undefined {
+export function findTaskSessionByPath(task: Pick<TaskDocument, "sessions">, path: string): TaskSessionRun | undefined {
 	return task.sessions.find((run) => run.path === path);
 }
 
-export function appendTaskSession(
-	task: TaskDocument,
-	run: TaskSessionRun,
-): TaskDocument {
+export function appendTaskSession(task: TaskDocument, run: TaskSessionRun): TaskDocument {
 	if (!validSessionRun(run)) throw new Error("invalid task session run");
 	if (findTaskSessionByPath(task, run.path))
 		throw new Error(`session path is already recorded: ${run.path}`);
 	if (findSession(task.sessions, run))
 		throw new Error(`session run is already recorded: ${sessionLogicalKey(run)}`);
-	return checked({
-		...task,
-		sessions: [...task.sessions, structuredClone(run)],
-	});
+	return checked({ ...task, sessions: [...task.sessions, structuredClone(run)] });
 }
 
-export function finishTaskResearch(task: TaskDocument): TaskDocument {
+export function confirmTaskQuestions(task: TaskDocument, questions: TaskQuestions): TaskDocument {
+	if (task.stage !== "questions") throw new Error("task is not asking questions");
+	return checked({ ...task, stage: "research", questions: structuredClone(questions) });
+}
+
+export function completeTaskResearch(task: TaskDocument): TaskDocument {
 	if (task.stage !== "research") throw new Error("task is not researching");
-	return checked({ ...task, stage: "planning" });
+	return checked({ ...task, stage: "specification" });
 }
 
-export function returnTaskToResearch(task: TaskDocument): TaskDocument {
-	if (task.stage !== "planning" && task.stage !== "blocked")
-		throw new Error("only planning or blocked tasks can return to research");
-	return checked({ ...task, stage: "research" });
-}
-
-export function returnTaskToPlanning(task: TaskDocument): TaskDocument {
-	if (task.stage !== "blocked") throw new Error("task is not blocked");
-	return checked({ ...task, stage: "planning" });
-}
-
-export function extendTask(task: TaskDocument): TaskDocument {
-	if (task.stage !== "done") throw new Error("task is not done");
-	return checked({ ...task, stage: "planning" });
-}
-
-export function setTaskPlan(
+export function confirmTaskSpecification(
 	task: TaskDocument,
-	input: TaskPlanInput,
+	specification: TaskSpecification,
 ): TaskDocument {
-	if (task.stage !== "planning") throw new Error("task is not planning");
-	if (input.remaining.length === 0)
-		throw new Error("a confirmed plan requires at least one remaining phase");
-	return checked({
-		...task,
-		stage: "building",
-		plan: {
-			objective: input.objective,
-			constraints: [...input.constraints],
-			assumptions: [...input.assumptions],
-			nonGoals: [...input.nonGoals],
-			successCriteria: [...input.successCriteria],
-			completed: structuredClone(task.plan?.completed ?? []),
-			remaining: structuredClone(input.remaining),
-		},
-		blockReason: null,
-	});
+	if (task.stage !== "specification") throw new Error("task is not specifying");
+	return checked({ ...task, stage: "plan", specification: structuredClone(specification) });
 }
 
-export function blockTaskPhase(
-	task: TaskDocument,
-	reason: string,
-): TaskDocument {
-	if (task.stage !== "building") throw new Error("task is not building");
-	const phase = (task.plan?.completed.length ?? 0) + 1;
-	if (!findTaskSession(task, { kind: "implementation", phase }))
-		throw new Error("active phase has no implementation session");
-	return checked({ ...task, stage: "blocked", blockReason: reason });
+export function acceptTaskPlan(task: TaskDocument, plan: TaskPlan): TaskDocument {
+	if (task.stage !== "plan") throw new Error("task is not planning");
+	return checked({ ...task, stage: "implementation", plan: structuredClone(plan) });
 }
 
-export function resumeTaskPhase(task: TaskDocument): TaskDocument {
-	if (task.stage !== "blocked") throw new Error("task is not blocked");
-	return checked({ ...task, stage: "building", blockReason: null });
+export function currentTaskPhase(task: TaskDocument): TaskPhase | undefined {
+	return task.plan?.phases[task.checkpoints.length];
 }
 
 export function completeTaskPhase(
@@ -475,26 +478,20 @@ export function completeTaskPhase(
 	verificationEvidence: VerificationEvidence[],
 	commit: string,
 ): TaskDocument {
-	if (task.stage !== "building" || !task.plan?.remaining.length)
-		throw new Error("task has no active build phase");
-	const [current, ...remaining] = task.plan.remaining;
+	if (task.stage !== "implementation") throw new Error("task is not implementing");
+	const phase = currentTaskPhase(task);
+	if (!phase) throw new Error("task has no active implementation phase");
+	const checkpoint: CompletedTaskPhase = {
+		...structuredClone(phase),
+		resolution,
+		verificationEvidence: structuredClone(verificationEvidence),
+		commit,
+	};
+	const checkpoints = [...task.checkpoints, checkpoint];
 	return checked({
 		...task,
-		stage: remaining.length ? "building" : "done",
-		plan: {
-			...task.plan,
-			completed: [
-				...task.plan.completed,
-				{
-					...structuredClone(current),
-					resolution,
-					verificationEvidence: structuredClone(verificationEvidence),
-					commit,
-				},
-			],
-			remaining: structuredClone(remaining),
-		},
-		blockReason: null,
+		stage: checkpoints.length === task.plan!.phases.length ? "done" : "implementation",
+		checkpoints,
 	});
 }
 
@@ -522,10 +519,7 @@ export function saveTaskDocument(path: string, task: TaskDocument): void {
 	const existing = lstatSync(path, { throwIfNoEntry: false });
 	if (existing && (!existing.isFile() || existing.isSymbolicLink()))
 		throw new Error(`${path} is not a regular file`);
-	const temporary = join(
-		dirname(path),
-		`.${basename(path)}.${process.pid}.${randomUUID()}.tmp`,
-	);
+	const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
 	try {
 		writeFileSync(temporary, serializeTaskDocument(task), {
 			encoding: "utf8",

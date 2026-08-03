@@ -1,37 +1,36 @@
-import { join } from "node:path";
-import { canonicalPrompt } from "./prompts.ts";
 import {
-	setTaskPlan,
+	acceptTaskPlan,
 	type TaskDocument,
 	type TaskPhase,
-	type TaskPlanInput,
+	type TaskPlan,
+	type TaskSpecification,
 } from "./task.ts";
 
-export const PLANNING_INSTRUCTION = `Plan under the canonical /grill prompt using the working directory and JURUC planning context.
+export const PLANNING_INSTRUCTION = `Create the smallest ordered implementation plan that satisfies the supplied validated Specification.
 
-Read research.md first as non-authoritative evidence; task.json is authoritative. Do not modify the worktree and do not invent missing facts.
+Inspect repository facts with read-only tools. Do not inspect Research, Questions, prior transcripts, or invent requirements. Each phase must be incrementally complete after its predecessors and declare a unique kebab-case id, title, goal, safe repository-relative file scopes, ordered implementation instructions, and exact runnable verification commands. Keep phases minimal and include relevant tests.
 
-Classify confirmed material as task-specific or durable project context. Before /grill's single final confirmation, show each durable change's exact target path and exact entries under Objective, Requirements, Invariants, Constraints, Assumptions, and Non-Goals, or state "Durable project context: None." Use the narrowest governing existing file; reserve Git-root AGENTS.md for project-wide rules. Preserve an existing context file's format.
+Present the complete plan to the operator and require explicit human acceptance. The accepted plan is final and immutable. Only after acceptance, call juruc_set_plan as the sole tool call.`;
 
-Before final confirmation, present assumptions, accepted risks, deferred non-goals, and every blocker with its disposition. An unresolved blocker means do not call juruc_set_plan. Represent every confirmed context edit in the earliest affected phase's success criteria. Only after human confirmation, call juruc_set_plan once with the complete ordered remaining plan. Phases must be minimal, incrementally complete, and not depend on later phases for validity. Every phase must declare a nonempty ordered list of exact runnable verification commands, including its relevant tests.`;
-
-export const PLANNING_TOOL_NAMES = ["read", "juruc_set_plan"] as const;
+export const PLANNING_TOOL_NAMES = [
+	"read",
+	"grep",
+	"find",
+	"ls",
+	"juruc_set_plan",
+] as const;
 
 export interface PlanPhaseInput {
+	id: string;
 	title: string;
-	objective: string;
-	successCriteria: string[];
+	goal: string;
+	fileScopes: string[];
+	instructions: string[];
 	verification: string[];
-	hints?: string[];
 }
 
 export interface SetPlanInput {
-	objective: string;
-	constraints: string[];
-	assumptions: string[];
-	nonGoals: string[];
-	successCriteria: string[];
-	futurePhases: PlanPhaseInput[];
+	phases: PlanPhaseInput[];
 }
 
 const text = { type: "string", pattern: "\\S" } as const;
@@ -40,92 +39,64 @@ const textList = { type: "array", items: text } as const;
 export const SET_PLAN_SCHEMA = {
 	type: "object",
 	additionalProperties: false,
-	required: [
-		"objective",
-		"constraints",
-		"assumptions",
-		"nonGoals",
-		"successCriteria",
-		"futurePhases",
-	],
+	required: ["phases"],
 	properties: {
-		objective: text,
-		constraints: textList,
-		assumptions: textList,
-		nonGoals: textList,
-		successCriteria: { ...textList, minItems: 1 },
-		futurePhases: {
+		phases: {
 			type: "array",
 			minItems: 1,
 			items: {
 				type: "object",
 				additionalProperties: false,
-				required: ["title", "objective", "successCriteria", "verification"],
+				required: [
+					"id",
+					"title",
+					"goal",
+					"fileScopes",
+					"instructions",
+					"verification",
+				],
 				properties: {
+					id: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
 					title: text,
-					objective: text,
-					successCriteria: { ...textList, minItems: 1 },
+					goal: text,
+					fileScopes: { ...textList, minItems: 1, uniqueItems: true },
+					instructions: { ...textList, minItems: 1 },
 					verification: { ...textList, minItems: 1, uniqueItems: true },
-					hints: textList,
 				},
 			},
 		},
 	},
 } as const;
 
-function cleanText(value: string): string {
-	return value.trim();
-}
-
 function cleanList(values: readonly string[]): string[] {
-	return values.map(cleanText);
+	return values.map((value) => value.trim());
 }
 
 function phaseFromInput(phase: PlanPhaseInput): TaskPhase {
 	return {
-		title: cleanText(phase.title),
-		objective: cleanText(phase.objective),
-		successCriteria: cleanList(phase.successCriteria),
+		id: phase.id.trim(),
+		title: phase.title.trim(),
+		goal: phase.goal.trim(),
+		fileScopes: cleanList(phase.fileScopes),
+		instructions: cleanList(phase.instructions),
 		verification: cleanList(phase.verification),
-		hints: cleanList(phase.hints ?? []),
 	};
 }
 
-export function taskPlanInput(input: SetPlanInput): TaskPlanInput {
-	return {
-		objective: cleanText(input.objective),
-		constraints: cleanList(input.constraints),
-		assumptions: cleanList(input.assumptions),
-		nonGoals: cleanList(input.nonGoals),
-		successCriteria: cleanList(input.successCriteria),
-		remaining: input.futurePhases.map(phaseFromInput),
-	};
+export function planFromInput(input: SetPlanInput): TaskPlan {
+	return { phases: input.phases.map(phaseFromInput) };
 }
 
 export function confirmTaskPlan(
 	task: TaskDocument,
 	input: SetPlanInput,
 ): TaskDocument {
-	return setTaskPlan(task, taskPlanInput(input));
+	return acceptTaskPlan(task, planFromInput(input));
 }
 
-export function planningSessionInstruction(taskDirectory: string): string {
+export function planningPrompt(specification: TaskSpecification): string {
 	return [
-		PLANNING_INSTRUCTION,
-		`Task state: ${join(taskDirectory, "task.json")}`,
-		`Task research: ${join(taskDirectory, "research.md")}`,
-	].join("\n\n");
-}
-
-interface PromptCommand {
-	name: string;
-	source: string;
-	sourceInfo: { path: string };
-}
-
-export function planningPrompt(
-	commands: readonly PromptCommand[],
-	subject: string,
-): string {
-	return canonicalPrompt(commands, "grill", subject);
+		"Validated Specification (the only task artifact available to Plan):",
+		JSON.stringify(specification, null, 2),
+	].join("\n");
 }

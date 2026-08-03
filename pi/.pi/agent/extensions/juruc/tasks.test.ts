@@ -1,15 +1,10 @@
 import assert from "node:assert/strict";
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { runtimePathsForRoot } from "./runtime.ts";
+import { appendTaskSession, confirmTaskQuestions } from "./task.ts";
 import {
 	createTask,
 	findTaskBySession,
@@ -22,7 +17,6 @@ import {
 	uniqueSlug,
 	validTaskSlug,
 } from "./tasks.ts";
-import { appendTaskSession, finishTaskResearch } from "./task.ts";
 
 function paths() {
 	const root = mkdtempSync(join(tmpdir(), "juruc-tasks-"));
@@ -52,33 +46,36 @@ test("task names are simple valid branch-compatible slugs", () => {
 	assert.equal(validTaskSlug("../escape"), false);
 });
 
-test("create, save, load, and list use only task.json", () => {
+test("create, save, load, and list use version 3 task.json", () => {
 	const fixture = paths();
 	try {
 		let task = createTask(fixture.paths, input(fixture.root));
+		assert.equal(loadTask(fixture.paths, "small-task").document.stage, "questions");
+		task = saveTask(task, confirmTaskQuestions(task.document, {
+			sharedUnderstanding: "Confirmed.",
+			decisions: [],
+			acceptedAssumptions: [],
+			researchTargets: [],
+		}));
 		assert.equal(loadTask(fixture.paths, "small-task").document.stage, "research");
-		task = saveTask(task, finishTaskResearch(task.document));
-		assert.equal(loadTask(fixture.paths, "small-task").document.stage, "planning");
-		assert.deepEqual(listTasks(fixture.paths).map(({ slug, stage, valid }) => ({ slug, stage, valid })), [
-			{ slug: "small-task", stage: "planning", valid: true },
-		]);
+		assert.deepEqual(
+			listTasks(fixture.paths).map(({ slug, stage, valid }) => ({ slug, stage, valid })),
+			[{ slug: "small-task", stage: "research", valid: true }],
+		);
 	} finally {
 		rmSync(fixture.root, { recursive: true, force: true });
 	}
 });
 
-test("session ownership resolves an implementation-scoped run", () => {
+test("session ownership resolves scoped runs", () => {
 	const fixture = paths();
 	try {
 		let task = createTask(fixture.paths, input(fixture.root));
-		task = saveTask(
-			task,
-			appendTaskSession(task.document, {
-				kind: "implementation",
-				phase: 3,
-				path: "/sessions/implementation-3.jsonl",
-			}),
-		);
+		task = saveTask(task, appendTaskSession(task.document, {
+			kind: "implementation",
+			phase: 3,
+			path: "/sessions/implementation-3.jsonl",
+		}));
 		assert.equal(
 			findTaskBySession(fixture.paths, "/sessions/implementation-3.jsonl")?.document.slug,
 			"small-task",
@@ -89,22 +86,11 @@ test("session ownership resolves an implementation-scoped run", () => {
 	}
 });
 
-test("uniqueSlug advances only persisted task-directory collisions", () => {
+test("uniqueSlug advances persisted collisions and removal is exact", () => {
 	const fixture = paths();
 	try {
-		createTask(fixture.paths, input(fixture.root, "task"));
+		const task = createTask(fixture.paths, input(fixture.root, "task"));
 		assert.equal(uniqueSlug(fixture.paths.tasks, "task"), "task-2");
-		createTask(fixture.paths, input(fixture.root, "task-2"));
-		assert.equal(uniqueSlug(fixture.paths.tasks, "task"), "task-3");
-	} finally {
-		rmSync(fixture.root, { recursive: true, force: true });
-	}
-});
-
-test("removeTaskRecord deletes only the exact persisted task directory", () => {
-	const fixture = paths();
-	try {
-		const task = createTask(fixture.paths, input(fixture.root));
 		writeFileSync(join(task.directory, "research.md"), "facts\n");
 		removeTaskRecord(task);
 		assert.equal(existsSync(task.directory), false);
@@ -114,19 +100,16 @@ test("removeTaskRecord deletes only the exact persisted task directory", () => {
 	}
 });
 
-test("old state.json and plan.json directories are reported invalid without migration", () => {
+test("old and sidecar-only task directories are invalid without migration", () => {
 	const fixture = paths();
 	try {
 		const directory = join(fixture.paths.tasks, "legacy-task");
 		mkdirSync(directory);
-		writeFileSync(join(directory, "state.json"), "{}\n");
-		writeFileSync(join(directory, "plan.json"), "{}\n");
+		writeFileSync(join(directory, "task.json"), JSON.stringify({ version: 2 }));
 		const [entry] = scanTasks(fixture.paths);
 		assert.equal(entry.task, undefined);
-		assert.equal(entry.summary.slug, "legacy-task");
 		assert.equal(entry.summary.stage, "invalid");
-		assert.equal(entry.summary.valid, false);
-		assert.match(entry.summary.error ?? "", /task\.json/);
+		assert.match(entry.summary.error ?? "", /task\.json is invalid/);
 	} finally {
 		rmSync(fixture.root, { recursive: true, force: true });
 	}

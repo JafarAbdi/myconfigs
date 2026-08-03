@@ -16,8 +16,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { acquireTestLock } from "./test-lock.ts";
 
-const agentDir = mkdtempSync(join(tmpdir(), "juruc-simple-pipeline-agent-"));
-const scratch = mkdtempSync(join(tmpdir(), "juruc-simple-pipeline-repository-"));
+const agentDir = mkdtempSync(join(tmpdir(), "juruc-qrspi-agent-"));
+const scratch = mkdtempSync(join(tmpdir(), "juruc-qrspi-repository-"));
 const previousEnvironment = new Map<string, string | undefined>();
 for (const [name, value] of Object.entries({
 	PI_CODING_AGENT_DIR: agentDir,
@@ -40,8 +40,7 @@ const piExecutable = process.env.PATH?.split(delimiter)
 const piPackage = process.env.PI_PACKAGE_DIR ??
 	(piExecutable ? join(dirname(realpathSync(piExecutable)), "..") : undefined);
 if (!piPackage) throw new Error("pi package not found through PI_PACKAGE_DIR or PATH");
-if (existsSync(localModules))
-	throw new Error(`${localModules} already exists; refusing to replace it`);
+if (existsSync(localModules)) throw new Error(`${localModules} already exists; refusing to replace it`);
 mkdirSync(join(localModules, "@earendil-works"), { recursive: true });
 for (const name of ["pi-ai", "pi-tui"])
 	symlinkSync(
@@ -85,7 +84,7 @@ try {
 		import("./task.ts"),
 	]);
 
-	await test("compact runtime automatically advances through research, planning, build, and verified completion", async () => {
+	await test("runtime automatically cuts over Q to R to S to P to fresh implementation phases", async () => {
 		const source = join(scratch, "source");
 		mkdirSync(source);
 		git(source, "init", "-b", "main");
@@ -95,15 +94,48 @@ try {
 		git(source, "add", "-A");
 		git(source, "commit", "-m", "baseline");
 
-		const canonical = join(agentDir, "canonical");
-		mkdirSync(canonical, { recursive: true });
-		const grill = join(canonical, "grill.md");
-		writeFileSync(grill, "Canonical grill ${ARGUMENTS:-the task}.\n");
 		const paths = runtimePaths(agentDir);
-		const slug = "simplify-runtime-workflow";
-		const researchOutput = "Independent facts with concrete references.\n";
+		const slug = "qrspi-runtime-workflow";
+		const researchOutput = "Independent verified facts.\n";
 		const writtenPhases = new Set<number>();
-
+		const questions = {
+			sharedUnderstanding: "Implement the confirmed local workflow.",
+			decisions: ["Use two phases."],
+			acceptedAssumptions: [],
+			researchTargets: [],
+		};
+		const specification = {
+			summary: "Implement the local workflow.",
+			requirements: ["Advance through two committed phases."],
+			nonGoals: ["No publication."],
+			constraints: ["Keep strict state."],
+			acceptanceCriteria: ["Both phase checks pass."],
+			decisions: ["Use two phases."],
+		};
+		const phaseOneVerification = "node -e \"console.log('phase one verified')\"";
+		const phaseTwoVerification = "node -e \"console.log('phase two verified')\"";
+		const undeclaredVerification =
+			"node -e \"require('node:fs').writeFileSync('undeclared.txt', 'forbidden')\"";
+		const plan = {
+			phases: [
+				{
+					id: "implement-change",
+					title: "Implement change",
+					goal: "Implement the candidate.",
+					fileScopes: ["tracked.txt"],
+					instructions: ["Write the first candidate."],
+					verification: [phaseOneVerification],
+				},
+				{
+					id: "connect-change",
+					title: "Connect change",
+					goal: "Complete the candidate.",
+					fileScopes: ["tracked.txt"],
+					instructions: ["Write the integrated candidate."],
+					verification: [phaseTwoVerification],
+				},
+			],
+		};
 		const synthesis = {
 			agent: "synthesizer",
 			task: "synthesize",
@@ -121,42 +153,22 @@ try {
 			},
 			durationMs: 1,
 		};
-		const confirmedPlan = {
-			objective: "Complete the requested workflow.",
-			constraints: ["Keep worktree isolation."],
-			assumptions: ["One operator owns the task."],
-			nonGoals: [],
-			successCriteria: ["The task is complete."],
-			futurePhases: [
-				{
-					title: "Implement the change",
-					objective: "Change the tracked candidate.",
-					successCriteria: ["The candidate is verified."],
-					verification: ["node --test focused.test.ts"],
-				},
-				{
-					title: "Connect the change",
-					objective: "Complete the tracked candidate.",
-					successCriteria: ["The integration is verified."],
-					verification: ["node --test integration.test.ts"],
-				},
-			],
-		};
 
 		const harness = await createRuntimeHarness({
 			agentDir,
 			cwd: source,
 			sessionManager: SessionManager.create(source),
-			promptTemplates: [grill],
+			promptTemplates: [],
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
 			registerJuruc,
-			probe: (pi) => {
+			probe: (pi, record) => {
 				pi.on("session_start", () => {
+					record.activeTools = pi.getActiveTools();
 					try {
 						const task = loadTask(paths, slug);
-						const phase = task.document.plan?.completed.length ?? 0;
-						if (task.document.stage === "building" && !writtenPhases.has(phase)) {
+						const phase = task.document.checkpoints.length;
+						if (task.document.stage === "implementation" && !writtenPhases.has(phase)) {
 							writeFileSync(
 								join(task.document.repository.worktree, "tracked.txt"),
 								`candidate ${phase + 1}\n`,
@@ -170,112 +182,235 @@ try {
 
 		try {
 			harness.selections.push("New task…");
-			harness.editorValues.push("Simplify runtime workflow");
+			harness.editorValues.push("QRSPI runtime workflow");
 			harness.setResponses([
 				fauxAssistantMessage(
-					[fauxToolCall("delegate", { agent: "synthesizer", task: "Synthesize reports." })],
+					[fauxToolCall("juruc_set_questions", questions)],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("delegate", { agent: "synthesizer", task: "Synthesize facts." })],
 					{ stopReason: "toolUse" },
 				),
 				fauxAssistantMessage("Research complete.", { stopReason: "stop" }),
 				fauxAssistantMessage(
-					[fauxToolCall("juruc_set_plan", confirmedPlan)],
+					[fauxToolCall("juruc_set_specification", specification)],
 					{ stopReason: "toolUse" },
 				),
 				fauxAssistantMessage(
-					[fauxToolCall("juruc_block_phase", { reason: "Confirm the retry path." })],
+					[fauxToolCall("juruc_set_plan", plan)],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_run_verification", { command: undeclaredVerification })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_run_verification", { command: phaseOneVerification })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_finish_phase", {
+						resolution: "Implemented and verified.",
+						commitMessage: "Implement runtime workflow",
+						verificationEvidence: [{
+							command: phaseOneVerification,
+							exitCode: 0,
+							summary: "Phase one verification passed.",
+						}],
+					})],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_run_verification", { command: phaseTwoVerification })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_finish_phase", {
+						resolution: "Connected and verified.",
+						commitMessage: "Connect runtime workflow",
+						verificationEvidence: [{
+							command: phaseTwoVerification,
+							exitCode: 0,
+							summary: "Phase two verification passed.",
+						}],
+					})],
 					{ stopReason: "toolUse" },
 				),
 			]);
 			await harness.runtime.session.prompt("/juruc");
 
-			let task = loadTask(paths, slug);
-			assert.equal(task.document.stage, "blocked");
-			const researchSession = findTaskSession(task.document, { kind: "research" })?.path;
-			const planSession = findTaskSession(task.document, { kind: "plan" })?.path;
-			assert.ok(researchSession);
-			assert.ok(planSession);
-			assert.notEqual(researchSession, planSession);
+			const task = loadTask(paths, slug);
+			assert.equal(task.document.stage, "done");
+			assert.deepEqual(task.document.questions, questions);
+			assert.deepEqual(task.document.specification, specification);
+			assert.deepEqual(task.document.plan, plan);
+			assert.equal(task.document.checkpoints.length, 2);
 			assert.equal(readFileSync(join(task.directory, "research.md"), "utf8"), researchOutput);
-			assert.equal(existsSync(join(task.directory, "state.json")), false);
-			assert.equal(existsSync(join(task.directory, "plan.json")), false);
-			assert.equal(task.document.blockReason, "Confirm the retry path.");
-			const buildSession = findTaskSession(task.document, {
+			assert.equal("research" in task.document, false);
+			assert.equal(new Set(task.document.sessions.map(({ path }) => path)).size, 6);
+			for (const kind of ["questions", "research", "specification", "plan"] as const)
+				assert.ok(findTaskSession(task.document, { kind }));
+			assert.notEqual(
+				findTaskSession(task.document, { kind: "implementation", phase: 1 })?.path,
+				findTaskSession(task.document, { kind: "implementation", phase: 2 })?.path,
+			);
+
+			assert.equal(harness.instances.length, 7);
+			assert.ok(harness.instances[0].activeTools?.includes("read"));
+			for (const index of [1, 2, 4])
+				assert.equal(realpathSync(harness.instances[index].cwd!), realpathSync(source));
+			assert.equal(realpathSync(harness.instances[3].cwd!), realpathSync(task.directory));
+			for (const instance of harness.instances.slice(5))
+				assert.equal(realpathSync(instance.cwd!), realpathSync(task.document.repository.worktree));
+			assert.deepEqual(harness.instances[2].activeTools, ["delegate"]);
+			assert.deepEqual(harness.instances[3].activeTools, ["juruc_set_specification"]);
+			assert.ok(harness.instances[1].activeTools?.includes("juruc_set_questions"));
+			assert.equal(harness.instances[1].activeTools?.includes("bash"), false);
+			assert.equal(harness.instances[1].activeTools?.includes("edit"), false);
+			assert.ok(harness.instances[4].activeTools?.includes("juruc_set_plan"));
+			assert.equal(harness.instances[4].activeTools?.includes("write"), false);
+			assert.ok(harness.instances[5].activeTools?.includes("juruc_run_verification"));
+			assert.ok(harness.instances[5].activeTools?.includes("juruc_finish_phase"));
+			assert.equal(harness.instances[5].activeTools?.includes("bash"), false);
+			assert.equal(harness.instances[5].activeTools?.includes("juruc_set_plan"), false);
+			for (const instance of harness.instances.slice(1))
+				assert.deepEqual(instance.toolActivations.at(-1), []);
+
+			const sessionText = (kind: "questions" | "research" | "specification" | "plan") => {
+				const path = findTaskSession(task.document, { kind })!.path;
+				return readFileSync(path, "utf8");
+			};
+			assert.match(sessionText("questions"), /Original request/);
+			assert.match(sessionText("research"), /Confirmed Questions result/);
+			assert.match(sessionText("specification"), /Research report/);
+			assert.doesNotMatch(sessionText("specification"), /Implementation phase/);
+			assert.match(sessionText("plan"), /Validated Specification/);
+			assert.doesNotMatch(sessionText("plan"), /Research report|sharedUnderstanding/);
+			const implementationPath = findTaskSession(task.document, {
 				kind: "implementation",
 				phase: 1,
-			})?.path;
-			assert.ok(buildSession);
-			assert.equal(
-				git(task.document.repository.worktree, "rev-parse", "HEAD"),
-				task.document.repository.sourceHead,
-			);
-			assert.equal(readFileSync(join(task.document.repository.worktree, "tracked.txt"), "utf8"), "candidate 1\n");
-
-			harness.selections.push(
-				"Simplify runtime workflow — simplify-runtime-workflow · blocked",
-				"Continue planning",
-			);
-			const finish = {
-				resolution: "Implemented and verified the candidate.",
-				commitMessage: "Implement runtime workflow",
-				verificationEvidence: [{
-					command: "node --test focused.test.ts",
-					exitCode: 0,
-					summary: "Focused test passed.",
-				}],
-			};
-			const finishIntegration = {
-				resolution: "Connected and verified the candidate.",
-				commitMessage: "Connect runtime workflow",
-				verificationEvidence: [{
-					command: "node --test integration.test.ts",
-					exitCode: 0,
-					summary: "Integration test passed.",
-				}],
-			};
-			harness.setResponses([
-				fauxAssistantMessage(
-					[fauxToolCall("juruc_set_plan", confirmedPlan)],
-					{ stopReason: "toolUse" },
-				),
-				fauxAssistantMessage(
-					[fauxToolCall("juruc_finish_phase", finish)],
-					{ stopReason: "toolUse" },
-				),
-				fauxAssistantMessage(
-					[fauxToolCall("juruc_finish_phase", finishIntegration)],
-					{ stopReason: "toolUse" },
-				),
-			]);
-			await harness.runtime.session.prompt("/juruc");
-
-			task = loadTask(paths, slug);
-			assert.equal(task.document.stage, "done");
-			assert.equal(task.document.plan?.completed.length, 2);
-			assert.equal(
-				findTaskSession(task.document, { kind: "implementation", phase: 1 })?.path,
-				buildSession,
-			);
-			assert.ok(findTaskSession(task.document, { kind: "implementation", phase: 2 }));
-			assert.ok(task.document.plan?.completed[0].commit);
-			assert.ok(task.document.plan?.completed[1].commit);
-			assert.deepEqual(task.document.plan?.completed[0].verificationEvidence, finish.verificationEvidence);
-			assert.deepEqual(
-				task.document.plan?.completed[1].verificationEvidence,
-				finishIntegration.verificationEvidence,
-			);
-			assert.equal(task.document.plan?.remaining.length, 0);
+			})!.path;
+			const implementationText = readFileSync(implementationPath, "utf8");
+			assert.match(implementationText, /Validated Specification/);
+			assert.match(implementationText, /Authoritative current phase/);
+			assert.match(implementationText, /not declared by the active phase/);
+			assert.match(implementationText, /phase one verified/);
+			assert.doesNotMatch(implementationText, /Research report|sharedUnderstanding/);
+			assert.equal(existsSync(join(task.document.repository.worktree, "undeclared.txt")), false);
+			assert.equal(git(task.document.repository.worktree, "status", "--porcelain"), "");
 			assert.equal(
 				git(task.document.repository.worktree, "log", "-2", "--format=%s"),
 				"Connect runtime workflow\nImplement runtime workflow",
 			);
-			assert.equal(git(task.document.repository.worktree, "status", "--porcelain"), "");
-			assert.equal(buildSession === planSession, false);
-			assert.equal(new Set(task.document.sessions.map(({ path }) => path)).size, 4);
-			assert.equal(
-				harness.instances.at(-1)?.pi.getActiveTools().some((name) => name.startsWith("juruc_")),
-				false,
-			);
-			assert.equal(harness.notices.some((notice) => /transaction|acceptance|recovery/iu.test(notice)), false);
+
+			const staleSessions = [
+				findTaskSession(task.document, { kind: "research" })!.path,
+				findTaskSession(task.document, { kind: "plan" })!.path,
+				findTaskSession(task.document, { kind: "implementation", phase: 1 })!.path,
+			];
+			for (const stale of staleSessions) {
+				await harness.runtime.switchSession(stale);
+				assert.deepEqual(harness.instances.at(-1)!.pi.getActiveTools(), []);
+			}
+			harness.instances.at(-1)!.pi.setActiveTools(["juruc_run_verification"]);
+			harness.setResponses([
+				fauxAssistantMessage([
+					fauxToolCall("juruc_run_verification", { command: phaseOneVerification }),
+				], { stopReason: "toolUse" }),
+				fauxAssistantMessage("Stopped.", { stopReason: "stop" }),
+			]);
+			await harness.runtime.session.prompt("Try a stale tool.");
+			assert.match(readFileSync(staleSessions.at(-1)!, "utf8"), /run \/juruc to resume/);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	await test("parallel synthesizer siblings cannot advance Research", async () => {
+		const source = join(scratch, "parallel-source");
+		mkdirSync(source);
+		git(source, "init", "-b", "main");
+		git(source, "config", "user.name", "JURUC pipeline test");
+		git(source, "config", "user.email", "juruc-pipeline@example.invalid");
+		writeFileSync(join(source, "tracked.txt"), "baseline\n");
+		git(source, "add", "-A");
+		git(source, "commit", "-m", "baseline");
+		const paths = runtimePaths(agentDir);
+		let delegateExecutions = 0;
+		const harness = await createRuntimeHarness({
+			agentDir,
+			cwd: source,
+			sessionManager: SessionManager.create(source),
+			promptTemplates: [],
+			stubTools: ["delegate"],
+			stubResult: () => {
+				delegateExecutions++;
+				return {
+					agent: "synthesizer",
+					output: "must not persist\n",
+					stopReason: "stop",
+					steps: [],
+				};
+			},
+			registerJuruc,
+		});
+		try {
+			harness.selections.push("New task…");
+			harness.editorValues.push("Parallel synthesis guard");
+			harness.setResponses([
+				fauxAssistantMessage([fauxToolCall("juruc_set_questions", {
+					sharedUnderstanding: "Guard synthesis.",
+					decisions: [],
+					acceptedAssumptions: [],
+					researchTargets: [],
+				})], { stopReason: "toolUse" }),
+				fauxAssistantMessage([
+					fauxToolCall("delegate", { agent: "synthesizer", task: "first" }),
+					fauxToolCall("delegate", { agent: "synthesizer", task: "second" }),
+				], { stopReason: "toolUse" }),
+				fauxAssistantMessage("Research remains open.", { stopReason: "stop" }),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+			const task = loadTask(paths, "parallel-synthesis-guard");
+			assert.equal(task.document.stage, "research");
+			assert.equal(delegateExecutions, 0);
+			assert.equal(existsSync(join(task.directory, "research.md")), false);
+			assert.match(readFileSync(findTaskSession(task.document, { kind: "research" })!.path, "utf8"), /sole tool call/);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	await test("a missing ordinary declared stage tool fails clearly", async () => {
+		const source = join(scratch, "missing-tool-source");
+		mkdirSync(source);
+		git(source, "init", "-b", "main");
+		git(source, "config", "user.name", "JURUC pipeline test");
+		git(source, "config", "user.email", "juruc-pipeline@example.invalid");
+		writeFileSync(join(source, "tracked.txt"), "baseline\n");
+		git(source, "add", "-A");
+		git(source, "commit", "-m", "baseline");
+		const paths = runtimePaths(agentDir);
+		const harness = await createRuntimeHarness({
+			agentDir,
+			cwd: source,
+			sessionManager: SessionManager.create(source),
+			promptTemplates: [],
+			stubTools: ["delegate"],
+			omitTools: ["grep"],
+			registerJuruc,
+		});
+		try {
+			harness.selections.push("New task…");
+			harness.editorValues.push("Missing grep guard");
+			harness.setResponses([
+				fauxAssistantMessage("Cannot interview without every declared tool.", { stopReason: "stop" }),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+			assert.equal(loadTask(paths, "missing-grep-guard").document.stage, "questions");
+			assert.deepEqual(harness.instances.at(-1)!.pi.getActiveTools(), []);
+			assert.ok(harness.notices.some((notice) => /required questions tools are unavailable: grep/.test(notice)));
 		} finally {
 			await harness.dispose();
 		}

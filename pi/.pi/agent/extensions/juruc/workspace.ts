@@ -274,12 +274,42 @@ export async function removeTaskWorktree(
 	return true;
 }
 
+export async function recoverUnrecordedTaskCommits(
+	repository: TaskRepository,
+	expectedHead: string,
+): Promise<boolean> {
+	const status = await inspectTaskWorktree(repository);
+	if (status.head === expectedHead) return false;
+	const ancestor = await git(repository.worktree, [
+		"merge-base",
+		"--is-ancestor",
+		expectedHead,
+		status.head,
+	]);
+	if (ancestor.code === 1)
+		throw new Error("managed worktree HEAD diverged from recorded task history");
+	if (ancestor.code !== 0)
+		throw failure(ancestor, "could not compare managed worktree HEAD with recorded task history");
+	const reset = await git(
+		repository.worktree,
+		["reset", "--mixed", "--quiet", expectedHead],
+		GIT_WRITE_TIMEOUT_MS,
+	);
+	if (reset.code !== 0)
+		throw failure(reset, "could not recover commits absent from task.json");
+	const recovered = await inspectTaskWorktree(repository);
+	if (recovered.head !== expectedHead)
+		throw new Error("managed worktree HEAD recovery did not reach recorded task history");
+	return true;
+}
+
 export async function stageAll(repository: TaskRepository): Promise<string[]> {
 	await inspectTaskWorktree(repository);
 	const result = await git(repository.worktree, ["add", "-A"], GIT_WRITE_TIMEOUT_MS);
 	if (result.code !== 0) throw failure(result, "git add -A failed");
 	const staged = await git(repository.worktree, [
 		"diff",
+		"--no-renames",
 		"--cached",
 		"--name-only",
 		"-z",
@@ -288,6 +318,25 @@ export async function stageAll(repository: TaskRepository): Promise<string[]> {
 	]);
 	if (staged.code !== 0) throw failure(staged, "could not inspect the staged candidate");
 	return nulPaths(staged.stdout);
+}
+
+export async function stagedPathsMatchingScopes(
+	repository: TaskRepository,
+	fileScopes: readonly string[],
+): Promise<string[]> {
+	const matched = await git(repository.worktree, [
+		"diff",
+		"--no-renames",
+		"--cached",
+		"--name-only",
+		"-z",
+		"HEAD",
+		"--",
+		...fileScopes,
+	]);
+	if (matched.code !== 0)
+		throw failure(matched, "could not match staged paths against phase file scopes");
+	return nulPaths(matched.stdout);
 }
 
 export async function unstageAll(repository: TaskRepository): Promise<void> {

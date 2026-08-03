@@ -17,6 +17,7 @@ import {
 	git,
 	inspectTaskWorktree,
 	prepareRepository,
+	recoverUnrecordedTaskCommits,
 	removeTaskWorktree,
 	repositoryEvidence,
 	stageAll,
@@ -201,6 +202,61 @@ test("stage, unstage, and extension-owned commit use the complete candidate", as
 			"Implement complete candidate\n\nTested locally.",
 		);
 		assert.deepEqual((await inspectTaskWorktree(identity)).paths, []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("unrecorded descendant commits reset mixed and preserve candidate changes", async () => {
+	const root = mkdtempSync(join(tmpdir(), "juruc-workspace-recover-"));
+	try {
+		const source = join(root, "source");
+		const repository = initializeRepository(source);
+		mkdirSync(join(root, "worktrees"));
+		const identity = await createTaskWorktree(
+			repository,
+			"recover-task",
+			join(root, "worktrees", "recover-task"),
+		);
+		writeFileSync(join(identity.worktree, "tracked.txt"), "committed by model\n");
+		run(identity.worktree, "add", "-A");
+		run(identity.worktree, "commit", "-m", "unrecorded");
+		writeFileSync(join(identity.worktree, "new.txt"), "still dirty\n");
+
+		assert.equal(await recoverUnrecordedTaskCommits(identity, repository.head), true);
+		assert.equal(run(identity.worktree, "rev-parse", "HEAD"), repository.head);
+		assert.equal(readFileSync(join(identity.worktree, "tracked.txt"), "utf8"), "committed by model\n");
+		assert.equal(readFileSync(join(identity.worktree, "new.txt"), "utf8"), "still dirty\n");
+		assert.deepEqual((await workspaceStatus(identity.worktree)).paths, ["new.txt", "tracked.txt"]);
+		assert.equal(await recoverUnrecordedTaskCommits(identity, repository.head), false);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("unrecorded recovery rejects history divergent from the recorded checkpoint", async () => {
+	const root = mkdtempSync(join(tmpdir(), "juruc-workspace-diverged-"));
+	try {
+		const source = join(root, "source");
+		const repository = initializeRepository(source);
+		mkdirSync(join(root, "worktrees"));
+		const identity = await createTaskWorktree(
+			repository,
+			"diverged-task",
+			join(root, "worktrees", "diverged-task"),
+		);
+		writeFileSync(join(identity.worktree, "tracked.txt"), "recorded\n");
+		run(identity.worktree, "add", "-A");
+		run(identity.worktree, "commit", "-m", "recorded");
+		const recorded = run(identity.worktree, "rev-parse", "HEAD");
+		run(identity.worktree, "reset", "--hard", repository.head);
+		writeFileSync(join(identity.worktree, "tracked.txt"), "diverged\n");
+		run(identity.worktree, "add", "-A");
+		run(identity.worktree, "commit", "-m", "diverged");
+		await assert.rejects(
+			recoverUnrecordedTaskCommits(identity, recorded),
+			/diverged from recorded task history/,
+		);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
