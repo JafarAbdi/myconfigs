@@ -373,7 +373,7 @@ test("top-level reviewer does not retry driver, malformed output, or session fai
 	}
 });
 
-test("Pi reviewer driver disables resources, tools, retry, and compaction for one prompt", async () => {
+test("Pi reviewer driver disables non-context resources, tools, retry, and compaction for one prompt", async () => {
 	const root = mkdtempSync(join(tmpdir(), "juruc-reviewer-driver-"));
 	const sessions = join(root, "sessions");
 	mkdirSync(sessions);
@@ -456,7 +456,6 @@ test("Pi reviewer driver disables resources, tools, retry, and compaction for on
 		assert.deepEqual(loader?.getSkills().skills, []);
 		assert.deepEqual(loader?.getPrompts().prompts, []);
 		assert.deepEqual(loader?.getThemes().themes, []);
-		assert.deepEqual(loader?.getAgentsFiles().agentsFiles, []);
 		assert.equal(loader?.getSystemPrompt(), REVIEWER_SYSTEM_INSTRUCTION);
 		assert.deepEqual(loader?.getAppendSystemPrompt(), []);
 

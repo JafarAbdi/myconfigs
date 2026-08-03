@@ -267,7 +267,6 @@ export async function drivePiReviewer(
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
-		noContextFiles: true,
 		systemPromptOverride: () => REVIEWER_SYSTEM_INSTRUCTION,
 		appendSystemPromptOverride: () => [],
 	});
