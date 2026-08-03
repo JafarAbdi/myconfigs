@@ -4,13 +4,15 @@ import {
 	createAgentSessionRuntime,
 	createAgentSessionServices,
 	type ExtensionAPI,
+	initTheme,
 	type ExtensionContext,
 	ModelRuntime,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import juruc from "./index.ts";
+import { registerJuruc } from "./index.ts";
+import type { TaskNamer } from "./naming.ts";
 
 export { fauxAssistantMessage, fauxToolCall };
 
@@ -48,7 +50,11 @@ export interface HarnessOptions {
 	/** Resolves the TUI custom components, such as the picker, without a terminal. */
 	custom?: () => Promise<unknown>;
 	/** Override JURUC registration for injected workflow dependencies in tests. */
-	registerJuruc?: (pi: ExtensionAPI) => void;
+	registerJuruc?: (pi: ExtensionAPI, taskNamer: TaskNamer) => void;
+	/** Naming behavior injected into every JURUC extension instance. */
+	taskNamer?: TaskNamer;
+	/** Press Escape when the task-naming loader opens. */
+	abortTaskNaming?: boolean;
 	/** Width used to render factory widgets; defaults to a normal terminal. */
 	widgetWidth?: number;
 	/** Registered in the same extension closure as JURUC, before JURUC itself. */
@@ -90,6 +96,10 @@ export interface RuntimeHarness {
  * old runtime, starts the fresh one, then invokes the old `withSession`.
  */
 export async function createRuntimeHarness(options: HarnessOptions): Promise<RuntimeHarness> {
+	const deterministicTaskNamer: TaskNamer = async (request) =>
+		request.trim().split(/\r?\n/u, 1)[0].trim().slice(0, 80);
+	const taskNamer = options.taskNamer ?? deterministicTaskNamer;
+	initTheme(undefined, false);
 	const faux = registerFauxProvider({ models: [{ id: "faux-1", reasoning: false }] });
 	const provider = faux.getModel().provider;
 	mkdirSync(options.agentDir, { recursive: true });
@@ -152,7 +162,36 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 			const [line] = component.render(widgetWidth);
 			if (typeof line === "string") widgets.push(line);
 		},
-		custom: options.custom ?? (async () => undefined),
+		custom: async (
+			factory: (
+				tui: unknown,
+				theme: unknown,
+				keybindings: unknown,
+				done: (value: unknown) => void,
+			) => unknown,
+		) => {
+			let resolve!: (value: unknown) => void;
+			const completed = new Promise<unknown>((done) => { resolve = done; });
+			const component = factory(
+				{ requestRender: () => undefined },
+				{ fg: (_color: string, text: string) => text, bold: (text: string) => text },
+				{ matches: () => false },
+				resolve,
+			);
+			if (
+				typeof component !== "object" ||
+				component === null ||
+				!("signal" in component) ||
+				!("dispose" in component)
+			) return options.custom?.();
+			if (options.abortTaskNaming)
+				(component as { handleInput(data: string): void }).handleInput("\x1b");
+			try {
+				return await completed;
+			} finally {
+				(component as { dispose(): void }).dispose();
+			}
+		},
 	} as never;
 
 	const createRuntime = async ({
@@ -227,7 +266,8 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 						pi.on("session_shutdown", (event) => {
 							events.push(`shutdown:${record.instance}:${event.reason}`);
 						});
-						(options.registerJuruc ?? juruc)(pi);
+						(options.registerJuruc ?? ((api, namer) =>
+							registerJuruc(api, { taskNamer: namer })))(pi, taskNamer);
 						for (const extension of options.afterJuruc ?? []) extension(pi);
 						options.probe?.(pi, record);
 					},

@@ -1,4 +1,5 @@
 import {
+	BorderedLoader,
 	createLocalBashOperations,
 	DynamicBorder,
 	type ExtensionAPI,
@@ -59,6 +60,10 @@ import {
 	setTaskFeedback,
 	type SetFeedbackInput,
 } from "./feedback.ts";
+import {
+	nameTaskWithModel,
+	type TaskNamer,
+} from "./naming.ts";
 import { taskOptions, type TaskChoice } from "./picker.ts";
 import {
 	confirmTaskPlan,
@@ -463,12 +468,14 @@ export async function prepareReview(input: PrepareReviewInput): Promise<TaskDocu
 export interface JurucDependencies {
 	readPatch?: ReviewPatchReader;
 	reviewerDriver?: ReviewerDriver;
+	taskNamer?: TaskNamer;
 }
 
 export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies = {}): void {
 	const paths = runtimePaths(getAgentDir());
 	const verificationOperations = createLocalBashOperations();
 	const readPatch = dependencies.readPatch ?? readGitReviewPatch;
+	const taskNamer = dependencies.taskNamer ?? nameTaskWithModel;
 	const pendingSynthesis = new Map<string, { slug: string; session: string }>();
 	let ordinaryTools: string[] | undefined;
 
@@ -1218,16 +1225,48 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 	}
 
 	async function createNewTask(ctx: ExtensionCommandContext): Promise<void> {
-		const request = (await ctx.ui.editor("New task — what do you want to do?"))?.trim();
-		if (!request) return;
-		let title = request.split(/\r?\n/u, 1)[0].trim().slice(0, 80);
-		let base = slugify(title);
-		if (!base) {
-			const name = (await ctx.ui.input("Task name — e.g. simplify-juruc"))?.trim();
-			if (!name) return;
-			title = name;
-			base = slugify(name);
+		const request = await ctx.ui.editor("New task — what do you want to do?");
+		if (!request?.trim()) return;
+		let title: string | undefined;
+		let failure: unknown;
+		if (ctx.mode === "tui") {
+			const result = await ctx.ui.custom<
+				| { kind: "named"; title: string }
+				| { kind: "failed"; error: unknown }
+				| { kind: "cancelled" }
+			>((tui, theme, _keybindings, done) => {
+				const loader = new BorderedLoader(tui, theme, "Naming the task…");
+				loader.onAbort = () => done({ kind: "cancelled" });
+				taskNamer(request, ctx, loader.signal).then(
+					(named) => done(named
+						? { kind: "named", title: named }
+						: { kind: "cancelled" }),
+					(error: unknown) => done({ kind: "failed", error }),
+				);
+				return loader;
+			});
+			if (result.kind === "cancelled") return;
+			if (result.kind === "named") title = result.title;
+			else failure = result.error;
+		} else {
+			const signal = new AbortController().signal;
+			try {
+				title = await taskNamer(request, ctx, signal);
+				if (title === undefined) return;
+			} catch (error) {
+				failure = error;
+			}
 		}
+		if (title === undefined) {
+			ctx.ui.notify(
+				`Task naming failed; enter a title manually — ${failure instanceof Error ? failure.message : String(failure)}`,
+				"warning",
+			);
+			title = (await ctx.ui.input("Concise task title — 3–5 words"))?.trim();
+			if (!title) return;
+		}
+		const base = slugify(title);
+		if (!base) throw new Error("task title does not produce a valid slug");
 		const slug = uniqueSlug(paths.tasks, base);
 		// Ask Git from a directory JURUC owns, never from a candidate repository cwd.
 		if (!validTaskSlug(slug) || !(await validBranchName(paths.tasks, slug)))

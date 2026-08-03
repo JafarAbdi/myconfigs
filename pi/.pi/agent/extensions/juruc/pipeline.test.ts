@@ -82,7 +82,7 @@ try {
 		{ SessionManager },
 		{ prepareReview, registerJuruc },
 		{ runtimePaths },
-		{ loadTask, saveTask },
+		{ listTasks, loadTask, saveTask },
 		{
 			addTaskReviewComment,
 			currentTaskCorrectionRound,
@@ -124,6 +124,119 @@ try {
 		return url;
 	};
 	assert.equal("openSystemBrowser" in reviewServerModule, false);
+
+	await test("task naming stores model and manual titles while cancellation has no side effects", async () => {
+		const makeRepository = (name: string) => {
+			const source = join(scratch, name);
+			mkdirSync(source);
+			git(source, "init", "-b", "main");
+			git(source, "config", "user.name", "JURUC pipeline test");
+			git(source, "config", "user.email", "juruc-pipeline@example.invalid");
+			writeFileSync(join(source, "tracked.txt"), "baseline\n");
+			git(source, "add", "-A");
+			git(source, "commit", "-m", "baseline");
+			return source;
+		};
+		const paths = runtimePaths(agentDir);
+
+		const source = makeRepository("model-naming");
+		const request = "  Please improve task naming.\nKeep every detail.  ";
+		let modelCalls = 0;
+		const modeled = await createRuntimeHarness({
+			agentDir,
+			cwd: source,
+			sessionManager: SessionManager.create(source),
+			promptTemplates: [],
+			taskNamer: async (received, _ctx, signal) => {
+				modelCalls++;
+				assert.equal(received, request);
+				assert.ok(signal instanceof AbortSignal);
+				return "Improve task naming flow";
+			},
+		});
+		try {
+			modeled.selections.push("New task…");
+			modeled.editorValues.push(request);
+			modeled.setResponses([
+				fauxAssistantMessage("Which outcome do you want?", { stopReason: "stop" }),
+			]);
+			await modeled.runtime.session.prompt("/juruc");
+			const task = loadTask(paths, "improve-task-naming-flow");
+			assert.equal(modelCalls, 1);
+			assert.equal(task.document.title, "Improve task naming flow");
+			assert.equal(task.document.request, request);
+			assert.equal(task.document.slug, task.document.repository.branch);
+		} finally {
+			await modeled.dispose();
+		}
+
+		const manualSource = makeRepository("manual-naming");
+		let failedCalls = 0;
+		const fallback = await createRuntimeHarness({
+			agentDir,
+			cwd: manualSource,
+			sessionManager: SessionManager.create(manualSource),
+			promptTemplates: [],
+			taskNamer: async () => {
+				failedCalls++;
+				throw new Error("naming unavailable");
+			},
+		});
+		try {
+			fallback.selections.push("New task…");
+			fallback.editorValues.push("A request whose first line must not become the title");
+			fallback.inputValues.push("Manual concise task title");
+			fallback.setResponses([
+				fauxAssistantMessage("Which outcome do you want?", { stopReason: "stop" }),
+			]);
+			await fallback.runtime.session.prompt("/juruc");
+			const task = loadTask(paths, "manual-concise-task-title");
+			assert.equal(failedCalls, 1);
+			assert.equal(task.document.title, "Manual concise task title");
+			assert.ok(fallback.notices.some((notice) =>
+				notice.includes("Task naming failed") && notice.includes("naming unavailable")
+			));
+		} finally {
+			await fallback.dispose();
+		}
+
+		const cancelledSource = join(scratch, "cancelled-naming");
+		mkdirSync(cancelledSource);
+		const tasksBefore = listTasks(paths).map(({ slug }) => slug);
+		let cancelledCalls = 0;
+		let repositoryPrompts = 0;
+		const cancelledPicks: unknown[] = [];
+		const cancelled = await createRuntimeHarness({
+			agentDir,
+			cwd: cancelledSource,
+			sessionManager: SessionManager.create(cancelledSource),
+			promptTemplates: [],
+			mode: "tui",
+			custom: async () => cancelledPicks.shift(),
+			abortTaskNaming: true,
+			taskNamer: async (_request, _ctx, signal) => {
+				cancelledCalls++;
+				return new Promise<undefined>((resolve) => {
+					signal.addEventListener("abort", () => resolve(undefined), { once: true });
+				});
+			},
+			confirm: async () => {
+				repositoryPrompts++;
+				return true;
+			},
+		});
+		try {
+			cancelledPicks.push({ action: "new" });
+			cancelled.editorValues.push("Cancelled model task request");
+			await cancelled.runtime.session.prompt("/juruc");
+			assert.equal(cancelledCalls, 1);
+			assert.equal(repositoryPrompts, 0);
+			assert.deepEqual(listTasks(paths).map(({ slug }) => slug), tasksBefore);
+			assert.equal(cancelled.notices.some((notice) => notice.includes("Task naming failed")), false);
+		} finally {
+			await cancelled.dispose();
+		}
+	});
 
 	await test("one explicit /juruc opens exactly one fresh Q, R, S, P, or implementation stage", async () => {
 		const source = join(scratch, "source");
@@ -226,7 +339,7 @@ try {
 			promptTemplates: [],
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
-			registerJuruc: (pi) => registerJuruc(pi, { reviewerDriver }),
+			registerJuruc: (pi, taskNamer) => registerJuruc(pi, { reviewerDriver, taskNamer }),
 			probe: (pi, record) => {
 				pi.on("session_start", () => {
 					record.activeTools = pi.getActiveTools();
@@ -725,7 +838,7 @@ try {
 			promptTemplates: [],
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
-			registerJuruc: (pi) => registerJuruc(pi, { reviewerDriver }),
+			registerJuruc: (pi, taskNamer) => registerJuruc(pi, { reviewerDriver, taskNamer }),
 			probe: (pi, record) => {
 				pi.on("session_start", () => {
 					record.activeTools = pi.getActiveTools();
@@ -1154,8 +1267,9 @@ try {
 				custom: async () => picks.shift(),
 				stubTools: ["delegate"],
 				stubResult: (name) => name === "delegate" ? synthesis : undefined,
-				registerJuruc: (pi) =>
+				registerJuruc: (pi, taskNamer) =>
 					registerJuruc(pi, {
+						taskNamer,
 						reviewerDriver: async ({ kind }: { kind: string }) => {
 							reviewerCalls.push(kind);
 							return {
@@ -1497,8 +1611,9 @@ try {
 			custom: async () => picks.shift(),
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
-			registerJuruc: (pi) =>
+			registerJuruc: (pi, taskNamer) =>
 				registerJuruc(pi, {
+					taskNamer,
 					reviewerDriver: async () => ({
 						assistantMessages: [{
 							role: "assistant",
@@ -1683,7 +1798,6 @@ try {
 					steps: [],
 				};
 			},
-			registerJuruc,
 		});
 		try {
 			harness.selections.push("New task…");
@@ -1782,7 +1896,6 @@ try {
 			},
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
-			registerJuruc,
 		});
 
 		const branchExists = () =>
@@ -1913,7 +2026,6 @@ try {
 			promptTemplates: [],
 			stubTools: ["delegate"],
 			omitTools: ["grep"],
-			registerJuruc,
 		});
 		try {
 			harness.selections.push("New task…");
