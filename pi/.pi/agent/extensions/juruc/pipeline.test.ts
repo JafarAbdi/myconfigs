@@ -86,13 +86,14 @@ try {
 		{
 			addTaskReviewComment,
 			currentTaskCorrectionRound,
+			currentTaskReviewRound,
 			decideTaskReview,
 			findTaskSession,
 			loadTaskDocument,
 			registerTaskReviewerStart,
 			saveTaskDocument,
 		},
-		{ activeReviewServer },
+		reviewServerModule,
 		{ demoReviewPatch, demoReviewTask },
 		{ PLAN_DECISION_TITLE, PLAN_DECISION_UNRESOLVED, PLAN_REVISION_TITLE },
 	] = await Promise.all([
@@ -106,6 +107,23 @@ try {
 		import("./review-fixture.ts"),
 		import("./planning.ts"),
 	]);
+	const { activeReviewServer } = reviewServerModule;
+	const liveReviewUrl = (task: ReturnType<typeof loadTask>): string | undefined => {
+		const round = currentTaskReviewRound(task.document);
+		return round
+			? activeReviewServer.liveUrl({
+				taskPath: join(task.directory, "task.json"),
+				baseCommit: round.baseCommit,
+				headCommit: round.headCommit,
+			})
+			: undefined;
+	};
+	const requireLiveReviewUrl = (task: ReturnType<typeof loadTask>): string => {
+		const url = liveReviewUrl(task);
+		assert.ok(url, `${task.document.slug}: expected a live review URL`);
+		return url;
+	};
+	assert.equal("openSystemBrowser" in reviewServerModule, false);
 
 	await test("one explicit /juruc opens exactly one fresh Q, R, S, P, or implementation stage", async () => {
 		const source = join(scratch, "source");
@@ -132,7 +150,6 @@ try {
 		const slug = "qrspi-runtime-workflow";
 		const researchOutput = "Independent verified facts.\n";
 		const writtenPhases = new Set<number>();
-		const openedUrls: string[] = [];
 		const preImplementation: Array<{ stage: string; branch: boolean; worktree: boolean }> = [];
 		let injectedActivationFailure = false;
 		const questions = {
@@ -209,13 +226,7 @@ try {
 			promptTemplates: [],
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
-			registerJuruc: (pi) =>
-				registerJuruc(pi, {
-					reviewerDriver,
-					openBrowser: async (url: string) => {
-						openedUrls.push(url);
-					},
-				}),
+			registerJuruc: (pi) => registerJuruc(pi, { reviewerDriver }),
 			probe: (pi, record) => {
 				pi.on("session_start", () => {
 					record.activeTools = pi.getActiveTools();
@@ -359,7 +370,7 @@ try {
 				correctness: null,
 			});
 			assert.deepEqual(reviewerCalls, []);
-			assert.deepEqual(openedUrls, []);
+			assert.equal(liveReviewUrl(committed), undefined);
 			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Ready"));
 
 			await advance([]);
@@ -395,8 +406,7 @@ try {
 				findTaskSession(task.document, { kind: "implementation", phase: 2 })?.path,
 			);
 			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
-			assert.equal(openedUrls.length, 1);
-			assert.match(openedUrls[0], /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/\?/u);
+			assert.match(requireLiveReviewUrl(task), /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/\?/u);
 			const round = task.document.reviewRounds[0];
 			assert.equal(round.baseCommit, task.document.repository.sourceHead);
 			assert.equal(round.headCommit, task.document.checkpoints[1].commit);
@@ -675,7 +685,7 @@ try {
 				}],
 			};
 		};
-		const openedUrls: string[] = [];
+		const servedUrls: string[] = [];
 		const written = new Set<string>();
 		const synthesis = {
 			agent: "synthesizer",
@@ -702,13 +712,7 @@ try {
 			promptTemplates: [],
 			stubTools: ["delegate"],
 			stubResult: (name) => name === "delegate" ? synthesis : undefined,
-			registerJuruc: (pi) =>
-				registerJuruc(pi, {
-					reviewerDriver,
-					openBrowser: async (url: string) => {
-						openedUrls.push(url);
-					},
-				}),
+			registerJuruc: (pi) => registerJuruc(pi, { reviewerDriver }),
 			probe: (pi) => {
 				pi.on("session_start", () => {
 					try {
@@ -835,15 +839,17 @@ try {
 			]);
 			assert.deepEqual(reviewerCalls, []);
 			await advance([]);
-			assert.equal(loadTask(paths, slug).document.stage, "review");
+			const opened = loadTask(paths, slug);
+			assert.equal(opened.document.stage, "review");
 			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
-			assert.equal(openedUrls.length, 1);
-			assert.match(openedUrls[0], /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/\?/u);
-			assert.equal(harness.notices.some((notice) => notice.includes(openedUrls[0])), false);
-			// RPC keeps its plain lifecycle fallback while the browser still opens directly.
+			const firstUrl = requireLiveReviewUrl(opened);
+			servedUrls.push(firstUrl);
+			assert.match(firstUrl, /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/\?/u);
+			assert.equal(harness.notices.some((notice) => notice.includes(firstUrl)), false);
+			// RPC keeps its plain lifecycle fallback and does not expose or open the URL.
 			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Awaiting decision"));
 
-			const api = new URL("api/", openedUrls[0]);
+			const api = new URL("api/", firstUrl);
 			assert.equal((await post(new URL("comments", api), comment)).status, 201);
 			harness.setResponses(correctionResponses(1));
 			assert.equal((await post(new URL("decision", api), { kind: "send-feedback" })).status, 200);
@@ -852,7 +858,7 @@ try {
 			await settle(() => loadTask(paths, slug).document.reviewRounds.length === 2);
 			await idle();
 			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
-			assert.equal(openedUrls.length, 1);
+			assert.equal(liveReviewUrl(loadTask(paths, slug)), undefined);
 			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Ready"));
 			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 2 · Ready"));
 			await advance([]);
@@ -882,7 +888,9 @@ try {
 			);
 			assert.equal(git(corrected.document.repository.worktree, "status", "--porcelain"), "");
 			assert.ok(harness.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Correction 1 · Verifying"));
-			assert.notEqual(openedUrls[1], openedUrls[0]);
+			const secondUrl = requireLiveReviewUrl(corrected);
+			servedUrls.push(secondUrl);
+			assert.notEqual(secondUrl, firstUrl);
 
 			const correctionSession = findTaskSession(corrected.document, {
 				kind: "correction",
@@ -916,9 +924,10 @@ try {
 			await settle(() => loadTask(paths, slug).document.reviewRounds.length === 3);
 			await idle();
 			await advance([]);
-			assert.equal(openedUrls.length, 3);
 
 			const restarted = loadTask(paths, slug);
+			const finalUrl = requireLiveReviewUrl(restarted);
+			servedUrls.push(finalUrl);
 			assert.equal(restarted.document.reviewRounds.length, 3);
 			assert.equal(restarted.document.reviewRounds[1].correction?.result?.commit,
 				restarted.document.reviewRounds[2].headCommit);
@@ -926,11 +935,11 @@ try {
 				git(restarted.document.repository.worktree, "log", "-1", "--format=%s"),
 				"Apply review feedback 2",
 			);
-			assert.equal(new Set(openedUrls).size, 3);
+			assert.equal(new Set(servedUrls).size, 3);
 			assert.ok(findTaskSession(restarted.document, { kind: "correction", round: 2 }));
 
 			// Approve on the commentless third round reaches done and closes the live server.
-			const finalApi = new URL("api/", openedUrls[2]);
+			const finalApi = new URL("api/", finalUrl);
 			const sessionsBeforeApproval = harness.instances.length;
 			assert.equal((await post(new URL("decision", finalApi), { kind: "approve" })).status, 200);
 			await settle(() => loadTask(paths, slug).document.stage === "done");
@@ -959,7 +968,7 @@ try {
 			// Across every round and every served URL, an RPC session rendered plain lines only.
 			assert.equal(harness.widgets.some((line) => line.includes("\x1b]8;;")), false);
 			assert.equal(
-				harness.widgets.some((line) => openedUrls.some((url) => line.includes(url))),
+				harness.widgets.some((line) => servedUrls.some((url) => line.includes(url))),
 				false,
 			);
 		} finally {
@@ -1005,7 +1014,7 @@ try {
 				},
 			],
 		};
-		const openedUrls: string[] = [];
+		const servedUrls: string[] = [];
 		const reviewerCalls: string[] = [];
 		const written = new Set<number>();
 		// The TUI picker resolves through its custom component instead of a select dialog.
@@ -1048,9 +1057,6 @@ try {
 									stopReason: "stop",
 								}],
 							};
-						},
-						openBrowser: async (url: string) => {
-							openedUrls.push(url);
 						},
 					}),
 				probe: (pi) => {
@@ -1206,16 +1212,17 @@ try {
 			const committed = loadTask(paths, slug);
 			assert.equal(committed.document.stage, "review");
 			assert.equal(committed.document.checkpoints.length, 2);
-			// Reviewers, the server, and the browser all wait for the Enter that opens Review.
+			// Reviewers and the server both wait for the Enter that opens Review.
 			assert.deepEqual(reviewerCalls, []);
-			assert.deepEqual(openedUrls, []);
+			assert.equal(liveReviewUrl(committed), undefined);
 			assert.equal(resumed.getEditorText(), "/juruc");
 			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 1 · Ready"));
 
 			await resumed.submitEditor();
 			const task = loadTask(paths, slug);
 			assert.deepEqual(reviewerCalls, ["deviation", "correctness"]);
-			assert.equal(openedUrls.length, 1);
+			const firstUrl = requireLiveReviewUrl(task);
+			servedUrls.push(firstUrl);
 			// Review is the last stage before a human decision, so nothing is pre-filled.
 			assert.equal(resumed.getEditorText(), "");
 			assert.equal(picks.length, 0);
@@ -1226,33 +1233,27 @@ try {
 				const pad = " ".repeat(80 - left.length - action.length);
 				return `${left}${pad}\x1b]8;;${url}\x07${action}\x1b]8;;\x07`;
 			};
-			assert.ok(resumed.widgets.includes(
-				linked(openedUrls[0]),
-			));
-			assert.equal(resumed.notices.some((notice) => notice.includes(openedUrls[0])), false);
+			assert.ok(resumed.widgets.includes(linked(firstUrl)));
+			assert.equal(resumed.notices.some((notice) => notice.includes(firstUrl)), false);
 
-			// /juruc on the same open review reuses the live capability URL.
+			// /juruc on the same open review reuses the live capability URL without opening it.
 			await resumed.runtime.session.prompt("/juruc");
-			assert.deepEqual(openedUrls, [openedUrls[0], openedUrls[0]]);
+			assert.equal(requireLiveReviewUrl(loadTask(paths, slug)), firstUrl);
 			assert.equal(loadTask(paths, slug).document.reviewRounds.length, 1);
 
 			// Once the server process is gone, /juruc issues a fresh capability URL.
 			await activeReviewServer.close();
 			await resumed.runtime.session.prompt("/juruc");
-			assert.equal(openedUrls.length, 3);
-			assert.notEqual(openedUrls[2], openedUrls[0]);
-			assert.equal(new URL(openedUrls[2]).pathname === new URL(openedUrls[0]).pathname, false);
-			assert.ok(resumed.widgets.includes(
-				linked(openedUrls[2]),
-			));
-			assert.equal(
-				resumed.widgets.filter((line) => line.includes(openedUrls[0])).length,
-				2,
-			);
+			const replacementUrl = requireLiveReviewUrl(loadTask(paths, slug));
+			servedUrls.push(replacementUrl);
+			assert.notEqual(replacementUrl, firstUrl);
+			assert.equal(new URL(replacementUrl).pathname === new URL(firstUrl).pathname, false);
+			assert.ok(resumed.widgets.includes(linked(replacementUrl)));
+			assert.equal(resumed.widgets.filter((line) => line.includes(firstUrl)).length, 2);
 
 			// Send Feedback keeps its explicit-decision behaviour and opens the correction
 			// itself; the fresh cumulative round is one more pre-filled Enter.
-			const api = new URL("api/", openedUrls[2]);
+			const api = new URL("api/", replacementUrl);
 			const post = async (path: string, body: unknown): Promise<Response> =>
 				fetch(new URL(path, api), {
 					method: "POST",
@@ -1291,12 +1292,13 @@ try {
 				await new Promise((resolve) => setTimeout(resolve, 50));
 			}
 			await resumed.runtime.session.agent.waitForIdle();
-			assert.equal(openedUrls.length, 3);
+			assert.equal(liveReviewUrl(loadTask(paths, slug)), undefined);
 			assert.equal(resumed.getEditorText(), "/juruc");
 			assert.ok(resumed.widgets.includes("✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Review 2 · Ready"));
 
 			await resumed.submitEditor();
-			assert.equal(openedUrls.length, 4);
+			servedUrls.push(requireLiveReviewUrl(loadTask(paths, slug)));
+			assert.equal(servedUrls.length, 3);
 			assert.deepEqual(reviewerCalls, [
 				"deviation",
 				"correctness",
@@ -1373,7 +1375,6 @@ try {
 							stopReason: "stop",
 						}],
 					}),
-					openBrowser: async () => {},
 				}),
 			probe: (pi) => {
 				pi.on("session_start", () => {

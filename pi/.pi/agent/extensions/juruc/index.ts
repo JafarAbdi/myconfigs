@@ -83,7 +83,6 @@ import { readGitReviewPatch, type ReviewPatch } from "./review-git.ts";
 import { acquireTaskReviewLock } from "./review-lock.ts";
 import {
 	activeReviewServer,
-	openSystemBrowser,
 	type ReviewServerIdentity,
 } from "./review-server.ts";
 import {
@@ -427,15 +426,12 @@ export async function prepareReview(input: PrepareReviewInput): Promise<TaskDocu
 export interface JurucDependencies {
 	readPatch?: ReviewPatchReader;
 	reviewerDriver?: ReviewerDriver;
-	/** Best-effort handoff of the local capability URL to the operator's browser. */
-	openBrowser?: (url: string) => Promise<void>;
 }
 
 export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies = {}): void {
 	const paths = runtimePaths(getAgentDir());
 	const verificationOperations = createLocalBashOperations();
 	const readPatch = dependencies.readPatch ?? readGitReviewPatch;
-	const openBrowser = dependencies.openBrowser ?? openSystemBrowser;
 	const pendingSynthesis = new Map<string, { slug: string; session: string }>();
 	let ordinaryTools: string[] | undefined;
 
@@ -768,26 +764,19 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		const onDecision = (decision: ReviewDecision) => routeReviewDecision(ctx, slug, decision);
 		// A live server keeps its capability URL and routes its decision to this session;
 		// only a closed one issues a fresh URL.
-		const url = activeReviewServer.reuse(identity, onDecision) ?? (await activeReviewServer.serve({
-			patch: await readPatch(
-				task.document.repository.worktree,
-				round.baseCommit,
-				round.headCommit,
-			),
-			taskPath: identity.taskPath,
-			onDecision,
-		})).url;
+		if (!activeReviewServer.reuse(identity, onDecision))
+			await activeReviewServer.serve({
+				patch: await readPatch(
+					task.document.repository.worktree,
+					round.baseCommit,
+					round.headCommit,
+				),
+				taskPath: identity.taskPath,
+				onDecision,
+			});
 		// Never touch the captured `pi` here: a routed decision runs this after session
 		// replacement, where the old extension instance's tool handle is already stale.
 		showStatus(ctx, task);
-		try {
-			await openBrowser(url);
-		} catch (error) {
-			ctx.ui.notify(
-				`${slug}: could not open a browser automatically — ${error instanceof Error ? error.message : String(error)}`,
-				"warning",
-			);
-		}
 	}
 
 	async function openReview(ctx: ExtensionCommandContext, selected: StoredTask): Promise<void> {

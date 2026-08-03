@@ -39,6 +39,20 @@ export function isReviewDecisionDisabled(kind, state) {
 		(kind === "approve" ? state.humanComments.length > 0 : state.humanComments.length === 0);
 }
 
+export function reviewCompletion(kind) {
+	const label = kind === "approve" ? "Approved" : "Feedback sent";
+	return {
+		label,
+		message: `${label}. Decision recorded; this tab may be closed.`,
+	};
+}
+
+export async function submitReviewDecision(kind, requestDecision, complete) {
+	const payload = await requestDecision(kind);
+	complete(payload.state);
+	return payload.state;
+}
+
 export function savedSidebarVisible(readPreference) {
 	try {
 		return readPreference() === "visible";
@@ -55,6 +69,7 @@ if (typeof document !== "undefined") {
 	const textarea = document.querySelector("#comment-body");
 	const commentHeading = document.querySelector("#comment-heading");
 	const browserStatus = document.querySelector("#browser-status");
+	const reviewStatus = document.querySelector("#review-status");
 	const saveButton = document.querySelector("#save-comment");
 	const saveButtonLabel = document.querySelector("#save-comment-label");
 	const cancelButton = document.querySelector("#cancel-comment");
@@ -68,6 +83,7 @@ if (typeof document !== "undefined") {
 	if (document.body.dataset.mode === "auto") {
 		const narrow = matchMedia("(max-width: 1199px)");
 		const resolveAutoLayout = () => {
+			if (document.body.dataset.completed === "true") return;
 			const desired = narrow.matches ? "stack" : "split";
 			if (document.body.dataset.resolvedMode === desired) return;
 			const url = new URL(location.href);
@@ -109,6 +125,45 @@ if (typeof document !== "undefined") {
 	function setStatus(message, error = false) {
 		browserStatus.textContent = message;
 		browserStatus.style.color = error ? "#f19a9a" : "";
+	}
+
+	function completeReview(state) {
+		const completion = reviewCompletion(state.decision.kind);
+		review = { ...(review || {}), state };
+		document.body.dataset.completed = "true";
+		setStatus(completion.message);
+		reviewStatus.classList.remove("open");
+		reviewStatus.classList.add("completed");
+		reviewStatus.title = state.decision.decidedAt;
+		reviewStatus.replaceChildren(document.createElement("span"), completion.label);
+		document.querySelector("#review-instruction").textContent = "Read-only completion receipt.";
+		for (const control of document.querySelectorAll("button, textarea"))
+			control.disabled = true;
+		for (const link of document.querySelectorAll(
+			".layout-control a, .view-options a, .file-sidebar a",
+		)) {
+			link.removeAttribute("href");
+			link.setAttribute("aria-disabled", "true");
+		}
+		for (const host of document.querySelectorAll("diffs-container"))
+			for (
+				const node of host.shadowRoot?.querySelectorAll(
+					'[data-line-type="change-addition"], [data-line-type="change-deletion"]',
+				) || []
+			) {
+				node.removeAttribute("tabindex");
+				node.removeAttribute("role");
+				node.setAttribute("aria-disabled", "true");
+			}
+		selection = undefined;
+		editingCommentId = undefined;
+		textarea.value = "";
+		composer.hidden = true;
+		document.querySelector(".view-menu")?.removeAttribute("open");
+		highlightSelection();
+		try {
+			localStorage.removeItem(draftKey);
+		} catch {}
 	}
 
 	function targetLabel(target) {
@@ -222,6 +277,7 @@ if (typeof document !== "undefined") {
 		}
 
 	document.addEventListener("click", async (event) => {
+		if (document.body.dataset.completed === "true") return;
 		const element = event.target instanceof Element ? event.target : undefined;
 		const editButton = element?.closest(".edit-comment");
 		if (editButton) {
@@ -273,6 +329,7 @@ if (typeof document !== "undefined") {
 	});
 
 	document.addEventListener("keydown", (event) => {
+		if (document.body.dataset.completed === "true") return;
 		const typing = event.target instanceof Element &&
 			(event.target.matches("textarea, input, select") || event.target.isContentEditable);
 		if (
@@ -376,11 +433,14 @@ if (typeof document !== "undefined") {
 		button.addEventListener("click", async () => {
 			for (const action of document.querySelectorAll("[data-decision]")) action.disabled = true;
 			try {
-				await request("decision", {
-					method: "POST",
-					body: JSON.stringify({ kind: button.dataset.decision }),
-				});
-				location.reload();
+				await submitReviewDecision(
+					button.dataset.decision,
+					(kind) => request("decision", {
+						method: "POST",
+						body: JSON.stringify({ kind }),
+					}),
+					completeReview,
+				);
 			} catch (error) {
 				setStatus(error.message, true);
 				for (const action of document.querySelectorAll("[data-decision]"))
@@ -391,7 +451,10 @@ if (typeof document !== "undefined") {
 	request("state")
 		.then((payload) => {
 			review = payload;
-			if (review.state.decision) return;
+			if (review.state.decision) {
+				completeReview(review.state);
+				return;
+			}
 			try {
 				const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
 				if (draft?.commentId && typeof draft.body === "string") {

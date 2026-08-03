@@ -6,8 +6,10 @@ import test from "node:test";
 import {
 	isFeedbackSubmitShortcut,
 	isReviewDecisionDisabled,
+	reviewCompletion,
 	savedSidebarVisible,
 	singleLineSelection,
+	submitReviewDecision,
 	targetFromComposedPath,
 } from "./review-browser.js";
 import {
@@ -195,6 +197,38 @@ test("decision guards disable approval with comments and recover consistently", 
 		decision: { kind: "approve" },
 		humanComments: [],
 	}), true);
+});
+
+test("completion adapter exposes the terminal receipt labels", () => {
+	assert.deepEqual(reviewCompletion("approve"), {
+		label: "Approved",
+		message: "Approved. Decision recorded; this tab may be closed.",
+	});
+	assert.deepEqual(reviewCompletion("send-feedback"), {
+		label: "Feedback sent",
+		message: "Feedback sent. Decision recorded; this tab may be closed.",
+	});
+});
+
+test("successful decision submission completes in place without reload or re-fetch", async () => {
+	const state = {
+		decision: { kind: "approve", decidedAt: "2026-08-03T00:00:00.000Z" },
+	};
+	const requests: string[] = [];
+	let completed;
+	const returned = await submitReviewDecision(
+		"approve",
+		async (kind: string) => {
+			requests.push(kind);
+			return { state };
+		},
+		(value: unknown) => {
+			completed = value;
+		},
+	);
+	assert.deepEqual(requests, ["approve"]);
+	assert.equal(completed, state);
+	assert.equal(returned, state);
 });
 
 test("feedback submission requires Ctrl+Enter or Cmd+Enter", () => {

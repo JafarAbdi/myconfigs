@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -442,25 +441,3 @@ class ActiveReviewServer {
 }
 
 export const activeReviewServer = new ActiveReviewServer();
-
-const OPENERS: Readonly<Record<string, readonly [string, readonly string[]]>> = {
-	darwin: ["open", []],
-	win32: ["cmd", ["/c", "start", ""]],
-};
-
-/** Hands the local capability URL to the OS default browser; makes no outbound request. */
-export function openSystemBrowser(url: string): Promise<void> {
-	const [command, prefix] = OPENERS[process.platform] ?? ["xdg-open", []];
-	return new Promise((resolve, reject) => {
-		const child = spawn(command, [...prefix, url], {
-			stdio: "ignore",
-			detached: true,
-			windowsHide: true,
-		});
-		child.once("error", reject);
-		child.once("spawn", () => {
-			child.unref();
-			resolve();
-		});
-	});
-}

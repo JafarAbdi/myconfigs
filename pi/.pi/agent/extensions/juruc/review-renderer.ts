@@ -102,9 +102,9 @@ function renderAnnotationGroup(group: AnnotationGroup, canEdit: boolean): string
 
 function renderDecision(state: ReviewState): string {
 	if (!state.decision)
-		return '<div class="review-status open"><span></span>Awaiting decision</div>';
+		return '<div id="review-status" class="review-status open"><span></span>Awaiting decision</div>';
 	const label = state.decision.kind === "approve" ? "Approved" : "Feedback sent";
-	return `<div class="review-status completed" title="${escapeHtml(state.decision.decidedAt)}"><span></span>${label}</div>`;
+	return `<div id="review-status" class="review-status completed" title="${escapeHtml(state.decision.decidedAt)}"><span></span>${label}</div>`;
 }
 
 function enabled(value: boolean): "on" | "off" {
@@ -275,7 +275,7 @@ export class ReviewRenderer {
 	<title>JURUC local review</title>
 	<link rel="stylesheet" href="${escapeHtml(basePath)}review.css">
 </head>
-<body class="sidebar-hidden" data-api-base="${escapeHtml(basePath)}api/" data-review-range="${escapeHtml(reviewRange)}" data-mode="${options.mode}" data-resolved-mode="${resolvedMode}" data-layout="${resolvedMode === "stack" ? "unified" : "split"}">
+<body class="sidebar-hidden" data-api-base="${escapeHtml(basePath)}api/" data-review-range="${escapeHtml(reviewRange)}" data-mode="${options.mode}" data-resolved-mode="${resolvedMode}" data-layout="${resolvedMode === "stack" ? "unified" : "split"}" data-completed="${completed}">
 	<header class="topbar">
 		<div class="review-title" title="Exact range: ${escapeHtml(reviewRange)}"><strong>Review</strong><span>${this.patch.files.length} file${this.patch.files.length === 1 ? "" : "s"}</span></div>
 		<div class="topbar-actions">
@@ -287,7 +287,7 @@ export class ReviewRenderer {
 	<main class="review-shell">
 		<aside class="file-sidebar" aria-label="Changed files"><div class="sidebar-heading">Files</div><nav>${sidebar}</nav></aside>
 		<div class="review-content">
-			<section class="review-context"><span>Cumulative diff</span><span>Select a changed line to comment; Shift-select a range.</span></section>
+			<section class="review-context"><span>Cumulative diff</span><span id="review-instruction">${completed ? "Read-only completion receipt." : "Select a changed line to comment; Shift-select a range."}</span></section>
 			<div class="files">${files}</div>
 		</div>
 	</main>
@@ -298,7 +298,7 @@ export class ReviewRenderer {
 	</section>
 	<footer class="decision-bar">
 		<div class="decision-inner">
-			<p id="browser-status" role="status" aria-live="polite">${completed ? "This review is complete." : `${state.humanComments.length} saved feedback comment${state.humanComments.length === 1 ? "" : "s"}.`}</p>
+			<p id="browser-status" role="status" aria-live="polite">${state.decision ? `${state.decision.kind === "approve" ? "Approved" : "Feedback sent"}. Decision recorded; this tab may be closed.` : `${state.humanComments.length} saved feedback comment${state.humanComments.length === 1 ? "" : "s"}.`}</p>
 			<div class="decision-actions">
 				<button type="button" class="button approve" data-decision="approve"${approveDisabled ? " disabled" : ""}>Approve</button>
 				<button type="button" class="button feedback" data-decision="send-feedback"${completed || state.humanComments.length === 0 ? " disabled" : ""}>Send Feedback</button>
