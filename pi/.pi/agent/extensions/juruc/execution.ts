@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import {
 	completeTaskPhase,
@@ -42,6 +41,18 @@ export interface VerificationRunResult {
 	truncated: boolean;
 	cancelled: boolean;
 	timedOut: boolean;
+}
+
+export interface VerificationOperations {
+	exec(
+		command: string,
+		cwd: string,
+		options: {
+			onData(data: Buffer): void;
+			signal?: AbortSignal;
+			timeout?: number;
+		},
+	): Promise<{ exitCode: number | null }>;
 }
 
 export interface FinishPhaseInput {
@@ -158,6 +169,7 @@ const MAX_VERIFICATION_OUTPUT_BYTES = 50 * 1024;
 export function runDeclaredVerification(
 	task: TaskDocument,
 	command: string,
+	operations: VerificationOperations,
 	signal?: AbortSignal,
 	timeoutMs = VERIFICATION_TIMEOUT_MS,
 ): Promise<VerificationRunResult> {
@@ -169,69 +181,44 @@ export function runDeclaredVerification(
 	if (signal?.aborted)
 		return Promise.resolve({ command, output: "", truncated: false, cancelled: true, timedOut: false });
 
-	return new Promise((resolve, reject) => {
-		const child = spawn("/bin/sh", ["-c", command], {
-			cwd: task.repository.worktree,
-			detached: process.platform !== "win32",
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const chunks: Buffer[] = [];
-		let retainedBytes = 0;
-		let truncated = false;
-		let cancelled = false;
-		let timedOut = false;
-
-		const append = (chunk: Buffer): void => {
-			const remaining = MAX_VERIFICATION_OUTPUT_BYTES - retainedBytes;
-			if (remaining > 0) {
-				const kept = chunk.subarray(0, remaining);
-				chunks.push(kept);
-				retainedBytes += kept.length;
-			}
-			if (chunk.length > remaining) truncated = true;
-		};
-		child.stdout.on("data", append);
-		child.stderr.on("data", append);
-
-		const stop = (): void => {
-			if (child.pid && process.platform !== "win32") {
-				try {
-					process.kill(-child.pid, "SIGKILL");
-					return;
-				} catch {}
-			}
-			child.kill("SIGKILL");
-		};
-		const onAbort = (): void => {
-			cancelled = true;
-			stop();
-		};
-		signal?.addEventListener("abort", onAbort, { once: true });
-		if (signal?.aborted) onAbort();
-		const timer = setTimeout(() => {
-			timedOut = true;
-			stop();
-		}, timeoutMs);
-
-		child.once("error", (error) => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", onAbort);
-			reject(error);
-		});
-		child.once("close", (code) => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", onAbort);
-			const result: VerificationRunResult = {
-				command,
-				output: Buffer.concat(chunks).toString("utf8"),
-				truncated,
-				cancelled,
-				timedOut,
-			};
-			if (!cancelled && !timedOut) result.exitCode = code ?? 1;
-			resolve(result);
-		});
-	});
+	const chunks: Buffer[] = [];
+	let retainedBytes = 0;
+	let truncated = false;
+	const append = (chunk: Buffer): void => {
+		const remaining = MAX_VERIFICATION_OUTPUT_BYTES - retainedBytes;
+		if (remaining > 0) {
+			const kept = chunk.subarray(0, remaining);
+			chunks.push(kept);
+			retainedBytes += kept.length;
+		}
+		if (chunk.length > remaining) truncated = true;
+	};
+	return operations.exec(
+		command,
+		task.repository.worktree,
+		{
+			onData: append,
+			signal,
+			timeout: timeoutMs / 1_000,
+		},
+	).then(
+		(result) => ({
+			command,
+			exitCode: result.exitCode ?? 1,
+			output: Buffer.concat(chunks).toString("utf8"),
+			truncated,
+			cancelled: false,
+			timedOut: false,
+		}),
+		(error: unknown) => {
+			const output = Buffer.concat(chunks).toString("utf8");
+			if (signal?.aborted)
+				return { command, output, truncated, cancelled: true, timedOut: false };
+			if (error instanceof Error && error.message.startsWith("timeout:"))
+				return { command, output, truncated, cancelled: false, timedOut: true };
+			throw error;
+		},
+	);
 }
 
 function validatedVerificationEvidence(
@@ -282,6 +269,7 @@ function validatedVerificationEvidence(
 export async function finishCurrentPhase(
 	task: TaskDocument,
 	input: FinishPhaseInput,
+	operations: VerificationOperations,
 	signal?: AbortSignal,
 ): Promise<PhaseCompletionResult> {
 	if (task.stage !== "implementation" || !currentTaskPhase(task))
@@ -306,7 +294,7 @@ export async function finishCurrentPhase(
 	if (before.head !== expectedTaskHead(task))
 		throw new Error("implementation session changed Git HEAD outside JURUC");
 	for (const command of phase.verification) {
-		const result = await runDeclaredVerification(task, command, signal);
+		const result = await runDeclaredVerification(task, command, operations, signal);
 		if (result.cancelled)
 			throw new Error(`authoritative verification was cancelled: ${command}`);
 		if (result.timedOut)

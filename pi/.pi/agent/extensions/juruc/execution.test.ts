@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,11 +8,12 @@ import {
 	BUILD_INSTRUCTION,
 	BUILD_TOOL_NAMES,
 	FINISH_PHASE_SCHEMA,
-	finishCurrentPhase,
+	finishCurrentPhase as finishCurrentPhaseWithOperations,
 	persistCheckpointTask,
 	RUN_VERIFICATION_SCHEMA,
-	runDeclaredVerification,
+	runDeclaredVerification as runDeclaredVerificationWithOperations,
 	type FinishPhaseInput,
+	type VerificationOperations,
 } from "./execution.ts";
 import {
 	acceptTaskPlan,
@@ -34,6 +35,58 @@ import {
 	workspaceStatus,
 	type RepositoryEvidence,
 } from "./workspace.ts";
+
+const verificationOperations: VerificationOperations = {
+	exec(command, cwd, { onData, signal, timeout }) {
+		return new Promise((resolve, reject) => {
+			const child = spawn("/bin/sh", ["-c", command], {
+				cwd,
+				signal,
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: timeout === undefined ? undefined : timeout * 1_000,
+			});
+			let settled = false;
+			child.stdout.on("data", onData);
+			child.stderr.on("data", onData);
+			child.once("error", (error) => {
+				if (settled) return;
+				settled = true;
+				reject(error);
+			});
+			child.once("close", (exitCode, exitSignal) => {
+				if (settled) return;
+				settled = true;
+				if (signal?.aborted) reject(new Error("aborted"));
+				else if (exitCode === null && exitSignal && timeout !== undefined)
+					reject(new Error(`timeout:${timeout}`));
+				else resolve({ exitCode });
+			});
+		});
+	},
+};
+
+function runDeclaredVerification(
+	task: TaskDocument,
+	command: string,
+	signal?: AbortSignal,
+	timeoutMs?: number,
+) {
+	return runDeclaredVerificationWithOperations(
+		task,
+		command,
+		verificationOperations,
+		signal,
+		timeoutMs,
+	);
+}
+
+function finishCurrentPhase(
+	task: TaskDocument,
+	input: FinishPhaseInput,
+	signal?: AbortSignal,
+) {
+	return finishCurrentPhaseWithOperations(task, input, verificationOperations, signal);
+}
 
 function run(cwd: string, ...args: string[]): string {
 	return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -184,7 +237,7 @@ test("declared verification runs in the worktree with bounded output", async () 
 test("declared verification reports cancellation and timeout", async () => {
 	const root = mkdtempSync(join(tmpdir(), "juruc-verification-stop-"));
 	try {
-		const command = "node -e \"setTimeout(() => {}, 10000)\"";
+		const command = "exec node -e \"setTimeout(() => {}, 10000)\"";
 		const task = await implementationTask(root, [phase("verify", [command])]);
 		const controller = new AbortController();
 		setTimeout(() => controller.abort(), 20);

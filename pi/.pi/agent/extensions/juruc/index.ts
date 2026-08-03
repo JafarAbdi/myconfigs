@@ -1,4 +1,5 @@
 import {
+	createLocalBashOperations,
 	DynamicBorder,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
@@ -238,6 +239,7 @@ function isSoleCurrentToolCall(
 
 export function registerJuruc(pi: ExtensionAPI): void {
 	const paths = runtimePaths(getAgentDir());
+	const verificationOperations = createLocalBashOperations();
 	const pendingSynthesis = new Map<string, { slug: string; session: string }>();
 	let ordinaryTools: string[] | undefined;
 
@@ -830,7 +832,12 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		executionMode: "sequential",
 		async execute(_id, params: RunVerificationInput, signal, _onUpdate, ctx) {
 			const task = ownedTask(ctx, "implementation", "implementation");
-			const result = await runDeclaredVerification(task.document, params.command, signal);
+			const result = await runDeclaredVerification(
+				task.document,
+				params.command,
+				verificationOperations,
+				signal,
+			);
 			const status = result.cancelled
 				? "Verification cancelled"
 				: result.timedOut
@@ -854,7 +861,12 @@ export function registerJuruc(pi: ExtensionAPI): void {
 		executionMode: "sequential",
 		async execute(_id, params: FinishPhaseInput, signal, _onUpdate, ctx) {
 			const task = ownedTask(ctx, "implementation", "implementation");
-			const result = await finishCurrentPhase(task.document, params, signal);
+			const result = await finishCurrentPhase(
+				task.document,
+				params,
+				verificationOperations,
+				signal,
+			);
 			const updated = await persistCheckpointTask(task, result.task, {
 				save: saveTask,
 				reload: () => loadTask(paths, task.document.slug),
