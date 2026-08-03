@@ -75,13 +75,18 @@ import {
 } from "./specification.ts";
 import { readGitReviewPatch, type ReviewPatch } from "./review-git.ts";
 import { acquireTaskReviewLock } from "./review-lock.ts";
-import { activeReviewServer, openSystemBrowser } from "./review-server.ts";
+import {
+	activeReviewServer,
+	openSystemBrowser,
+	type ReviewServerIdentity,
+} from "./review-server.ts";
 import {
 	drivePiReviewer,
 	runReviewer,
 	type ReviewerDriver,
 } from "./reviewers.ts";
 import { lifecycleLine } from "./status.ts";
+import { statusWidget } from "./status-widget.ts";
 import {
 	activateTaskPlan,
 	appendTaskSession,
@@ -296,6 +301,22 @@ export interface PrepareReviewInput {
 	reviewerDriver?: ReviewerDriver;
 }
 
+function reviewRoundIdentity(task: StoredTask, round: TaskReviewRound): ReviewServerIdentity {
+	return {
+		taskPath: join(task.directory, "task.json"),
+		baseCommit: round.baseCommit,
+		headCommit: round.headCommit,
+	};
+}
+
+/** The live capability URL of this task's own open review round, or none. */
+function liveReviewUrl(task: StoredTask): string | undefined {
+	const round = currentTaskReviewRound(task.document);
+	return task.document.stage === "review" && round && !round.decision
+		? activeReviewServer.liveUrl(reviewRoundIdentity(task, round))
+		: undefined;
+}
+
 function requireSameReviewRound(task: TaskDocument, expected: TaskReviewRound): TaskReviewRound {
 	const round = currentTaskReviewRound(task);
 	if (
@@ -410,7 +431,15 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 	}
 
 	function showStatus(ctx: ExtensionContext, task = taskForSession(ctx)): void {
-		ctx.ui.setWidget("juruc", task ? [lifecycleLine(task.document)] : undefined);
+		if (!task) {
+			ctx.ui.setWidget("juruc", undefined);
+			return;
+		}
+		// Only the TUI renders a width-aware widget factory, so only it can show the review
+		// link; every other mode gets the same lifecycle line as plain text.
+		if (ctx.mode === "tui")
+			ctx.ui.setWidget("juruc", statusWidget(task.document, liveReviewUrl(task)));
+		else ctx.ui.setWidget("juruc", [lifecycleLine(task.document)]);
 	}
 
 	function sessionTools(kind: CurrentSessionKind, task: TaskDocument): readonly string[] {
@@ -752,22 +781,25 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 	async function serveReview(ctx: ExtensionCommandContext, task: StoredTask): Promise<void> {
 		const round = currentTaskReviewRound(task.document)!;
 		const slug = task.document.slug;
-		const patch = await readPatch(
-			task.document.repository.worktree,
-			round.baseCommit,
-			round.headCommit,
-		);
-		const server = await activeReviewServer.serve({
-			patch,
-			taskPath: join(task.directory, "task.json"),
-			onDecision: (decision) => routeReviewDecision(ctx, slug, decision),
-		});
+		const identity = reviewRoundIdentity(task, round);
+		const onDecision = (decision: ReviewDecision) => routeReviewDecision(ctx, slug, decision);
+		// A live server keeps its capability URL and routes its decision to this session;
+		// only a closed one issues a fresh URL.
+		const url = activeReviewServer.reuse(identity, onDecision) ?? (await activeReviewServer.serve({
+			patch: await readPatch(
+				task.document.repository.worktree,
+				round.baseCommit,
+				round.headCommit,
+			),
+			taskPath: identity.taskPath,
+			onDecision,
+		})).url;
 		// Never touch the captured `pi` here: a routed decision runs this after session
 		// replacement, where the old extension instance's tool handle is already stale.
 		showStatus(ctx, task);
-		ctx.ui.notify(`${slug}: review ${round.number} is open at ${server.url}`, "info");
+		ctx.ui.notify(`${slug}: review ${round.number} is open at ${url}`, "info");
 		try {
-			await openBrowser(server.url);
+			await openBrowser(url);
 		} catch (error) {
 			ctx.ui.notify(
 				`${slug}: could not open a browser automatically — ${error instanceof Error ? error.message : String(error)}`,
@@ -783,11 +815,13 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		const round = currentTaskReviewRound(task.document)!;
 		if (round.decision?.kind === "send-feedback") {
 			await activeReviewServer.close();
+			showStatus(ctx, task);
 			await openCorrection(ctx, task);
 			return;
 		}
 		if (Object.values(round.reviewers).some((slot) => !slot?.outcome)) {
 			await activeReviewServer.close();
+			showStatus(ctx, task);
 			const parentSession = round.number === 1
 				? findTaskSession(task.document, {
 					kind: "implementation",
@@ -853,9 +887,11 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		);
 	}
 
+	/** The read-only completed-task summary: no session switch and no reopened Plan. */
 	async function viewDone(ctx: ExtensionCommandContext, task: StoredTask): Promise<void> {
+		const { branch, worktree } = task.document.repository;
 		ctx.ui.notify(
-			`${task.document.slug}: done · ${task.document.checkpoints.length} phases · ${task.document.repository.branch}`,
+			`${task.document.slug}: done · ${branch} · ${worktree} · ${expectedTaskHead(task.document).slice(0, 12)}`,
 			"info",
 		);
 	}
@@ -909,8 +945,8 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				const choices = tasks.map((task) => ({
 					value: `task:${task.slug}`,
 					label: task.title,
-					description: `${task.slug} · ${task.stage} · ${age(task.modified)}`,
-					search: `${task.slug} ${task.title} ${task.request} ${task.stage}`,
+					description: `${task.slug} · ${task.context} · ${age(task.modified)}`,
+					search: `${task.slug} ${task.title} ${task.request} ${task.stage} ${task.context}`,
 				}));
 				list = new SelectList(
 					[

@@ -9,6 +9,7 @@ test("non-TUI task options remain concise", () => {
 			title: "Small task",
 			request: "Simplify it.",
 			stage: "plan",
+			context: "plan",
 			modified: new Date(0),
 			valid: true,
 		},

@@ -780,6 +780,8 @@ try {
 			assert.equal(openedUrls.length, 1);
 			assert.match(openedUrls[0], /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/\?/u);
 			assert.ok(harness.notices.some((notice) => notice.includes(`review 1 is open at ${openedUrls[0]}`)));
+			// An RPC session keeps the plain lifecycle line; the exact URL notification above is
+			// the only handoff.
 			assert.ok(harness.widgets.includes("Q✓ R✓ S✓ P✓ I✓ · review 1 · awaiting decision"));
 
 			const api = new URL("api/", openedUrls[0]);
@@ -860,6 +862,7 @@ try {
 
 			// Approve on the commentless third round reaches done and closes the live server.
 			const finalApi = new URL("api/", openedUrls[2]);
+			const sessionsBeforeApproval = harness.instances.length;
 			assert.equal((await post(new URL("decision", finalApi), { kind: "approve" })).status, 200);
 			await settle(() => loadTask(paths, slug).document.stage === "done");
 			const done = loadTask(paths, slug);
@@ -867,7 +870,29 @@ try {
 			assert.equal(done.document.reviewRounds.at(-1)?.correction, null);
 			await assert.rejects(fetch(new URL("state", finalApi)));
 			assert.ok(harness.widgets.includes("Q✓ R✓ S✓ P✓ I✓ · done"));
-			assert.ok(harness.notices.some((notice) => notice.includes(`${slug}: done · 1 phases`)));
+			// The completed task shows branch, worktree, and short approved HEAD only.
+			const approvedHead = git(done.document.repository.worktree, "rev-parse", "HEAD");
+			const summary =
+				`${slug}: done · ${done.document.repository.branch} · ${done.document.repository.worktree} · ${approvedHead.slice(0, 12)}`;
+			assert.ok(harness.notices.includes(summary));
+			assert.equal(done.document.reviewRounds.at(-1)?.headCommit, approvedHead);
+			assert.equal(harness.instances.length, sessionsBeforeApproval);
+
+			// Enter on the done task summarizes again without a session switch or Plan.
+			harness.selections.push(`Correction flow task — ${slug} · done`);
+			await harness.runtime.session.prompt("/juruc");
+			assert.equal(loadTask(paths, slug).document.stage, "done");
+			assert.equal(harness.instances.length, sessionsBeforeApproval);
+			assert.deepEqual(
+				harness.notices.filter((notice) => notice.startsWith(`${slug}: done · `)),
+				[summary, summary],
+			);
+			// Across every round and every served URL, an RPC session rendered plain lines only.
+			assert.equal(harness.widgets.some((line) => line.includes("\x1b]8;;")), false);
+			assert.equal(
+				harness.widgets.some((line) => openedUrls.some((url) => line.includes(url))),
+				false,
+			);
 		} finally {
 			await activeReviewServer.close();
 			await harness.dispose();
@@ -876,6 +901,192 @@ try {
 			existsSync(join(loadTask(runtimePaths(agentDir), slug).directory, "task.json.review.lock")),
 			false,
 		);
+	});
+
+	await test("a fresh Pi TUI runtime resumes managed discovery and refreshes the live review link", async () => {
+		const source = join(scratch, "restart-flow");
+		mkdirSync(source);
+		git(source, "init", "-b", "main");
+		git(source, "config", "user.name", "JURUC pipeline test");
+		git(source, "config", "user.email", "juruc-pipeline@example.invalid");
+		writeFileSync(join(source, "tracked.txt"), "baseline\n");
+		git(source, "add", "-A");
+		git(source, "commit", "-m", "baseline");
+
+		const paths = runtimePaths(agentDir);
+		const slug = "restart-flow-task";
+		const verification = "node -e \"console.log('verified')\"";
+		const plan = {
+			phases: [{
+				id: "implement-change",
+				title: "Implement change",
+				goal: "Implement the candidate.",
+				fileScopes: ["tracked.txt"],
+				instructions: ["Write the candidate."],
+				verification: [verification],
+			}],
+		};
+		const openedUrls: string[] = [];
+		const written = new Set<string>();
+		// The TUI picker resolves through its custom component instead of a select dialog.
+		const picks: unknown[] = [];
+		const synthesis = {
+			agent: "synthesizer",
+			task: "synthesize",
+			output: "Independent verified facts.\n",
+			stopReason: "stop",
+			steps: [],
+			turns: 1,
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			durationMs: 1,
+		};
+		const runtime = () =>
+			createRuntimeHarness({
+				agentDir,
+				cwd: source,
+				sessionManager: SessionManager.create(source),
+				promptTemplates: [],
+				mode: "tui",
+				custom: async () => picks.shift(),
+				stubTools: ["delegate"],
+				stubResult: (name) => name === "delegate" ? synthesis : undefined,
+				registerJuruc: (pi) =>
+					registerJuruc(pi, {
+						reviewerDriver: async () => ({
+							assistantMessages: [{
+								role: "assistant",
+								content: [{ type: "text", text: '{"annotations":[]}' }],
+								stopReason: "stop",
+							}],
+						}),
+						openBrowser: async (url: string) => {
+							openedUrls.push(url);
+						},
+					}),
+				probe: (pi) => {
+					pi.on("session_start", () => {
+						try {
+							const task = loadTask(paths, slug);
+							if (task.document.stage === "implementation" && !written.has("phase")) {
+								writeFileSync(
+									join(task.document.repository.worktree, "tracked.txt"),
+									"candidate\n",
+								);
+								written.add("phase");
+							}
+						} catch {}
+					});
+				},
+			});
+
+		// One Pi runtime creates the task and is interrupted inside the Questions interview.
+		const interrupted = await runtime();
+		let questionsSession: string;
+		try {
+			picks.push({ action: "new" });
+			interrupted.editorValues.push("Restart flow task");
+			interrupted.setResponses([
+				fauxAssistantMessage("Which outcome do you want?", { stopReason: "stop" }),
+			]);
+			await interrupted.runtime.session.prompt("/juruc");
+			const pending = loadTask(paths, slug);
+			assert.equal(pending.document.stage, "questions");
+			questionsSession = findTaskSession(pending.document, { kind: "questions" })!.path;
+		} finally {
+			await interrupted.dispose();
+		}
+
+		// A fresh runtime resumes that managed session from task.json alone.
+		const resumed = await runtime();
+		try {
+			picks.push({ action: "select", slug });
+			resumed.setResponses([
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_set_questions", {
+						sharedUnderstanding: "Implement and review the candidate.",
+						decisions: [],
+						acceptedAssumptions: [],
+						researchTargets: [],
+					})],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("delegate", { agent: "synthesizer", task: "Synthesize facts." })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("Research complete.", { stopReason: "stop" }),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_set_specification", {
+						summary: "Keep the candidate readable.",
+						requirements: ["The candidate is readable."],
+						nonGoals: [],
+						constraints: [],
+						acceptanceCriteria: ["Verification passes."],
+						decisions: [],
+					})],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_run_verification", { command: verification })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_finish_phase", {
+						resolution: "Implemented and verified.",
+						commitMessage: "Implement candidate",
+						verificationEvidence: [{
+							command: verification,
+							exitCode: 0,
+							summary: "Verification passed.",
+						}],
+					})],
+					{ stopReason: "toolUse" },
+				),
+			]);
+			await resumed.runtime.session.prompt("/juruc");
+
+			const task = loadTask(paths, slug);
+			assert.equal(task.document.stage, "review");
+			assert.equal(findTaskSession(task.document, { kind: "questions" })!.path, questionsSession);
+			assert.equal(task.document.checkpoints.length, 1);
+			assert.equal(openedUrls.length, 1);
+			const link = (url: string) => `\x1b]8;;${url}\x07Open review ↗\x1b]8;;\x07`;
+			assert.ok(resumed.widgets.includes(
+				`Q✓ R✓ S✓ P✓ I✓ · review 1 · awaiting decision · ${link(openedUrls[0])}`,
+			));
+
+			// /juruc on the same open review reuses the live capability URL.
+			picks.push({ action: "select", slug });
+			await resumed.runtime.session.prompt("/juruc");
+			assert.deepEqual(openedUrls, [openedUrls[0], openedUrls[0]]);
+			assert.equal(loadTask(paths, slug).document.reviewRounds.length, 1);
+
+			// Once the server process is gone, /juruc issues a fresh capability URL.
+			await activeReviewServer.close();
+			picks.push({ action: "select", slug });
+			await resumed.runtime.session.prompt("/juruc");
+			assert.equal(openedUrls.length, 3);
+			assert.notEqual(openedUrls[2], openedUrls[0]);
+			assert.equal(new URL(openedUrls[2]).pathname === new URL(openedUrls[0]).pathname, false);
+			assert.ok(resumed.widgets.includes(
+				`Q✓ R✓ S✓ P✓ I✓ · review 1 · awaiting decision · ${link(openedUrls[2])}`,
+			));
+			assert.equal(
+				resumed.widgets.filter((line) => line.includes(openedUrls[0])).length,
+				2,
+			);
+		} finally {
+			await activeReviewServer.close();
+			await resumed.dispose();
+		}
 	});
 
 	await test("parallel synthesizer siblings cannot advance Research", async () => {

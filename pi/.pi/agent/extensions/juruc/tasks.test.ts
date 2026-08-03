@@ -66,8 +66,10 @@ test("create, save, load, and list use version 6 task.json", () => {
 		}));
 		assert.equal(loadTask(fixture.paths, "small-task").document.stage, "research");
 		assert.deepEqual(
-			listTasks(fixture.paths).map(({ slug, stage, valid }) => ({ slug, stage, valid })),
-			[{ slug: "small-task", stage: "research", valid: true }],
+			listTasks(fixture.paths).map(({ slug, stage, context, valid }) =>
+				({ slug, stage, context, valid })
+			),
+			[{ slug: "small-task", stage: "research", context: "research", valid: true }],
 		);
 	} finally {
 		rmSync(fixture.root, { recursive: true, force: true });
@@ -177,6 +179,7 @@ test("old and sidecar-only task directories are invalid without migration", () =
 		const [entry] = scanTasks(fixture.paths);
 		assert.equal(entry.task, undefined);
 		assert.equal(entry.summary.stage, "invalid");
+		assert.equal(entry.summary.context, "invalid");
 		assert.match(entry.summary.error ?? "", /task\.json is invalid/);
 		removeInvalidTaskRecord(fixture.paths, "legacy-task");
 		assert.equal(existsSync(directory), false);

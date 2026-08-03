@@ -25,6 +25,7 @@ import {
 	requireRuntimePaths,
 	type RuntimePaths,
 } from "./runtime.ts";
+import { taskContext } from "./status.ts";
 
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 
@@ -38,6 +39,8 @@ export interface TaskSummary {
 	title: string;
 	request: string;
 	stage: string;
+	/** The derived single next action shown in the picker; never persisted. */
+	context: string;
 	modified: Date;
 	valid: boolean;
 	error?: string;
@@ -187,6 +190,7 @@ export function scanTasks(paths: RuntimePaths): ScannedTask[] {
 						title: task.document.title,
 						request: task.document.request,
 						stage: task.document.stage,
+						context: taskContext(task.document),
 						modified: new Date(
 							Math.max(
 								lstatSync(directory).mtimeMs,
@@ -212,6 +216,7 @@ export function scanTasks(paths: RuntimePaths): ScannedTask[] {
 						title,
 						request,
 						stage: "invalid",
+						context: "invalid",
 						modified: new Date(lstatSync(directory).mtimeMs),
 						valid: false,
 						error: error instanceof Error ? error.message : String(error),

@@ -40,10 +40,9 @@ export function lifecyclePlace(task: TaskDocument): LifecyclePlace {
 	};
 }
 
-export function lifecycleLine(task: TaskDocument): string {
-	const place = lifecyclePlace(task);
+export function lifecycleRail(task: TaskDocument): string {
 	const activeIndex = RAIL.findIndex(([stage]) => stage === task.stage);
-	const rail = RAIL.map(([stage, label], index) => {
+	return RAIL.map(([stage, label], index) => {
 		const marker = task.stage === "review" || task.stage === "done" || index < activeIndex
 			? "✓"
 			: stage === task.stage
@@ -51,5 +50,22 @@ export function lifecycleLine(task: TaskDocument): string {
 				: "·";
 		return `${label}${marker}`;
 	}).join(" ");
-	return `${rail} · ${place.detail}`;
+}
+
+export function lifecycleLine(task: TaskDocument): string {
+	return `${lifecycleRail(task)} · ${lifecyclePlace(task).detail}`;
+}
+
+/** The single muted picker context: the one authoritative next action, without titles. */
+export function taskContext(task: TaskDocument): string {
+	if (task.stage === "implementation") {
+		const total = task.plan?.phases.length ?? 0;
+		return total ? `implement ${task.checkpoints.length + 1}/${total}` : "implement";
+	}
+	if (task.stage === "review") {
+		const round = task.reviewRounds.at(-1);
+		const number = round?.number ?? 1;
+		return round?.decision?.kind === "send-feedback" ? `correction ${number}` : `review ${number}`;
+	}
+	return task.stage;
 }

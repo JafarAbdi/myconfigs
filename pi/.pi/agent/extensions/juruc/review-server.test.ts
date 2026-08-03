@@ -8,6 +8,7 @@ import {
 	demoReviewTask,
 } from "./review-fixture.ts";
 import {
+	activeReviewServer,
 	createReviewServer,
 	type ReviewServer,
 } from "./review-server.ts";
@@ -274,6 +275,104 @@ test("the decision callback runs once, after its response, and leaves the round 
 	} finally {
 		await first?.close();
 		await second?.close();
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("the process-owned server keeps one capability URL per pinned round", { timeout: 120_000 }, async () => {
+	const directory = mkdtempSync(join(tmpdir(), "juruc-active-review-"));
+	const taskPath = join(directory, "task.json");
+	const otherTaskPath = join(directory, "other-task.json");
+	saveTaskDocument(taskPath, demoReviewTask());
+	saveTaskDocument(otherTaskPath, demoReviewTask());
+	const patch = demoReviewPatch();
+	const identity = {
+		taskPath,
+		baseCommit: patch.identity.baseOid,
+		headCommit: patch.identity.headOid,
+	};
+	try {
+		assert.equal(activeReviewServer.liveUrl(identity), undefined);
+		const first = await activeReviewServer.serve({ patch, taskPath });
+		assert.equal(activeReviewServer.liveUrl(identity), first.url);
+		assert.equal((await fetch(first.url)).status, 200);
+
+		// A live URL never crosses a task or a pinned round.
+		assert.equal(activeReviewServer.liveUrl({ ...identity, taskPath: otherTaskPath }), undefined);
+		assert.equal(
+			activeReviewServer.liveUrl({ ...identity, baseCommit: "3".repeat(40) }),
+			undefined,
+		);
+		assert.equal(
+			activeReviewServer.liveUrl({ ...identity, headCommit: "3".repeat(40) }),
+			undefined,
+		);
+
+		// Process closure invalidates the capability; the next review issues a fresh one.
+		await activeReviewServer.close();
+		assert.equal(activeReviewServer.liveUrl(identity), undefined);
+		await assert.rejects(fetch(first.url));
+		const second = await activeReviewServer.serve({ patch, taskPath });
+		assert.notEqual(new URL(second.url).pathname, new URL(first.url).pathname);
+		assert.equal(activeReviewServer.liveUrl(identity), second.url);
+		assert.equal((await fetch(second.url)).status, 200);
+	} finally {
+		await activeReviewServer.close();
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("reusing a live URL routes its decision to the newest session only", { timeout: 120_000 }, async () => {
+	const directory = mkdtempSync(join(tmpdir(), "juruc-review-rebind-"));
+	const taskPath = join(directory, "task.json");
+	const patch = demoReviewPatch();
+	saveTaskDocument(taskPath, demoReviewTask());
+	const identity = {
+		taskPath,
+		baseCommit: patch.identity.baseOid,
+		headCommit: patch.identity.headOid,
+	};
+	const served: ReviewDecision[] = [];
+	const resumed: ReviewDecision[] = [];
+	const other: ReviewDecision[] = [];
+	try {
+		let settle!: () => void;
+		const settled = new Promise<void>((resolve) => { settle = resolve; });
+		const { url } = await activeReviewServer.serve({
+			patch,
+			taskPath,
+			onDecision: (decision) => served.push(decision),
+		});
+
+		// A later session reuses the same capability URL and takes over its decision.
+		assert.equal(
+			activeReviewServer.reuse(identity, (decision) => {
+				resumed.push(decision);
+				settle();
+			}),
+			url,
+		);
+		// A different pinned round has no live URL and never rebinds the live one.
+		assert.equal(
+			activeReviewServer.reuse(
+				{ ...identity, headCommit: "3".repeat(40) },
+				(decision) => other.push(decision),
+			),
+			undefined,
+		);
+
+		const api = new URL("api/", url);
+		assert.equal(
+			(await json(new URL("decision", api).href, "POST", { kind: "approve" })).status,
+			200,
+		);
+		await settled;
+		assert.deepEqual(resumed.map(({ kind }) => kind), ["approve"]);
+		assert.deepEqual(served, []);
+		assert.deepEqual(other, []);
+		assert.equal(loadTaskDocument(taskPath).stage, "done");
+	} finally {
+		await activeReviewServer.close();
 		rmSync(directory, { recursive: true, force: true });
 	}
 });

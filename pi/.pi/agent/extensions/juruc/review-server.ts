@@ -49,6 +49,8 @@ class HttpError extends Error {
 export interface ReviewServer {
 	url: string;
 	taskPath: string;
+	/** Routes the pending decision to the current session's callback instead of the original. */
+	setOnDecision(onDecision: ReviewDecisionCallback): void;
 	close(): Promise<void>;
 }
 
@@ -230,6 +232,7 @@ export async function createReviewServer(
 		view: initialView = DEFAULT_REVIEW_VIEW_OPTIONS,
 		onDecision,
 	} = options;
+	let decisionCallback = onDecision;
 	let announced = false;
 	const releaseStateLock = acquireTaskReviewLock(taskPath);
 	let store: ReviewStore;
@@ -303,11 +306,12 @@ export async function createReviewServer(
 			if (request.method === "POST" && url.pathname === `${apiPath}/decision`) {
 				const state = store.decide(decisionKind(await readJson(request)));
 				const decision = state.decision;
-				if (decision && onDecision && !announced) {
+				if (decision && !announced) {
 					announced = true;
 					// The review lock stays held until the controller closes this server, so the
-					// transition must run outside the request turn that still owns the response.
-					response.once("finish", () => setImmediate(() => onDecision(decision)));
+					// transition must run outside the request turn that still owns the response,
+					// through whichever session is bound to this server by then.
+					response.once("finish", () => setImmediate(() => decisionCallback?.(decision)));
 				}
 				sendJson(response, 200, { state });
 				return;
@@ -351,6 +355,9 @@ export async function createReviewServer(
 	return {
 		url,
 		taskPath,
+		setOnDecision(callback: ReviewDecisionCallback) {
+			decisionCallback = callback;
+		},
 		async close() {
 			if (closed) return;
 			closed = true;
@@ -366,24 +373,70 @@ export async function createReviewServer(
 	};
 }
 
+/** The exact task and pinned review round a live capability URL belongs to. */
+export interface ReviewServerIdentity {
+	taskPath: string;
+	baseCommit: string;
+	headCommit: string;
+}
+
 /**
  * The single Pi-process-owned live review server. Only one review may hold the task
  * review lock, so serving another review, preparing reviewers, starting a correction,
  * or shutting Pi down closes the previous server first.
  */
 class ActiveReviewServer {
-	private current: ReviewServer | undefined;
+	private current: { server: ReviewServer; identity: ReviewServerIdentity } | undefined;
+
+	/**
+	 * The live capability URL for exactly this task and pinned round. Any other task,
+	 * round, or closed server has no live URL, so a fresh one must be issued.
+	 */
+	liveUrl(identity: ReviewServerIdentity): string | undefined {
+		return this.live(identity)?.url;
+	}
+
+	/**
+	 * The live capability URL for exactly this task and pinned round, rebound to the
+	 * calling session's decision callback. A later session or extension instance reuses
+	 * the URL, so the decision must reach that session and not the one that served it.
+	 */
+	reuse(
+		identity: ReviewServerIdentity,
+		onDecision: ReviewDecisionCallback,
+	): string | undefined {
+		const server = this.live(identity);
+		server?.setOnDecision(onDecision);
+		return server?.url;
+	}
+
+	private live(identity: ReviewServerIdentity): ReviewServer | undefined {
+		const live = this.current;
+		return live &&
+				live.identity.taskPath === identity.taskPath &&
+				live.identity.baseCommit === identity.baseCommit &&
+				live.identity.headCommit === identity.headCommit
+			? live.server
+			: undefined;
+	}
 
 	async close(): Promise<void> {
-		const server = this.current;
+		const live = this.current;
 		this.current = undefined;
-		await server?.close();
+		await live?.server.close();
 	}
 
 	async serve(options: CreateReviewServerOptions): Promise<ReviewServer> {
 		await this.close();
 		const server = await createReviewServer(options);
-		this.current = server;
+		this.current = {
+			server,
+			identity: {
+				taskPath: options.taskPath,
+				baseCommit: options.patch.identity.baseOid,
+				headCommit: options.patch.identity.headOid,
+			},
+		};
 		return server;
 	}
 }

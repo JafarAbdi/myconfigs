@@ -39,8 +39,14 @@ export interface HarnessOptions {
 	select?: (title: string, options: string[]) => Promise<string | undefined>;
 	editor?: (title: string) => Promise<string | undefined>;
 	confirm?: (title: string, message: string) => Promise<boolean>;
+	/** Extension bind mode; `tui` exercises terminal-only UI such as factory widgets. */
+	mode?: "tui" | "rpc";
+	/** Resolves the TUI custom components, such as the picker, without a terminal. */
+	custom?: () => Promise<unknown>;
 	/** Override JURUC registration for injected workflow dependencies in tests. */
 	registerJuruc?: (pi: ExtensionAPI) => void;
+	/** Width used to render factory widgets; defaults to a normal terminal. */
+	widgetWidth?: number;
 	/** Registered in the same extension closure as JURUC, before JURUC itself. */
 	beforeJuruc?: readonly ((pi: ExtensionAPI) => void)[];
 	/** Registered after JURUC, matching configured extension order. */
@@ -92,6 +98,7 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 	const selections: string[] = [];
 	const editorValues: Array<string | undefined> = [];
 	const confirmations: boolean[] = [];
+	const widgetWidth = options.widgetWidth ?? 80;
 	let cancelNextSwitch = false;
 
 	const uiContext = {
@@ -109,10 +116,20 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 		setWorkingIndicator: () => undefined,
 		setHiddenThinkingLabel: () => undefined,
 		setWidget: (key: string, content: unknown) => {
-			if (key === "juruc" && Array.isArray(content) && typeof content[0] === "string")
-				widgets.push(content[0]);
+			if (key !== "juruc") return;
+			if (Array.isArray(content)) {
+				if (typeof content[0] === "string") widgets.push(content[0]);
+				return;
+			}
+			// Factory widgets are rendered exactly as the TUI renders them, at a fixed width.
+			if (typeof content !== "function") return;
+			const component = (content as (tui: unknown, theme: unknown) => {
+				render(width: number): string[];
+			})({}, {});
+			const [line] = component.render(widgetWidth);
+			if (typeof line === "string") widgets.push(line);
 		},
-		custom: async () => undefined,
+		custom: options.custom ?? (async () => undefined),
 	} as never;
 
 	const createRuntime = async ({
@@ -221,7 +238,7 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 		const session = runtime.session;
 		await session.bindExtensions({
 			uiContext,
-			mode: "rpc",
+			mode: options.mode ?? "rpc",
 			commandContextActions: {
 				waitForIdle: () => session.agent.waitForIdle(),
 				newSession: async (createOptions) => runtime.newSession(createOptions),
