@@ -1021,7 +1021,73 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 		});
 	}
 
-	async function removeTask(ctx: ExtensionCommandContext, slug: string): Promise<void> {
+	/** True when deleting this task would remove the current session's own cwd. */
+	function ownsCurrentWorktree(ctx: ExtensionContext, task: StoredTask): boolean {
+		const session = currentSessionPath(ctx);
+		if (!session || !findTaskSessionByPath(task.document, session)) return false;
+		try {
+			return realpathSync(ctx.cwd) === realpathSync(task.document.repository.worktree);
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * The task's own Questions session, which is rooted at the source repository and so
+	 * stays usable once the managed worktree is gone.
+	 */
+	function safeLandingSession(task: StoredTask): string {
+		const { sourceRoot } = task.document.repository;
+		const path = findTaskSession(task.document, { kind: "questions" })?.path;
+		if (!path || !regularFile(path))
+			throw new Error("its Questions session is unavailable");
+		const stat = lstatSync(sourceRoot, { throwIfNoEntry: false });
+		if (!stat?.isDirectory() || stat.isSymbolicLink() || realpathSync(sourceRoot) !== sourceRoot)
+			throw new Error(`${sourceRoot}: source repository is not an exact directory`);
+		if (realpathSync(SessionManager.open(path).getCwd()) !== sourceRoot)
+			throw new Error("its Questions session is not rooted at the source repository");
+		return path;
+	}
+
+	/**
+	 * Deletes the task that owns this session from its safe landing session, so nothing
+	 * afterwards runs from the removed working directory. Only plain task data and pure
+	 * filesystem/Git helpers cross the switch; every session-bound object is the
+	 * replacement's own.
+	 */
+	async function removeCurrentTask(
+		ctx: ExtensionCommandContext,
+		task: StoredTask,
+		landing: string,
+	): Promise<void> {
+		const slug = task.document.slug;
+		const result = await ctx.switchSession(landing, {
+			withSession: async (replacement: ReplacementContext) => {
+				try {
+					const removed = await removeTaskWorktree(task.document.repository);
+					removeTaskRecord(task);
+					replacement.ui.setWidget("juruc", undefined);
+					replacement.ui.notify(
+						removed
+							? `${slug}: task and worktree removed; branch retained`
+							: `${slug}: task removed; branch retained if present`,
+						"info",
+					);
+					if (replacement.mode === "tui" && !replacement.ui.getEditorText().trim())
+						replacement.ui.setEditorText("/juruc");
+				} catch (error) {
+					replacement.ui.notify(
+						`${slug}: deletion failed — ${error instanceof Error ? error.message : String(error)}`,
+						"error",
+					);
+				}
+			},
+		});
+		if (result.cancelled) ctx.ui.notify(`${slug}: session switch cancelled`, "warning");
+	}
+
+	/** Deletes a task and reports whether the picker may continue afterwards. */
+	async function removeTask(ctx: ExtensionCommandContext, slug: string): Promise<boolean> {
 		let task: StoredTask;
 		try {
 			task = loadTask(paths, slug);
@@ -1031,7 +1097,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 					`Delete invalid task ${slug}?`,
 					"Remove only its invalid task state? Any managed worktree, branch, and session history will remain.",
 				);
-				if (!confirmed) return;
+				if (!confirmed) return true;
 				removeInvalidTaskRecord(paths, slug);
 				ctx.ui.notify(`${slug}: invalid task state removed; worktree and branch retained if present`, "info");
 			} catch (error) {
@@ -1040,9 +1106,11 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 					"error",
 				);
 			}
-			return;
+			return true;
 		}
 		try {
+			// Resolve the landing session before asking, so a refusal never follows a confirmation.
+			const landing = ownsCurrentWorktree(ctx, task) ? safeLandingSession(task) : undefined;
 			const registered = await hasTaskWorktreeRegistration(task.document.repository);
 			const present = registered &&
 				lstatSync(task.document.repository.worktree, { throwIfNoEntry: false });
@@ -1057,7 +1125,11 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				`Delete ${slug}?`,
 				`Remove its ${workspaceText}? Branch ${task.document.repository.branch}, if present, will remain. Session history will remain.${changes}`,
 			);
-			if (!confirmed) return;
+			if (!confirmed) return true;
+			if (landing) {
+				await removeCurrentTask(ctx, task, landing);
+				return false;
+			}
 			if (registered) await removeTaskWorktree(task.document.repository);
 			removeTaskRecord(task);
 			ctx.ui.notify(
@@ -1072,6 +1144,7 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 				"error",
 			);
 		}
+		return true;
 	}
 
 	async function createNewTask(ctx: ExtensionCommandContext): Promise<void> {
@@ -1086,7 +1159,8 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			base = slugify(name);
 		}
 		const slug = uniqueSlug(paths.tasks, base);
-		if (!validTaskSlug(slug) || !(await validBranchName(ctx.cwd, slug)))
+		// Ask Git from a directory JURUC owns, never from a candidate repository cwd.
+		if (!validTaskSlug(slug) || !(await validBranchName(paths.tasks, slug)))
 			throw new Error(`${slug}: invalid Git branch name`);
 		const repository = await prepareRepository(
 			ctx.cwd,
@@ -1117,8 +1191,8 @@ export function registerJuruc(pi: ExtensionAPI, dependencies: JurucDependencies 
 			const choice = await pickTask(ctx, listTasks(paths));
 			if (choice.action === "cancel") return;
 			if (choice.action === "remove") {
-				await removeTask(ctx, choice.slug);
-				continue;
+				if (await removeTask(ctx, choice.slug)) continue;
+				return;
 			}
 			if (choice.action === "new") await createNewTask(ctx);
 			else await openTask(ctx, choice.slug);

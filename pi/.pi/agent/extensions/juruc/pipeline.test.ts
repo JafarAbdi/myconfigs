@@ -78,7 +78,7 @@ function gitSucceeds(cwd: string, ...args: string[]): boolean {
 
 try {
 	const [
-		{ fauxAssistantMessage, fauxToolCall, createRuntimeHarness },
+		{ CLEARED_WIDGET, fauxAssistantMessage, fauxToolCall, createRuntimeHarness },
 		{ SessionManager },
 		{ prepareReview, registerJuruc },
 		{ runtimePaths },
@@ -1092,6 +1092,204 @@ try {
 		} finally {
 			await activeReviewServer.close();
 			await resumed.dispose();
+		}
+	});
+
+	await test("deleting the task owning this worktree session lands safely and still creates tasks", async () => {
+		const source = join(scratch, "active-deletion");
+		mkdirSync(source);
+		git(source, "init", "-b", "main");
+		git(source, "config", "user.name", "JURUC pipeline test");
+		git(source, "config", "user.email", "juruc-pipeline@example.invalid");
+		writeFileSync(join(source, "tracked.txt"), "baseline\n");
+		git(source, "add", "-A");
+		git(source, "commit", "-m", "baseline");
+
+		const paths = runtimePaths(agentDir);
+		const slug = "active-deletion-task";
+		// The exact slug whose valid syntax the removed cwd used to make Git deny.
+		const nextSlug = "i-want-to-support-terminal-based";
+		const verification = "node -e \"console.log('verified')\"";
+		const plan = {
+			phases: [{
+				id: "implement-change",
+				title: "Implement change",
+				goal: "Implement the candidate.",
+				fileScopes: ["tracked.txt"],
+				instructions: ["Write the candidate."],
+				verification: [verification],
+			}],
+		};
+		const picks: unknown[] = [];
+		const written = new Set<string>();
+		const synthesis = {
+			agent: "synthesizer",
+			task: "synthesize",
+			output: "Independent verified facts.\n",
+			stopReason: "stop",
+			steps: [],
+			turns: 1,
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			durationMs: 1,
+		};
+
+		const harness = await createRuntimeHarness({
+			agentDir,
+			cwd: source,
+			sessionManager: SessionManager.create(source),
+			promptTemplates: [],
+			mode: "tui",
+			custom: async () => picks.shift(),
+			stubTools: ["delegate"],
+			stubResult: (name) => name === "delegate" ? synthesis : undefined,
+			registerJuruc: (pi) =>
+				registerJuruc(pi, {
+					reviewerDriver: async () => ({
+						assistantMessages: [{
+							role: "assistant",
+							content: [{ type: "text", text: '{"annotations":[]}' }],
+							stopReason: "stop",
+						}],
+					}),
+					openBrowser: async () => {},
+				}),
+			probe: (pi) => {
+				pi.on("session_start", () => {
+					try {
+						const task = loadTask(paths, slug);
+						if (task.document.stage === "implementation" && !written.has("phase")) {
+							writeFileSync(
+								join(task.document.repository.worktree, "tracked.txt"),
+								"candidate\n",
+							);
+							written.add("phase");
+						}
+					} catch {}
+				});
+			},
+		});
+
+		try {
+			picks.push({ action: "new" });
+			harness.editorValues.push("Active deletion task");
+			harness.setResponses([
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_set_questions", {
+						sharedUnderstanding: "Implement and complete the candidate.",
+						decisions: [],
+						acceptedAssumptions: [],
+						researchTargets: [],
+					})],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("delegate", { agent: "synthesizer", task: "Synthesize facts." })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("Research complete.", { stopReason: "stop" }),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_set_specification", {
+						summary: "Keep the candidate readable.",
+						requirements: ["The candidate is readable."],
+						nonGoals: [],
+						constraints: [],
+						acceptanceCriteria: ["Verification passes."],
+						decisions: [],
+					})],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage([fauxToolCall("juruc_set_plan", plan)], { stopReason: "toolUse" }),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_run_verification", { command: verification })],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					[fauxToolCall("juruc_finish_phase", {
+						resolution: "Implemented and verified.",
+						commitMessage: "Implement candidate",
+						verificationEvidence: [{
+							command: verification,
+							exitCode: 0,
+							summary: "Verification passed.",
+						}],
+					})],
+					{ stopReason: "toolUse" },
+				),
+			]);
+			await harness.runtime.session.prompt("/juruc");
+
+			const reviewed = loadTask(paths, slug);
+			assert.equal(reviewed.document.stage, "review");
+			const worktree = reviewed.document.repository.worktree;
+			// The final implementation session is still live and its cwd is that worktree.
+			assert.equal(realpathSync(harness.instances.at(-1)!.cwd!), realpathSync(worktree));
+			await activeReviewServer.close();
+			const completed = saveTask(
+				reviewed,
+				decideTaskReview(reviewed.document, "approve", "2026-08-03T00:00:00.000Z"),
+			);
+			assert.equal(completed.document.stage, "done");
+			const questionsSession = findTaskSession(completed.document, { kind: "questions" })!.path;
+
+			// An unavailable landing session refuses the deletion and keeps the picker.
+			const questionsBytes = readFileSync(questionsSession);
+			rmSync(questionsSession);
+			const instancesBeforeRefusal = harness.instances.length;
+			picks.push({ action: "remove", slug }, { action: "cancel" });
+			await harness.runtime.session.prompt("/juruc");
+			assert.ok(harness.notices.includes(
+				`${slug}: deletion failed — its Questions session is unavailable`,
+			));
+			assert.equal(harness.instances.length, instancesBeforeRefusal);
+			assert.equal(existsSync(worktree), true);
+			assert.equal(existsSync(completed.directory), true);
+			assert.equal(gitSucceeds(source, "show-ref", "--verify", "--quiet", `refs/heads/${slug}`), true);
+			assert.equal(harness.getEditorText(), "");
+			writeFileSync(questionsSession, questionsBytes, { mode: 0o600 });
+
+			// Deleting the current worktree session's own task switches first, removes second.
+			picks.push({ action: "remove", slug });
+			harness.confirmations.push(true);
+			await harness.runtime.session.prompt("/juruc");
+			assert.ok(harness.notices.includes(`${slug}: task and worktree removed; branch retained`));
+			assert.equal(existsSync(worktree), false);
+			assert.equal(existsSync(completed.directory), false);
+			assert.equal(gitSucceeds(source, "show-ref", "--verify", "--quiet", `refs/heads/${slug}`), true);
+			assert.equal(harness.instances.length, instancesBeforeRefusal + 1);
+			assert.equal(realpathSync(harness.instances.at(-1)!.cwd!), realpathSync(source));
+			// The replacement session painted the stale Done line before the deletion cleared it.
+			assert.equal(harness.widgets.at(-2), "✓ Q  ✓ R  ✓ S  ✓ P  ✓ I   Done");
+			assert.equal(harness.widgets.at(-1), CLEARED_WIDGET);
+			assert.equal(harness.getEditorText(), "/juruc");
+
+			// One Enter on the pre-filled command creates the next task from the source repository.
+			picks.push({ action: "new" });
+			harness.editorValues.push("I want to support terminal based");
+			harness.setResponses([
+				fauxAssistantMessage("Which outcome do you want?", { stopReason: "stop" }),
+			]);
+			await harness.runtime.session.prompt(harness.getEditorText());
+			assert.equal(loadTask(paths, nextSlug).document.stage, "questions");
+			assert.equal(harness.notices.some((notice) => notice.includes("invalid Git branch name")), false);
+
+			// A task that does not own the current cwd is removed in place, keeping the picker.
+			const instancesBeforeOrdinary = harness.instances.length;
+			picks.push({ action: "remove", slug: nextSlug }, { action: "cancel" });
+			harness.confirmations.push(true);
+			await harness.runtime.session.prompt("/juruc");
+			assert.ok(harness.notices.includes(`${nextSlug}: task removed; branch retained if present`));
+			assert.equal(existsSync(join(paths.tasks, nextSlug)), false);
+			assert.equal(harness.instances.length, instancesBeforeOrdinary);
+		} finally {
+			await activeReviewServer.close();
+			await harness.dispose();
 		}
 	});
 

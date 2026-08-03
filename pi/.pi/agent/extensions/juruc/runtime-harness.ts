@@ -14,6 +14,9 @@ import juruc from "./index.ts";
 
 export { fauxAssistantMessage, fauxToolCall };
 
+/** Recorded in `widgets` when JURUC clears its widget, so tests can assert the clear. */
+export const CLEARED_WIDGET = "(cleared)";
+
 export interface HarnessInstance {
 	instance: number;
 	pi: ExtensionAPI;
@@ -62,6 +65,8 @@ export interface RuntimeHarness {
 	events: string[];
 	notices: string[];
 	widgets: string[];
+	/** The text JURUC left in the core input editor. */
+	getEditorText: () => string;
 	/** Records `with:N` for the instance whose closure is running the callback. */
 	noteWithSession: (instance: number) => void;
 	setResponses: (responses: unknown[]) => void;
@@ -100,6 +105,7 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 	const confirmations: boolean[] = [];
 	const widgetWidth = options.widgetWidth ?? 80;
 	let cancelNextSwitch = false;
+	let editorText = "";
 
 	const uiContext = {
 		select: options.select ?? (async () => selections.shift()),
@@ -115,8 +121,16 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 		setWorkingVisible: () => undefined,
 		setWorkingIndicator: () => undefined,
 		setHiddenThinkingLabel: () => undefined,
+		getEditorText: () => editorText,
+		setEditorText: (text: string) => {
+			editorText = text;
+		},
 		setWidget: (key: string, content: unknown) => {
 			if (key !== "juruc") return;
+			if (content === undefined) {
+				widgets.push(CLEARED_WIDGET);
+				return;
+			}
 			if (Array.isArray(content)) {
 				if (typeof content[0] === "string") widgets.push(content[0]);
 				return;
@@ -281,6 +295,7 @@ export async function createRuntimeHarness(options: HarnessOptions): Promise<Run
 		events,
 		notices,
 		widgets,
+		getEditorText: () => editorText,
 		noteWithSession: (instance: number) => events.push(`with:${instance}`),
 		setResponses: (responses: unknown[]) => faux.setResponses(responses as never),
 		appendResponses: (responses: unknown[]) => faux.appendResponses(responses as never),

@@ -29,6 +29,8 @@ export interface GitResult {
 	code: number;
 	stdout: string;
 	stderr: string;
+	/** False when Git never produced an exit status, so `code` is not its verdict. */
+	ran: boolean;
 }
 
 export interface RepositoryEvidence {
@@ -61,14 +63,17 @@ export async function git(
 			encoding: "utf8",
 			timeout,
 		});
-		return { code: 0, stdout, stderr };
+		return { code: 0, stdout, stderr, ran: true };
 	} catch (error) {
 		const failure = error as Error & {
-			code?: number;
+			code?: number | string;
 			killed?: boolean;
 			stdout?: string;
 			stderr?: string;
 		};
+		// A spawn failure reports a string errno such as ENOENT, and a killed child never
+		// exited; neither is an answer from Git.
+		const ran = typeof failure.code === "number" && !failure.killed;
 		return {
 			code:
 				typeof failure.code === "number"
@@ -77,7 +82,9 @@ export async function git(
 						? 124
 						: 1,
 			stdout: failure.stdout ?? "",
-			stderr: failure.stderr ?? failure.message,
+			// Git's own stderr when it ran; otherwise only the failure itself explains it.
+			stderr: ran ? failure.stderr ?? failure.message : failure.stderr || failure.message,
+			ran,
 		};
 	}
 }
@@ -205,11 +212,14 @@ export async function prepareRepository(
 	return repository;
 }
 
+/** Git's own branch-syntax verdict; an operational failure throws instead of denying. */
 export async function validBranchName(
 	cwd: string,
 	branch: string,
 ): Promise<boolean> {
-	return (await git(cwd, ["check-ref-format", "--branch", branch])).code === 0;
+	const result = await git(cwd, ["check-ref-format", "--branch", branch]);
+	if (!result.ran) throw failure(result, `could not validate branch name ${branch}`);
+	return result.code === 0;
 }
 
 interface WorktreeRegistration {

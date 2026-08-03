@@ -30,6 +30,7 @@ import {
 	repositoryEvidence,
 	stageAll,
 	unstageAll,
+	validBranchName,
 	workspaceStatus,
 	type RepositoryEvidence,
 } from "./workspace.ts";
@@ -153,6 +154,23 @@ test("existing detached and dirty source checkouts retain existing preparation b
 	} finally {
 		rmSync(detached, { recursive: true, force: true });
 		rmSync(dirty, { recursive: true, force: true });
+	}
+});
+
+test("validBranchName reports Git's verdict and never disguises an operational failure", async () => {
+	const root = mkdtempSync(join(tmpdir(), "juruc-workspace-branch-name-"));
+	try {
+		assert.equal(await validBranchName(root, "i-want-to-support-terminal-based"), true);
+		assert.equal(await validBranchName(root, "bad:name"), false);
+		const missing = join(root, "removed");
+		mkdirSync(missing);
+		rmSync(missing, { recursive: true });
+		await assert.rejects(
+			validBranchName(missing, "i-want-to-support-terminal-based"),
+			/ENOENT/,
+		);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
 	}
 });
 
