@@ -24,7 +24,7 @@ function storeWithFinding() {
 	});
 }
 
-test("Pierre SSR stays selectable and renders every audit field at its exact changed line", async () => {
+test("Pierre SSR stays selectable and renders the audit message at its exact changed line", async () => {
 	const patch = demoReviewPatch();
 	const html = await new ReviewRenderer(patch).render(
 		storeWithFinding().snapshot(),
@@ -46,10 +46,8 @@ test("Pierre SSR stays selectable and renders every audit field at its exact cha
 	);
 	assert.match(html, />Audit finding</u);
 	assert.match(html, />correctness · new L2</u);
-	assert.match(html, /Whitespace-only names now take a new fallback path\./u);
-	assert.match(html, /<dt>Evidence<\/dt><dd>The staged line replaces/u);
-	assert.match(html, /<dt>Failure<\/dt><dd>Callers may receive/u);
-	assert.match(html, /<dt>Repair<\/dt><dd>Confirm the fallback/u);
+	assert.match(html, /class="finding-message">Whitespace-only names now take a new fallback path\.<\/p>/u);
+	assert.doesNotMatch(html, /finding-details|Evidence|Failure|Repair/u);
 	assert.match(html, /data-decision="approve">Approve<\/button>/u);
 	assert.match(html, /data-decision="send-feedback">Send Feedback<\/button>/u);
 	assert.match(html, />Audit findings<\/span><kbd>a<\/kbd>/u);

@@ -11,7 +11,7 @@
  *
  * A delegation runs on `pi` unless its requested model names a supported native claude model —
  * see `selectRuntime` in ./runtimes.ts, which also holds everything about a child that is pure
- * enough to test. This file keeps the extension wiring and the process itself.
+ * enough to test. This file keeps extension wiring and rendering; ./run-agent.ts owns child processes.
  *
  * Parallelism is free — pi runs sibling tool calls from one assistant message concurrently, so
  * N `delegate` calls in one message is N concurrent agents. Hence no tasks[]/chain[] modes.
@@ -19,12 +19,9 @@
  * Failure is read from `stopReason`, not the exit code: neither CLI sets one reliably. pi's json
  * mode exits 0 on a failed run, and claude exits 0 with empty stderr even for an unknown model.
  */
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { once } from "node:events";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -32,51 +29,29 @@ import {
 	formatSize,
 	getAgentDir,
 	getMarkdownTheme,
-	parseFrontmatter,
 	type Theme,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Markdown, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { loadAgents } from "./agents.ts";
+import { runAgent, shutdownAgents } from "./run-agent.ts";
 import {
 	type Agent,
-	agentFromFrontmatter,
-	childEnvironment,
 	childSessionDir,
-	claudeTools,
 	classifyResult,
 	delegateModelNames,
-	emptyUsage,
 	type Inherited,
 	isRecord,
 	isRunResult,
 	modelLabel,
 	preview,
 	type RunResult,
-	createActivityTracker,
-	createChildProtocol,
-	runResultBoundsError,
 	selectRuntime,
 } from "./runtimes.ts";
 
-const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
-const AGENTS_DIR = join(EXTENSION_DIR, "agents");
 const AGENT_DIR = getAgentDir();
-/** Children still running. The abort signal covers a cancelled call; this covers a dead session. */
-const LIVE = new Set<ReturnType<typeof spawn>>();
 const TASK_PREVIEW_MAX = 60;
-
-/** Detached copy for a progress render: `result` keeps mutating, a rendered snapshot must not. */
-function snapshot(result: RunResult, startedAtMs: number): RunResult {
-	return {
-		...result,
-		usage: { ...result.usage, cost: { ...result.usage.cost } },
-		// Copied per step, not just per array: a running step is mutated in place when it finishes,
-		// and a rendered snapshot must keep showing what was true when it was taken.
-		steps: result.steps.map((step) => ({ ...step })),
-		durationMs: Date.now() - startedAtMs,
-	};
-}
 
 /**
  * The pi models this user actually runs — `enabledModels` from settings, the same list pi's own
@@ -92,168 +67,6 @@ function enabledModels(): string[] {
 	} catch {
 		return [];
 	}
-}
-
-/**
- * Every readable agent, and the reason each unreadable one was skipped. One malformed file used to
- * throw out of here — which happens inside the extension factory, so a stray typo in an agent's
- * frontmatter took `delegate` itself off the table, with the explanation in a startup diagnostic
- * nobody is looking at by then. Losing one agent should cost one agent.
- */
-function loadAgents(): { agents: Agent[]; broken: string[] } {
-	if (!existsSync(AGENTS_DIR)) return { agents: [], broken: [] };
-	const agents: Agent[] = [];
-	const broken: string[] = [];
-	for (const entry of readdirSync(AGENTS_DIR, { withFileTypes: true })) {
-		if (!entry.name.endsWith(".md")) continue;
-		if (!entry.isFile() && !entry.isSymbolicLink()) continue;
-		const name = entry.name.slice(0, -3);
-		try {
-			const { frontmatter, body } = parseFrontmatter<Record<string, unknown>>(
-				readFileSync(join(AGENTS_DIR, entry.name), "utf-8"),
-			);
-			agents.push(agentFromFrontmatter(name, frontmatter, body.trim()));
-		} catch (error) {
-			broken.push(`${name}: ${error instanceof Error ? error.message : error}`);
-		}
-	}
-	return {
-		agents: agents.sort((left, right) => left.name.localeCompare(right.name)),
-		broken,
-	};
-}
-
-async function terminateChild(child: ReturnType<typeof spawn>): Promise<void> {
-	if (child.exitCode !== null || child.signalCode !== null) return;
-	const closed = once(child, "close");
-	child.kill("SIGKILL");
-	await closed;
-}
-
-function runAgent(
-	agent: Agent,
-	task: string,
-	cwd: string,
-	inherited: Inherited,
-	model: string | undefined,
-	signal: AbortSignal | undefined,
-	onProgress?: (partial: RunResult) => void,
-): Promise<RunResult> {
-	const startedAtMs = Date.now();
-	const runtime = selectRuntime(model);
-	const invocation = runtime.invoke(agent, task, inherited, model);
-	const result: RunResult = {
-		agent: agent.name,
-		task,
-		runId: inherited.sessionId,
-		output: "",
-		model: model ?? inherited.model,
-		steps: [],
-		turns: 0,
-		usage: emptyUsage(),
-		durationMs: 0,
-	};
-
-	return new Promise((resolve, reject) => {
-		const child = spawn(invocation.command, invocation.args, {
-			cwd,
-			env: childEnvironment(runtime.name),
-			shell: false,
-			stdio: [invocation.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-		});
-		if (invocation.input !== undefined && child.stdin) {
-			// A child that dies before reading its prompt turns this write into an EPIPE, and an
-			// unhandled `error` on a stream takes the whole session down. The close handler below
-			// already reports the run as the failure it is.
-			child.stdin.on("error", () => {});
-			child.stdin.end(invocation.input);
-		}
-		// Tracked so session teardown can end it. A child outliving its session is not merely a
-		// stray process: it goes on spending tokens with nothing left to read what it produces.
-		LIVE.add(child);
-		const protocol = createChildProtocol();
-		const activity = createActivityTracker(result);
-		let protocolError: string | undefined;
-
-		const failProtocol = (message: string) => {
-			if (protocolError) return;
-			protocolError = `invalid child protocol: ${message}`;
-			result.output = "";
-			result.stopReason = "error";
-			result.errorMessage = protocolError;
-			void terminateChild(child);
-		};
-		const consume = (line: string) => {
-			if (!line.trim()) return;
-			let event: unknown;
-			try {
-				event = JSON.parse(line);
-			} catch {
-				return; // A non-JSON line is diagnostic noise, not a protocol failure.
-			}
-			if (!isRecord(event)) return;
-			if (!runtime.consume(event, result, activity)) return;
-			const boundsError = runResultBoundsError(result);
-			if (boundsError) {
-				failProtocol(boundsError);
-				return;
-			}
-			onProgress?.(snapshot(result, startedAtMs));
-		};
-		const consumeChunk = (chunk: Buffer | Uint8Array) => {
-			const parsed = protocol.pushStdout(chunk);
-			if (parsed.error) {
-				failProtocol(parsed.error);
-				return;
-			}
-			for (const line of parsed.lines) {
-				if (protocolError) return;
-				consume(line);
-			}
-		};
-
-		const stdout = child.stdout;
-		const stderrStream = child.stderr;
-		if (!stdout || !stderrStream) throw new Error("child process stdio is unavailable");
-		stdout.on("data", consumeChunk);
-		stderrStream.on("data", (chunk: Buffer | Uint8Array) => {
-			const error = protocol.pushStderr(chunk);
-			if (error) failProtocol(error);
-		});
-
-		const kill = () => {
-			result.termination = "cancelled";
-			void terminateChild(child);
-		};
-		if (signal?.aborted) kill();
-		else signal?.addEventListener("abort", kill, { once: true });
-
-		child.once("error", reject);
-		// `close`, not `exit`: exit fires when the process ends, close when its stdio has drained.
-		// The report is the last thing written, so settling on `exit` races the pipe and loses it —
-		// intermittently, and only under load, which is the worst way to lose an agent's whole run.
-		child.once("close", () => {
-			LIVE.delete(child);
-			signal?.removeEventListener("abort", kill);
-			if (!protocolError) {
-				const final = protocol.finishStdout();
-				if (final.error) failProtocol(final.error);
-				else for (const line of final.lines) consume(line);
-			}
-			if (!protocolError) {
-				const boundsError = runResultBoundsError(result);
-				if (boundsError) failProtocol(boundsError);
-			}
-			// A step still open here never finished, and keeps its running mark to say so rather
-			// than reading as the last thing that succeeded.
-			result.activity = undefined;
-			result.durationMs = Date.now() - startedAtMs;
-			if (!result.output.trim() && !result.errorMessage && protocol.stderr().trim()) {
-				result.errorMessage = protocol.stderr().trim().split("\n").slice(-5).join("\n");
-			}
-			resolve(result);
-		});
-	});
 }
 
 function formatTokens(count: number): string {
@@ -401,10 +214,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 	});
 
 	// `/new`, `/resume`, `/reload` and quit all land here. Idempotent: a child that has already
-	// closed is gone from the set, and SIGTERM to one that is mid-exit is harmless.
-	pi.on("session_shutdown", async () => {
-		await Promise.all([...LIVE].map(terminateChild));
-	});
+	// closed is no longer tracked, and ending one that is mid-exit is harmless.
+	pi.on("session_shutdown", shutdownAgents);
 
 	pi.on("before_agent_start", (event) => {
 		inheritedAppendSystemPrompt = event.systemPromptOptions.appendSystemPrompt;
@@ -503,7 +314,6 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					agent = found;
 					model = params.model;
 					const runtime = selectRuntime(model);
-					if (runtime.name === "claude") claudeTools(agent);
 					sessionDir = childSessionDir(
 						ctx.sessionManager.getSessionDir(),
 						ctx.sessionManager.getSessionId(),
@@ -519,11 +329,19 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					};
 				}
 
-				const result = await runAgent(agent, params.task, ctx.cwd, inherited, model, signal, (partial) => {
-					onUpdate?.({
-						content: [{ type: "text", text: partial.activity ?? "thinking" }],
-						details: partial,
-					});
+				const result = await runAgent({
+					agent,
+					task: params.task,
+					cwd: ctx.cwd,
+					inherited,
+					model,
+					signal,
+					onProgress: (partial) => {
+						onUpdate?.({
+							content: [{ type: "text", text: partial.activity ?? "thinking" }],
+							details: partial,
+						});
+					},
 				});
 				if (runId && agent.continuable) {
 					continuable.set(runId, {

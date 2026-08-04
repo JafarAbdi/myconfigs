@@ -1,14 +1,6 @@
 import type {
-	AuthResult,
-	CredentialStore,
-	Model,
-	Provider,
-} from "@earendil-works/pi-ai";
-import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
-	ModelRegistry,
-	ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
@@ -42,95 +34,9 @@ type CancelWait = () => void;
 export interface ReviewDependencies {
 	readPatch(repository: string): Promise<ReviewPatch>;
 	readRequirement(repositoryRoot: string, argument: string): Promise<AuditRequirement | undefined>;
-	createAuditModelRuntime(
-		model: Model<any>,
-		registry: Pick<
-			ModelRegistry,
-			"getApiKeyAndHeaders" | "getProvider" | "getProviderAuth"
-		>,
-	): Promise<ModelRuntime>;
 	runAudit(input: RunAuditInput): Promise<AuditResult>;
 	reviewSnapshotsEqual(left: ReviewSnapshot, right: ReviewSnapshot): boolean | Promise<boolean>;
 	createServer(options: CreateReviewServerOptions): Promise<ReviewServer>;
-}
-
-interface IsolatedAuditRuntimeDependencies {
-	createCredentialStore(): CredentialStore;
-	createModelRuntime(options: {
-		credentials: CredentialStore;
-		modelsPath: null;
-	}): Promise<ModelRuntime>;
-}
-
-function cloneAuthResult(result: AuthResult): AuthResult {
-	const clone = { ...result, auth: { ...result.auth } };
-	if (result.auth.headers) clone.auth.headers = { ...result.auth.headers };
-	if (result.env) clone.env = { ...result.env };
-	return clone;
-}
-
-function resolvedAuthProvider(provider: Provider, auth: AuthResult): Provider {
-	return {
-		id: provider.id,
-		name: provider.name,
-		baseUrl: provider.baseUrl,
-		headers: provider.headers,
-		auth: {
-			apiKey: {
-				name: `${provider.name} resolved request auth`,
-				async check() {
-					return { type: "api_key", source: auth.source ?? "resolved request auth" };
-				},
-				async resolve() {
-					return cloneAuthResult(auth);
-				},
-			},
-		},
-		getModels: () => provider.getModels(),
-		refreshModels: provider.refreshModels
-			? (context) => provider.refreshModels!(context)
-			: undefined,
-		filterModels: provider.filterModels
-			? (models, credential) => provider.filterModels!(models, credential)
-			: undefined,
-		stream: (requestModel, context, options) =>
-			provider.stream(requestModel, context, options),
-		streamSimple: (requestModel, context, options) =>
-			provider.streamSimple(requestModel, context, options),
-	};
-}
-
-export async function createIsolatedAuditModelRuntime(
-	model: Model<any>,
-	registry: Pick<
-		ModelRegistry,
-		"getApiKeyAndHeaders" | "getProvider" | "getProviderAuth"
-	>,
-	dependencies: IsolatedAuditRuntimeDependencies,
-): Promise<ModelRuntime> {
-	let auth = await registry.getProviderAuth(model.provider);
-	if (!auth) {
-		const fallback = await registry.getApiKeyAndHeaders(model);
-		if (!fallback.ok)
-			throw new Error(
-				`Review could not resolve auth for "${model.provider}": ${fallback.error}`,
-			);
-		auth = {
-			auth: {
-				...(fallback.apiKey !== undefined ? { apiKey: fallback.apiKey } : {}),
-				...(fallback.headers !== undefined ? { headers: { ...fallback.headers } } : {}),
-			},
-			...(fallback.env !== undefined ? { env: { ...fallback.env } } : {}),
-		};
-	}
-	const provider = registry.getProvider(model.provider);
-	if (!provider)
-		throw new Error(`Review could not obtain active provider "${model.provider}"`);
-
-	const credentials = dependencies.createCredentialStore();
-	const runtime = await dependencies.createModelRuntime({ credentials, modelsPath: null });
-	runtime.registerNativeProvider(resolvedAuthProvider(provider, auth));
-	return runtime;
 }
 
 const defaultDependencies: ReviewDependencies = {
@@ -138,16 +44,6 @@ const defaultDependencies: ReviewDependencies = {
 		return (await import("./review-git.ts")).readGitReviewPatch(repository);
 	},
 	readRequirement: readReviewRequirement,
-	async createAuditModelRuntime(model, registry) {
-		const [{ InMemoryCredentialStore }, { ModelRuntime }] = await Promise.all([
-			import("@earendil-works/pi-ai"),
-			import("@earendil-works/pi-coding-agent"),
-		]);
-		return createIsolatedAuditModelRuntime(model, registry, {
-			createCredentialStore: () => new InMemoryCredentialStore(),
-			createModelRuntime: (options) => ModelRuntime.create(options),
-		});
-	},
 	async runAudit(input) {
 		return (await import("./audit.ts")).runAudit(input);
 	},
@@ -266,77 +162,104 @@ export function createReviewController(
 ): ReviewController {
 	const liveServers = new Set<ReviewServer>();
 	const pendingWaits = new Set<CancelWait>();
+	const activeAudits = new Set<AbortController>();
+	const activeRuns = new Set<Promise<void>>();
+	let shuttingDown = false;
 
 	return {
 		async run(argument, ctx) {
-			if (ctx.mode !== "tui") throw new Error("/review requires TUI mode");
-			const model = ctx.model;
-			if (!model) throw new Error("/review requires an active model");
-			const thinkingLevel = ctx.thinkingLevel;
-			if (thinkingLevel === undefined)
-				throw new Error("/review requires an active thinking level");
-			await ctx.waitForIdle();
-
-			const patch = await dependencies.readPatch(ctx.cwd);
-			if (patch.empty) throw new Error("/review requires a non-empty staged patch");
-			const requirement = await dependencies.readRequirement(
-				patch.snapshot.repositoryRoot,
-				argument.trim(),
-			);
-			ctx.ui.notify("Auditing staged changes…", "info");
-			const modelRuntime = await dependencies.createAuditModelRuntime(model, ctx.modelRegistry);
-			const audit = await dependencies.runAudit({
-				repositoryRoot: patch.snapshot.repositoryRoot,
-				patch,
-				model,
-				modelRuntime,
-				thinkingLevel,
-				...(requirement ? { requirement } : {}),
-			});
-			const current = await dependencies.readPatch(patch.snapshot.repositoryRoot);
-			if (!(await dependencies.reviewSnapshotsEqual(patch.snapshot, current.snapshot)))
-				throw new Error("Staged changes changed during audit; run /review again");
-
-			const server = await dependencies.createServer({
-				patch,
-				auditFindings: audit.findings,
-			});
-			liveServers.add(server);
-			let decision: WaitResult;
+			let settleRun!: () => void;
+			const runSettled = new Promise<void>((resolve) => { settleRun = resolve; });
+			activeRuns.add(runSettled);
 			try {
-				decision = await waitForDecision(ctx, server, pendingWaits);
-			} finally {
-				try {
-					await server.close();
-				} finally {
-					liveServers.delete(server);
-				}
-			}
+				if (shuttingDown) throw new Error("Review session is shutting down");
+				if (ctx.mode !== "tui") throw new Error("/review requires TUI mode");
+				await ctx.waitForIdle();
+				if (shuttingDown) throw new Error("Review session is shutting down");
+				const parentSession = {
+					directory: ctx.sessionManager.getSessionDir(),
+					id: ctx.sessionManager.getSessionId(),
+				};
 
-			switch (decision.kind) {
-				case "approve":
-					ctx.ui.notify("Review approved.", "info");
-					return;
-				case "stale":
-					ctx.ui.notify(decision.error, "error");
-					return;
-				case "send-feedback":
-					ctx.ui.setEditorText(decision.feedbackMarkdown);
-					ctx.ui.notify("Review feedback loaded into the editor.", "info");
-					return;
-				case "cancelled":
-					ctx.ui.notify("Review cancelled.", "info");
-					return;
-				case "failed":
-					throw decision.error;
+				const patch = await dependencies.readPatch(ctx.cwd);
+				if (patch.empty) throw new Error("/review requires a non-empty staged patch");
+				const requirement = await dependencies.readRequirement(
+					patch.snapshot.repositoryRoot,
+					argument.trim(),
+				);
+				if (shuttingDown) throw new Error("Review session is shutting down");
+				ctx.ui.notify("Auditing staged changes…", "info");
+				const auditController = new AbortController();
+				activeAudits.add(auditController);
+				let audit: AuditResult;
+				try {
+					audit = await dependencies.runAudit({
+						repositoryRoot: patch.snapshot.repositoryRoot,
+						patch,
+						parentSession,
+						signal: auditController.signal,
+						...(requirement ? { requirement } : {}),
+					});
+				} finally {
+					activeAudits.delete(auditController);
+				}
+				if (shuttingDown) throw new Error("Review session is shutting down");
+				const current = await dependencies.readPatch(patch.snapshot.repositoryRoot);
+				if (!(await dependencies.reviewSnapshotsEqual(patch.snapshot, current.snapshot)))
+					throw new Error("Staged changes changed during audit; run /review again");
+
+				const server = await dependencies.createServer({
+					patch,
+					auditFindings: audit.findings,
+				});
+				if (shuttingDown) {
+					await server.close();
+					throw new Error("Review session is shutting down");
+				}
+				liveServers.add(server);
+				let decision: WaitResult;
+				try {
+					decision = await waitForDecision(ctx, server, pendingWaits);
+				} finally {
+					try {
+						await server.close();
+					} finally {
+						liveServers.delete(server);
+					}
+				}
+
+				switch (decision.kind) {
+					case "approve":
+						ctx.ui.notify("Review approved.", "info");
+						return;
+					case "stale":
+						ctx.ui.notify(decision.error, "error");
+						return;
+					case "send-feedback":
+						ctx.ui.setEditorText(decision.feedbackMarkdown);
+						ctx.ui.notify("Review feedback loaded into the editor.", "info");
+						return;
+					case "cancelled":
+						ctx.ui.notify("Review cancelled.", "info");
+						return;
+					case "failed":
+						throw decision.error;
+				}
+			} finally {
+				settleRun();
+				activeRuns.delete(runSettled);
 			}
 		},
 
 		async shutdown() {
+			shuttingDown = true;
+			for (const audit of activeAudits) audit.abort(new Error("Review session shut down"));
+			activeAudits.clear();
 			for (const cancel of pendingWaits) cancel();
 			pendingWaits.clear();
 			await Promise.allSettled([...liveServers].map((server) => server.close()));
 			liveServers.clear();
+			await Promise.allSettled([...activeRuns]);
 		},
 	};
 }
@@ -346,7 +269,10 @@ export function registerReview(
 	dependencies: ReviewDependencies = defaultDependencies,
 ): void {
 	const controller = createReviewController(dependencies);
-	pi.on("session_shutdown", async () => controller.shutdown());
+	pi.on("session_shutdown", async (_event, ctx) => {
+		ctx.abort();
+		await controller.shutdown();
+	});
 	pi.registerCommand("review", {
 		description: "Audit and review the exact staged Git patch",
 		async handler(argument, ctx) {

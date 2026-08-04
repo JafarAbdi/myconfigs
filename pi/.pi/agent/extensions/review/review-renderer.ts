@@ -112,8 +112,7 @@ function renderAnnotationGroup(group: AnnotationGroup, canEdit: boolean): string
 	const findings = group.findings.map(
 		(finding) => `<article class="annotation audit-finding">
 	<div class="annotation-label"><strong>Audit finding</strong><span>${escapeHtml(finding.category)} · ${escapeHtml(targetLabel(finding.side, finding.line))}</span></div>
-	<p class="finding-summary">${escapeHtml(finding.summary)}</p>
-	<dl class="finding-details"><dt>Evidence</dt><dd>${escapeHtml(finding.evidence)}</dd><dt>Failure</dt><dd>${escapeHtml(finding.failure)}</dd><dt>Repair</dt><dd>${escapeHtml(finding.repair)}</dd></dl>
+	<p class="finding-message">${escapeHtml(finding.message)}</p>
 </article>`,
 	);
 	const comments = group.comments.map(

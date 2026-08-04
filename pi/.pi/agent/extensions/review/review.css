@@ -362,25 +362,8 @@ diffs-container {
 	white-space: pre-wrap;
 }
 
-.finding-summary {
+.finding-message {
 	font-weight: 650;
-}
-
-.finding-details {
-	display: grid;
-	grid-template-columns: max-content minmax(0, 1fr);
-	margin: 0.4rem 0 0;
-	row-gap: 0.25rem;
-}
-
-.finding-details dt {
-	color: var(--muted);
-	font-weight: 700;
-}
-
-.finding-details dd {
-	margin: 0 0 0 0.55rem;
-	white-space: pre-wrap;
 }
 
 .annotation-label {
@@ -604,14 +587,6 @@ diffs-container {
 	.annotation-label {
 		align-items: flex-start;
 		flex-direction: column;
-	}
-
-	.finding-details {
-		grid-template-columns: 1fr;
-	}
-
-	.finding-details dd {
-		margin-left: 0;
 	}
 
 	.decision-inner {

@@ -175,10 +175,7 @@ test("child environments apply only their runtime-specific defaults", () => {
 		...parent,
 		PI_DELEGATE_CHILD: "1",
 	});
-	assert.deepEqual(childEnvironment("claude", parent), {
-		...parent,
-		CLAUDE_CODE_MAX_RETRIES: "3",
-	});
+	assert.equal(childEnvironment("claude", parent), parent);
 	const configured = { CLAUDE_CODE_MAX_RETRIES: "7" };
 	assert.equal(childEnvironment("claude", configured), configured);
 	const local = {};
@@ -286,7 +283,10 @@ test("claude argv fences the child and carries one system prompt", () => {
 	assert.match(systemPrompt, /You are a reviewer\./);
 
 	assert.deepEqual(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2), ["--model", "claude-opus-5"]);
+	assert.ok(args.includes("--safe-mode"));
+	assert.ok(args.includes("--disable-slash-commands"));
 	assert.ok(!args.includes("--effort"));
+	assert.ok(!args.includes("--json-schema"));
 	// The parent's model never crosses the runtime boundary.
 	assert.ok(!args.includes("openai-codex/gpt-5.6-luna"));
 
@@ -305,13 +305,32 @@ test("claude argv fences the child and carries one system prompt", () => {
 	assert.ok(!args.includes("Task: review it"));
 });
 
+test("native Claude invocation options carry effort and structured output without a role policy", () => {
+	const schema = {
+		type: "object",
+		properties: { verdict: { type: "string" } },
+		required: ["verdict"],
+	};
+	for (const name of ["audit", "reviewer"]) {
+		const args = selectRuntime("claude-opus-5").invoke(
+			agent({ name }),
+			"inspect",
+			{},
+			"claude-opus-5",
+			{ effort: "high", jsonSchema: schema },
+		).args;
+		assert.equal(args[args.indexOf("--effort") + 1], "high");
+		assert.equal(args[args.indexOf("--json-schema") + 1], JSON.stringify(schema));
+	}
+});
+
 test("a provider-qualified delegate model launches pi with its own persistent session", () => {
 	const reviewer = agent({ tools: ["read", "bash"] });
 	const model = "openai-codex/gpt-5.6-luna";
 	const runtime = selectRuntime(model);
 	assert.equal(runtime.name, "pi");
 	const sessionDir = "/sessions/project/subagents/parent-id";
-	const { args } = runtime.invoke(
+	const { args, input } = runtime.invoke(
 		reviewer,
 		"review",
 		{ sessionDir, thinkingLevel: "minimal" },
@@ -322,6 +341,8 @@ test("a provider-qualified delegate model launches pi with its own persistent se
 	assert.equal(args[args.indexOf("--tools") + 1], "read,bash");
 	assert.equal(args[args.indexOf("--session-dir") + 1], sessionDir);
 	assert.ok(!args.includes("--no-session"));
+	assert.equal(input, "Task: review");
+	assert.ok(!args.includes("Task: review"));
 });
 
 test("pi sessions use extension-owned IDs and resume the exact run", () => {
@@ -382,6 +403,22 @@ test("both runtimes retain ordinary agent text", () => {
 	}
 });
 
+test("native Claude structured output becomes the normalized JSON text for every role", () => {
+	const structured = { verdict: "PASS", findings: [] };
+	for (const name of ["audit", "reviewer"]) {
+		const run = runClaude([{
+			type: "result",
+			subtype: "success",
+			is_error: false,
+			stop_reason: "end_turn",
+			result: "non-authoritative prose",
+			structured_output: structured,
+		}], result({ agent: name })).result;
+		assert.equal(run.output, JSON.stringify(structured));
+		assert.equal(classifyResult(run).kind, "success");
+	}
+});
+
 test("an omitted delegate model launches pi and inherits the session model and thinking", () => {
 	const scout = agent({ tools: ["read"] });
 	const { args, input } = selectRuntime(undefined).invoke(scout, "look", {
@@ -390,9 +427,8 @@ test("an omitted delegate model launches pi and inherits the session model and t
 	});
 	assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.6-luna");
 	assert.equal(args[args.indexOf("--thinking") + 1], "low");
-	// pi takes its prompt as an argument and is given no stdin at all.
-	assert.equal(input, undefined);
-	assert.ok(args.includes("Task: look"));
+	assert.equal(input, "Task: look");
+	assert.ok(!args.includes("Task: look"));
 });
 
 test("pi accumulates usage per message, where claude assigns a run total once", () => {

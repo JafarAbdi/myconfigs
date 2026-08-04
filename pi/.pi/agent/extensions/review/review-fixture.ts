@@ -21,10 +21,7 @@ export function demoAuditFinding(
 		filePath: "src/greeting.ts",
 		side: "additions",
 		line: 2,
-		summary: "Whitespace-only names now take a new fallback path.",
-		evidence: "The staged line replaces the supplied name after trimming it.",
-		failure: "Callers may receive a greeting for a different audience than intended.",
-		repair: "Confirm the fallback requirement or remove the fallback.",
+		message: "Whitespace-only names now take a new fallback path.",
 		...overrides,
 	};
 }

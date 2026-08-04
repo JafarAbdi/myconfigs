@@ -149,14 +149,8 @@ export function formatReviewFeedback(
 		) || left.endLine - right.endLine || compareText(left.id, right.id)
 	);
 	const lines = ["# Review feedback", "", "## Audit findings"];
-	for (const finding of findings) {
-		lines.push(
-			`- ${finding.filePath}:${sideLabel(finding.side)} L${finding.line} — ${finding.summary}`,
-			`  - Evidence: ${finding.evidence}`,
-			`  - Failure: ${finding.failure}`,
-			`  - Repair: ${finding.repair}`,
-		);
-	}
+	for (const finding of findings)
+		lines.push(`- ${finding.filePath}:${sideLabel(finding.side)} L${finding.line} — ${finding.message}`);
 	lines.push("", "## Human comments");
 	for (const comment of comments) {
 		const range = comment.startLine === comment.endLine

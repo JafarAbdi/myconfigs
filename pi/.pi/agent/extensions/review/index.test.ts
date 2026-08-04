@@ -10,7 +10,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-	createIsolatedAuditModelRuntime,
 	createReviewController,
 	readReviewRequirement,
 	registerReview,
@@ -23,9 +22,9 @@ import type {
 } from "./review-server.ts";
 
 const ROOT = "/repository";
-const MODEL = { provider: "test", id: "active-model" } as never;
-const MODEL_RUNTIME = { kind: "isolated-model-runtime" } as never;
-const MODEL_REGISTRY = { kind: "active-model-registry" } as never;
+const PARENT_SESSION_DIR = "/sessions/project";
+const PARENT_SESSION_ID = "parent-session-id";
+const PARENT_SESSION_FILE = `${PARENT_SESSION_DIR}/parent.jsonl`;
 const CUSTOM_CANCEL_SEQUENCE = "\x1b[99~";
 
 function patch(raw = "staged patch", empty = false, root = ROOT): ReviewPatch {
@@ -61,9 +60,11 @@ function context(overrides: Record<string, unknown> = {}) {
 	const ctx = {
 		mode: "tui",
 		cwd: "/working",
-		model: MODEL,
-		modelRegistry: MODEL_REGISTRY,
-		thinkingLevel: "high",
+		sessionManager: {
+			getSessionDir: () => PARENT_SESSION_DIR,
+			getSessionId: () => PARENT_SESSION_ID,
+			getSessionFile: () => PARENT_SESSION_FILE,
+		},
 		async waitForIdle() { idleCalls += 1; },
 		ui: {
 			notify(message: string, type?: string) { notifications.push({ message, type }); },
@@ -111,41 +112,12 @@ function serverHarness(url = "http://127.0.0.1:1234/capability/?mode=stack") {
 	return { server, terminal, get closeCalls() { return closeCalls; } };
 }
 
-function provider(overrides: Record<string, unknown> = {}) {
-	return {
-		id: "test",
-		name: "Test Provider",
-		baseUrl: "https://provider.example/v1",
-		headers: { "x-provider": "configured" },
-		auth: {},
-		getModels: () => [MODEL],
-		stream: () => ({ kind: "stream" }),
-		streamSimple: () => ({ kind: "simple-stream" }),
-		...overrides,
-	} as never;
-}
-
-function runtimeHarness() {
-	let registeredProvider: any;
-	const runtime = {
-		registerNativeProvider(value: unknown) { registeredProvider = value; },
-		async getAuth() {
-			return registeredProvider?.auth.apiKey.resolve({ ctx: {} });
-		},
-	};
-	return {
-		runtime: runtime as never,
-		get provider() { return registeredProvider; },
-	};
-}
-
 function dependencies(overrides: Partial<ReviewDependencies> = {}): ReviewDependencies {
 	const original = patch();
 	return {
 		async readPatch() { return original; },
 		async readRequirement() { return undefined; },
-		async createAuditModelRuntime() { return MODEL_RUNTIME; },
-		async runAudit() { return { verdict: "PASS", findings: [] }; },
+		async runAudit() { return { findings: [] }; },
 		reviewSnapshotsEqual(left, right) {
 			return left.repositoryRoot === right.repositoryRoot &&
 				left.headOid === right.headOid && left.raw.equals(right.raw);
@@ -161,145 +133,9 @@ async function waitForComponent(components: unknown[]): Promise<void> {
 	assert.equal(components.length, 1);
 }
 
-test("isolated audit runtime adapts exact resolved OAuth request auth without credentials", async () => {
-	const resolvedAuth = {
-		auth: {
-			apiKey: "oauth-access-token",
-			headers: {
-				Authorization: "Bearer oauth-access-token",
-				"x-oauth-context": "active-account",
-			},
-			baseUrl: "https://oauth.example/v2",
-		},
-		env: { CLOUDFLARE_ACCOUNT_ID: "runtime-account" },
-		source: "OAuth",
-	};
-	const models = [MODEL];
-	const refreshContext = { allowNetwork: false };
-	const filteredModels: never[] = [];
-	const streamResult = { kind: "provider-stream" };
-	const simpleStreamResult = { kind: "provider-simple-stream" };
-	const activeProvider = provider({
-		getModels() { return models; },
-		async refreshModels(context: unknown) { assert.equal(context, refreshContext); },
-		filterModels(input: unknown, credential: unknown) {
-			assert.equal(input, models);
-			assert.equal(credential, undefined);
-			return filteredModels;
-		},
-		stream(model: unknown, context: unknown, options: unknown) {
-			assert.deepEqual([model, context, options], [MODEL, "context", "options"]);
-			return streamResult;
-		},
-		streamSimple(model: unknown, context: unknown, options: unknown) {
-			assert.deepEqual([model, context, options], [MODEL, "context", "options"]);
-			return simpleStreamResult;
-		},
-	});
-	const credentials = {
-		async read() { throw new Error("must not read credentials"); },
-		async list() { throw new Error("must not list credentials"); },
-		async modify() { throw new Error("must not write credentials"); },
-		async delete() { throw new Error("must not delete credentials"); },
-	};
-	const harness = runtimeHarness();
-	let runtimeOptions: unknown;
-
-	const result = await createIsolatedAuditModelRuntime(MODEL, {
-		async getProviderAuth(providerId) {
-			assert.equal(providerId, "test");
-			return resolvedAuth;
-		},
-		async getApiKeyAndHeaders() { throw new Error("must not use compatibility auth"); },
-		getProvider(providerId) {
-			assert.equal(providerId, "test");
-			return activeProvider;
-		},
-	}, {
-		createCredentialStore() { return credentials as never; },
-		async createModelRuntime(options) {
-			runtimeOptions = options;
-			return harness.runtime;
-		},
-	});
-
-	assert.equal(result, harness.runtime);
-	assert.deepEqual(runtimeOptions, { credentials, modelsPath: null });
-	assert.equal(harness.provider.id, activeProvider.id);
-	assert.equal(harness.provider.name, activeProvider.name);
-	assert.equal(harness.provider.baseUrl, activeProvider.baseUrl);
-	assert.equal(harness.provider.headers, activeProvider.headers);
-	assert.deepEqual(harness.provider.getModels(), models);
-	await harness.provider.refreshModels(refreshContext);
-	assert.equal(harness.provider.filterModels(models, undefined), filteredModels);
-	assert.equal(harness.provider.stream(MODEL, "context", "options"), streamResult);
-	assert.equal(harness.provider.streamSimple(MODEL, "context", "options"), simpleStreamResult);
-	assert.deepEqual(await harness.provider.auth.apiKey.check({ ctx: {} }), {
-		type: "api_key",
-		source: "OAuth",
-	});
-
-	const first = await (result as any).getAuth("test");
-	assert.deepEqual(first, resolvedAuth);
-	assert.notEqual(first, resolvedAuth);
-	assert.notEqual(first.auth, resolvedAuth.auth);
-	assert.notEqual(first.auth.headers, resolvedAuth.auth.headers);
-	assert.notEqual(first.env, resolvedAuth.env);
-	first.auth.headers.Authorization = "mutated";
-	first.env.CLOUDFLARE_ACCOUNT_ID = "mutated";
-	assert.deepEqual(await (result as any).getAuth("test"), resolvedAuth);
-});
-
-test("isolated audit runtime accepts keyless compatibility auth", async () => {
-	const harness = runtimeHarness();
-	let fallbackCalls = 0;
-	const result = await createIsolatedAuditModelRuntime(MODEL, {
-		async getProviderAuth() { return undefined; },
-		async getApiKeyAndHeaders(model) {
-			fallbackCalls += 1;
-			assert.equal(model, MODEL);
-			return {
-				ok: true,
-				headers: { "x-keyless-auth": "configured" },
-				env: { KEYLESS_REGION: "local" },
-			};
-		},
-		getProvider() { return provider(); },
-	}, {
-		createCredentialStore() { return {} as never; },
-		async createModelRuntime(options) {
-			assert.equal(options.modelsPath, null);
-			return harness.runtime;
-		},
-	});
-
-	assert.equal(fallbackCalls, 1);
-	assert.deepEqual(await (result as any).getAuth("test"), {
-		auth: { headers: { "x-keyless-auth": "configured" } },
-		env: { KEYLESS_REGION: "local" },
-	});
-});
-
-test("isolated audit runtime fails clearly on unresolved auth or a missing active provider", async () => {
-	const unusedDependencies = {
-		createCredentialStore() { throw new Error("must not create credentials"); },
-		async createModelRuntime() { throw new Error("must not create a runtime"); },
-	};
-	await assert.rejects(createIsolatedAuditModelRuntime(MODEL, {
-		async getProviderAuth() { return undefined; },
-		async getApiKeyAndHeaders() { return { ok: false as const, error: "runtime auth failed" }; },
-		getProvider() { throw new Error("must not read provider"); },
-	}, unusedDependencies as never), /could not resolve auth.*runtime auth failed/u);
-	await assert.rejects(createIsolatedAuditModelRuntime(MODEL, {
-		async getProviderAuth() { return { auth: { apiKey: "key" } }; },
-		async getApiKeyAndHeaders() { throw new Error("must not use compatibility auth"); },
-		getProvider() { return undefined; },
-	}, unusedDependencies as never), /could not obtain active provider "test"/u);
-});
-
 test("registers only /review and reports command failures through the TUI", async () => {
 	const commands: Array<{ name: string; options: { handler: (arg: string, ctx: never) => Promise<void> } }> = [];
-	const events: Array<{ name: string; handler: () => Promise<void> }> = [];
+	const events: Array<{ name: string; handler: (...args: any[]) => Promise<void> }> = [];
 	registerReview({
 		registerCommand(name: string, options: any) { commands.push({ name, options }); },
 		on(name: string, handler: () => Promise<void>) { events.push({ name, handler }); },
@@ -311,13 +147,14 @@ test("registers only /review and reports command failures through the TUI", asyn
 	const harness = context();
 	await commands[0].options.handler("", harness.ctx);
 	assert.deepEqual(harness.notifications, [{ message: "capture failed", type: "error" }]);
+	let aborts = 0;
+	await events[0].handler({}, { abort() { aborts += 1; } });
+	assert.equal(aborts, 1);
 });
 
-test("rejects non-TUI, missing model, missing thinking level, and empty staged input before audit", async (t) => {
+test("rejects non-TUI and empty staged input before audit", async (t) => {
 	for (const item of [
 		{ name: "non-TUI", context: { mode: "rpc" }, error: /requires TUI/u, reads: 0 },
-		{ name: "model", context: { model: undefined }, error: /active model/u, reads: 0 },
-		{ name: "thinking", context: { thinkingLevel: undefined }, error: /thinking level/u, reads: 0 },
 		{ name: "empty", context: {}, error: /non-empty staged patch/u, reads: 1 },
 	]) await t.test(item.name, async () => {
 		let reads = 0;
@@ -327,7 +164,7 @@ test("rejects non-TUI, missing model, missing thinking level, and empty staged i
 				reads += 1;
 				return item.name === "empty" ? patch("", true) : patch();
 			},
-			async runAudit() { audits += 1; return { verdict: "PASS", findings: [] }; },
+			async runAudit() { audits += 1; return { findings: [] }; },
 		}));
 		await assert.rejects(controller.run("", context(item.context).ctx), item.error);
 		assert.equal(reads, item.reads);
@@ -372,14 +209,20 @@ test("treats the trimmed argument as one bounded repository-relative Markdown fi
 	}
 });
 
-test("runs one audit with the captured root, patch, isolated runtime, thinking, and requirement", async () => {
+test("runs one aggregate audit with the captured candidate, parent, and requirement", async () => {
 	const original = patch();
 	const reviewServer = serverHarness();
 	let reads = 0;
 	let audits = 0;
 	let requirementArgument = "";
 	const requirement = { path: "docs/plan with spaces.md", content: "# Plan" };
-	const harness = context();
+	const harness = context({
+		sessionManager: {
+			getSessionDir: () => PARENT_SESSION_DIR,
+			getSessionId: () => PARENT_SESSION_ID,
+			getSessionFile: () => undefined,
+		},
+	});
 	const controller = createReviewController(dependencies({
 		async readPatch(repository) {
 			reads += 1;
@@ -391,20 +234,17 @@ test("runs one audit with the captured root, patch, isolated runtime, thinking, 
 			requirementArgument = argument;
 			return requirement;
 		},
-		async createAuditModelRuntime(model, registry) {
-			assert.equal(model, MODEL);
-			assert.equal(registry, MODEL_REGISTRY);
-			return MODEL_RUNTIME;
-		},
 		async runAudit(input) {
 			audits += 1;
 			assert.equal(input.repositoryRoot, ROOT);
 			assert.equal(input.patch, original);
-			assert.equal(input.model, MODEL);
-			assert.equal(input.modelRuntime, MODEL_RUNTIME);
-			assert.equal(input.thinkingLevel, "high");
+			assert.deepEqual(input.parentSession, {
+				directory: PARENT_SESSION_DIR,
+				id: PARENT_SESSION_ID,
+			});
 			assert.equal(input.requirement, requirement);
-			return { verdict: "PASS", findings: [] };
+			assert.equal(input.signal?.aborted, false);
+			return { findings: [] };
 		},
 		async createServer(options) {
 			assert.equal(options.patch, original);
@@ -431,6 +271,45 @@ test("runs one audit with the captured root, patch, isolated runtime, thinking, 
 	assert.equal(harness.doneCalls, 1);
 	assert.deepEqual(harness.editor, []);
 	assert.equal(harness.notifications.at(-1)?.message, "Review approved.");
+});
+
+test("a reviewer failure prevents the browser server", async () => {
+	let servers = 0;
+	const controller = createReviewController(dependencies({
+		async runAudit() { throw new Error("context reviewer failed"); },
+		async createServer() { servers += 1; return serverHarness().server; },
+	}));
+	await assert.rejects(controller.run("", context().ctx), /context reviewer failed/u);
+	assert.equal(servers, 0);
+});
+
+test("session shutdown aborts and awaits an audit still in flight", async () => {
+	let servers = 0;
+	const started = deferred<void>();
+	const aborted = deferred<void>();
+	const release = deferred<void>();
+	const controller = createReviewController(dependencies({
+		runAudit(input) {
+			started.resolve();
+			return new Promise((_resolve, reject) => input.signal?.addEventListener("abort", () => {
+				aborted.resolve();
+				void release.promise.then(() => reject(new Error("audit cancelled")));
+			}, { once: true }));
+		},
+		async createServer() { servers += 1; return serverHarness().server; },
+	}));
+	const running = controller.run("", context().ctx);
+	const rejected = assert.rejects(running, /audit cancelled/u);
+	await started.promise;
+	let shutdownFinished = false;
+	const shutdown = controller.shutdown().then(() => { shutdownFinished = true; });
+	await aborted.promise;
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(shutdownFinished, false);
+	release.resolve();
+	await shutdown;
+	await rejected;
+	assert.equal(servers, 0);
 });
 
 test("post-audit staged drift aborts before serving", async () => {

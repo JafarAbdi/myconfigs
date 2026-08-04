@@ -41,10 +41,7 @@ function finding(overrides: Partial<AuditFinding> = {}): AuditFinding {
 		filePath: "src/a.ts",
 		side: "additions",
 		line: 2,
-		summary: "The new branch returns the wrong value.",
-		evidence: "The changed expression negates the established condition.",
-		failure: "Valid callers receive the fallback result.",
-		repair: "Restore the established condition.",
+		message: "The new branch returns the wrong value.",
 		...overrides,
 	};
 }
@@ -83,14 +80,14 @@ test("state clones immutable snapshot identity and audit findings", () => {
 	const sourcePatch = patch();
 	const sourceFinding = finding();
 	const store = new ReviewStore(sourcePatch, [sourceFinding]);
-	sourceFinding.summary = "mutated input";
+	sourceFinding.message = "mutated input";
 	const first = store.snapshot();
 	assert.deepEqual(first.snapshot, { headOid: "2".repeat(40) });
-	assert.equal(first.auditFindings[0].summary, "The new branch returns the wrong value.");
+	assert.equal(first.auditFindings[0].message, "The new branch returns the wrong value.");
 	first.snapshot.headOid = "3".repeat(40);
-	first.auditFindings[0].summary = "mutated snapshot";
+	first.auditFindings[0].message = "mutated snapshot";
 	assert.deepEqual(store.snapshot().snapshot, { headOid: "2".repeat(40) });
-	assert.equal(store.snapshot().auditFindings[0].summary, "The new branch returns the wrong value.");
+	assert.equal(store.snapshot().auditFindings[0].message, "The new branch returns the wrong value.");
 	assert.throws(
 		() => new ReviewStore(patch(), [finding({ line: 4 })]),
 		/not a changed line/u,
@@ -193,18 +190,12 @@ test("feedback Markdown is exact and sorted by path, side, then line", () => {
 		finding({
 			filePath: "src/z.ts",
 			line: 1,
-			summary: "Z finding.",
-			evidence: "Z evidence.",
-			failure: "Z failure.",
-			repair: "Z repair.",
+			message: "Z finding.",
 		}),
 		finding({
 			side: "deletions",
 			line: 2,
-			summary: "Old-side finding.",
-			evidence: "Old evidence.",
-			failure: "Old failure.",
-			repair: "Old repair.",
+			message: "Old-side finding.",
 		}),
 		finding(),
 	]);
@@ -226,17 +217,8 @@ test("feedback Markdown is exact and sorted by path, side, then line", () => {
 
 ## Audit findings
 - src/a.ts:new L2 — The new branch returns the wrong value.
-  - Evidence: The changed expression negates the established condition.
-  - Failure: Valid callers receive the fallback result.
-  - Repair: Restore the established condition.
 - src/a.ts:old L2 — Old-side finding.
-  - Evidence: Old evidence.
-  - Failure: Old failure.
-  - Repair: Old repair.
 - src/z.ts:new L1 — Z finding.
-  - Evidence: Z evidence.
-  - Failure: Z failure.
-  - Repair: Z repair.
 
 ## Human comments
 - src/a.ts:new L2-3 — A comment.

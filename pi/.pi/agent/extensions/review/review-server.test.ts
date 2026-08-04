@@ -213,9 +213,6 @@ test("audit-only Send Feedback returns a deterministic receipt after the respons
 
 ## Audit findings
 - src/greeting.ts:new L2 — Whitespace-only names now take a new fallback path.
-  - Evidence: The staged line replaces the supplied name after trimming it.
-  - Failure: Callers may receive a greeting for a different audience than intended.
-  - Repair: Confirm the fallback requirement or remove the fallback.
 
 ## Human comments
 `,

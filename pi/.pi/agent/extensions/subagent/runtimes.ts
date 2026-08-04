@@ -57,6 +57,8 @@ export interface RunResult {
 	agent: string;
 	task: string;
 	runId?: string;
+	/** Native Claude trace directory identity, when that runtime persists a request and raw streams. */
+	traceId?: string;
 	/** The latest assistant text. The final turn's, once there is one; before that, the last thing said. */
 	output: string;
 	stopReason?: string;
@@ -224,6 +226,14 @@ export function childSessionDir(parentSessionDir: string, parentSessionId: strin
 	return join(root, "subagents", parentSessionId);
 }
 
+export type ClaudeEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+/** Native Claude-only controls; Pi deliberately ignores them. */
+export interface NativeClaudeOptions {
+	effort?: ClaudeEffort;
+	jsonSchema?: object;
+}
+
 export interface Invocation {
 	command: string;
 	args: string[];
@@ -308,7 +318,13 @@ function suppliedSystemPrompt(agent: Agent, inherited: Inherited): string {
 
 export interface Runtime {
 	name: "pi" | "claude";
-	invoke(agent: Agent, task: string, inherited: Inherited, model?: string): Invocation;
+	invoke(
+		agent: Agent,
+		task: string,
+		inherited: Inherited,
+		model?: string,
+		nativeClaude?: NativeClaudeOptions,
+	): Invocation;
 	/**
 	 * True when the event changed something worth redrawing. Both CLIs interleave bookkeeping the
 	 * parent has no use for — claude alone emits a `thinking_tokens` line every few hundred
@@ -335,11 +351,7 @@ export function childEnvironment(
 	runtime: Runtime["name"],
 	env: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-	if (runtime === "claude") {
-		if (env.CLAUDE_CODE_MAX_RETRIES !== undefined) return env;
-		return { ...env, CLAUDE_CODE_MAX_RETRIES: "3" };
-	}
-	if (!env.PI_SSH_DESCRIPTOR) return env;
+	if (runtime !== "pi" || !env.PI_SSH_DESCRIPTOR) return env;
 	return { ...env, PI_DELEGATE_CHILD: "1" };
 }
 
@@ -409,6 +421,7 @@ export function isRunResult(value: unknown): value is RunResult {
 		typeof value.durationMs === "number" &&
 		Array.isArray(value.steps) &&
 		(value.runId === undefined || typeof value.runId === "string") &&
+		(value.traceId === undefined || typeof value.traceId === "string") &&
 		(value.thinking === undefined || typeof value.thinking === "number") &&
 		isUsage(value.usage) &&
 		optionalStrings.every((key) => value[key] === undefined || typeof value[key] === "string") &&
@@ -517,8 +530,7 @@ export function claudeTools(agent: Agent): string[] {
 		if (!mapped) throw new Error(`tool ${tool} has no claude equivalent`);
 		allowed.add(mapped);
 	}
-	// `skills: all` must grant Skill explicitly: the allowlist fences it like any other tool, so
-	// omitting it is the whole of `skills: none` — no `--disable-slash-commands` needed.
+	// `skills: all` must grant Skill explicitly: the allowlist fences it like any other tool.
 	if (agent.skills === "all") allowed.add("Skill");
 	// `find` and `ls` both map to Glob, so dedupe is load-bearing, not tidiness. Sorted for a
 	// stable command line.
@@ -528,7 +540,7 @@ export function claudeTools(agent: Agent): string[] {
 const claudeRuntime: Runtime = {
 	name: "claude",
 
-	invoke(agent, task, inherited, model) {
+	invoke(agent, task, inherited, model, nativeClaude) {
 		// Repeating `--append-system-prompt` silently drops all but the last, so the inherited text
 		// and the agent body travel as one argument.
 		const systemPrompt = suppliedSystemPrompt(agent, inherited);
@@ -548,6 +560,10 @@ const claudeRuntime: Runtime = {
 		];
 		// Always set in normal use: naming a native claude model selects this runtime.
 		if (model) args.push("--model", model);
+		// Slash commands may still make skills available unless both fences are set.
+		if (agent.skills === "none") args.push("--safe-mode", "--disable-slash-commands");
+		if (nativeClaude?.effort) args.push("--effort", nativeClaude.effort);
+		if (nativeClaude?.jsonSchema) args.push("--json-schema", JSON.stringify(nativeClaude.jsonSchema));
 		// Pinned, or `~/.claude/settings.json` decides whether a subagent's tools run at all.
 		args.push("--permission-mode", "acceptEdits");
 		// Availability and permission are separate grants: without this a tool is offered and then
@@ -593,7 +609,11 @@ const claudeRuntime: Runtime = {
 		}
 		if (event.type !== "result") return false;
 		if (typeof event.num_turns === "number") result.turns = event.num_turns;
-		if (typeof event.result === "string") result.output = event.result;
+		if (Object.hasOwn(event, "structured_output")) {
+			result.output = JSON.stringify(event.structured_output) ?? "";
+		} else if (typeof event.result === "string") {
+			result.output = event.result;
+		}
 		result.usage = claudeUsage(event);
 		const denials = Array.isArray(event.permission_denials) ? event.permission_denials : [];
 		// Worst news first, and the order is load-bearing. Hitting the output limit is not an error,
@@ -678,12 +698,9 @@ const piRuntime: Runtime = {
 		if (model) args.push("--model", model);
 		if (inherited.thinkingLevel) args.push("--thinking", inherited.thinkingLevel);
 		if (agent.skills === "none") args.push("--no-skills");
-		// Last, and safe unquoted: spawn runs without a shell. Prefixed because pi has no `--` argument
-		// terminator, so position alone does not protect it: a task opening with `--` or `@` is read as
-		// a flag or a file and silently dropped, leaving a child with no prompt, and one opening with a
-		// single `-` is an unknown option, which exits 1 before the agent runs.
-		args.push(`Task: ${task}`);
-		return piInvocation(args);
+		// Stdin avoids the operating system's per-argument size limit. Review tasks can contain the
+		// complete staged patch, while ordinary delegated tasks use the same unambiguous path.
+		return { ...piInvocation(args), input: `Task: ${task}` };
 	},
 
 	consume(event, result, activity) {
