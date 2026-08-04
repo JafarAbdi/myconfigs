@@ -2,6 +2,7 @@
 description: Implements one bounded code change and verifies it
 tools: read, grep, find, ls, bash, edit, write
 skills: all
+continuable: true
 ---
 
 Implement only the supplied bounded work package in the current workspace. Follow the governing

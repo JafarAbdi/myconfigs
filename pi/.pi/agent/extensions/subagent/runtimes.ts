@@ -20,6 +20,7 @@ export interface Agent {
 	/** Required. This list is the agent's capability — nothing else adds to it or takes from it. */
 	tools: string[];
 	skills: "all" | "none";
+	continuable: boolean;
 	systemPrompt: string;
 }
 
@@ -47,106 +48,15 @@ export function agentFromFrontmatter(
 		description: frontmatter.description,
 		tools,
 		skills: frontmatter.skills === "none" ? "none" : "all",
+		continuable: frontmatter.continuable === true,
 		systemPrompt,
 	};
 }
-
-export type AuditBasis =
-	| { source: "phase"; criterion: number }
-	| { source: "overall"; criterion: number }
-	| { source: "context"; path: string; rule: string };
-
-export interface AuditFinding {
-	basis: AuditBasis;
-	path: string;
-	evidence: string;
-	failure: string;
-}
-
-export type AuditResult =
-	| { verdict: "pass"; summary: string }
-	| { verdict: "fail"; findings: AuditFinding[] };
-
-const AUDIT_SUMMARY_MAX_LENGTH = 500;
-const AUDIT_SUMMARY_PATTERN = "^[^\\s\\r\\n\\u2028\\u2029](?:[^\\r\\n\\u2028\\u2029]*[^\\s\\r\\n\\u2028\\u2029])?$";
-const NONEMPTY_TEXT_SCHEMA = { type: "string", pattern: "\\S" };
-
-const AUDIT_JSON_SCHEMA = JSON.stringify({
-	type: "object",
-	properties: {
-		verdict: { type: "string", enum: ["pass", "fail"] },
-		summary: {
-			type: "string",
-			maxLength: AUDIT_SUMMARY_MAX_LENGTH,
-			pattern: AUDIT_SUMMARY_PATTERN,
-		},
-		findings: {
-			type: "array",
-			minItems: 1,
-			items: {
-				type: "object",
-				properties: {
-					basis: {
-						oneOf: [
-							{
-								type: "object",
-								properties: {
-									source: { const: "phase" },
-									criterion: {
-										type: "integer",
-										minimum: 1,
-										maximum: Number.MAX_SAFE_INTEGER,
-									},
-								},
-								required: ["source", "criterion"],
-								additionalProperties: false,
-							},
-							{
-								type: "object",
-								properties: {
-									source: { const: "overall" },
-									criterion: {
-										type: "integer",
-										minimum: 1,
-										maximum: Number.MAX_SAFE_INTEGER,
-									},
-								},
-								required: ["source", "criterion"],
-								additionalProperties: false,
-							},
-							{
-								type: "object",
-								properties: {
-									source: { const: "context" },
-									path: NONEMPTY_TEXT_SCHEMA,
-									rule: NONEMPTY_TEXT_SCHEMA,
-								},
-								required: ["source", "path", "rule"],
-								additionalProperties: false,
-							},
-						],
-					},
-					path: NONEMPTY_TEXT_SCHEMA,
-					evidence: NONEMPTY_TEXT_SCHEMA,
-					failure: NONEMPTY_TEXT_SCHEMA,
-				},
-				required: ["basis", "path", "evidence", "failure"],
-				additionalProperties: false,
-			},
-		},
-	},
-	required: ["verdict"],
-	additionalProperties: false,
-	if: { properties: { verdict: { const: "fail" } } },
-	then: { required: ["findings"], properties: { summary: false } },
-	else: { required: ["summary"], properties: { findings: false } },
-});
 
 export interface RunResult {
 	agent: string;
 	task: string;
 	runId?: string;
-	audit?: AuditResult;
 	/** The latest assistant text. The final turn's, once there is one; before that, the last thing said. */
 	output: string;
 	stopReason?: string;
@@ -481,46 +391,6 @@ function isUsage(value: unknown): value is Usage {
 	);
 }
 
-function validNonemptyText(value: unknown): value is string {
-	return typeof value === "string" && value.trim().length > 0;
-}
-
-function validAuditSummary(value: unknown): value is string {
-	return typeof value === "string" && value.length <= AUDIT_SUMMARY_MAX_LENGTH &&
-		value === value.trim() && !/[\r\n\u2028\u2029]/u.test(value) && value.length > 0;
-}
-
-export function isAuditResult(value: unknown): value is AuditResult {
-	if (!isRecord(value)) return false;
-	if (value.verdict === "pass")
-		return Object.keys(value).length === 2 && validAuditSummary(value.summary);
-	if (value.verdict !== "fail" || Object.keys(value).length !== 2 ||
-		!Array.isArray(value.findings) || value.findings.length === 0) return false;
-	return value.findings.every((finding) => {
-		if (!isRecord(finding) || Object.keys(finding).length !== 4 || !isRecord(finding.basis)) return false;
-		const basis = finding.basis;
-		const validBasis = (basis.source === "phase" || basis.source === "overall")
-			? Object.keys(basis).length === 2 && Number.isSafeInteger(basis.criterion) && (basis.criterion as number) >= 1
-			: basis.source === "context" && Object.keys(basis).length === 3 && validNonemptyText(basis.path) &&
-				validNonemptyText(basis.rule);
-		return validBasis && validNonemptyText(finding.path) &&
-			validNonemptyText(finding.evidence) && validNonemptyText(finding.failure);
-	});
-}
-
-export function parseAuditResult(output: string): AuditResult | undefined {
-	try {
-		const value: unknown = JSON.parse(output);
-		return isAuditResult(value) ? value : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-export function finalizeRunResult(result: RunResult): void {
-	if (result.agent === "audit" && result.audit === undefined && result.output) result.audit = parseAuditResult(result.output);
-}
-
 export function isRunResult(value: unknown): value is RunResult {
 	if (!isRecord(value)) return false;
 	const optionalStrings = [
@@ -539,7 +409,6 @@ export function isRunResult(value: unknown): value is RunResult {
 		typeof value.durationMs === "number" &&
 		Array.isArray(value.steps) &&
 		(value.runId === undefined || typeof value.runId === "string") &&
-		(value.audit === undefined || isAuditResult(value.audit)) &&
 		(value.thinking === undefined || typeof value.thinking === "number") &&
 		isUsage(value.usage) &&
 		optionalStrings.every((key) => value[key] === undefined || typeof value[key] === "string") &&
@@ -620,15 +489,6 @@ export function classifyResult(result: RunResult): ResultOutcome {
 			message: `${result.agent} model error${context}${suffix}`,
 		};
 	}
-	if (result.agent === "audit") {
-		if (result.stopReason === "stop" && result.audit)
-			return { kind: "success", label: "completed" };
-		return {
-			kind: "invalid-response",
-			label: "invalid audit result",
-			message: `audit returned without one valid final JSON result${context}.`,
-		};
-	}
 	if (result.stopReason !== "stop" || !result.output.trim()) {
 		const reason = detail ?? (result.stopReason ? `unexpected stop reason: ${result.stopReason}` : undefined);
 		return {
@@ -688,13 +548,6 @@ const claudeRuntime: Runtime = {
 		];
 		// Always set in normal use: naming a native claude model selects this runtime.
 		if (model) args.push("--model", model);
-		// Claude can enforce the same final object that every runtime passes through our exact parser.
-		// Its project setting sources also discover CLAUDE.md, so audits disable those after the
-		// extension has supplied Pi's exact deduplicated context.
-		if (agent.name === "audit") {
-			args.push("--json-schema", AUDIT_JSON_SCHEMA);
-			args.push("--setting-sources", "");
-		}
 		// Pinned, or `~/.claude/settings.json` decides whether a subagent's tools run at all.
 		args.push("--permission-mode", "acceptEdits");
 		// Availability and permission are separate grants: without this a tool is offered and then
@@ -740,14 +593,7 @@ const claudeRuntime: Runtime = {
 		}
 		if (event.type !== "result") return false;
 		if (typeof event.num_turns === "number") result.turns = event.num_turns;
-		// Native structured output is Claude's schema-validated audit payload. Ordinary result text
-		// remains non-authoritative and is not retained as audit output.
-		if (result.agent === "audit") {
-			result.audit = isAuditResult(event.structured_output) ? event.structured_output : undefined;
-			result.output = "";
-		} else if (typeof event.result === "string") {
-			result.output = event.result;
-		}
+		if (typeof event.result === "string") result.output = event.result;
 		result.usage = claudeUsage(event);
 		const denials = Array.isArray(event.permission_denials) ? event.permission_denials : [];
 		// Worst news first, and the order is load-bearing. Hitting the output limit is not an error,
@@ -815,17 +661,10 @@ const piRuntime: Runtime = {
 		if (inherited.sessionId) {
 			args.push(inherited.resume ? "--session" : "--session-id", inherited.sessionId);
 		}
-		if (agent.name === "audit") {
-			args.push("--append-system-prompt", suppliedSystemPrompt(agent, inherited));
-			// Context is supplied from every staged changed-file directory. Discovery from the child’s
-			// repository-root cwd would duplicate only a subset of it.
-			args.push("--no-context-files");
-		} else {
-			if (inherited.appendSystemPrompt?.trim()) {
-				args.push("--append-system-prompt", inherited.appendSystemPrompt);
-			}
-			args.push("--append-system-prompt", agent.systemPrompt);
+		if (inherited.appendSystemPrompt?.trim()) {
+			args.push("--append-system-prompt", inherited.appendSystemPrompt);
 		}
+		args.push("--append-system-prompt", agent.systemPrompt);
 		// No `--exclude-tools` beside this: pi's `isAllowedTool` (core/agent-session.js) applies the
 		// allowlist to extension- and SDK-registered tools alike, so a deny list could only restate
 		// it and then drift from it. `delegate` is excluded by not being granted.

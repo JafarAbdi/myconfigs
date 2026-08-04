@@ -2,29 +2,33 @@
 
 ## Objective
 
-Run one bounded child-agent trajectory with explicit capabilities, observable cost, and a small authoritative result.
+Run one bounded child-agent trajectory with explicit capabilities, observable cost, and a small
+authoritative text result.
 
 ## Requirements
 
 - R1: Every child receives only the tools declared by its agent definition.
-- R2: Initial review contexts are fresh and independent.
-- R3: Implementation repairs may continue the exact persisted implementation session.
-- R4: Audit runs finish with one schema-validated JSON result rather than authoritative prose.
-- R5: Before any audit child starts, the extension supplies the deduplicated Pi-discovered context governing each staged changed-file directory.
+- R2: Every initial run starts with fresh, independent conversation state.
+- R3: A role may resume only when its definition declares `continuable: true`, using the exact
+  extension-owned persisted Pi session from the prior invocation.
+- R4: Every role returns ordinary Markdown or text through the same normalized result path.
+- R5: Pi and native Claude invoke configured roles through name-independent runtime paths.
 
 ## Invariants
 
 - I1: Child agents cannot delegate recursively.
 - I2: Native runtime differences do not change the normalized parent result.
-- I3: Audit findings cite a named phase criterion or governing project-contract item.
-- I4: Audit sessions are never continued to validate their own findings.
+- I3: Runner behavior depends on declared capabilities and invocation state, never configured agent
+  names.
+- I4: Reloading a role without its continuation capability prevents further resumption.
+- I5: Native Claude runs are non-continuable while that runtime supplies no extension-owned run ID.
 
 ## Constraints
 
 - C1: Keep the runner process-based and dependency-free beyond Pi's existing runtime.
-- C2: Do not rediscover broad project context when the task supplies exact authority and evidence.
+- C2: Preserve explicit tool fences and skill control for both runtimes.
 - C3: Bound reports placed in the parent context while retaining detailed tool metadata for display.
-- C4: Discover audit context through Pi's exported `loadProjectContextFiles()` API, never a nested Pi process or model-guessed path.
+- C4: Preserve rich progress, usage accounting, cancellation, and protocol bounds.
 
 ## Assumptions
 
@@ -34,4 +38,4 @@ Run one bounded child-agent trajectory with explicit capabilities, observable co
 
 - N1: No unbounded child-of-child fan-out.
 - N2: No workflow planner, chain executor, or global run registry.
-- N3: No full-system review hidden inside the change-audit role.
+- N3: No role-specific output protocol or runner policy.

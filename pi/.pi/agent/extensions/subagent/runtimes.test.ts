@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import {
 	type ActivityTracker,
 	type Agent,
@@ -13,14 +11,11 @@ import {
 	classifyResult,
 	delegateModelNames,
 	emptyUsage,
-	finalizeRunResult,
 	CLAUDE_MODEL_NAMES,
 	CHILD_PENDING_LINE_MAX_BYTES,
 	CHILD_STDERR_MAX_BYTES,
 	createChildProtocol,
-	isAuditResult,
 	modelLabel,
-	parseAuditResult,
 	RESULT_OUTPUT_MAX_BYTES,
 	runResultBoundsError,
 	type RunResult,
@@ -28,9 +23,6 @@ import {
 	selectRuntime,
 	stepDetail,
 } from "./runtimes.ts";
-import { withProjectContext } from "./audit-context.ts";
-
-const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 
 function agent(overrides: Partial<Agent> = {}): Agent {
 	return {
@@ -38,6 +30,7 @@ function agent(overrides: Partial<Agent> = {}): Agent {
 		description: "reviews",
 		tools: ["read"],
 		skills: "none",
+		continuable: false,
 		systemPrompt: "You are a reviewer.",
 		...overrides,
 	};
@@ -107,6 +100,7 @@ test("agent frontmatter reads only role and capability fields", () => {
 				skills: "none",
 				model: "claude-opus-5",
 				effort: "high",
+				continuable: true,
 				unknown: true,
 			},
 			"Review it.",
@@ -116,8 +110,28 @@ test("agent frontmatter reads only role and capability fields", () => {
 			description: "reviews",
 			tools: ["read", "grep"],
 			skills: "none",
+			continuable: true,
 			systemPrompt: "Review it.",
 		},
+	);
+});
+
+test("continuability is enabled only by literal frontmatter true", () => {
+	for (const continuable of [undefined, false, "true", 1]) {
+		const parsed = agentFromFrontmatter(
+			"writer",
+			{ description: "writes", tools: "read", continuable },
+			"Write it.",
+		);
+		assert.equal(parsed.continuable, false);
+	}
+	assert.equal(
+		agentFromFrontmatter(
+			"reviewer",
+			{ description: "reviews", tools: "read", continuable: true },
+			"Review it.",
+		).continuable,
+		true,
 	);
 });
 
@@ -136,27 +150,6 @@ test("agent frontmatter accepts an explicit empty tool array only", () => {
 			/tools must be a string or string array/,
 		);
 	}
-});
-
-test("audit uses one validated final JSON result and supplied native context", () => {
-	const agents = join(EXTENSION_DIR, "agents");
-	const policy = readFileSync(join(agents, "audit.md"), "utf-8");
-	assert.equal(existsSync(join(agents, "correctness-reviewer.md")), false);
-	assert.equal(existsSync(join(agents, "context-style-reviewer.md")), false);
-	assert.equal(existsSync(join(EXTENSION_DIR, "prompts", "audit.md")), false);
-	assert.match(policy, /Pi-discovered project\s+context/);
-	assert.match(policy, /staged candidate/);
-	assert.match(policy, /exactly one JSON object/);
-	assert.match(policy, /summary[\s\S]*500 characters/);
-	assert.doesNotMatch(policy, /context-files|PI_OFFLINE|\bpi\s+--mode/);
-	assert.match(policy, /tools: read, grep, bash/);
-	assert.doesNotMatch(policy, /--binary/);
-	assert.match(policy, /skills: none/);
-	const extension = readFileSync(join(EXTENSION_DIR, "index.ts"), "utf-8");
-	assert.match(extension, /agentWithContext\(found, ctx\.cwd\)/);
-	assert.match(extension, /agentWithContext\(configured, options\.cwd, options\.auditBaseRef\)/);
-	assert.doesNotMatch(extension, /suppliedAuditBaseRef|auditBaseRef:\s*Type\./u);
-	assert.doesNotMatch(extension, /promptPaths/);
 });
 
 test("delegate model choices add native claude only outside SSH", () => {
@@ -310,45 +303,6 @@ test("claude argv fences the child and carries one system prompt", () => {
 	// The task goes on stdin: --tools and --allowed-tools are variadic and swallow a positional.
 	assert.equal(input, "Task: review it");
 	assert.ok(!args.includes("Task: review it"));
-	assert.ok(!args.includes("--json-schema"), "ordinary agents keep ordinary text output");
-});
-
-test("native claude audits enforce the portable result schema", () => {
-	const args = selectRuntime("claude-haiku-4-5-20251001").invoke(
-		agent({ name: "audit" }),
-		"audit it",
-		{},
-		"claude-haiku-4-5-20251001",
-	).args;
-	const schema = JSON.parse(args[args.indexOf("--json-schema") + 1]);
-	assert.equal(schema.type, "object");
-	assert.deepEqual(schema.properties.verdict.enum, ["pass", "fail"]);
-	assert.deepEqual(schema.required, ["verdict"]);
-	assert.equal(schema.properties.summary.type, "string");
-	assert.equal(schema.properties.summary.maxLength, 500);
-	assert.equal(schema.properties.summary.pattern, "^[^\\s\\r\\n\\u2028\\u2029](?:[^\\r\\n\\u2028\\u2029]*[^\\s\\r\\n\\u2028\\u2029])?$");
-	assert.doesNotMatch(schema.properties.summary.pattern, /\(\?[=!<]/u, "audit schema remains RE2-portable");
-	const summaryPattern = new RegExp(schema.properties.summary.pattern, "u");
-	for (const summary of ["valid", "two words", "a b c", "x".repeat(500)]) {
-		assert.equal(summaryPattern.test(summary), true, summary);
-		assert.ok(parseAuditResult(JSON.stringify({ verdict: "pass", summary })), summary);
-	}
-	for (const summary of ["", " padded", "padded ", "two\nlines", "two\rlines", "two\u2028lines", "\tvalue", "value\t"]) {
-		assert.equal(summaryPattern.test(summary), false, JSON.stringify(summary));
-		assert.equal(parseAuditResult(JSON.stringify({ verdict: "pass", summary })), undefined, JSON.stringify(summary));
-	}
-	assert.equal(schema.additionalProperties, false);
-	assert.equal(schema.properties.findings.minItems, 1);
-	assert.equal(schema.properties.findings.items.additionalProperties, false);
-	assert.equal(schema.properties.findings.items.properties.path.pattern, "\\S");
-	assert.equal(
-		schema.properties.findings.items.properties.basis.oneOf[0].properties.criterion.maximum,
-		Number.MAX_SAFE_INTEGER,
-	);
-	assert.deepEqual(schema.then.required, ["findings"]);
-	assert.equal(schema.then.properties.summary, false);
-	assert.deepEqual(schema.else.required, ["summary"]);
-	assert.equal(schema.else.properties.findings, false);
 });
 
 test("a provider-qualified delegate model launches pi with its own persistent session", () => {
@@ -371,15 +325,15 @@ test("a provider-qualified delegate model launches pi with its own persistent se
 });
 
 test("pi sessions use extension-owned IDs and resume the exact run", () => {
-	const implementer = agent({ name: "implementer", tools: ["read", "edit"] });
+	const writer = agent({ name: "writer", continuable: true, tools: ["read", "edit"] });
 	const runtime = selectRuntime(undefined);
-	const created = runtime.invoke(implementer, "implement", {
+	const created = runtime.invoke(writer, "write", {
 		sessionDir: "/sessions/subagents/parent",
 		sessionId: "run-id",
 	});
 	assert.equal(created.args[created.args.indexOf("--session-id") + 1], "run-id");
 	assert.ok(!created.args.includes("--session"));
-	const resumed = runtime.invoke(implementer, "repair", {
+	const resumed = runtime.invoke(writer, "repair", {
 		sessionDir: "/sessions/subagents/parent",
 		sessionId: "run-id",
 		resume: true,
@@ -388,120 +342,44 @@ test("pi sessions use extension-owned IDs and resume the exact run", () => {
 	assert.ok(!resumed.args.includes("--session-id"));
 });
 
-test("audit context is supplied once on Pi and native Claude", () => {
-	const audit = withProjectContext(
-		agent({ name: "audit", tools: ["read", "grep", "bash"] }),
-		[{ path: "/repo/AGENTS.md", content: "Keep the exact schema." }],
-	);
-	const inherited = { appendSystemPrompt: "Inherited discipline." };
-	const piArgs = selectRuntime(undefined).invoke(audit, "review", inherited).args;
-	assert.equal(piArgs[piArgs.indexOf("--tools") + 1], "read,grep,bash");
-	assert.ok(!piArgs.includes("--extension"));
-	assert.ok(piArgs.includes("--no-context-files"));
-	assert.equal(piArgs.filter((arg) => arg === "--append-system-prompt").length, 1);
-	const piPrompt = piArgs[piArgs.indexOf("--append-system-prompt") + 1];
-	assert.equal(piPrompt.split("Keep the exact schema.").length - 1, 1);
+test("runtime argv is independent of configured agent names", () => {
+	const writer = agent({ name: "writer", tools: ["read", "grep"] });
+	const reviewer = agent({ name: "reviewer", tools: ["read", "grep"] });
+	const inherited = { appendSystemPrompt: "Shared instructions." };
 
-	const claudeArgs = selectRuntime("claude-opus-5").invoke(
-		audit,
-		"review",
-		inherited,
-		"claude-opus-5",
-	).args;
-	assert.deepEqual(claudeTools(audit), ["Bash", "Grep", "Read"]);
-	assert.equal(claudeArgs[claudeArgs.indexOf("--setting-sources") + 1], "");
-	assert.equal(claudeArgs.filter((arg) => arg === "--append-system-prompt").length, 1);
-	const claudePrompt = claudeArgs[claudeArgs.indexOf("--append-system-prompt") + 1];
-	assert.equal(claudePrompt.split("Keep the exact schema.").length - 1, 1);
-	assert.equal(claudePrompt, piPrompt);
+	for (const model of [undefined, "claude-opus-5"] as const) {
+		const runtime = selectRuntime(model);
+		const writerInvocation = runtime.invoke(writer, "inspect", inherited, model);
+		const reviewerInvocation = runtime.invoke(reviewer, "inspect", inherited, model);
+		assert.deepEqual(writerInvocation, reviewerInvocation);
+	}
 });
 
-test("Pi parses audit text once, while native Claude uses structured output", () => {
-	const pass = { verdict: "pass", summary: "The staged candidate satisfies every criterion." } as const;
-	const fail = {
-		verdict: "fail" as const,
-		findings: [{
-			basis: { source: "overall" as const, criterion: 2 },
-			path: "pkg/index.ts",
-			evidence: "Concrete evidence.",
-			failure: "The context rule fails.",
-		}],
-	};
-	assert.equal(isAuditResult(pass), true);
-	assert.equal(isAuditResult(fail), true);
-	assert.deepEqual(parseAuditResult(JSON.stringify(pass)), pass);
-	assert.deepEqual(parseAuditResult(`\n${JSON.stringify(fail)}\n`), fail);
-	for (const invalid of [
-		"PASS",
-		"```json\n{\"verdict\":\"pass\"}\n```",
-		"Report: {\"verdict\":\"pass\"}",
-		'{"verdict":"pass"}',
-		'{"verdict":"pass","summary":""}',
-		'{"verdict":"pass","summary":" padded"}',
-		'{"verdict":"pass","summary":"two\\nlines"}',
-		JSON.stringify({ verdict: "pass", summary: "x".repeat(501) }),
-		'{"verdict":"pass","summary":"valid","findings":[]}',
-		'{"verdict":"pass","summary":"valid","extra":true}',
-		'{"verdict":"fail","findings":[]}',
-		'{"verdict":"fail"}',
-		JSON.stringify({ verdict: "fail", findings: [{ basis: { source: "overall", criterion: 0 }, path: "x", evidence: "e", failure: "f" }] }),
-		JSON.stringify({ verdict: "fail", findings: [{ basis: { source: "overall", criterion: 1, extra: true }, path: "x", evidence: "e", failure: "f" }] }),
-	]) assert.equal(parseAuditResult(invalid), undefined, invalid);
+test("both runtimes retain ordinary agent text", () => {
+	const markdown = "## Result\n\nOrdinary **Markdown**.";
+	for (const name of ["writer", "reviewer"]) {
+		const piRun = result({ agent: name });
+		selectRuntime(undefined).consume({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				stopReason: "stop",
+				content: [{ type: "text", text: markdown }],
+			},
+		}, piRun, createActivityTracker(piRun));
+		assert.equal(piRun.output, markdown);
+		assert.equal(classifyResult(piRun).kind, "success");
 
-	const piRun = result({ agent: "audit" });
-	selectRuntime(undefined).consume({
-		type: "message_end",
-		message: {
-			role: "assistant",
-			stopReason: "stop",
-			content: [{ type: "text", text: JSON.stringify(pass) }],
-		},
-	}, piRun, createActivityTracker(piRun));
-	finalizeRunResult(piRun);
-	assert.deepEqual(piRun.audit, pass);
-	assert.equal(classifyResult(piRun).kind, "success");
-
-	const claudeRun = runClaude([{
-		type: "result",
-		subtype: "success",
-		is_error: false,
-		stop_reason: "end_turn",
-		result: "non-authoritative display text",
-		structured_output: fail,
-	}], result({ agent: "audit" })).result;
-	finalizeRunResult(claudeRun);
-	assert.equal(claudeRun.output, "");
-	assert.equal(claudeRun.audit, fail);
-	assert.equal(classifyResult(claudeRun).kind, "success");
-
-	const malformedStructured = runClaude([{
-		type: "result",
-		subtype: "success",
-		is_error: false,
-		result: JSON.stringify(pass),
-		structured_output: { verdict: "pass" },
-	}], result({ agent: "audit" })).result;
-	finalizeRunResult(malformedStructured);
-	assert.equal(malformedStructured.output, "");
-	assert.equal(malformedStructured.audit, undefined);
-	assert.equal(classifyResult(malformedStructured).kind, "invalid-response");
-
-	const missingStructured = runClaude([{
-		type: "result",
-		subtype: "success",
-		is_error: false,
-		result: JSON.stringify(pass),
-	}], result({ agent: "audit" })).result;
-	finalizeRunResult(missingStructured);
-	assert.equal(missingStructured.output, "");
-	assert.equal(missingStructured.audit, undefined);
-	assert.equal(classifyResult(missingStructured).kind, "invalid-response");
-
-	const accepted = result({ agent: "audit", output: JSON.stringify(pass), audit: pass, stopReason: "stop" });
-	assert.equal(classifyResult(accepted).kind, "success");
-	assert.equal(classifyResult(result({ agent: "audit", output: JSON.stringify(pass), stopReason: "stop" })).kind, "invalid-response");
-	assert.equal(classifyResult(result({ agent: "audit", output: JSON.stringify(pass), audit: pass, stopReason: "length" })).kind, "length");
-	assert.equal(classifyResult(result({ agent: "audit", output: JSON.stringify(pass), audit: pass, termination: "cancelled" })).kind, "cancelled");
+		const claudeRun = runClaude([{
+			type: "result",
+			subtype: "success",
+			is_error: false,
+			stop_reason: "end_turn",
+			result: markdown,
+		}], result({ agent: name })).result;
+		assert.equal(claudeRun.output, markdown);
+		assert.equal(classifyResult(claudeRun).kind, "success");
+	}
 });
 
 test("an omitted delegate model launches pi and inherits the session model and thinking", () => {

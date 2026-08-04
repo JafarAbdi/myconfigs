@@ -32,18 +32,15 @@ import {
 	formatSize,
 	getAgentDir,
 	getMarkdownTheme,
-	loadProjectContextFiles,
 	parseFrontmatter,
 	type Theme,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Markdown, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { loadAuditProjectContext, withProjectContext } from "./audit-context.ts";
 import {
 	type Agent,
 	agentFromFrontmatter,
-	type AuditResult,
 	childEnvironment,
 	childSessionDir,
 	claudeTools,
@@ -53,7 +50,6 @@ import {
 	type Inherited,
 	isRecord,
 	isRunResult,
-	finalizeRunResult,
 	modelLabel,
 	preview,
 	type RunResult,
@@ -127,19 +123,6 @@ function loadAgents(): { agents: Agent[]; broken: string[] } {
 	};
 }
 
-function agentWithContext(
-	agent: Agent,
-	cwd: string,
-	auditBaseRef?: string,
-): Agent {
-	return agent.name === "audit"
-		? withProjectContext(
-				agent,
-				loadAuditProjectContext(cwd, AGENT_DIR, loadProjectContextFiles, auditBaseRef),
-			)
-		: agent;
-}
-
 async function terminateChild(child: ReturnType<typeof spawn>): Promise<void> {
 	if (child.exitCode !== null || child.signalCode !== null) return;
 	const closed = once(child, "close");
@@ -196,7 +179,6 @@ function runAgent(
 			if (protocolError) return;
 			protocolError = `invalid child protocol: ${message}`;
 			result.output = "";
-			result.audit = undefined;
 			result.stopReason = "error";
 			result.errorMessage = protocolError;
 			void terminateChild(child);
@@ -266,46 +248,12 @@ function runAgent(
 			// than reading as the last thing that succeeded.
 			result.activity = undefined;
 			result.durationMs = Date.now() - startedAtMs;
-			finalizeRunResult(result);
 			if (!result.output.trim() && !result.errorMessage && protocol.stderr().trim()) {
 				result.errorMessage = protocol.stderr().trim().split("\n").slice(-5).join("\n");
 			}
 			resolve(result);
 		});
 	});
-}
-
-export interface ConfiguredAgentRunOptions {
-	agent: string;
-	task: string;
-	cwd: string;
-	inherited: Inherited;
-	model?: string;
-	auditBaseRef?: string;
-	signal?: AbortSignal;
-	onProgress?: (partial: RunResult) => void;
-}
-
-/** Run a configured role without routing through an LLM tool call. */
-export function runConfiguredAgent(
-	options: ConfiguredAgentRunOptions,
-): Promise<RunResult> {
-	const configured = loadAgents().agents.find(
-		(agent) => agent.name === options.agent,
-	);
-	if (!configured)
-		throw new Error(`unknown configured agent ${options.agent}`);
-	const agent = agentWithContext(configured, options.cwd, options.auditBaseRef);
-	if (selectRuntime(options.model).name === "claude") claudeTools(agent);
-	return runAgent(
-		agent,
-		options.task,
-		options.cwd,
-		options.inherited,
-		options.model,
-		options.signal,
-		options.onProgress,
-	);
 }
 
 function formatTokens(count: number): string {
@@ -319,19 +267,6 @@ function formatDuration(durationMs: number): string {
 	if (durationMs < 1000) return `${durationMs}ms`;
 	if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(1)}s`;
 	return `${Math.floor(durationMs / 60_000)}m${Math.round((durationMs % 60_000) / 1000)}s`;
-}
-
-function auditReport(submission: AuditResult): string {
-	if (submission.verdict === "pass") return "Audit: PASS";
-	return [
-		"Audit: FAIL",
-		...submission.findings.map((finding, index) => {
-			const basis = finding.basis.source === "phase" || finding.basis.source === "overall"
-				? `${finding.basis.source} criterion ${finding.basis.criterion}`
-				: `${finding.basis.path}: ${finding.basis.rule}`;
-			return `F${index + 1} [${basis}] ${finding.path}\nEvidence: ${finding.evidence}\nFailure: ${finding.failure}`;
-		}),
-	].join("\n\n");
 }
 
 function formatStats(result: RunResult): string {
@@ -429,7 +364,7 @@ function renderDelegateResult(
 	if (!isPartial && outcome.message) {
 		container.addChild(new Text(theme.fg("error", outcome.message), 0, 0));
 	}
-	const visibleReport = details.audit ? auditReport(details.audit) : details.output.trim();
+	const visibleReport = details.output.trim();
 	if (visibleReport) {
 		// "The run finished and this is its report" and "this is the last thing it said" are
 		// different claims, and the label is the only thing that distinguishes them.
@@ -489,7 +424,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 			label: "Delegate",
 			description:
 				`Run one isolated, bounded task as a configured agent. Start a fresh run with agent, or ` +
-				`resume an exact prior implementer run with runId. The child does not see the parent ` +
+				`resume an exact prior continuable run with runId. The child does not see the parent ` +
 				`conversation, so provide a complete brief and exact file paths. Omit model to inherit the current Pi model` +
 				(includeNativeClaude ? `; enabled Pi and native local Claude models are available. ` : `; enabled Pi models are available. `) +
 				`Agents: ${roster}`,
@@ -502,7 +437,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					description: `Fresh run role; one of: ${catalog.map((agent) => agent.name).join(", ")}`,
 				})),
 				runId: Type.Optional(Type.String({
-					description: "Exact prior implementer run to continue; cannot be combined with agent or model.",
+					description: "Exact prior continuable run; cannot be combined with agent or model.",
 					minLength: 1,
 				})),
 				task: Type.String({
@@ -546,9 +481,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					const prior = continuable.get(params.runId);
 					if (!prior) throw new Error(`unknown or non-continuable run ${params.runId}`);
 					const found = agents.find((candidate) => candidate.name === prior.agent);
-					if (!found || found.name !== "implementer") {
-						throw new Error(`run ${params.runId} cannot be continued`);
-					}
+					if (!found?.continuable) throw new Error(`run ${params.runId} cannot be continued`);
 					agent = found;
 					model = prior.model;
 					runId = params.runId;
@@ -567,7 +500,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					if (!found) {
 						throw new Error(`unknown agent ${params.agent}; available: ${agents.map((a) => a.name).join(", ") || "none"}`);
 					}
-					agent = agentWithContext(found, ctx.cwd);
+					agent = found;
 					model = params.model;
 					const runtime = selectRuntime(model);
 					if (runtime.name === "claude") claudeTools(agent);
@@ -576,7 +509,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 						ctx.sessionManager.getSessionId(),
 						AGENT_DIR,
 					);
-					runId = runtime.name === "pi" ? randomUUID() : undefined;
+					runId = runtime.name === "pi" && agent.continuable ? randomUUID() : undefined;
 					inherited = {
 						appendSystemPrompt: inheritedAppendSystemPrompt,
 						model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
@@ -592,7 +525,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 						details: partial,
 					});
 				});
-				if (runId && agent.name === "implementer") {
+				if (runId && agent.continuable) {
 					continuable.set(runId, {
 						agent: agent.name,
 						model: modelLabel(result),
@@ -602,7 +535,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				}
 				const outcome = classifyResult(result);
 				if (outcome.kind !== "success") {
-					const continuation = runId && agent.name === "implementer"
+					const continuation = runId && agent.continuable
 						? `${continuationBreadcrumb(runId)}\n\n`
 						: "";
 					const failure = truncateHead(
@@ -618,10 +551,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				// Tools must bound what they put in the parent's context, and several of these run at
 				// once. `details` keeps the whole report for the expanded view.
 				const reportSource = [
-					runId && agent.name === "implementer"
+					runId && agent.continuable
 						? continuationBreadcrumb(runId)
 						: "",
-					result.audit ? auditReport(result.audit) : result.output,
+					result.output,
 				].filter(Boolean).join("\n\n");
 				const report = truncateHead(
 					reportSource,
