@@ -7,7 +7,7 @@ Provide one small Review extension that audits one exact, explicitly scoped Git 
 ## Requirements
 
 - R1: `/review [staged|worktree|untracked] [--requirement FILE.md] [-- PATH...]` captures exactly one source: `HEAD → index` for staged (the default), `index → tracked working tree` for worktree, or `/dev/null → untracked files` for untracked. Repeated literal repository-relative files and directories after `--` select a subset; no paths select the whole source. The command keeps `/review [optional-requirements-or-plan.md]` compatibility, provides source-aware argument completion, rejects an empty or oversized candidate, and never mutates Git.
-- R2: Every invocation runs six fresh focused reviewers concurrently through the shared subagent runner and canonical `audit` agent: intent, correctness, tests, coherence, context, and simplicity. The static roster declares category, model, and high thinking/effort; provider-qualified models use Pi and recognized bare `claude-*` models use native local Claude. The TUI shows every reviewer's model and latest activity; Ctrl+O adds turn details without dumping call history.
+- R2: Every invocation runs four fresh focused reviewers concurrently through the shared subagent runner and canonical `audit` agent: contract, correctness, tests, and simplicity. The contract reviewer covers intent, governing context, and implementation coherence. The static roster declares category, model, and high thinking/effort; provider-qualified models use Pi and recognized bare `claude-*` models use native local Claude. The TUI shows every reviewer's model and latest activity; Ctrl+O adds turn details without dumping call history.
 - R3: One ephemeral browser review identifies the candidate source and selected scope and shows its immutable patch, advisory audit findings, editable human changed-line comments, and at most one editable candidate-wide human general comment; it provides previous/next hunk and audit-finding navigation, then accepts exactly one explicit Approve or Send Feedback decision.
 - R4: The invoking TUI never opens a browser automatically; it waits with an `Open review ↗` link until a decision, cancellation, reload, or shutdown.
 - R5: Send Feedback submits deterministic Markdown as an actual user message and starts an ordinary Pi turn. Approve only ends the review.
@@ -26,7 +26,7 @@ Provide one small Review extension that audits one exact, explicitly scoped Git 
 - C1: Bind only to `127.0.0.1` on an ephemeral port and protect every route with an unguessable capability path, strict origin/host checks, request bounds, and a restrictive CSP.
 - C2: Render with pinned `@pierre/diffs@1.3.1`; keep diff text selectable and expose explicit `+` controls only on changed lines.
 - C3: Findings and line comments target exact changed additions or deletions. Human ranges are contiguous changed lines in one file and side; the single candidate-wide human general comment has no line target.
-- C4: Keep audit and browser state bounded. Refuse rather than truncate a candidate or silently degrade any reviewer failure; no browser server starts unless all six reviewers succeed.
+- C4: Keep audit and browser state bounded. Refuse rather than truncate a candidate or silently degrade any reviewer failure; no browser server starts unless all four reviewers succeed.
 - C5: Existing `~/.pi/agent/juruc/` data and managed worktrees are out of scope and must remain untouched.
 
 ## Assumptions

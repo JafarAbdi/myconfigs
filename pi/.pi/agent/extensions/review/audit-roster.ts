@@ -1,9 +1,7 @@
 export const AUDIT_CATEGORIES = [
-	"intent",
+	"contract",
 	"correctness",
 	"test-integrity",
-	"coherence",
-	"context",
 	"simplicity",
 ] as const;
 
@@ -20,12 +18,12 @@ export interface AuditReviewer {
 
 export const AUDIT_ROSTER = [
 	{
-		name: "intent",
-		category: "intent",
-		model: "openai-codex/gpt-5.6-sol",
+		name: "contract",
+		category: "contract",
+		model: "openai-codex/gpt-5.6-terra",
 		thinking: "high",
 		effort: undefined,
-		lens: "Check the candidate patch against the supplied requirement's required behavior, exclusions, and candidate boundary. When no requirement is supplied, do not invent product intent; report only an unmistakable contradiction with intent established by the changed code and governing context.",
+		lens: "Check the candidate patch against the supplied requirement, governing repository instructions, established local invariants, exclusions, and candidate boundary. Detect contradictory or uneven implementations, duplicate or split-brain designs, temporary shortcuts, and unjustified concentration of responsibility only when they have a material consequence. When no requirement is supplied, do not invent product intent, and distinguish an actual violated convention from a personal preference.",
 	},
 	{
 		name: "correctness",
@@ -42,22 +40,6 @@ export const AUDIT_ROSTER = [
 		thinking: undefined,
 		effort: "high",
 		lens: "Statically review test honesty and integrity; never execute tests. Look for deleted or skipped tests, weakened assertions, fixtures or mocks that bypass real behavior, discovery or configuration changes that hide tests, behavioral inequivalence, and material claims lacking the proof required by the change. Do not demand blanket coverage or tests for changes that do not materially need them.",
-	},
-	{
-		name: "coherence",
-		category: "coherence",
-		model: "openai-codex/gpt-5.6-terra",
-		thinking: "high",
-		effort: undefined,
-		lens: "Detect split-brain or duplicate designs, uneven implementation of one invariant, temporary shortcuts left in the final path, and unjustified concentration of responsibilities introduced by the patch. Report only concrete inconsistencies with a material maintenance or behavioral consequence.",
-	},
-	{
-		name: "context",
-		category: "context",
-		model: "openai-codex/gpt-5.6-luna",
-		thinking: "high",
-		effort: undefined,
-		lens: "Apply the exact governing repository instructions and established local invariants to the candidate patch. Read nearby context only when needed to establish those facts, and distinguish an actual violated convention from a personal preference.",
 	},
 	{
 		name: "simplicity",

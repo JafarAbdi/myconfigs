@@ -132,20 +132,22 @@ test("canonical audit policy uses only captured immutable context", () => {
 	assert.doesNotMatch(policy, /git show :|git diff --cached/u);
 });
 
-test("defines the static six-reviewer roster with current lenses and models", () => {
+test("defines the static four-reviewer roster with current lenses and models", () => {
 	assert.deepEqual(AUDIT_CATEGORIES, [
-		"intent", "correctness", "test-integrity", "coherence", "context", "simplicity",
+		"contract", "correctness", "test-integrity", "simplicity",
 	]);
 	assert.deepEqual(AUDIT_ROSTER.map(({ name, category, model, thinking, effort }) => ({
 		name, category, model, thinking, effort,
 	})), [
-		{ name: "intent", category: "intent", model: "openai-codex/gpt-5.6-sol", thinking: "high", effort: undefined },
+		{ name: "contract", category: "contract", model: "openai-codex/gpt-5.6-terra", thinking: "high", effort: undefined },
 		{ name: "correctness", category: "correctness", model: "openai-codex/gpt-5.6-sol", thinking: "high", effort: undefined },
 		{ name: "tests", category: "test-integrity", model: "claude-sonnet-5", thinking: undefined, effort: "high" },
-		{ name: "coherence", category: "coherence", model: "openai-codex/gpt-5.6-terra", thinking: "high", effort: undefined },
-		{ name: "context", category: "context", model: "openai-codex/gpt-5.6-luna", thinking: "high", effort: undefined },
 		{ name: "simplicity", category: "simplicity", model: "claude-sonnet-5", thinking: undefined, effort: "high" },
 	]);
+	const contract = AUDIT_ROSTER.find(({ name }) => name === "contract")!.lens;
+	assert.match(contract, /governing repository instructions/u);
+	assert.match(contract, /duplicate or split-brain designs/u);
+	assert.match(contract, /do not invent product intent/u);
 	assert.match(AUDIT_ROSTER.find(({ name }) => name === "tests")!.lens, /never execute tests/u);
 	assert.equal(AUDIT_ROSTER.every(({ lens }) => lens.length > 20), true);
 });
@@ -192,7 +194,7 @@ test("worktree reviewer tasks use captured index blobs and selected scope", () =
 	assert.doesNotMatch(prompt, /git show :|git diff --cached|working-tree refs for this audit[\s\S]*git diff/u);
 });
 
-test("runs all six reviewers concurrently through the shared runner with live progress and standard sessions", async () => {
+test("runs all four reviewers concurrently through the shared runner with live progress and standard sessions", async () => {
 	const started: string[] = [];
 	const options: RunAgentOptions[] = [];
 	const progress: Array<{
@@ -225,18 +227,16 @@ test("runs all six reviewers concurrently through the shared runner with live pr
 	assert.equal(options.every(({ agent }) => agent === AUDIT_AGENT), true);
 	assert.equal(options.every(({ cwd }) => cwd === "/repository"), true);
 	assert.deepEqual(options.map(({ resultTask }) => resultTask), [
-		"intent review of the exact candidate patch",
+		"contract review of the exact candidate patch",
 		"correctness review of the exact candidate patch",
 		"tests review of the exact candidate patch",
-		"coherence review of the exact candidate patch",
-		"context review of the exact candidate patch",
 		"simplicity review of the exact candidate patch",
 	]);
 	assert.equal(options.every(({ inherited }) =>
 		inherited.sessionDir === "/sessions/project/subagents/parent-id"), true);
 	assert.deepEqual(options.map(({ inherited }) => inherited.sessionId), [
 		"reviewer-session-1", "reviewer-session-2", "reviewer-session-3",
-		"reviewer-session-4", "reviewer-session-5", "reviewer-session-6",
+		"reviewer-session-4",
 	]);
 	for (const run of options) {
 		if (run.model === "claude-sonnet-5") {
@@ -272,9 +272,9 @@ test("runs all six reviewers concurrently through the shared runner with live pr
 	assert.deepEqual(result, {
 		findings: [{ category: "correctness", ...finding() }],
 	});
-	assert.equal(progress.filter(({ phase }) => phase === "started").length, 6);
-	assert.equal(progress.filter(({ phase }) => phase === "working").length, 6);
-	assert.equal(progress.filter(({ phase }) => phase === "complete").length, 6);
+	assert.equal(progress.filter(({ phase }) => phase === "started").length, 4);
+	assert.equal(progress.filter(({ phase }) => phase === "working").length, 4);
+	assert.equal(progress.filter(({ phase }) => phase === "complete").length, 4);
 	assert.equal(progress.every(({ phase, activity }) => phase !== "working" || activity === "read(src/a.ts)"), true);
 	assert.deepEqual(
 		progress.find(({ reviewer, phase }) => reviewer === "correctness" && phase === "complete"),
@@ -292,12 +292,12 @@ test("runs all six reviewers concurrently through the shared runner with live pr
 test("rejects malformed JSON and strict-shape violations", async (t) => {
 	await t.test("malformed JSON", async () => {
 		await assert.rejects(runAudit(input(), dependencies(async () => completed("not JSON"))),
-			/intent reviewer failed: audit response is not valid JSON/u);
+			/contract reviewer failed: audit response is not valid JSON/u);
 	});
 	await t.test("extra fields", async () => {
 		await assert.rejects(runAudit(input(), dependencies(async () =>
 			completed(JSON.stringify({ findings: [{ ...finding(), category: "correctness" }] })))),
-			/intent reviewer failed: audit finding has invalid fields/u);
+			/contract reviewer failed: audit finding has invalid fields/u);
 	});
 });
 
@@ -325,12 +325,12 @@ test("one reviewer failure aborts siblings and awaits their settlement", async (
 		started += 1;
 		if (started === AUDIT_ROSTER.length) release();
 		await allStarted;
-		if (run.task.includes("Check the candidate patch")) return failed("intent failed");
+		if (run.task.includes("Check the candidate patch")) return failed("contract failed");
 		return new Promise((resolve) => run.signal?.addEventListener("abort", () => {
 			aborted += 1;
 			resolve(cancelled());
 		}, { once: true }));
-	})), /intent reviewer failed: audit model error \(test-model\): intent failed/u);
+	})), /contract reviewer failed: audit model error \(test-model\): contract failed/u);
 	assert.equal(started, AUDIT_ROSTER.length);
 	assert.equal(aborted, AUDIT_ROSTER.length - 1);
 });

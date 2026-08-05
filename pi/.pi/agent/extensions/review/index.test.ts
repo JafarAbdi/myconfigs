@@ -383,22 +383,22 @@ test("runs one aggregate audit with the parsed source, subset, parent, and requi
 			assert.equal(input.requirement, requirement);
 			assert.equal(input.signal?.aborted, false);
 			input.onProgress?.({
-				reviewer: "intent",
-				model: "openai-codex/gpt-5.6-sol",
+				reviewer: "contract",
+				model: "openai-codex/gpt-5.6-terra",
 				phase: "started",
 				turns: 0,
 			});
 			input.onProgress?.({
-				reviewer: "intent",
-				model: "openai-codex/gpt-5.6-sol",
+				reviewer: "contract",
+				model: "openai-codex/gpt-5.6-terra",
 				phase: "working",
 				turns: 1,
 				activity: "read(src/a.ts)",
 				latestStep: { tool: "read", detail: "src/a.ts" },
 			});
 			input.onProgress?.({
-				reviewer: "intent",
-				model: "openai-codex/gpt-5.6-sol",
+				reviewer: "contract",
+				model: "openai-codex/gpt-5.6-terra",
 				phase: "complete",
 				turns: 2,
 				findings: 0,
@@ -427,11 +427,11 @@ test("runs one aggregate audit with the parsed source, subset, parent, and requi
 		{ source: "worktree", paths: ["src/greeting.ts"] },
 		{ source: "worktree", paths: ["src/greeting.ts"] },
 	]);
-	assert.deepEqual(harness.notifications, [{ message: "Review started: 6 agents.", type: "info" }]);
+	assert.deepEqual(harness.notifications, [{ message: "Review started: 4 agents.", type: "info" }]);
 	assert.deepEqual(harness.widgets, [
-		{ key: "review-progress", content: ["Review agents · 0/6 complete · Ctrl+O details", "• intent · gpt-5.6-sol: starting"] },
-		{ key: "review-progress", content: ["Review agents · 0/6 complete · Ctrl+O details", "• intent · gpt-5.6-sol: read(src/a.ts)"] },
-		{ key: "review-progress", content: ["Review agents · 1/6 complete · Ctrl+O details", "✓ intent · gpt-5.6-sol: no findings"] },
+		{ key: "review-progress", content: ["Review agents · 0/4 complete · Ctrl+O details", "• contract · gpt-5.6-terra: starting"] },
+		{ key: "review-progress", content: ["Review agents · 0/4 complete · Ctrl+O details", "• contract · gpt-5.6-terra: read(src/a.ts)"] },
+		{ key: "review-progress", content: ["Review agents · 1/4 complete · Ctrl+O details", "✓ contract · gpt-5.6-terra: no findings"] },
 		{ key: "review-progress", content: undefined },
 	]);
 	for (const color of ["accent", "muted", "dim", "toolTitle", "thinkingText", "success"])
@@ -450,7 +450,7 @@ test("runs one aggregate audit with the parsed source, subset, parent, and requi
 	assert.deepEqual(harness.editor, []);
 	assert.equal(
 		harness.notifications.at(-1)?.message,
-		"Review approved: 6 agents, no findings. Candidate: worktree.",
+		"Review approved: 4 agents, no findings. Candidate: worktree.",
 	);
 });
 
@@ -461,8 +461,8 @@ test("Ctrl+O adds compact turn and latest-call details without consuming the bui
 	const controller = createReviewController(dependencies({
 		async runAudit(input) {
 			input.onProgress?.({
-				reviewer: "intent",
-				model: "openai-codex/gpt-5.6-sol",
+				reviewer: "contract",
+				model: "openai-codex/gpt-5.6-terra",
 				phase: "working",
 				turns: 2,
 				activity: "grep(contract)",
@@ -477,14 +477,14 @@ test("Ctrl+O adds compact turn and latest-call details without consuming the bui
 		await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(harness.terminalInputListeners, 1);
 	assert.deepEqual(harness.widgets.at(-1)?.content, [
-		"Review agents · 0/6 complete · Ctrl+O details",
-		"• intent · gpt-5.6-sol: grep(contract)",
+		"Review agents · 0/4 complete · Ctrl+O details",
+		"• contract · gpt-5.6-terra: grep(contract)",
 	]);
 
 	assert.deepEqual(await harness.toggleToolsExpanded(), [undefined]);
 	assert.deepEqual(harness.widgets.at(-1)?.content, [
-		"Review agents · 0/6 complete · Ctrl+O less",
-		"• intent · gpt-5.6-sol · 2t · … grep(contract)",
+		"Review agents · 0/4 complete · Ctrl+O less",
+		"• contract · gpt-5.6-terra · 2t · … grep(contract)",
 	]);
 
 	auditDone.resolve({ findings: [] });
@@ -497,10 +497,10 @@ test("Ctrl+O adds compact turn and latest-call details without consuming the bui
 test("a reviewer failure prevents the browser server", async () => {
 	let servers = 0;
 	const controller = createReviewController(dependencies({
-		async runAudit() { throw new Error("context reviewer failed"); },
+		async runAudit() { throw new Error("contract reviewer failed"); },
 		async createServer() { servers += 1; return serverHarness().server; },
 	}));
-	await assert.rejects(controller.run("", context().ctx), /context reviewer failed/u);
+	await assert.rejects(controller.run("", context().ctx), /contract reviewer failed/u);
 	assert.equal(servers, 0);
 });
 
