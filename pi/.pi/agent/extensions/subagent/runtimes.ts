@@ -13,6 +13,7 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
+import { DELEGATE_CHILD_ENV, SSH_DESCRIPTOR_ENV } from "../ssh/descriptor.ts";
 
 export interface Agent {
 	name: string;
@@ -351,8 +352,8 @@ export function childEnvironment(
 	runtime: Runtime["name"],
 	env: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-	if (runtime !== "pi" || !env.PI_SSH_DESCRIPTOR) return env;
-	return { ...env, PI_DELEGATE_CHILD: "1" };
+	if (runtime !== "pi" || !env[SSH_DESCRIPTOR_ENV]) return env;
+	return { ...env, [DELEGATE_CHILD_ENV]: "1" };
 }
 
 /**
