@@ -2,6 +2,7 @@ import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from "n
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { dirname, isAbsolute, posix, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import {
 	ensureLocalPythonUvCommands,
 	type LocalPythonUvCommands,
@@ -9,18 +10,13 @@ import {
 	pythonUvCommandsCacheKey,
 } from "../lib/python-uv-commands.ts";
 import { shellQuote, toDisplayPath } from "./shell.ts";
-import {
-	ensureLocalSshTools,
-	type LocalSshToolsCache,
-	SSH_TOOL_NAMES,
-	type SshToolName,
-	type SshToolPlatform,
-} from "./tools-cache.ts";
+import { ensureLocalSshTool, SSH_TOOL_NAMES, type SshToolName, type SshToolPlatform } from "./tools-cache.ts";
 
 const SSH_ERROR_COMMAND_MAX_LENGTH = 500;
-const REMOTE_RUN_KILL_GRACE_MS = 200;
+// Grace period between SIGTERM and SIGKILL, for both a local ssh child and a remote process
+// group (each killed through its own path, but on the same "let it exit cleanly" schedule).
+const KILL_GRACE_MS = 200;
 const REMOTE_RUN_SSH_COMMAND_TIMEOUT_MS = 1000;
-const LOCAL_SSH_KILL_GRACE_MS = 200;
 const LOCAL_SSH_COMMAND_TIMEOUT_MS = 120_000;
 const LOCAL_SSH_CONNECT_TIMEOUT_MS = 10_000;
 const SSH_TRANSPORT_ARGS = [
@@ -119,22 +115,24 @@ export class SshConnection {
 
 	async bootstrapTools(onStatus?: (status: string) => void): Promise<void> {
 		onStatus?.("checking tools");
+		// Platform is needed up front (not only once something's missing) so findRemoteTool can
+		// check our own cache path — it's not on the remote's real PATH, so command -v alone
+		// would never see a tool we uploaded on a previous connect and would reinstall it forever.
+		const platform = await this.detectRemotePlatform();
+		this.remoteToolBinDir = this.remoteSearchToolsCacheDir(platform);
+
 		const probed = {} as Record<SshToolName, string | undefined>;
 		for (const tool of SSH_TOOL_NAMES) {
-			probed[tool] = await this.findRemoteTool(tool);
+			probed[tool] = await this.findRemoteTool(tool, platform);
 		}
 		const missingTools = SSH_TOOL_NAMES.filter((tool) => !probed[tool]);
 
 		const resolved = { ...probed } as Record<SshToolName, string>;
 		if (missingTools.length > 0) {
-			const platform = await this.detectRemotePlatform();
-			onStatus?.("caching tools");
-			const cache = await ensureLocalSshTools();
 			onStatus?.(`installing tools for ${platform}`);
-			const installed = await this.installRemoteTools(cache, platform, missingTools);
-			this.remoteToolBinDir = installed.binDir;
+			const installed = await this.installRemoteTools(platform, missingTools);
 			for (const tool of missingTools) {
-				resolved[tool] = installed.paths[tool];
+				resolved[tool] = installed[tool];
 			}
 			for (const tool of missingTools) {
 				await this.verifyRemoteTool(tool, resolved[tool]);
@@ -186,31 +184,25 @@ export class SshConnection {
 			const remoteRun = this.createRemoteRun();
 			const child = this.spawnRemoteRun(remoteRun, command);
 			child.stdin.end();
-			let closed = false;
 			let timedOut = false;
 			let terminating = false;
 			let stderrRemainder = "";
-			const terminateLocalTransport = () => {
-				if (closed) return;
-				child.kill("SIGTERM");
-				setTimeout(() => {
-					if (!closed) child.kill("SIGKILL");
-				}, LOCAL_SSH_KILL_GRACE_MS).unref();
-			};
 			const terminate = () => {
 				if (terminating) return;
 				terminating = true;
 				void this.terminateRemoteRun(remoteRun);
-				setTimeout(terminateLocalTransport, LOCAL_TRANSPORT_FALLBACK_DELAY_MS).unref();
+				setTimeout(() => this.terminateChild(child), LOCAL_TRANSPORT_FALLBACK_DELAY_MS).unref();
 			};
 			const timer = options.timeout
-				? setTimeout(() => {
-						timedOut = true;
-						terminate();
-					}, options.timeout * 1000)
+				? setTimeout(
+						() => {
+							timedOut = true;
+							terminate();
+						},
+						options.timeout * 1000,
+					).unref()
 				: undefined;
-			const onAbort = () => terminate();
-			options.signal?.addEventListener("abort", onAbort, { once: true });
+			options.signal?.addEventListener("abort", terminate, { once: true });
 
 			child.stdout.on("data", options.onData);
 			child.stderr.on("data", (data) => {
@@ -227,13 +219,12 @@ export class SshConnection {
 			});
 			child.on("error", (error) => {
 				if (timer) clearTimeout(timer);
-				options.signal?.removeEventListener("abort", onAbort);
+				options.signal?.removeEventListener("abort", terminate);
 				reject(error);
 			});
 			child.on("close", (code) => {
-				closed = true;
 				if (timer) clearTimeout(timer);
-				options.signal?.removeEventListener("abort", onAbort);
+				options.signal?.removeEventListener("abort", terminate);
 				this.flushRemoteRunStderr(stderrRemainder, remoteRun, options.onData);
 				void this.cleanupRemoteRun(remoteRun);
 				if (options.signal?.aborted) reject(new Error("aborted"));
@@ -278,36 +269,40 @@ export class SshConnection {
 		throw new Error(`Unsupported SSH tool architecture: ${arch || "unknown"}`);
 	}
 
-	private async findRemoteTool(tool: SshToolName): Promise<string | undefined> {
-		const output = (await this.exec(`command -v ${tool} 2>/dev/null || true`)).toString("utf8").trim();
+	private remoteSearchToolsCacheDir(platform: SshToolPlatform): string {
+		return `${this.remoteCacheHome()}/pi/ssh-tools/search-tools/${platform}`;
+	}
+
+	private async findRemoteTool(tool: SshToolName, platform: SshToolPlatform): Promise<string | undefined> {
+		const cachedPath = `${this.remoteSearchToolsCacheDir(platform)}/${tool}`;
+		const command = `test -x ${shellQuote(cachedPath)} && printf '%s\\n' ${shellQuote(cachedPath)} || command -v ${tool} 2>/dev/null || true`;
+		const output = (await this.exec(command)).toString("utf8").trim();
 		const toolPath = output.split("\n")[0]?.trim();
 		return toolPath ? posix.resolve(this.remoteHome, toolPath) : undefined;
 	}
 
 	private async installRemoteTools(
-		cache: LocalSshToolsCache,
 		platform: SshToolPlatform,
 		tools: SshToolName[],
-	): Promise<{ binDir: string; paths: Record<SshToolName, string> }> {
-		const rootDir = `${this.remoteCacheHome()}/pi/ssh-tools/search-tools/${cache.cacheKey}/${platform}`;
-		const binDir = `${rootDir}/bin`;
-		const remoteArchivePath = `${rootDir}/${platform}.tar.gz`;
+	): Promise<Record<SshToolName, string>> {
+		const binDir = this.remoteSearchToolsCacheDir(platform);
 		await this.exec(`mkdir -p ${shellQuote(binDir)}`);
-		await this.uploadFile(cache.platforms[platform].archivePath, remoteArchivePath);
-		const entries = tools.map((tool) => shellQuote(`bin/${tool}`)).join(" ");
-		const chmodPaths = tools.map((tool) => shellQuote(`${binDir}/${tool}`)).join(" ");
-		await this.exec(
-			[
-				`tar xzf ${shellQuote(remoteArchivePath)} -C ${shellQuote(rootDir)} ${entries}`,
-				`chmod 755 ${chmodPaths}`,
-				`rm -f ${shellQuote(remoteArchivePath)}`,
-			].join(" && "),
-		);
 		const paths = {} as Record<SshToolName, string>;
 		for (const tool of tools) {
-			paths[tool] = `${binDir}/${tool}`;
+			const localPath = await ensureLocalSshTool(tool, platform);
+			const remotePath = `${binDir}/${tool}`;
+			// Upload to a fixed tmp path, then rename into place — same-filesystem rename is
+			// atomic, so a dropped connection mid-upload can never leave a partial file sitting
+			// at the path findRemoteTool actually checks. The tmp name is fixed, not unique, so a
+			// failed attempt's leftovers just get overwritten by the next one, nothing to clean up.
+			const remoteTmpPath = `${remotePath}.tmp`;
+			await this.uploadFile(localPath, remoteTmpPath);
+			await this.exec(
+				`chmod 755 ${shellQuote(remoteTmpPath)} && mv -f ${shellQuote(remoteTmpPath)} ${shellQuote(remotePath)}`,
+			);
+			paths[tool] = remotePath;
 		}
-		return { binDir, paths };
+		return paths;
 	}
 
 	private async bootstrapPythonUvCommands(onStatus?: (status: string) => void): Promise<void> {
@@ -407,6 +402,10 @@ export class SshConnection {
 		};
 	}
 
+	// setsid starts the wrapper as a new session/process-group leader, so its own $$ (written to
+	// the PID file and the marker line below) is also that process group's ID. That's what makes
+	// `kill -SIGNAL -- -$pgid` in buildRemoteRunSignalCommand reach the whole remote command tree,
+	// not just this one shell.
 	private buildRemoteRunCommand(run: RemoteRun, command: string): string {
 		const cleanup = `rm -f ${shellQuote(run.pidFile)}`;
 		const wrapper = [
@@ -464,7 +463,7 @@ export class SshConnection {
 
 	private async terminateRemoteRun(run: RemoteRun): Promise<void> {
 		await this.signalRemoteRun(run, "TERM");
-		await new Promise((resolvePromise) => setTimeout(resolvePromise, REMOTE_RUN_KILL_GRACE_MS));
+		await delay(KILL_GRACE_MS);
 		await this.signalRemoteRun(run, "KILL");
 		await this.cleanupRemoteRun(run);
 	}
@@ -489,11 +488,9 @@ export class SshConnection {
 				resolvePromise();
 			};
 			const timer = setTimeout(() => {
-				child.kill("SIGTERM");
-				setTimeout(() => child.kill("SIGKILL"), LOCAL_SSH_KILL_GRACE_MS).unref();
+				this.terminateChild(child);
 				settle();
-			}, REMOTE_RUN_SSH_COMMAND_TIMEOUT_MS);
-			timer.unref();
+			}, REMOTE_RUN_SSH_COMMAND_TIMEOUT_MS).unref();
 			child.on("error", settle);
 			child.on("close", settle);
 		});
@@ -524,20 +521,7 @@ export class SshConnection {
 		child.kill("SIGTERM");
 		setTimeout(() => {
 			if (child.exitCode === null) child.kill("SIGKILL");
-		}, LOCAL_SSH_KILL_GRACE_MS).unref();
-	}
-
-	private createChildTimeout(
-		child: ChildProcess,
-		timeoutMs: number,
-		onTimeout: () => void,
-	): ReturnType<typeof setTimeout> {
-		const timer = setTimeout(() => {
-			onTimeout();
-			this.terminateChild(child);
-		}, timeoutMs);
-		timer.unref();
-		return timer;
+		}, KILL_GRACE_MS).unref();
 	}
 
 	private spawnSshStream(args: string[]): ChildProcessWithoutNullStreams {
@@ -575,9 +559,10 @@ export class SshConnection {
 		return new Promise((resolvePromise, reject) => {
 			const child = this.spawnSshPipe(args);
 			const errChunks: Buffer[] = [];
-			const timer = this.createChildTimeout(child, LOCAL_SSH_CONNECT_TIMEOUT_MS, () => {
+			const timer = setTimeout(() => {
+				this.terminateChild(child);
 				reject(new Error(`SSH connection timed out for ${this.remote}`));
-			});
+			}, LOCAL_SSH_CONNECT_TIMEOUT_MS).unref();
 			child.stderr.on("data", (data) => errChunks.push(data));
 			child.on("error", (error) => {
 				clearTimeout(timer);
@@ -613,9 +598,11 @@ export class SshConnection {
 			const child = options?.input === undefined ? this.spawnSshPipe(args) : this.spawnSshStream(args);
 			const chunks: Buffer[] = [];
 			const errChunks: Buffer[] = [];
-			const timer = this.createChildTimeout(child, LOCAL_SSH_COMMAND_TIMEOUT_MS, () => {
+			const onAbort = () => this.terminateChild(child);
+			const timer = setTimeout(() => {
 				timedOut = true;
-			});
+				this.terminateChild(child);
+			}, LOCAL_SSH_COMMAND_TIMEOUT_MS).unref();
 			const settle = (callback: () => void) => {
 				if (settled) return;
 				settled = true;
@@ -623,7 +610,6 @@ export class SshConnection {
 				options?.signal?.removeEventListener("abort", onAbort);
 				callback();
 			};
-			const onAbort = () => this.terminateChild(child);
 			options?.signal?.addEventListener("abort", onAbort, { once: true });
 
 			child.stdout.on("data", (data) => chunks.push(data));

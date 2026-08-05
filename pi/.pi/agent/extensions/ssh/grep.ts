@@ -163,13 +163,6 @@ export async function executeRemoteGrep(connection: SshConnection, input: GrepTo
 
 	const effectiveLimit = Math.max(1, input.limit ?? DEFAULT_LIMIT);
 	const { output, details } = formatRemoteGrepOutput(result.stdout, effectiveLimit);
-	if (result.killedDueToLimit) {
-		const suffix = `\n\n[${formatSize(DEFAULT_MAX_BYTES)} limit reached]`;
-		return {
-			content: [{ type: "text" as const, text: `${output}${suffix}` }],
-			details: { ...details, truncation: details.truncation },
-		};
-	}
 	return {
 		content: [{ type: "text" as const, text: output }],
 		details: Object.keys(details).length > 0 ? details : undefined,

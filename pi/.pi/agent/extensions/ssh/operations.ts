@@ -128,12 +128,7 @@ export function createRemoteFindOps(connection: SshConnection): FindOperations {
 		},
 		glob: async (pattern, cwd, options) => {
 			const searchPath = connection.toRemotePath(cwd);
-			const optionExcludes = options.ignore.flatMap((ignore) => {
-				if (ignore.includes("node_modules")) return ["node_modules"];
-				if (ignore.includes(".git")) return [".git"];
-				return [];
-			});
-			const excludes = fdExcludeArgs([...new Set([...REMOTE_FD_EXCLUDES, ...optionExcludes])]);
+			const excludes = fdExcludeArgs(REMOTE_FD_EXCLUDES);
 			const args = [
 				"--glob",
 				"--color=never",
@@ -153,18 +148,30 @@ export function createRemoteFindOps(connection: SshConnection): FindOperations {
 	};
 }
 
+// Only PI_* vars are forwarded, never the full local env: the remote shell keeps its own
+// PATH/HOME/credentials, matching every other tool's host/remote independence.
+function remoteExportPrefix(pathDirs: string[], env?: NodeJS.ProcessEnv): string {
+	const exports: string[] = [];
+	if (pathDirs.length > 0) {
+		exports.push(`export PATH=${pathDirs.map(shellQuote).join(":")}:"$PATH"`);
+	}
+	for (const [key, value] of Object.entries(env ?? {})) {
+		if (!key.startsWith("PI_") || value === undefined) continue;
+		exports.push(`export ${key}=${shellQuote(value)}`);
+	}
+	return exports.length > 0 ? `${exports.join("; ")}; ` : "";
+}
+
 export function createRemoteBashOps(connection: SshConnection): BashOperations {
 	return {
-		exec: (command, cwd, { onData, signal, timeout }) => {
+		exec: (command, cwd, { onData, signal, timeout, env }) => {
 			const pathDirs = [
 				connection.remotePythonUvCommandsBinDir,
 				connection.remoteUvBinDir,
 				connection.remoteToolBinDir,
 			].filter((dir): dir is string => dir !== undefined);
-			const pathPrefix = pathDirs.length > 0
-				? `export PATH=${pathDirs.map(shellQuote).join(":")}:"$PATH"; `
-				: "";
-			const cmd = `${pathPrefix}cd ${shellQuote(connection.toRemotePath(cwd))} && ${command}`;
+			const exportPrefix = remoteExportPrefix(pathDirs, env);
+			const cmd = `${exportPrefix}cd ${shellQuote(connection.toRemotePath(cwd))} && ${command}`;
 			return connection.execStreaming(cmd, { onData, signal, timeout });
 		},
 	};

@@ -5,8 +5,6 @@ export const SSH_STATE_CUSTOM_TYPE = "ssh-remote-state";
 export const REMOTE_FD_EXCLUDES = [
 	".cargo",
 	".git",
-	".git/*",
-	".git/**",
 	".idea",
 	".jupyter",
 	".mypy_cache",
@@ -17,6 +15,7 @@ export const REMOTE_FD_EXCLUDES = [
 	"devel",
 	"gems",
 	"logs",
+	"node_modules",
 	"wandb",
 ];
 
@@ -33,5 +32,6 @@ export const REMOTE_RG_EXCLUDES = [
 	"devel",
 	"gems",
 	"logs",
+	"node_modules",
 	"wandb",
 ];

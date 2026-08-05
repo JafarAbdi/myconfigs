@@ -1,31 +1,12 @@
-import { createHash } from "node:crypto";
-import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { runCommand } from "../lib/proc.ts";
-import { isRecord } from "./util.ts";
 
 export const SSH_TOOL_PLATFORMS = ["linux_amd64", "linux_arm64"] as const;
 export type SshToolPlatform = (typeof SSH_TOOL_PLATFORMS)[number];
 export const SSH_TOOL_NAMES = ["fd", "rg", "fzf"] as const;
 export type SshToolName = (typeof SSH_TOOL_NAMES)[number];
-
-export type SshToolVersions = Record<SshToolName, string>;
-
-export type SshToolPaths = Record<SshToolName, string>;
-
-export interface LocalSshToolsPlatformCache {
-	archivePath: string;
-	binDir: string;
-	tools: SshToolPaths;
-}
-
-export interface LocalSshToolsCache {
-	cacheKey: string;
-	rootDir: string;
-	versions: SshToolVersions;
-	platforms: Record<SshToolPlatform, LocalSshToolsPlatformCache>;
-}
 
 interface ToolConfig {
 	repo: string;
@@ -44,31 +25,10 @@ interface GitHubRelease {
 	assets: GitHubReleaseAsset[];
 }
 
-interface ToolManifestEntry {
-	assetName: string;
-	assetUrl: string;
-	sha256: string;
-}
-
-interface PlatformManifestEntry {
-	archivePath: string;
-	archiveSha256: string;
-	tools: Record<SshToolName, ToolManifestEntry>;
-}
-
-interface SshToolsManifest {
-	cacheKey: string;
-	versions: SshToolVersions;
-	platforms: Record<SshToolPlatform, PlatformManifestEntry>;
-}
-
-interface ActiveSshToolsCache {
-	cacheKey: string;
-	versions: SshToolVersions;
-	updatedAt: string;
-}
-
-const DEFAULT_SSH_TOOL_VERSIONS: SshToolVersions = {
+// Pinned so every remote gets the same binary, unlike pi's own local tool download (which always
+// takes GitHub's latest, fine for a single machine with no cross-host consistency need). Bumping
+// a version here only affects the next tool that isn't already cached — see ensureLocalSshTool.
+const DEFAULT_SSH_TOOL_VERSIONS: Record<SshToolName, string> = {
 	fd: "10.4.2",
 	rg: "15.1.0",
 	fzf: "0.73.1",
@@ -110,30 +70,18 @@ const NETWORK_TIMEOUT_MS = 10_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 const DIRECTORY_SCAN_LIMIT = 10_000;
 
-const releaseAssets = new Map<string, Promise<GitHubReleaseAsset[]>>();
-
-function sshToolsCacheRoot(): string {
-	return join(homedir(), ".cache", "pi", "ssh-tools", "search-tools");
+function sshToolsCacheDir(platform: SshToolPlatform): string {
+	return join(homedir(), ".cache", "pi", "ssh-tools", "search-tools", platform);
 }
 
-function cacheKey(versions: SshToolVersions): string {
-	return SSH_TOOL_NAMES.map((tool) => `${tool}-${versions[tool]}`).join("-");
+function localToolPath(tool: SshToolName, platform: SshToolPlatform): string {
+	return join(sshToolsCacheDir(platform), tool);
 }
 
 function isOfflineModeEnabled(): boolean {
 	const value = process.env.PI_OFFLINE;
 	if (!value) return false;
 	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
-}
-
-function parseVersions(value: unknown): SshToolVersions | undefined {
-	if (!isRecord(value)) return undefined;
-	const versions = {} as SshToolVersions;
-	for (const tool of SSH_TOOL_NAMES) {
-		const version = value[tool];
-		versions[tool] = typeof version === "string" ? version : DEFAULT_SSH_TOOL_VERSIONS[tool];
-	}
-	return versions;
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -147,35 +95,22 @@ async function pathExists(path: string): Promise<boolean> {
 	}
 }
 
-async function assertPathExists(path: string): Promise<void> {
-	if (await pathExists(path)) return;
-	throw new Error(`Missing SSH tools cache entry: ${path}`);
+function githubAuthHeaders(): Record<string, string> {
+	const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+	return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function fetchJson<T>(url: string, timeoutMs: number): Promise<T> {
 	const response = await fetch(url, {
-		headers: { "User-Agent": "pi-ssh-tools" },
+		headers: { "User-Agent": "pi-ssh-tools", ...githubAuthHeaders() },
 		signal: AbortSignal.timeout(timeoutMs),
 	});
 	if (!response.ok) {
-		throw new Error(`GitHub request failed (${response.status}): ${url}`);
+		const rateLimited = response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0";
+		const hint = rateLimited ? " (GitHub API rate limit hit; set GITHUB_TOKEN to raise it)" : "";
+		throw new Error(`GitHub request failed (${response.status}): ${url}${hint}`);
 	}
 	return (await response.json()) as T;
-}
-
-async function getReleaseAssets(tool: SshToolName, version: string): Promise<GitHubReleaseAsset[]> {
-	const config = TOOL_CONFIGS[tool];
-	const tag = `${config.tagPrefix}${version}`;
-	const key = `${config.repo}:${tag}`;
-	const cached = releaseAssets.get(key);
-	if (cached) return cached;
-
-	const promise = fetchJson<GitHubRelease>(
-		`https://api.github.com/repos/${config.repo}/releases/tags/${tag}`,
-		NETWORK_TIMEOUT_MS,
-	).then((release) => release.assets);
-	releaseAssets.set(key, promise);
-	return promise;
 }
 
 async function selectReleaseAsset(
@@ -183,9 +118,14 @@ async function selectReleaseAsset(
 	version: string,
 	platform: SshToolPlatform,
 ): Promise<GitHubReleaseAsset> {
-	const assets = await getReleaseAssets(tool, version);
-	const byName = new Map(assets.map((asset) => [asset.name, asset]));
-	for (const assetName of TOOL_CONFIGS[tool].assetNames(version, platform)) {
+	const config = TOOL_CONFIGS[tool];
+	const tag = `${config.tagPrefix}${version}`;
+	const release = await fetchJson<GitHubRelease>(
+		`https://api.github.com/repos/${config.repo}/releases/tags/${tag}`,
+		NETWORK_TIMEOUT_MS,
+	);
+	const byName = new Map(release.assets.map((asset) => [asset.name, asset]));
+	for (const assetName of config.assetNames(version, platform)) {
 		const asset = byName.get(assetName);
 		if (asset) return asset;
 	}
@@ -220,153 +160,37 @@ async function findBinary(rootDir: string, binaryName: string): Promise<string> 
 	throw new Error(`Binary not found in archive: ${binaryName}`);
 }
 
-async function sha256File(filePath: string): Promise<string> {
-	return createHash("sha256")
-		.update(await readFile(filePath))
-		.digest("hex");
-}
+// Download straight to a uniquely-named tmp dir and rename just the one binary out of it — same
+// shape as pi's own utils/tools-manager.ts. The final rename is a single-file, same-filesystem
+// move (atomic), and the tmp dir is always removed in `finally`, so nothing extraction-related
+// (docs, licenses, the raw archive) can ever leak into the cache directory.
+async function installLocalTool(tool: SshToolName, platform: SshToolPlatform): Promise<string> {
+	const version = DEFAULT_SSH_TOOL_VERSIONS[tool];
+	const asset = await selectReleaseAsset(tool, version, platform);
+	const cacheDir = sshToolsCacheDir(platform);
+	await mkdir(cacheDir, { recursive: true });
+	const targetBinary = localToolPath(tool, platform);
 
-function toolPathsForBinDir(binDir: string): SshToolPaths {
-	const tools = {} as SshToolPaths;
-	for (const tool of SSH_TOOL_NAMES) {
-		tools[tool] = join(binDir, tool);
-	}
-	return tools;
-}
-
-function cacheDescriptor(versions: SshToolVersions): LocalSshToolsCache {
-	const key = cacheKey(versions);
-	const rootDir = join(sshToolsCacheRoot(), key);
-	const platforms = {} as Record<SshToolPlatform, LocalSshToolsPlatformCache>;
-	for (const platform of SSH_TOOL_PLATFORMS) {
-		const platformDir = join(rootDir, platform);
-		const binDir = join(platformDir, "bin");
-		platforms[platform] = {
-			archivePath: join(rootDir, `${platform}.tar.gz`),
-			binDir,
-			tools: toolPathsForBinDir(binDir),
-		};
-	}
-	return { cacheKey: key, rootDir, versions, platforms };
-}
-
-async function readActiveVersions(): Promise<SshToolVersions | undefined> {
-	const activePath = join(sshToolsCacheRoot(), "active.json");
-	if (!(await pathExists(activePath))) return undefined;
-	const parsed = JSON.parse(await readFile(activePath, "utf8")) as unknown;
-	if (!isRecord(parsed)) return undefined;
-	return parseVersions(parsed.versions);
-}
-
-async function validateCache(cache: LocalSshToolsCache): Promise<boolean> {
-	try {
-		await assertPathExists(join(cache.rootDir, "manifest.json"));
-		for (const platform of SSH_TOOL_PLATFORMS) {
-			const platformCache = cache.platforms[platform];
-			await assertPathExists(platformCache.archivePath);
-			for (const tool of SSH_TOOL_NAMES) {
-				await assertPathExists(platformCache.tools[tool]);
-			}
-		}
-		return true;
-	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT") return false;
-		if (error instanceof Error && error.message.startsWith("Missing SSH tools cache entry:")) return false;
-		throw error;
-	}
-}
-
-async function installToolBinary(options: {
-	cache: LocalSshToolsCache;
-	platform: SshToolPlatform;
-	tool: SshToolName;
-	tmpDir: string;
-}): Promise<ToolManifestEntry> {
-	const version = options.cache.versions[options.tool];
-	const asset = await selectReleaseAsset(options.tool, version, options.platform);
-	const archivePath = join(options.tmpDir, asset.name);
-	const extractDir = join(options.tmpDir, `${options.tool}-extract`);
-	await mkdir(extractDir, { recursive: true });
-	await downloadFile(asset.browser_download_url, archivePath);
-	await runCommand("tar", ["xzf", archivePath, "-C", extractDir]);
-
-	const binaryName = TOOL_CONFIGS[options.tool].binaryName;
-	const extractedBinary = await findBinary(extractDir, binaryName);
-	const targetBinary = options.cache.platforms[options.platform].tools[options.tool];
-	await mkdir(join(options.cache.platforms[options.platform].binDir), { recursive: true });
-	await copyFile(extractedBinary, targetBinary);
-	await chmod(targetBinary, 0o755);
-
-	return {
-		assetName: asset.name,
-		assetUrl: asset.browser_download_url,
-		sha256: await sha256File(targetBinary),
-	};
-}
-
-async function buildLocalSshToolsCache(versions: SshToolVersions): Promise<LocalSshToolsCache> {
-	const cache = cacheDescriptor(versions);
-	const parentDir = sshToolsCacheRoot();
-	const tmpDir = join(parentDir, `.tmp-${cache.cacheKey}-${process.pid}-${Date.now()}`);
-	const tmpCache = cacheDescriptor(versions);
-	tmpCache.rootDir = tmpDir;
-	for (const platform of SSH_TOOL_PLATFORMS) {
-		const platformDir = join(tmpDir, platform);
-		const binDir = join(platformDir, "bin");
-		tmpCache.platforms[platform] = {
-			archivePath: join(tmpDir, `${platform}.tar.gz`),
-			binDir,
-			tools: toolPathsForBinDir(binDir),
-		};
-	}
-
-	await mkdir(parentDir, { recursive: true });
-	await rm(tmpDir, { recursive: true, force: true });
+	const tmpDir = join(cacheDir, `.tmp-${tool}-${process.pid}-${Date.now()}`);
 	await mkdir(tmpDir, { recursive: true });
 	try {
-		const platforms = {} as Record<SshToolPlatform, PlatformManifestEntry>;
-		for (const platform of SSH_TOOL_PLATFORMS) {
-			const toolTmpDir = join(tmpDir, `${platform}-downloads`);
-			await mkdir(toolTmpDir, { recursive: true });
-			const tools = {} as Record<SshToolName, ToolManifestEntry>;
-			for (const tool of SSH_TOOL_NAMES) {
-				tools[tool] = await installToolBinary({ cache: tmpCache, platform, tool, tmpDir: toolTmpDir });
-			}
-			await runCommand("tar", [
-				"czf",
-				tmpCache.platforms[platform].archivePath,
-				"-C",
-				join(tmpDir, platform),
-				"bin",
-			]);
-			platforms[platform] = {
-				archivePath: `${platform}.tar.gz`,
-				archiveSha256: await sha256File(tmpCache.platforms[platform].archivePath),
-				tools,
-			};
-		}
-
-		const manifest: SshToolsManifest = { cacheKey: cache.cacheKey, versions, platforms };
-		await writeFile(join(tmpDir, "manifest.json"), `${JSON.stringify(manifest, null, "\t")}\n`);
-		await rm(cache.rootDir, { recursive: true, force: true });
-		await rename(tmpDir, cache.rootDir);
-	} catch (error) {
+		const archivePath = join(tmpDir, asset.name);
+		await downloadFile(asset.browser_download_url, archivePath);
+		await runCommand("tar", ["xzf", archivePath, "-C", tmpDir]);
+		const extractedBinary = await findBinary(tmpDir, TOOL_CONFIGS[tool].binaryName);
+		await rename(extractedBinary, targetBinary);
+		await chmod(targetBinary, 0o755);
+	} finally {
 		await rm(tmpDir, { recursive: true, force: true });
-		throw error;
 	}
-
-	const active: ActiveSshToolsCache = { cacheKey: cache.cacheKey, versions, updatedAt: new Date().toISOString() };
-	await writeFile(join(parentDir, "active.json"), `${JSON.stringify(active, null, "\t")}\n`);
-	return cache;
+	return targetBinary;
 }
 
-export async function ensureLocalSshTools(versions?: SshToolVersions): Promise<LocalSshToolsCache> {
-	const resolvedVersions = versions ?? (await readActiveVersions()) ?? DEFAULT_SSH_TOOL_VERSIONS;
-	const cache = cacheDescriptor(resolvedVersions);
-	if (await validateCache(cache)) return cache;
+export async function ensureLocalSshTool(tool: SshToolName, platform: SshToolPlatform): Promise<string> {
+	const targetBinary = localToolPath(tool, platform);
+	if (await pathExists(targetBinary)) return targetBinary;
 	if (isOfflineModeEnabled()) {
-		throw new Error(`SSH tools cache is missing and PI_OFFLINE is enabled: ${cache.rootDir}`);
+		throw new Error(`SSH tool cache is missing ${tool} for ${platform} and PI_OFFLINE is enabled: ${targetBinary}`);
 	}
-	return buildLocalSshToolsCache(resolvedVersions);
+	return installLocalTool(tool, platform);
 }

@@ -5,10 +5,10 @@ Remote SSH mode for pi tools.
 ## Start
 
 ```bash
-pi -e packages/coding-agent/examples/extensions/ssh.ts --ssh desktop.local:/workspace
+pi --ssh desktop.local:/workspace
 ```
 
-The extension is safe to install globally. It registers execution-tool overrides only when `--ssh` or persisted SSH state is active.
+This extension auto-loads from `~/.pi/agent/extensions/ssh/` on every `pi` start. It registers execution-tool overrides only when `--ssh` or persisted SSH state is active.
 
 `--ssh` accepts:
 
@@ -21,10 +21,10 @@ host:/remote/path
 ## Commands
 
 ```text
-/ssh-cd <remote-dir>
+/ssh-cd [-h] <remote-dir>
 ```
 
-`/ssh-cd` supports remote directory autocomplete.
+`/ssh-cd` supports remote directory autocomplete. `-h` includes hidden directories.
 
 ## Behavior
 
@@ -60,13 +60,17 @@ SSH mode requires ownership of its execution tools so every tool has one unambig
 
 ## Tool bootstrap
 
-If remote `fd`, `rg`, or `fzf` is missing, pi downloads and caches Linux `amd64`/`arm64` binaries on the host, then installs missing tools on the remote. `fzf` ranks path autocomplete candidates (`/ssh-cd` and `@` references). If remote `uv` is available, pi also installs Python command wrappers that route agents toward `uv`. Both host cache and remote install use:
+If remote `fd`, `rg`, or `fzf` is missing, pi detects the remote's architecture (Linux `amd64` or `arm64`), downloads and caches that tool's binary on the host, then uploads it to the remote. `fzf` ranks path autocomplete candidates (`/ssh-cd` and `@` references). If remote `uv` is available, pi also installs Python command wrappers that route agents toward `uv`. Both host cache and remote install use:
 
 ```text
 ~/.cache/pi/ssh-tools/
   search-tools/
+    linux_amd64/{fd,rg,fzf}
+    linux_arm64/{fd,rg,fzf}
   python-uv-commands/
 ```
+
+A cached tool is reused as-is once present, on both host and remote — bumping a pinned version has no effect until the cached file is removed by hand.
 
 ## Delegates
 

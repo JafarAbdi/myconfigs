@@ -122,19 +122,25 @@ function findSshExecutionToolConflicts(tools: ToolInfo[]): Array<{ name: SshExec
 	return conflicts;
 }
 
-function assertSshExecutionToolOwnership(pi: ExtensionAPI): void {
+// Returns false (after notifying) on conflict instead of throwing: a session_start handler that
+// throws doesn't stop the session — pi's extension runner catches it, logs a raw stack trace to
+// the transcript, and continues starting the session regardless. Reporting through ctx.ui.notify
+// gets the same "SSH mode does not activate" outcome with the clean message every other SSH
+// failure in this file already uses.
+function checkSshExecutionToolOwnership(pi: ExtensionAPI, ctx: ExtensionContext): boolean {
 	const conflicts = findSshExecutionToolConflicts(pi.getAllTools());
-	if (conflicts.length === 0) return;
+	if (conflicts.length === 0) return true;
 
 	const lines = conflicts.map((conflict) => `- ${conflict.name}: ${conflict.owner}`);
-	throw new Error(
-		[
-			"SSH mode requires ownership of its execution tools so every tool has one unambiguous machine target.",
-			"Conflicting tool owners:",
-			...lines,
-			"Change those extensions to use policy hooks instead of registering execution tools.",
-		].join("\n"),
-	);
+	const message = [
+		"SSH mode requires ownership of its execution tools so every tool has one unambiguous machine target.",
+		"Conflicting tool owners:",
+		...lines,
+		"Change those extensions to use policy hooks instead of registering execution tools.",
+	].join("\n");
+	updateSshStatus(ctx, null, message);
+	ctx.ui.notify(message, "error");
+	return false;
 }
 
 function requireConnection(connection: SshConnection | null): SshConnection {
@@ -321,7 +327,7 @@ export default function (pi: ExtensionAPI) {
 		delegateChild = process.env[DELEGATE_CHILD_ENV] === "1";
 		// Fail closed if a marked child's inherited descriptor is malformed.
 		if (delegateChild && !toolOverridesRegistered) {
-			assertSshExecutionToolOwnership(pi);
+			if (!checkSshExecutionToolOwnership(pi, ctx)) return;
 			registerSshToolOverrides(pi, localCwd, getConnection);
 			toolOverridesRegistered = true;
 		}
@@ -342,7 +348,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		if (!toolOverridesRegistered) {
-			assertSshExecutionToolOwnership(pi);
+			if (!checkSshExecutionToolOwnership(pi, ctx)) return;
 			registerSshToolOverrides(pi, localCwd, getConnection);
 			toolOverridesRegistered = true;
 		}
@@ -361,7 +367,8 @@ export default function (pi: ExtensionAPI) {
 			if (!delegateChild) clearSshConnectionDescriptor();
 			const message = error instanceof Error ? error.message : String(error);
 			updateSshStatus(ctx, null, message);
-			throw error;
+			ctx.ui.notify(`SSH connect failed: ${message}`, "error");
+			return;
 		}
 
 		if (!autocompleteProviderRegistered) {
