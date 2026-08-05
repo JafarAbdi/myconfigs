@@ -9,6 +9,8 @@ import {
 	MAX_REVIEW_CHANGED_LINES,
 	MAX_REVIEW_FILES,
 	MAX_REVIEW_PATCH_BYTES,
+	listGitReviewPaths,
+	listGitReviewRequirements,
 	readGitReviewPatch,
 	reviewPatchFromText,
 	reviewSnapshotsEqual,
@@ -50,6 +52,8 @@ test("captures only the exact staged modified, new, renamed, and deleted candida
 		const expectedRaw = execFileSync("git", gitDiffArguments(), { cwd: repository });
 		assert.equal(patch.snapshot.repositoryRoot, repository);
 		assert.equal(patch.snapshot.headOid, beforeHead);
+		assert.equal(patch.snapshot.source, "staged");
+		assert.deepEqual(patch.snapshot.paths, []);
 		assert.equal(patch.snapshot.raw.equals(expectedRaw), true);
 		assert.equal(patch.text, expectedRaw.toString("utf8"));
 		assert.match(patch.text, /staged new/u);
@@ -82,7 +86,75 @@ test("captures only the exact staged modified, new, renamed, and deleted candida
 	}
 });
 
-test("uses the bounded, terminal staged diff command", () => {
+test("captures staged, worktree, and untracked sources as separate path-scoped candidates", async () => {
+	const repository = createRepository("review-git-sources-");
+	try {
+		writeFileSync(join(repository, ".gitignore"), "ignored.txt\n");
+		writeFileSync(join(repository, "modified.txt"), "one\nstaged\nthree\n");
+		git(repository, "add", ".gitignore", "modified.txt");
+		writeFileSync(join(repository, "modified.txt"), "one\nworktree\nthree\n");
+		writeFileSync(join(repository, "rename-old.txt"), "worktree only\n");
+		writeFileSync(join(repository, "untracked file.txt"), "new file\n");
+		writeFileSync(join(repository, "ignored.txt"), "ignored\n");
+		const beforeStatus = git(repository, "status", "--porcelain=v2");
+
+		const staged = await readGitReviewPatch(repository, {
+			source: "staged",
+			paths: ["modified.txt"],
+		});
+		assert.equal(staged.snapshot.source, "staged");
+		assert.deepEqual(staged.snapshot.paths, ["modified.txt"]);
+		assert.match(staged.text, /\+staged/u);
+		assert.doesNotMatch(staged.text, /worktree|untracked file/u);
+
+		const worktree = await readGitReviewPatch(repository, {
+			source: "worktree",
+			paths: ["modified.txt", "rename-old.txt"],
+		});
+		assert.equal(worktree.snapshot.source, "worktree");
+		assert.match(worktree.text, /-staged\n\+worktree/u);
+		assert.match(worktree.text, /worktree only/u);
+		assert.doesNotMatch(worktree.text, /untracked file/u);
+		assert.equal(worktree.files.every(({ fileDiff }) =>
+			fileDiff.prevObjectId === undefined || fileDiff.prevObjectId.length === 40), true);
+
+		const untracked = await readGitReviewPatch(repository, {
+			source: "untracked",
+			paths: ["."],
+		});
+		assert.equal(untracked.snapshot.source, "untracked");
+		assert.deepEqual(untracked.files.map(({ filePath }) => filePath), ["untracked file.txt"]);
+		assert.match(untracked.text, /\+new file/u);
+		assert.doesNotMatch(untracked.text, /ignored/u);
+		assert.deepEqual(await listGitReviewPaths(repository, "staged"), [
+			".gitignore",
+			"modified.txt",
+		]);
+		assert.deepEqual(await listGitReviewPaths(repository, "worktree"), [
+			"modified.txt",
+			"rename-old.txt",
+		]);
+		assert.deepEqual(await listGitReviewPaths(repository, "untracked"), ["untracked file.txt"]);
+		assert.equal(git(repository, "status", "--porcelain=v2"), beforeStatus);
+		writeFileSync(join(repository, "review.md"), "# Requirement\n");
+		assert.deepEqual(await listGitReviewRequirements(repository), ["review.md"]);
+
+		const statusAfterRequirement = git(repository, "status", "--porcelain=v2");
+		assert.notEqual(statusAfterRequirement, beforeStatus);
+		writeFileSync(join(repository, "outside-selection.txt"), "unrelated\n");
+		const statusWithUnrelated = git(repository, "status", "--porcelain=v2");
+		const stagedAgain = await readGitReviewPatch(repository, {
+			source: "staged",
+			paths: ["modified.txt"],
+		});
+		assert.equal(reviewSnapshotsEqual(staged.snapshot, stagedAgain.snapshot), true);
+		assert.equal(git(repository, "status", "--porcelain=v2"), statusWithUnrelated);
+	} finally {
+		rmSync(repository, { recursive: true, force: true });
+	}
+});
+
+test("uses bounded terminal diff commands with literal selected paths", () => {
 	assert.deepEqual(gitDiffArguments(), [
 		"diff",
 		"--cached",
@@ -91,10 +163,24 @@ test("uses the bounded, terminal staged diff command", () => {
 		"--no-textconv",
 		"--diff-algorithm=histogram",
 		"--find-renames",
+		"--full-index",
 		"--unified=3",
 		"HEAD",
 		"--",
 	]);
+	assert.deepEqual(gitDiffArguments({ source: "worktree", paths: ["src/[literal].ts"] }), [
+		"diff",
+		"--no-color",
+		"--no-ext-diff",
+		"--no-textconv",
+		"--diff-algorithm=histogram",
+		"--find-renames",
+		"--full-index",
+		"--unified=3",
+		"--",
+		":(top,literal)src/[literal].ts",
+	]);
+	assert.throws(() => gitDiffArguments({ source: "untracked", paths: [] }), /does not use git diff/u);
 });
 
 const ROOT = "/repository";
@@ -158,10 +244,12 @@ test("represents an empty staged candidate without mutating Git", async () => {
 
 test("snapshot freshness compares repository root, HEAD, and exact bytes", () => {
 	const patch = reviewPatchFromText(syntheticPatch(1, 1), ROOT, HEAD);
-	const equal = { ...patch.snapshot, raw: Buffer.from(patch.snapshot.raw) };
+	const equal = { ...patch.snapshot, paths: [...patch.snapshot.paths], raw: Buffer.from(patch.snapshot.raw) };
 	assert.equal(reviewSnapshotsEqual(patch.snapshot, equal), true);
 	assert.equal(reviewSnapshotsEqual(patch.snapshot, { ...equal, repositoryRoot: "/other" }), false);
 	assert.equal(reviewSnapshotsEqual(patch.snapshot, { ...equal, headOid: "3".repeat(40) }), false);
+	assert.equal(reviewSnapshotsEqual(patch.snapshot, { ...equal, source: "worktree" }), false);
+	assert.equal(reviewSnapshotsEqual(patch.snapshot, { ...equal, paths: ["src"] }), false);
 	const changedBytes = Buffer.from(equal.raw);
 	changedBytes[changedBytes.length - 1] ^= 1;
 	assert.equal(reviewSnapshotsEqual(patch.snapshot, { ...equal, raw: changedBytes }), false);

@@ -82,8 +82,10 @@ test("state clones immutable snapshot identity and audit findings", () => {
 	const store = new ReviewStore(sourcePatch, [sourceFinding]);
 	sourceFinding.message = "mutated input";
 	const first = store.snapshot();
+	assert.equal(first.version, 2);
 	assert.deepEqual(first.snapshot, { headOid: "2".repeat(40) });
 	assert.equal(first.auditFindings[0].message, "The new branch returns the wrong value.");
+	assert.equal(first.generalComment, null);
 	first.snapshot.headOid = "3".repeat(40);
 	first.auditFindings[0].message = "mutated snapshot";
 	assert.deepEqual(store.snapshot().snapshot, { headOid: "2".repeat(40) });
@@ -129,11 +131,42 @@ test("comment CRUD validates exact changed lines and uses injectable identity fa
 	);
 });
 
-test("comment count is bounded", () => {
+test("general comment CRUD validates exact input, preserves creation time, and clones snapshots", () => {
+	const store = deterministicStore();
+	for (const invalid of [
+		null,
+		{},
+		{ body: "" },
+		{ body: "comment", extra: true },
+		{ body: "has\0NUL" },
+		{ body: "x".repeat(10_001) },
+	]) assert.throws(() => store.setGeneralComment(invalid), ReviewStateError);
+
+	const created = store.setGeneralComment({ body: "  Candidate-wide concern.  " }).generalComment;
+	assert.deepEqual(created, {
+		body: "Candidate-wide concern.",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		updatedAt: "2026-01-01T00:00:00.000Z",
+	});
+	created!.body = "mutated snapshot";
+	assert.equal(store.snapshot().generalComment?.body, "Candidate-wide concern.");
+	assert.deepEqual(store.setGeneralComment({ body: "Revised concern." }).generalComment, {
+		body: "Revised concern.",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		updatedAt: "2026-01-01T00:00:01.000Z",
+	});
+	assert.equal(store.deleteGeneralComment().generalComment, null);
+	assert.throws(
+		() => store.deleteGeneralComment(),
+		(error) => error instanceof ReviewStateError && error.status === 404,
+	);
+});
+
+test("general comment is additional to the changed-line comment count", () => {
 	const store = boundedStore();
 	for (let index = 0; index < MAX_REVIEW_COMMENTS; index += 1)
 		store.addComment({ ...comment, body: `Comment ${index}.` });
-	assert.equal(store.snapshot().humanComments.length, MAX_REVIEW_COMMENTS);
+	assert.equal(store.setGeneralComment({ body: "General." }).humanComments.length, MAX_REVIEW_COMMENTS);
 	assert.throws(
 		() => store.addComment({ ...comment, body: "One too many." }),
 		(error) => error instanceof ReviewStateError && error.status === 413,
@@ -160,6 +193,23 @@ test("aggregate UTF-8 comment bytes are bounded on add and update", () => {
 	assert.equal(store.snapshot().humanComments.at(-1)?.body, sameBytes);
 });
 
+test("aggregate byte cap combines general and changed-line comment bodies", () => {
+	const store = boundedStore();
+	for (let index = 0; index < 26; index += 1)
+		store.addComment({ ...comment, body: "a".repeat(10_000) });
+	const remainingBytes = "é".repeat(1_072);
+	assert.equal(store.setGeneralComment({ body: remainingBytes }).generalComment?.body, remainingBytes);
+	assert.equal(26 * 10_000 + Buffer.byteLength(remainingBytes), MAX_REVIEW_AGGREGATE_COMMENT_BYTES);
+	assert.throws(
+		() => store.setGeneralComment({ body: "€".repeat(1_072) }),
+		(error) => error instanceof ReviewStateError && error.status === 413,
+	);
+	assert.throws(
+		() => store.addComment({ ...comment, body: "x" }),
+		(error) => error instanceof ReviewStateError && error.status === 413,
+	);
+});
+
 test("decision rules distinguish advisory findings from blocking human comments", () => {
 	assert.throws(
 		() => deterministicStore().decide("send-feedback"),
@@ -183,9 +233,22 @@ test("decision rules distinguish advisory findings from blocking human comments"
 	});
 	assert.throws(() => comments.updateComment("comment-1", { body: "late" }), /terminal decision/u);
 	assert.throws(() => comments.deleteComment("comment-1"), /terminal decision/u);
+
+	const general = deterministicStore();
+	general.setGeneralComment({ body: "Candidate-wide concern." });
+	assert.throws(
+		() => general.decide("approve"),
+		(error) => error instanceof ReviewStateError && error.status === 409,
+	);
+	assert.equal(general.decide("send-feedback").decision?.kind, "send-feedback");
+	assert.throws(
+		() => general.setGeneralComment({ body: "late" }),
+		/terminal decision/u,
+	);
+	assert.throws(() => general.deleteGeneralComment(), /terminal decision/u);
 });
 
-test("feedback Markdown is exact and sorted by path, side, then line", () => {
+test("feedback Markdown pairs quoted agents with unquoted humans at each exact target", () => {
 	const store = deterministicStore([
 		finding({
 			filePath: "src/z.ts",
@@ -197,8 +260,10 @@ test("feedback Markdown is exact and sorted by path, side, then line", () => {
 			line: 2,
 			message: "Old-side finding.",
 		}),
-		finding(),
+		finding({ message: "The new branch returns the wrong value.\nCheck the fallback." }),
+		finding({ message: "Second finding." }),
 	]);
+	store.setGeneralComment({ body: "Apply this concern across the candidate." });
 	store.addComment({
 		filePath: "src/z.ts",
 		side: "deletions",
@@ -211,17 +276,60 @@ test("feedback Markdown is exact and sorted by path, side, then line", () => {
 		side: "additions",
 		startLine: 2,
 		endLine: 3,
-		body: "A comment.",
+		body: "A range comment.",
+	});
+	store.addComment({
+		filePath: "src/a.ts",
+		side: "additions",
+		startLine: 2,
+		endLine: 2,
+		body: "Let's fix.",
 	});
 	assert.equal(formatReviewFeedback(store.snapshot()), `# Review feedback
 
-## Audit findings
-- src/a.ts:new L2 — The new branch returns the wrong value.
-- src/a.ts:old L2 — Old-side finding.
-- src/z.ts:new L1 — Z finding.
+## General
 
-## Human comments
-- src/a.ts:new L2-3 — A comment.
-- src/z.ts:old L1 — Z comment.
+**HUMAN**
+
+Apply this concern across the candidate.
+
+## src/a.ts:new L2
+
+> **AGENT**
+>
+> The new branch returns the wrong value.
+> Check the fallback.
+
+> **AGENT**
+>
+> Second finding.
+
+**HUMAN**
+
+Let's fix.
+
+## src/a.ts:new L2-3
+
+**HUMAN**
+
+A range comment.
+
+## src/a.ts:old L2
+
+> **AGENT**
+>
+> Old-side finding.
+
+## src/z.ts:new L1
+
+> **AGENT**
+>
+> Z finding.
+
+## src/z.ts:old L1
+
+**HUMAN**
+
+Z comment.
 `);
 });

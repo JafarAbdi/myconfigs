@@ -19,6 +19,12 @@ export interface HumanComment extends HumanCommentInput {
 	updatedAt: string;
 }
 
+export interface GeneralComment {
+	body: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
 export type ReviewDecisionKind = "approve" | "send-feedback";
 
 export interface ReviewDecision {
@@ -27,10 +33,11 @@ export interface ReviewDecision {
 }
 
 export interface ReviewState {
-	version: 1;
+	version: 2;
 	snapshot: { headOid: string };
 	auditFindings: AuditFinding[];
 	humanComments: HumanComment[];
+	generalComment: GeneralComment | null;
 	decision: ReviewDecision | null;
 }
 
@@ -113,10 +120,11 @@ function commentBody(value: unknown): string {
 
 function cloneState(state: ReviewState): ReviewState {
 	return {
-		version: 1,
+		version: 2,
 		snapshot: { ...state.snapshot },
 		auditFindings: structuredClone(state.auditFindings),
 		humanComments: structuredClone(state.humanComments),
+		generalComment: state.generalComment ? { ...state.generalComment } : null,
 		decision: state.decision ? { ...state.decision } : null,
 	};
 }
@@ -125,38 +133,68 @@ function compareText(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function compareTargets(
-	left: { filePath: string; side: ReviewSide; line: number },
-	right: { filePath: string; side: ReviewSide; line: number },
-): number {
+interface FeedbackGroup {
+	filePath: string;
+	side: ReviewSide;
+	startLine: number;
+	endLine: number;
+	findings: AuditFinding[];
+	comments: HumanComment[];
+}
+
+function compareTargets(left: FeedbackGroup, right: FeedbackGroup): number {
 	return compareText(left.filePath, right.filePath) ||
 		compareText(left.side, right.side) ||
-		left.line - right.line;
+		left.startLine - right.startLine ||
+		left.endLine - right.endLine;
 }
 
 function sideLabel(side_: ReviewSide): "new" | "old" {
 	return side_ === "additions" ? "new" : "old";
 }
 
+function targetLabel(group: FeedbackGroup): string {
+	const range = group.startLine === group.endLine
+		? `L${group.startLine}`
+		: `L${group.startLine}-${group.endLine}`;
+	return `${group.filePath}:${sideLabel(group.side)} ${range}`;
+}
+
+function quoteAgent(message: string): string[] {
+	return ["> **AGENT**", ">", ...message.split("\n").map((line) => line ? `> ${line}` : ">")];
+}
+
 export function formatReviewFeedback(
-	state: Pick<ReviewState, "auditFindings" | "humanComments">,
+	state: Pick<ReviewState, "auditFindings" | "humanComments" | "generalComment">,
 ): string {
-	const findings = [...state.auditFindings].sort(compareTargets);
-	const comments = [...state.humanComments].sort((left, right) =>
-		compareTargets(
-			{ filePath: left.filePath, side: left.side, line: left.startLine },
-			{ filePath: right.filePath, side: right.side, line: right.startLine },
-		) || left.endLine - right.endLine || compareText(left.id, right.id)
-	);
-	const lines = ["# Review feedback", "", "## Audit findings"];
-	for (const finding of findings)
-		lines.push(`- ${finding.filePath}:${sideLabel(finding.side)} L${finding.line} — ${finding.message}`);
-	lines.push("", "## Human comments");
-	for (const comment of comments) {
-		const range = comment.startLine === comment.endLine
-			? `L${comment.startLine}`
-			: `L${comment.startLine}-${comment.endLine}`;
-		lines.push(`- ${comment.filePath}:${sideLabel(comment.side)} ${range} — ${comment.body}`);
+	const groups = new Map<string, FeedbackGroup>();
+	const groupFor = (
+		filePath: string,
+		side: ReviewSide,
+		startLine: number,
+		endLine: number,
+	): FeedbackGroup => {
+		const key = JSON.stringify([filePath, side, startLine, endLine]);
+		let group = groups.get(key);
+		if (!group) {
+			group = { filePath, side, startLine, endLine, findings: [], comments: [] };
+			groups.set(key, group);
+		}
+		return group;
+	};
+	for (const finding of state.auditFindings)
+		groupFor(finding.filePath, finding.side, finding.line, finding.line).findings.push(finding);
+	for (const comment of state.humanComments)
+		groupFor(comment.filePath, comment.side, comment.startLine, comment.endLine).comments.push(comment);
+
+	const lines = ["# Review feedback"];
+	if (state.generalComment)
+		lines.push("", "## General", "", "**HUMAN**", "", state.generalComment.body);
+	for (const group of [...groups.values()].sort(compareTargets)) {
+		lines.push("", `## ${targetLabel(group)}`);
+		for (const finding of group.findings) lines.push("", ...quoteAgent(finding.message));
+		for (const comment of group.comments.sort((left, right) => compareText(left.id, right.id)))
+			lines.push("", "**HUMAN**", "", comment.body);
 	}
 	return `${lines.join("\n")}\n`;
 }
@@ -181,10 +219,11 @@ export class ReviewStore {
 		for (const finding of auditFindings)
 			this.validateTarget(finding.filePath, finding.side, finding.line, finding.line);
 		this.state = {
-			version: 1,
+			version: 2,
 			snapshot: { headOid: patch.snapshot.headOid },
 			auditFindings: structuredClone([...auditFindings]),
 			humanComments: [],
+			generalComment: null,
 			decision: null,
 		};
 	}
@@ -214,7 +253,8 @@ export class ReviewStore {
 	private requireCommentBytes(body: string, previousBody = ""): void {
 		const bytes = this.state.humanComments.reduce(
 			(total, comment) => total + Buffer.byteLength(comment.body, "utf8"),
-			Buffer.byteLength(body, "utf8") - Buffer.byteLength(previousBody, "utf8"),
+			Buffer.byteLength(this.state.generalComment?.body ?? "", "utf8") +
+				Buffer.byteLength(body, "utf8") - Buffer.byteLength(previousBody, "utf8"),
 		);
 		if (bytes > MAX_REVIEW_AGGREGATE_COMMENT_BYTES)
 			throw new ReviewStateError("aggregate comment bodies are too large", 413);
@@ -271,15 +311,39 @@ export class ReviewStore {
 		return this.snapshot();
 	}
 
+	setGeneralComment(value: unknown): ReviewState {
+		this.requireOpen();
+		const body = commentBody(value);
+		const previous = this.state.generalComment;
+		this.requireCommentBytes(body, previous?.body);
+		const timestamp = this.timestamp();
+		this.state.generalComment = {
+			body,
+			createdAt: previous?.createdAt ?? timestamp,
+			updatedAt: timestamp,
+		};
+		return this.snapshot();
+	}
+
+	deleteGeneralComment(): ReviewState {
+		this.requireOpen();
+		if (!this.state.generalComment)
+			throw new ReviewStateError("general comment not found", 404);
+		this.state.generalComment = null;
+		return this.snapshot();
+	}
+
 	decide(kind: unknown): ReviewState {
 		this.requireOpen();
 		if (kind !== "approve" && kind !== "send-feedback")
 			throw new ReviewStateError("decision kind is invalid");
-		if (kind === "approve" && this.state.humanComments.length > 0)
-			throw new ReviewStateError("Approve requires all human comments to be removed", 409);
+		if (
+			kind === "approve" &&
+			(this.state.humanComments.length > 0 || this.state.generalComment)
+		) throw new ReviewStateError("Approve requires all human comments to be removed", 409);
 		if (
 			kind === "send-feedback" && this.state.auditFindings.length === 0 &&
-			this.state.humanComments.length === 0
+			this.state.humanComments.length === 0 && !this.state.generalComment
 		) throw new ReviewStateError("Send Feedback requires at least one finding or comment", 409);
 		this.state.decision = { kind, decidedAt: this.timestamp() };
 		return this.snapshot();

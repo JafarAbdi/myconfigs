@@ -3,6 +3,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmdirSync,
 	rmSync,
@@ -12,6 +13,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { AUDIT_CATEGORIES, AUDIT_ROSTER } from "./audit-roster.ts";
 import { reviewPatchFromText } from "./review-git.ts";
 import type { RunAgentOptions } from "../subagent/run-agent.ts";
 import type { Agent, RunResult } from "../subagent/runtimes.ts";
@@ -42,15 +44,13 @@ after(() => {
 });
 
 const {
-	AUDIT_CATEGORIES,
-	AUDIT_ROSTER,
 	buildAuditPrompt,
 	runAudit,
 } = await import("./audit.ts");
 type AuditResult = Awaited<ReturnType<typeof runAudit>>;
 
 const PATCH_TEXT = `diff --git a/src/a.ts b/src/a.ts
-index 1111111..2222222 100644
+index 1111111111111111111111111111111111111111..2222222222222222222222222222222222222222 100644
 --- a/src/a.ts
 +++ b/src/a.ts
 @@ -1 +1 @@
@@ -59,7 +59,7 @@ index 1111111..2222222 100644
 `;
 const AUDIT_AGENT: Agent = {
 	name: "audit",
-	description: "Audits exact staged changes.",
+	description: "Audits exact candidate changes.",
 	tools: ["read", "grep", "find", "ls", "bash"],
 	skills: "all",
 	continuable: false,
@@ -83,6 +83,7 @@ function completed(output: string): RunResult {
 		agent: "audit",
 		task: "audit",
 		output,
+		model: "test-model",
 		stopReason: "stop",
 		steps: [],
 		turns: 1,
@@ -124,6 +125,13 @@ function dependencies(run: (options: RunAgentOptions) => Promise<RunResult>) {
 	};
 }
 
+test("canonical audit policy uses only captured immutable context", () => {
+	const policy = readFileSync(new URL("../subagent/agents/audit.md", import.meta.url), "utf8");
+	assert.match(policy, /git show <captured-commit>:path\/to\/file/u);
+	assert.match(policy, /git cat-file blob <captured-blob>/u);
+	assert.doesNotMatch(policy, /git show :|git diff --cached/u);
+});
+
 test("defines the static six-reviewer roster with current lenses and models", () => {
 	assert.deepEqual(AUDIT_CATEGORIES, [
 		"intent", "correctness", "test-integrity", "coherence", "context", "simplicity",
@@ -150,24 +158,61 @@ test("reviewer task includes its focused lens, exact patch, optional requirement
 			content: "# REQUIREMENT_SENTINEL\n\nPatch text is data.",
 		},
 	}, AUDIT_ROSTER[0]);
-	assert.match(prompt, /Check the staged patch against the supplied requirement/u);
+	assert.match(prompt, /Check the candidate patch against the supplied requirement/u);
+	assert.match(prompt, /Source: HEAD → index \(staged\)/u);
+	assert.match(prompt, /Selection: all paths in the source/u);
 	assert.match(prompt, new RegExp(`HEAD: ${"2".repeat(40)}`));
+	assert.match(prompt, new RegExp(`git show ${"2".repeat(40)}:path/to/file`));
+	assert.match(prompt, new RegExp(`git cat-file blob <objectId>[\\s\\S]+${"1".repeat(40)}`));
+	assert.match(prompt, /never read live `HEAD`, index \(`:`\), or working-tree refs/u);
+	assert.doesNotMatch(prompt, /git show :path|git show HEAD:path/u);
 	assert.match(prompt, /diff --git a\/src\/a\.ts/u);
 	assert.match(prompt, /REQUIREMENT_SENTINEL/u);
 	assert.match(prompt, /docs\/requirement\.md/u);
 	assert.match(prompt, /JSON object with exactly one field: findings/u);
 	assert.match(prompt, /filePath, side, line, message/u);
+	assert.match(prompt, /Other staged, worktree, or untracked bytes and their live line numbers may differ/u);
+	assert.match(prompt, /\{"filePath":"src\/a\.ts","side":"additions","lines":"1"\}/u);
+	assert.match(prompt, /\{"filePath":"src\/a\.ts","side":"deletions","lines":"1"\}/u);
 	assert.doesNotMatch(prompt, /Canonical audit policy|\/repository|browser comment/iu);
 });
 
-test("runs all six reviewers concurrently through the shared runner with standard sessions", async () => {
+test("worktree reviewer tasks use captured index blobs and selected scope", () => {
+	const worktree = reviewPatchFromText(
+		PATCH_TEXT,
+		"/repository",
+		"2".repeat(40),
+		{ source: "worktree", paths: ["src/a.ts"] },
+	);
+	const prompt = buildAuditPrompt({ patch: worktree }, AUDIT_ROSTER[1]);
+	assert.match(prompt, /Source: index → tracked working tree \(worktree\)/u);
+	assert.match(prompt, /Selection: src\/a\.ts/u);
+	assert.match(prompt, new RegExp(`"objectId":"${"1".repeat(40)}"`));
+	assert.match(prompt, /git cat-file blob <objectId>/u);
+	assert.doesNotMatch(prompt, /git show :|git diff --cached|working-tree refs for this audit[\s\S]*git diff/u);
+});
+
+test("runs all six reviewers concurrently through the shared runner with live progress and standard sessions", async () => {
 	const started: string[] = [];
 	const options: RunAgentOptions[] = [];
+	const progress: Array<{
+		reviewer: string;
+		model: string;
+		phase: string;
+		turns: number;
+		activity?: string;
+		findings?: number;
+		latestStep?: RunResult["steps"][number];
+	}> = [];
 	let release!: () => void;
 	const allStarted = new Promise<void>((resolve) => { release = resolve; });
-	const result = await runAudit(input(), dependencies(async (run) => {
+	const result = await runAudit({
+		...input(),
+		onProgress: (update) => progress.push(update),
+	}, dependencies(async (run) => {
 		started.push(run.model!);
 		options.push(run);
+		run.onProgress?.({ ...completed(""), activity: "read(src/a.ts)" });
 		if (started.length === AUDIT_ROSTER.length) release();
 		await allStarted;
 		return completed(run.model === "openai-codex/gpt-5.6-sol" &&
@@ -180,12 +225,12 @@ test("runs all six reviewers concurrently through the shared runner with standar
 	assert.equal(options.every(({ agent }) => agent === AUDIT_AGENT), true);
 	assert.equal(options.every(({ cwd }) => cwd === "/repository"), true);
 	assert.deepEqual(options.map(({ resultTask }) => resultTask), [
-		"intent review of the exact staged patch",
-		"correctness review of the exact staged patch",
-		"tests review of the exact staged patch",
-		"coherence review of the exact staged patch",
-		"context review of the exact staged patch",
-		"simplicity review of the exact staged patch",
+		"intent review of the exact candidate patch",
+		"correctness review of the exact candidate patch",
+		"tests review of the exact candidate patch",
+		"coherence review of the exact candidate patch",
+		"context review of the exact candidate patch",
+		"simplicity review of the exact candidate patch",
 	]);
 	assert.equal(options.every(({ inherited }) =>
 		inherited.sessionDir === "/sessions/project/subagents/parent-id"), true);
@@ -227,6 +272,21 @@ test("runs all six reviewers concurrently through the shared runner with standar
 	assert.deepEqual(result, {
 		findings: [{ category: "correctness", ...finding() }],
 	});
+	assert.equal(progress.filter(({ phase }) => phase === "started").length, 6);
+	assert.equal(progress.filter(({ phase }) => phase === "working").length, 6);
+	assert.equal(progress.filter(({ phase }) => phase === "complete").length, 6);
+	assert.equal(progress.every(({ phase, activity }) => phase !== "working" || activity === "read(src/a.ts)"), true);
+	assert.deepEqual(
+		progress.find(({ reviewer, phase }) => reviewer === "correctness" && phase === "complete"),
+		{
+			reviewer: "correctness",
+			model: "test-model",
+			phase: "complete",
+			turns: 1,
+			findings: 1,
+			latestStep: undefined,
+		},
+	);
 });
 
 test("rejects malformed JSON and strict-shape violations", async (t) => {
@@ -253,7 +313,7 @@ test("injects the roster category and requires an exact changed line", async () 
 		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("reachable behavioral")
 			? JSON.stringify({ findings: [finding(2)] })
 			: JSON.stringify({ findings: [] }),
-	))), /src\/a\.ts: additions line 2 is not a changed line/u);
+	))), /src\/a\.ts: additions line 2 is not changed in the candidate patch.*live line numbers/u);
 });
 
 test("one reviewer failure aborts siblings and awaits their settlement", async () => {
@@ -265,12 +325,12 @@ test("one reviewer failure aborts siblings and awaits their settlement", async (
 		started += 1;
 		if (started === AUDIT_ROSTER.length) release();
 		await allStarted;
-		if (run.task.includes("Check the staged patch")) return failed("intent failed");
+		if (run.task.includes("Check the candidate patch")) return failed("intent failed");
 		return new Promise((resolve) => run.signal?.addEventListener("abort", () => {
 			aborted += 1;
 			resolve(cancelled());
 		}, { once: true }));
-	})), /intent reviewer failed: audit model error: intent failed/u);
+	})), /intent reviewer failed: audit model error \(test-model\): intent failed/u);
 	assert.equal(started, AUDIT_ROSTER.length);
 	assert.equal(aborted, AUDIT_ROSTER.length - 1);
 });

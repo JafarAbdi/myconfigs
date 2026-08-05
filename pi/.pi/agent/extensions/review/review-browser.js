@@ -38,11 +38,24 @@ export function isFeedbackSubmitShortcut(event) {
 	return event.key === "Enter" && Boolean(event.ctrlKey || event.metaKey) && !event.altKey;
 }
 
+export function nextNavigationIndex(current, count, delta) {
+	if (count < 1 || (delta !== -1 && delta !== 1)) return -1;
+	if (current < 0) return delta === 1 ? 0 : -1;
+	return Math.max(0, Math.min(count - 1, current + delta));
+}
+
+export function compareNavigationPositions(left, right) {
+	const leftRect = left.getBoundingClientRect();
+	const rightRect = right.getBoundingClientRect();
+	return leftRect.top - rightRect.top || leftRect.left - rightRect.left;
+}
+
 export function isReviewDecisionDisabled(kind, state) {
+	const hasHumanFeedback = state.humanComments.length > 0 || Boolean(state.generalComment);
 	return Boolean(state.decision) ||
 		(kind === "approve"
-			? state.humanComments.length > 0
-			: state.auditFindings.length === 0 && state.humanComments.length === 0);
+			? hasHumanFeedback
+			: state.auditFindings.length === 0 && !hasHumanFeedback);
 }
 
 export function reviewCompletion(kind) {
@@ -71,9 +84,16 @@ if (typeof document !== "undefined") {
 	const saveButtonLabel = document.querySelector("#save-comment-label");
 	const cancelButton = document.querySelector("#cancel-comment");
 	const sidebarToggle = document.querySelector("#sidebar-toggle");
+	const previousHunkButton = document.querySelector("#previous-hunk");
+	const nextHunkButton = document.querySelector("#next-hunk");
+	const hunkPosition = document.querySelector("#hunk-position");
+	const previousAgentCommentButton = document.querySelector("#previous-agent-comment");
+	const nextAgentCommentButton = document.querySelector("#next-agent-comment");
+	const agentCommentPosition = document.querySelector("#agent-comment-position");
 	let review;
 	let selection;
 	let editingCommentId;
+	let editingGeneral = false;
 
 	if (document.body.dataset.mode === "auto") {
 		const narrow = matchMedia("(max-width: 1199px)");
@@ -111,7 +131,7 @@ if (typeof document !== "undefined") {
 
 	function setStatus(message, error = false) {
 		browserStatus.textContent = message;
-		browserStatus.style.color = error ? "#f19a9a" : "";
+		browserStatus.classList.toggle("error", error);
 	}
 
 	function completeReview(state) {
@@ -124,8 +144,9 @@ if (typeof document !== "undefined") {
 		reviewStatus.title = state.decision.decidedAt;
 		reviewStatus.replaceChildren(document.createElement("span"), completion.label);
 		document.querySelector("#review-instruction").textContent = "Read-only completion receipt.";
-		for (const control of document.querySelectorAll("button, textarea"))
-			control.disabled = true;
+		for (const control of document.querySelectorAll(
+			"#comment-composer button, #comment-composer textarea, #add-general-comment, .edit-general-comment, .delete-general-comment, [data-decision]",
+		)) control.disabled = true;
 		for (const link of document.querySelectorAll(
 			".layout-control a, .view-options a, .file-sidebar a",
 		)) {
@@ -141,6 +162,7 @@ if (typeof document !== "undefined") {
 				control.remove();
 		selection = undefined;
 		editingCommentId = undefined;
+		editingGeneral = false;
 		textarea.value = "";
 		composer.hidden = true;
 		document.querySelector(".view-menu")?.removeAttribute("open");
@@ -167,8 +189,10 @@ if (typeof document !== "undefined") {
 		return true;
 	}
 
-	function setComposerMode(editing) {
-		commentHeading.textContent = editing ? "Edit your comment" : "Your comment";
+	function setComposerMode(editing, general = false) {
+		commentHeading.textContent = general
+			? (editing ? "Edit general feedback" : "General feedback")
+			: (editing ? "Edit your comment" : "Your comment");
 		saveButtonLabel.textContent = editing ? "Save changes" : "Save comment";
 	}
 
@@ -188,16 +212,36 @@ if (typeof document !== "undefined") {
 		}
 	}
 
-	function showSelection(focus = true) {
-		composer.hidden = !selection;
-		if (!selection) return;
-		targetOutput.textContent = targetLabel(selection);
+	function showComposer(focus = true) {
+		composer.hidden = !selection && !editingGeneral;
+		if (composer.hidden) return;
+		targetOutput.textContent = editingGeneral
+			? "Entire candidate"
+			: targetLabel(selection);
 		highlightSelection();
 		if (focus) textarea.focus({ preventScroll: true });
 	}
 
+	function openGeneralComment() {
+		if (!review) {
+			setStatus("Review state is still loading.", true);
+			return;
+		}
+		if (selection || editingCommentId || editingGeneral) {
+			setStatus("Save or cancel the open draft before editing general feedback.", true);
+			textarea.focus();
+			return;
+		}
+		const comment = review.state.generalComment;
+		editingGeneral = true;
+		textarea.value = comment?.body ?? "";
+		setComposerMode(Boolean(comment), true);
+		setStatus(comment ? "Editing general feedback." : "General feedback is local until you save it.");
+		showComposer();
+	}
+
 	function selectLine(target, extend) {
-		if (editingCommentId) {
+		if (editingCommentId || editingGeneral) {
 			setStatus("Save or cancel the open edit before starting another comment.", true);
 			textarea.focus();
 			return;
@@ -223,7 +267,7 @@ if (typeof document !== "undefined") {
 		}
 		selection = next;
 		setStatus("Draft is local until you save it.");
-		showSelection();
+		showComposer();
 	}
 
 	if (document.body.dataset.completed !== "true")
@@ -252,6 +296,20 @@ if (typeof document !== "undefined") {
 	document.addEventListener("click", async (event) => {
 		if (document.body.dataset.completed === "true") return;
 		const element = event.target instanceof Element ? event.target : undefined;
+		if (element?.closest("#add-general-comment, .edit-general-comment")) {
+			openGeneralComment();
+			return;
+		}
+		if (element?.closest(".delete-general-comment")) {
+			if (!confirm("Delete general feedback?")) return;
+			try {
+				await request("general-comment", { method: "DELETE" });
+				location.reload();
+			} catch (error) {
+				setStatus(error.message, true);
+			}
+			return;
+		}
 		const editButton = element?.closest(".edit-comment");
 		if (editButton) {
 			const comment = review?.state.humanComments.find(
@@ -261,8 +319,8 @@ if (typeof document !== "undefined") {
 				setStatus("Saved comment is still loading.", true);
 				return;
 			}
-			if (selection) {
-				if (editingCommentId === comment.id) textarea.focus();
+			if (selection || editingGeneral) {
+				if (!editingGeneral && editingCommentId === comment.id) textarea.focus();
 				else setStatus("Save or cancel the open draft before editing a saved comment.", true);
 				return;
 			}
@@ -276,7 +334,7 @@ if (typeof document !== "undefined") {
 			textarea.value = comment.body;
 			setComposerMode(true);
 			setStatus("Editing a saved comment. Its target stays fixed.");
-			showSelection();
+			showComposer();
 			return;
 		}
 		const deleteButton = element?.closest(".delete-comment");
@@ -302,18 +360,22 @@ if (typeof document !== "undefined") {
 	});
 
 	document.addEventListener("keydown", (event) => {
-		if (document.body.dataset.completed === "true") return;
 		const typing = event.target instanceof Element &&
 			(event.target.matches("textarea, input, select") || event.target.isContentEditable);
-		if (
-			!typing &&
-			!event.ctrlKey &&
-			!event.metaKey &&
-			!event.altKey &&
-			!event.shiftKey
-		) {
+		if (!typing && !event.ctrlKey && !event.metaKey && !event.altKey) {
 			const shortcut = event.key.toLowerCase();
-			const control = /^[012salwm]$/u.test(shortcut)
+			if (shortcut === "{" || shortcut === "}") {
+				event.preventDefault();
+				moveToAgentComment(shortcut === "}" ? 1 : -1);
+				return;
+			}
+			if (!event.shiftKey && (shortcut === "[" || shortcut === "]")) {
+				event.preventDefault();
+				moveToHunk(shortcut === "]" ? 1 : -1);
+				return;
+			}
+			if (document.body.dataset.completed === "true") return;
+			const control = !event.shiftKey && /^[012salwm]$/u.test(shortcut)
 				? document.querySelector(`[data-shortcut="${shortcut}"]`)
 				: undefined;
 			if (control) {
@@ -327,6 +389,7 @@ if (typeof document !== "undefined") {
 	cancelButton.addEventListener("click", () => {
 		selection = undefined;
 		editingCommentId = undefined;
+		editingGeneral = false;
 		textarea.value = "";
 		setComposerMode(false);
 		composer.hidden = true;
@@ -335,7 +398,7 @@ if (typeof document !== "undefined") {
 	});
 
 	saveButton.addEventListener("click", async () => {
-		if (!selection) return;
+		if (!selection && !editingGeneral) return;
 		const body = textarea.value.trim();
 		if (!body) {
 			setStatus("Write a comment before saving.", true);
@@ -344,13 +407,20 @@ if (typeof document !== "undefined") {
 		}
 		saveButton.disabled = true;
 		try {
-			await request(
-				editingCommentId ? `comments/${encodeURIComponent(editingCommentId)}` : "comments",
-				{
-					method: editingCommentId ? "PATCH" : "POST",
-					body: JSON.stringify(editingCommentId ? { body } : { ...selection, body }),
-				},
-			);
+			if (editingGeneral) {
+				await request("general-comment", {
+					method: "PUT",
+					body: JSON.stringify({ body }),
+				});
+			} else {
+				await request(
+					editingCommentId ? `comments/${encodeURIComponent(editingCommentId)}` : "comments",
+					{
+						method: editingCommentId ? "PATCH" : "POST",
+						body: JSON.stringify(editingCommentId ? { body } : { ...selection, body }),
+					},
+				);
+			}
 			location.reload();
 		} catch (error) {
 			setStatus(error.message, true);
@@ -365,7 +435,128 @@ if (typeof document !== "undefined") {
 
 	const fileSections = [...document.querySelectorAll(".file-section")];
 	const sidebarLinks = [...document.querySelectorAll(".file-sidebar a")];
+	const hunkCursors = fileSections.flatMap((section) => {
+		const host = section.querySelector("diffs-container");
+		let targets = [];
+		try {
+			targets = JSON.parse(section.dataset.hunkTargets || "[]");
+		} catch {
+			return [];
+		}
+		return targets.flatMap((target) => {
+			if (
+				!host ||
+				(target.side !== "additions" && target.side !== "deletions") ||
+				!Number.isSafeInteger(target.line) ||
+				target.line < 1
+			) return [];
+			const lineType = target.side === "additions"
+				? "change-addition"
+				: "change-deletion";
+			const node = host.shadowRoot?.querySelector(
+				`[data-line-type="${lineType}"][data-line="${target.line}"]`,
+			) || host.shadowRoot?.querySelector(
+				`[data-line-type="${lineType}"][data-column-number="${target.line}"]`,
+			);
+			return node ? [node] : [];
+		});
+	});
+	const agentCommentCursors = [...document.querySelectorAll("[data-agent-comment]")];
+
+	function createNavigator(
+		targets,
+		previousButton,
+		nextButton,
+		position,
+		label,
+		sortByPosition = false,
+	) {
+		let currentIndex = -1;
+		let suppressScrollSync = false;
+		let movement = 0;
+
+		function update() {
+			if (!previousButton || !nextButton || !position) return;
+			position.textContent = targets.length === 0
+				? `No ${label.toLowerCase()}s`
+				: currentIndex < 0
+					? `${label}s ${targets.length}`
+					: `${label} ${currentIndex + 1}/${targets.length}`;
+			previousButton.disabled = currentIndex <= 0;
+			nextButton.disabled = targets.length === 0 || currentIndex === targets.length - 1;
+		}
+
+		function sync() {
+			if (targets.length === 0) return;
+			if (sortByPosition) targets.sort(compareNavigationPositions);
+			const threshold = document.querySelector(".topbar").getBoundingClientRect().bottom + 24;
+			let low = 0;
+			let high = targets.length - 1;
+			let active = -1;
+			while (low <= high) {
+				const middle = Math.floor((low + high) / 2);
+				if (targets[middle].getBoundingClientRect().top <= threshold) {
+					active = middle;
+					low = middle + 1;
+				} else high = middle - 1;
+			}
+			currentIndex = active;
+			update();
+		}
+
+		function move(delta) {
+			const next = nextNavigationIndex(currentIndex, targets.length, delta);
+			if (next < 0 || next === currentIndex) return;
+			currentIndex = next;
+			update();
+			suppressScrollSync = true;
+			const currentMovement = ++movement;
+			requestAnimationFrame(() => {
+				targets[next].scrollIntoView({ block: "start" });
+				const offset = document.querySelector(".topbar").getBoundingClientRect().height + 12;
+				scrollBy({ top: -offset });
+				setTimeout(() => {
+					if (movement === currentMovement) suppressScrollSync = false;
+				}, 250);
+			});
+		}
+
+		update();
+		previousButton?.addEventListener("click", () => move(-1));
+		nextButton?.addEventListener("click", () => move(1));
+		return {
+			isScrollSyncSuppressed: () => suppressScrollSync,
+			move,
+			sync,
+		};
+	}
+
+	const hunkNavigator = createNavigator(
+		hunkCursors,
+		previousHunkButton,
+		nextHunkButton,
+		hunkPosition,
+		"Hunk",
+	);
+	const agentCommentNavigator = createNavigator(
+		agentCommentCursors,
+		previousAgentCommentButton,
+		nextAgentCommentButton,
+		agentCommentPosition,
+		"Agent",
+		true,
+	);
+
+	function moveToHunk(delta) {
+		hunkNavigator.move(delta);
+	}
+
+	function moveToAgentComment(delta) {
+		agentCommentNavigator.move(delta);
+	}
+
 	let scrollUpdatePending = false;
+
 	function updateActiveFile() {
 		scrollUpdatePending = false;
 		if (fileSections.length === 0) return;
@@ -381,6 +572,8 @@ if (typeof document !== "undefined") {
 			if (link.hash === `#${active.id}`) link.setAttribute("aria-current", "location");
 			else link.removeAttribute("aria-current");
 		}
+		for (const navigator of [hunkNavigator, agentCommentNavigator])
+			if (!navigator.isScrollSyncSuppressed()) navigator.sync();
 	}
 	function scheduleActiveFileUpdate() {
 		if (scrollUpdatePending) return;

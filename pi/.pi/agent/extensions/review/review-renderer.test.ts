@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+	compareNavigationPositions,
 	isFeedbackSubmitShortcut,
 	isReviewDecisionDisabled,
+	nextNavigationIndex,
 	reviewCompletion,
 	singleLineSelection,
 	submitReviewDecision,
@@ -51,7 +53,15 @@ test("Pierre SSR stays selectable and renders the audit message at its exact cha
 	assert.match(html, /data-decision="approve">Approve<\/button>/u);
 	assert.match(html, /data-decision="send-feedback">Send Feedback<\/button>/u);
 	assert.match(html, />Audit findings<\/span><kbd>a<\/kbd>/u);
-	assert.match(html, />Staged diff</u);
+	assert.match(html, />Staged · HEAD → index · all source paths</u);
+	assert.match(html, /class="annotation audit-finding" data-agent-comment/u);
+	assert.match(html, /id="hunk-position">Hunks 2<\/span>/u);
+	assert.match(html, /id="agent-comment-position">Agents 1<\/span>/u);
+	assert.match(html, /id="previous-hunk"[^>]*disabled>↑<\/button>/u);
+	assert.match(html, /id="next-hunk"[^>]*>↓<\/button>/u);
+	assert.match(html, /id="previous-agent-comment"[^>]*disabled>↑<\/button>/u);
+	assert.match(html, /id="next-agent-comment"[^>]*>↓<\/button>/u);
+	assert.ok(html.includes('data-hunk-targets="[{&quot;side&quot;:&quot;deletions&quot;,&quot;line&quot;:2}]"'));
 	assert.match(html, /<title>Review<\/title>/u);
 	assert.doesNotMatch(html, /cumulative|Agent note|data-review-range/u);
 	assert.match(html, /src="\/capability\/review\.js"/u);
@@ -88,6 +98,37 @@ test("human comments alone block Approve while findings remain advisory", async 
 	assert.match(empty, /data-decision="send-feedback" disabled>Send Feedback/u);
 });
 
+test("general feedback is additive, editable, and blocks Approve", async () => {
+	const patch = demoReviewPatch();
+	const store = new ReviewStore(patch, [], {
+		clock: () => "2026-08-03T00:00:00.000Z",
+	});
+	const empty = await new ReviewRenderer(patch).render(
+		store.snapshot(),
+		DEFAULT_REVIEW_VIEW_OPTIONS,
+		"/capability/",
+	);
+	assert.match(empty, /id="add-general-comment"[^>]*>Add general feedback<\/button>/u);
+	assert.match(empty, /data-decision="approve">Approve/u);
+	assert.match(empty, /data-decision="send-feedback" disabled/u);
+
+	store.setGeneralComment({ body: "I like this overall, but let's discuss <scope>." });
+	const html = await new ReviewRenderer(patch).render(
+		store.snapshot(),
+		DEFAULT_REVIEW_VIEW_OPTIONS,
+		"/capability/",
+	);
+	assert.ok(html.indexOf('class="general-feedback"') < html.indexOf('class="files"'));
+	assert.match(html, />General feedback</u);
+	assert.match(html, />Entire candidate</u);
+	assert.match(html, /I like this overall, but let&#39;s discuss &lt;scope&gt;\./u);
+	assert.match(html, /class="edit-general-comment"/u);
+	assert.match(html, /class="delete-general-comment"/u);
+	assert.match(html, /data-decision="approve" disabled/u);
+	assert.match(html, /data-decision="send-feedback">Send Feedback/u);
+	assert.match(html, />1 saved comment\.<\/p>/u);
+});
+
 test("view controls render fresh bounded SSR variants without persistent cache state", async () => {
 	const patch = demoReviewPatch();
 	const store = storeWithFinding();
@@ -121,7 +162,9 @@ test("view controls render fresh bounded SSR variants without persistent cache s
 	assert.match(minimal, /data-overflow="wrap"/u);
 	assert.match(minimal, /data-separator="simple"/u);
 	assert.doesNotMatch(minimal, />Audit finding</u);
+	assert.doesNotMatch(minimal, /id="agent-comment-position"/u);
 	assert.match(minimal, />Your comment</u);
+	assert.match(minimal, /id="hunk-position"/u);
 	assert.match(minimal, /audit-findings=off/u);
 	assert.equal(
 		Object.values(renderer as unknown as Record<string, unknown>)
@@ -147,6 +190,29 @@ test("completed decisions render a read-only receipt", async () => {
 	assert.doesNotMatch(html, /class="edit-comment"|class="delete-comment"/u);
 });
 
+test("renderer identifies a selected worktree source and scope", async () => {
+	const staged = demoReviewPatch();
+	const patch = {
+		...staged,
+		snapshot: {
+			...staged.snapshot,
+			source: "worktree" as const,
+			paths: ["src", "test/<greeting>.test.ts"],
+		},
+	};
+	const html = await new ReviewRenderer(patch).render(
+		new ReviewStore(patch).snapshot(),
+		DEFAULT_REVIEW_VIEW_OPTIONS,
+		"/capability/",
+	);
+	assert.match(html, /<strong>Worktree review<\/strong>/u);
+	assert.match(
+		html,
+		/>Worktree · index → tracked working tree · selected: \[&quot;src&quot;,&quot;test\/&lt;greeting&gt;\.test\.ts&quot;\]</u,
+	);
+	assert.match(html, /title="Worktree candidate · index → tracked working tree/u);
+});
+
 test("renderer reports an empty staged patch clearly", async () => {
 	const patch = reviewPatchFromText("", "/repository", "2".repeat(40));
 	const html = await new ReviewRenderer(patch).render(
@@ -155,34 +221,51 @@ test("renderer reports an empty staged patch clearly", async () => {
 		"/capability/",
 	);
 	assert.match(html, /No staged changes to review/u);
-	assert.match(html, /exact staged Git patch is empty/u);
+	assert.match(html, /exact selected Git candidate is empty/u);
 });
 
-test("browser guards account for findings, comments, and terminal receipts", () => {
+test("browser guards account for findings, general feedback, comments, and terminal receipts", () => {
 	assert.equal(isReviewDecisionDisabled("approve", {
 		decision: null,
 		auditFindings: [{}],
 		humanComments: [],
+		generalComment: null,
 	}), false);
 	assert.equal(isReviewDecisionDisabled("approve", {
 		decision: null,
 		auditFindings: [],
 		humanComments: [{}],
+		generalComment: null,
+	}), true);
+	assert.equal(isReviewDecisionDisabled("approve", {
+		decision: null,
+		auditFindings: [],
+		humanComments: [],
+		generalComment: {},
 	}), true);
 	assert.equal(isReviewDecisionDisabled("send-feedback", {
 		decision: null,
 		auditFindings: [],
 		humanComments: [],
+		generalComment: null,
 	}), true);
 	assert.equal(isReviewDecisionDisabled("send-feedback", {
 		decision: null,
 		auditFindings: [{}],
 		humanComments: [],
+		generalComment: null,
+	}), false);
+	assert.equal(isReviewDecisionDisabled("send-feedback", {
+		decision: null,
+		auditFindings: [],
+		humanComments: [],
+		generalComment: {},
 	}), false);
 	assert.equal(isReviewDecisionDisabled("approve", {
 		decision: { kind: "approve" },
 		auditFindings: [],
 		humanComments: [],
+		generalComment: null,
 	}), true);
 	assert.deepEqual(reviewCompletion("approve"), {
 		label: "Approved",
@@ -214,6 +297,27 @@ test("plain browser code uses explicit changed-line gutters", () => {
 	assert.match(source, /change-addition/u);
 	assert.match(source, /change-deletion/u);
 	assert.match(source, /button\.textContent = "\+"/u);
+	assert.match(source, /shortcut === "\{" \|\| shortcut === "\}"/u);
+	assert.match(source, /shortcut === "\[" \|\| shortcut === "\]"/u);
+	assert.match(source, /moveToAgentComment/u);
+	assert.match(source, /moveToHunk/u);
+	assert.doesNotMatch(source, /collapsed|file-collapse/u);
+	assert.equal(compareNavigationPositions(
+		{ getBoundingClientRect: () => ({ top: 20, left: 1 }) },
+		{ getBoundingClientRect: () => ({ top: 10, left: 100 }) },
+	), 10);
+	assert.equal(compareNavigationPositions(
+		{ getBoundingClientRect: () => ({ top: 10, left: 1 }) },
+		{ getBoundingClientRect: () => ({ top: 10, left: 2 }) },
+	), -1);
+	assert.deepEqual([
+		nextNavigationIndex(-1, 3, 1),
+		nextNavigationIndex(-1, 3, -1),
+		nextNavigationIndex(0, 3, -1),
+		nextNavigationIndex(1, 3, 1),
+		nextNavigationIndex(2, 3, 1),
+		nextNavigationIndex(0, 0, 1),
+	], [0, -1, 0, 2, 2, -1]);
 
 	const target = targetFromComposedPath([
 		{ dataset: { utilityButton: "" } },

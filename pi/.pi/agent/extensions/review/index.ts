@@ -5,14 +5,20 @@ import type {
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { AUDIT_ROSTER } from "./audit-roster.ts";
+import { parseReviewCommand } from "./review-command.ts";
+import { reviewArgumentCompletions } from "./review-completion.ts";
 import type {
+	AuditProgress,
 	AuditRequirement,
 	AuditResult,
 	RunAuditInput,
 } from "./audit.ts";
 import type {
 	ReviewPatch,
+	ReviewSelection,
 	ReviewSnapshot,
+	ReviewSource,
 } from "./review-git.ts";
 import type {
 	CreateReviewServerOptions,
@@ -23,6 +29,82 @@ import type {
 const MAX_REQUIREMENT_BYTES = 1024 * 1024;
 const READY_PREFIX = "Review ready  ";
 const READY_LINK = "Open review ↗";
+const PROGRESS_WIDGET = "review-progress";
+const MAX_ACTIVITY_CHARS = 72;
+const REVIEWER_COUNT = AUDIT_ROSTER.length;
+
+function activityText(activity: string | undefined): string {
+	const text = activity?.replaceAll(/\s+/gu, " ").trim() || "thinking";
+	return text.length <= MAX_ACTIVITY_CHARS ? text : `${text.slice(0, MAX_ACTIVITY_CHARS - 1)}…`;
+}
+
+function modelName(model: string): string {
+	return model.split("/").at(-1) ?? model;
+}
+
+function latestActivity(state: AuditProgress): string | undefined {
+	const step = state.latestStep;
+	if (step) return activityText(step.detail ? `${step.tool}(${step.detail})` : step.tool);
+	return state.activity ? activityText(state.activity) : undefined;
+}
+
+function findingText(count: number): string {
+	return count === 0 ? "no findings" : `${count} ${count === 1 ? "finding" : "findings"}`;
+}
+
+function selectionMatchesSnapshot(
+	selection: ReviewSelection,
+	snapshot: ReviewSnapshot,
+): boolean {
+	return selection.source === snapshot.source &&
+		selection.paths.length === snapshot.paths.length &&
+		selection.paths.every((path, index) => path === snapshot.paths[index]);
+}
+
+function renderProgress(
+	ctx: ExtensionCommandContext,
+	states: Map<string, AuditProgress>,
+	expanded: boolean,
+	progress?: AuditProgress,
+): void {
+	if (progress) states.set(progress.reviewer, progress);
+	const complete = [...states.values()].filter(({ phase }) => phase === "complete").length;
+	const theme = ctx.ui.theme;
+	const lines = [
+		`${theme.fg("accent", theme.bold("Review agents"))}${theme.fg("muted", ` · ${complete}/${REVIEWER_COUNT} complete`)}${theme.fg("dim", ` · Ctrl+O ${expanded ? "less" : "details"}`)}`,
+	];
+	for (const state of states.values()) {
+		const count = state.findings ?? 0;
+		const color = state.phase !== "complete" ? "accent" : count === 0 ? "success" : "warning";
+		const mark = theme.fg(color, state.phase === "complete" ? "✓" : "•");
+		const reviewer = theme.fg("toolTitle", theme.bold(state.reviewer));
+		const model = theme.fg("muted", ` · ${modelName(state.model)}`);
+		const label = `${mark} ${reviewer}${model}`;
+		const status = state.phase === "complete"
+			? findingText(count)
+			: state.phase === "started"
+				? "starting"
+				: activityText(state.activity);
+		const coloredStatus = theme.fg(
+			state.phase === "complete" ? color : state.phase === "started" ? "dim" : "thinkingText",
+			status,
+		);
+		if (!expanded) {
+			lines.push(`${label}: ${coloredStatus}`);
+			continue;
+		}
+		const latest = latestActivity(state);
+		const detail = latest
+			? `${theme.fg("dim", " · … ")}${theme.fg("toolOutput", latest)}`
+			: state.phase === "started"
+				? ` · ${coloredStatus}`
+				: "";
+		lines.push(
+			`${label}${theme.fg("muted", ` · ${state.turns}t`)}${state.phase === "complete" ? ` · ${coloredStatus}` : ""}${detail}`,
+		);
+	}
+	ctx.ui.setWidget(PROGRESS_WIDGET, lines);
+}
 
 type WaitResult =
 	| ReviewServerDecision
@@ -32,7 +114,10 @@ type WaitResult =
 type CancelWait = () => void;
 
 export interface ReviewDependencies {
-	readPatch(repository: string): Promise<ReviewPatch>;
+	resolveRepositoryRoot(repository: string): Promise<string>;
+	readPatch(repository: string, selection: ReviewSelection): Promise<ReviewPatch>;
+	listCandidatePaths(repository: string, source: ReviewSource): Promise<string[]>;
+	listRequirementPaths(repository: string): Promise<string[]>;
 	readRequirement(repositoryRoot: string, argument: string): Promise<AuditRequirement | undefined>;
 	runAudit(input: RunAuditInput): Promise<AuditResult>;
 	reviewSnapshotsEqual(left: ReviewSnapshot, right: ReviewSnapshot): boolean | Promise<boolean>;
@@ -40,8 +125,17 @@ export interface ReviewDependencies {
 }
 
 const defaultDependencies: ReviewDependencies = {
-	async readPatch(repository) {
-		return (await import("./review-git.ts")).readGitReviewPatch(repository);
+	async resolveRepositoryRoot(repository) {
+		return (await import("./review-git.ts")).resolveGitRepositoryRoot(repository);
+	},
+	async readPatch(repository, selection) {
+		return (await import("./review-git.ts")).readGitReviewPatch(repository, selection);
+	},
+	async listCandidatePaths(repository, source) {
+		return (await import("./review-git.ts")).listGitReviewPaths(repository, source);
+	},
+	async listRequirementPaths(repository) {
+		return (await import("./review-git.ts")).listGitReviewRequirements(repository);
 	},
 	readRequirement: readReviewRequirement,
 	async runAudit(input) {
@@ -153,7 +247,12 @@ function waitForDecision(
 }
 
 export interface ReviewController {
-	run(argument: string, ctx: ExtensionCommandContext): Promise<void>;
+	/** Submits feedback inside the shutdown-tracked run when a callback is provided. */
+	run(
+		argument: string,
+		ctx: ExtensionCommandContext,
+		submitFeedback?: (feedback: string) => void,
+	): Promise<string | undefined>;
 	shutdown(): Promise<void>;
 }
 
@@ -167,7 +266,7 @@ export function createReviewController(
 	let shuttingDown = false;
 
 	return {
-		async run(argument, ctx) {
+		async run(argument, ctx, submitFeedback) {
 			let settleRun!: () => void;
 			const runSettled = new Promise<void>((resolve) => { settleRun = resolve; });
 			activeRuns.add(runSettled);
@@ -181,15 +280,39 @@ export function createReviewController(
 					id: ctx.sessionManager.getSessionId(),
 				};
 
-				const patch = await dependencies.readPatch(ctx.cwd);
-				if (patch.empty) throw new Error("/review requires a non-empty staged patch");
+				const repositoryRoot = await dependencies.resolveRepositoryRoot(ctx.cwd);
+				const command = parseReviewCommand(argument, repositoryRoot);
+				const patch = await dependencies.readPatch(repositoryRoot, command.selection);
+				if (patch.snapshot.repositoryRoot !== repositoryRoot)
+					throw new Error("Review capture returned a different repository root");
+				if (!selectionMatchesSnapshot(command.selection, patch.snapshot))
+					throw new Error("Review capture did not preserve the requested source and path selection");
+				if (patch.empty) {
+					const scope = command.selection.paths.length === 0
+						? ""
+						: ` in the selected ${command.selection.paths.length === 1 ? "path" : "paths"}`;
+					throw new Error(`/review found no ${command.selection.source} changes${scope}.`);
+				}
 				const requirement = await dependencies.readRequirement(
 					patch.snapshot.repositoryRoot,
-					argument.trim(),
+					command.requirementPath ?? "",
 				);
 				if (shuttingDown) throw new Error("Review session is shutting down");
-				ctx.ui.notify("Auditing staged changes…", "info");
+				ctx.ui.notify(`Review started: ${REVIEWER_COUNT} agents.`, "info");
 				const auditController = new AbortController();
+				const progress = new Map<string, AuditProgress>();
+				let progressActive = true;
+				let expanded = ctx.ui.getToolsExpanded();
+				const stopWatchingInput = ctx.ui.onTerminalInput(() => {
+					queueMicrotask(() => {
+						if (!progressActive) return;
+						const next = ctx.ui.getToolsExpanded();
+						if (next === expanded) return;
+						expanded = next;
+						renderProgress(ctx, progress, expanded);
+					});
+					return undefined;
+				});
 				activeAudits.add(auditController);
 				let audit: AuditResult;
 				try {
@@ -198,19 +321,27 @@ export function createReviewController(
 						patch,
 						parentSession,
 						signal: auditController.signal,
+						onProgress: (update) => renderProgress(ctx, progress, expanded, update),
 						...(requirement ? { requirement } : {}),
 					});
 				} finally {
+					progressActive = false;
+					stopWatchingInput();
 					activeAudits.delete(auditController);
+					ctx.ui.setWidget(PROGRESS_WIDGET, undefined);
 				}
 				if (shuttingDown) throw new Error("Review session is shutting down");
-				const current = await dependencies.readPatch(patch.snapshot.repositoryRoot);
+				const current = await dependencies.readPatch(
+					patch.snapshot.repositoryRoot,
+					command.selection,
+				);
 				if (!(await dependencies.reviewSnapshotsEqual(patch.snapshot, current.snapshot)))
-					throw new Error("Staged changes changed during audit; run /review again");
+					throw new Error("Selected candidate changed during audit; run /review again");
 
 				const server = await dependencies.createServer({
 					patch,
 					auditFindings: audit.findings,
+					readPatch: (repository) => dependencies.readPatch(repository, command.selection),
 				});
 				if (shuttingDown) {
 					await server.close();
@@ -229,15 +360,19 @@ export function createReviewController(
 				}
 
 				switch (decision.kind) {
-					case "approve":
-						ctx.ui.notify("Review approved.", "info");
+					case "approve": {
+						const findings = audit.findings.length === 0
+							? "no findings"
+							: `${audit.findings.length} ${audit.findings.length === 1 ? "finding" : "findings"}`;
+						ctx.ui.notify(`Review approved: ${REVIEWER_COUNT} agents, ${findings}. Candidate: ${patch.snapshot.source}.`, "info");
 						return;
+					}
 					case "stale":
 						ctx.ui.notify(decision.error, "error");
 						return;
 					case "send-feedback":
-						ctx.ui.setEditorText(decision.feedbackMarkdown);
-						ctx.ui.notify("Review feedback loaded into the editor.", "info");
+						if (!submitFeedback) return decision.feedbackMarkdown;
+						submitFeedback(decision.feedbackMarkdown);
 						return;
 					case "cancelled":
 						ctx.ui.notify("Review cancelled.", "info");
@@ -269,15 +404,46 @@ export function registerReview(
 	dependencies: ReviewDependencies = defaultDependencies,
 ): void {
 	const controller = createReviewController(dependencies);
+	const completionCache = new Map<string, { expiresAt: number; value: Promise<string[]> }>();
+	let completionRepository = process.cwd();
+	const cachedCompletion = (key: string, load: () => Promise<string[]>): Promise<string[]> => {
+		const now = Date.now();
+		const cached = completionCache.get(key);
+		if (cached && cached.expiresAt > now) return cached.value;
+		const value = load().catch((error) => {
+			completionCache.delete(key);
+			throw error;
+		});
+		completionCache.set(key, { expiresAt: now + 1_000, value });
+		return value;
+	};
+	pi.on("session_start", (_event, ctx) => {
+		completionRepository = ctx.cwd;
+		completionCache.clear();
+	});
 	pi.on("session_shutdown", async (_event, ctx) => {
+		completionCache.clear();
 		ctx.abort();
 		await controller.shutdown();
 	});
 	pi.registerCommand("review", {
-		description: "Audit and review the exact staged Git patch",
+		description: "Audit staged, worktree, or untracked Git changes",
+		getArgumentCompletions: (prefix) => reviewArgumentCompletions(prefix, {
+			listCandidatePaths: (source) => cachedCompletion(
+				`${completionRepository}\0${source}`,
+				() => dependencies.listCandidatePaths(completionRepository, source),
+			),
+			listRequirementPaths: () => cachedCompletion(
+				`${completionRepository}\0requirements`,
+				() => dependencies.listRequirementPaths(completionRepository),
+			),
+		}),
 		async handler(argument, ctx) {
 			try {
-				await controller.run(argument, ctx);
+				await controller.run(argument, ctx, (feedback) => {
+					pi.sendUserMessage(feedback);
+					ctx.ui.notify("Feedback submitted to Pi.", "info");
+				});
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}

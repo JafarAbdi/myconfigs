@@ -1,12 +1,21 @@
 import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 import { spawn } from "node:child_process";
-import { isAbsolute } from "node:path";
+import { lstat } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export type ReviewSide = "additions" | "deletions";
+export type ReviewSource = "staged" | "worktree" | "untracked";
+
+export interface ReviewSelection {
+	readonly source: ReviewSource;
+	readonly paths: readonly string[];
+}
 
 export interface ReviewSnapshot {
 	readonly repositoryRoot: string;
 	readonly headOid: string;
+	readonly source: ReviewSource;
+	readonly paths: readonly string[];
 	readonly raw: Buffer;
 }
 
@@ -34,6 +43,14 @@ const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 export const MAX_REVIEW_PATCH_BYTES = 8 * 1024 * 1024;
 export const MAX_REVIEW_FILES = 500;
 export const MAX_REVIEW_CHANGED_LINES = 10_000;
+export const MAX_REVIEW_SELECTION_PATHS = 500;
+const GIT_TIMEOUT_MS = 10_000;
+const COMPLETION_GIT_TIMEOUT_MS = 2_000;
+
+export const DEFAULT_REVIEW_SELECTION: ReviewSelection = {
+	source: "staged",
+	paths: [],
+};
 
 function oversized(what: string, actual: number, limit: number): Error {
 	return new Error(
@@ -41,18 +58,28 @@ function oversized(what: string, actual: number, limit: number): Error {
 	);
 }
 
-export function gitDiffArguments(): string[] {
+function literalPathspec(path: string): string {
+	return path === "." ? ":(top)" : `:(top,literal)${path}`;
+}
+
+export function gitDiffArguments(
+	selection: ReviewSelection = DEFAULT_REVIEW_SELECTION,
+): string[] {
+	if (selection.source === "untracked")
+		throw new Error("untracked Review capture does not use git diff against a Git tree");
 	return [
 		"diff",
-		"--cached",
+		...(selection.source === "staged" ? ["--cached"] : []),
 		"--no-color",
 		"--no-ext-diff",
 		"--no-textconv",
 		"--diff-algorithm=histogram",
 		"--find-renames",
+		"--full-index",
 		"--unified=3",
-		"HEAD",
+		...(selection.source === "staged" ? ["HEAD"] : []),
 		"--",
+		...selection.paths.map(literalPathspec),
 	];
 }
 
@@ -93,11 +120,38 @@ function requireRoot(value: string): string {
 	return value;
 }
 
-function decodePatch(raw: Buffer): string {
+function normalizeSelection(
+	selection: ReviewSelection,
+	repositoryRoot: string,
+): ReviewSelection {
+	if (selection.source !== "staged" && selection.source !== "worktree" && selection.source !== "untracked")
+		throw new Error("Review source must be staged, worktree, or untracked");
+	if (!Array.isArray(selection.paths) || selection.paths.length > MAX_REVIEW_SELECTION_PATHS)
+		throw new Error(`Review accepts at most ${MAX_REVIEW_SELECTION_PATHS} selected paths`);
+	const paths: string[] = [];
+	const seen = new Set<string>();
+	for (const value of selection.paths) {
+		if (
+			typeof value !== "string" || !value || /[\0\r\n\u2028\u2029]/u.test(value) ||
+			Buffer.byteLength(value, "utf8") > 4_096
+		) throw new Error("Review paths must be non-empty, NUL/newline-free text of at most 4096 bytes");
+		if (isAbsolute(value)) throw new Error("Review paths must be repository-relative");
+		const path = relative(repositoryRoot, resolve(repositoryRoot, value)) || ".";
+		if (path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path))
+			throw new Error("Review path escapes the repository root");
+		if (!seen.has(path)) {
+			seen.add(path);
+			paths.push(path);
+		}
+	}
+	return { source: selection.source, paths };
+}
+
+function decodeUtf8(raw: Buffer, label: string): string {
 	try {
 		return new TextDecoder("utf-8", { fatal: true }).decode(raw);
 	} catch {
-		throw new Error("Review patch is not valid UTF-8");
+		throw new Error(`${label} is not valid UTF-8`);
 	}
 }
 
@@ -105,18 +159,23 @@ export function reviewPatchFromBuffer(
 	raw: Buffer,
 	repositoryRoot: string,
 	headOid: string,
+	selection: ReviewSelection = DEFAULT_REVIEW_SELECTION,
 ): ReviewPatch {
+	const root = requireRoot(repositoryRoot);
+	const normalized = normalizeSelection(selection, root);
 	const snapshot = {
-		repositoryRoot: requireRoot(repositoryRoot),
+		repositoryRoot: root,
 		headOid: requireOid(headOid, "HEAD"),
+		source: normalized.source,
+		paths: normalized.paths,
 		raw: Buffer.from(raw),
 	};
 	if (raw.length > MAX_REVIEW_PATCH_BYTES)
 		throw oversized("the cumulative patch", raw.length, MAX_REVIEW_PATCH_BYTES);
-	const text = decodePatch(raw);
+	const text = decodeUtf8(raw, "Review patch");
 	if (raw.length === 0) return { snapshot, text, empty: true, files: [] };
 
-	const parsed = parsePatchFiles(text, `${snapshot.headOid}:index`, true)
+	const parsed = parsePatchFiles(text, `${snapshot.headOid}:${snapshot.source}`, true)
 		.flatMap((entry) => entry.files);
 	if (parsed.length === 0)
 		throw new Error("Git produced a non-empty Review patch that Pierre could not parse");
@@ -142,8 +201,9 @@ export function reviewPatchFromText(
 	text: string,
 	repositoryRoot: string,
 	headOid: string,
+	selection: ReviewSelection = DEFAULT_REVIEW_SELECTION,
 ): ReviewPatch {
-	return reviewPatchFromBuffer(Buffer.from(text, "utf8"), repositoryRoot, headOid);
+	return reviewPatchFromBuffer(Buffer.from(text, "utf8"), repositoryRoot, headOid, selection);
 }
 
 export function reviewSnapshotsEqual(
@@ -152,6 +212,9 @@ export function reviewSnapshotsEqual(
 ): boolean {
 	return left.repositoryRoot === right.repositoryRoot &&
 		left.headOid === right.headOid &&
+		left.source === right.source &&
+		left.paths.length === right.paths.length &&
+		left.paths.every((path, index) => path === right.paths[index]) &&
 		left.raw.equals(right.raw);
 }
 
@@ -159,6 +222,9 @@ async function runGit(
 	repository: string,
 	arguments_: string[],
 	maxStdoutBytes = 64 * 1024,
+	acceptedCodes: readonly number[] = [0],
+	allowStderr = true,
+	timeoutMs = GIT_TIMEOUT_MS,
 ): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const child = spawn("git", arguments_, {
@@ -172,6 +238,12 @@ async function runGit(
 		let stdoutBytes = 0;
 		let stderrBytes = 0;
 		let exceeded = false;
+		let timedOut = false;
+		const timeout = setTimeout(() => {
+			timedOut = true;
+			child.kill("SIGKILL");
+		}, timeoutMs);
+		timeout.unref();
 		child.stdout.on("data", (chunk: Buffer) => {
 			stdoutBytes += chunk.length;
 			if (stdoutBytes > maxStdoutBytes) {
@@ -186,22 +258,45 @@ async function runGit(
 			stderrBytes += chunk.length;
 			stderr.push(chunk.subarray(0, 64 * 1024 - (stderrBytes - chunk.length)));
 		});
-		child.once("error", reject);
+		child.once("error", (error) => {
+			clearTimeout(timeout);
+			reject(error);
+		});
 		child.once("close", (code, signal) => {
+			clearTimeout(timeout);
+			if (timedOut) {
+				reject(new Error(`git ${arguments_[0]} timed out after ${timeoutMs}ms`));
+				return;
+			}
 			if (exceeded) {
 				reject(oversized("the cumulative patch", stdoutBytes, maxStdoutBytes));
 				return;
 			}
-			if (code === 0) {
+			const detail = Buffer.concat(stderr).toString("utf8").trim().slice(0, 4_096);
+			if (code !== null && acceptedCodes.includes(code) && (allowStderr || !detail)) {
 				resolve(Buffer.concat(stdout));
 				return;
 			}
-			const detail = Buffer.concat(stderr).toString("utf8").trim().slice(0, 4_096);
 			reject(new Error(
 				`git ${arguments_[0]} failed${signal ? ` (${signal})` : ` (${code ?? "unknown"})`}${detail ? `: ${detail}` : ""}`,
 			));
 		});
 	});
+}
+
+export async function resolveGitRepositoryRoot(
+	repository: string,
+	timeoutMs = GIT_TIMEOUT_MS,
+): Promise<string> {
+	const output = await runGit(
+		repository,
+		["rev-parse", "--show-toplevel"],
+		64 * 1024,
+		[0],
+		true,
+		timeoutMs,
+	);
+	return requireRoot(output.toString("utf8").trim());
 }
 
 async function resolveHead(repositoryRoot: string): Promise<string> {
@@ -214,13 +309,142 @@ async function resolveHead(repositoryRoot: string): Promise<string> {
 	return requireOid(output.toString("ascii").trim(), "HEAD");
 }
 
-export async function readGitReviewPatch(repository: string): Promise<ReviewPatch> {
-	const rootOutput = await runGit(repository, ["rev-parse", "--show-toplevel"]);
-	const repositoryRoot = requireRoot(rootOutput.toString("utf8").trim());
+function untrackedListArguments(paths: readonly string[]): string[] {
+	return [
+		"ls-files",
+		"--others",
+		"--exclude-standard",
+		"-z",
+		"--",
+		...paths.map(literalPathspec),
+	];
+}
+
+function untrackedDiffArguments(path: string): string[] {
+	return [
+		"diff",
+		"--no-index",
+		"--no-color",
+		"--no-ext-diff",
+		"--no-textconv",
+		"--diff-algorithm=histogram",
+		"--full-index",
+		"--unified=3",
+		"--",
+		"/dev/null",
+		path,
+	];
+}
+
+async function readUntrackedPatch(
+	repositoryRoot: string,
+	selection: ReviewSelection,
+): Promise<Buffer> {
+	const deadline = Date.now() + GIT_TIMEOUT_MS;
+	const remainingTime = (): number => {
+		const remaining = deadline - Date.now();
+		if (remaining <= 0) throw new Error(`untracked Review capture timed out after ${GIT_TIMEOUT_MS}ms`);
+		return remaining;
+	};
+	const listed = await runGit(
+		repositoryRoot,
+		untrackedListArguments(selection.paths),
+		MAX_REVIEW_PATCH_BYTES,
+		[0],
+		true,
+		remainingTime(),
+	);
+	const text = decodeUtf8(listed, "Untracked file list");
+	const names = text ? text.split("\0").slice(0, -1) : [];
+	if (names.length > MAX_REVIEW_FILES)
+		throw oversized("the changed file count", names.length, MAX_REVIEW_FILES);
+	const chunks: Buffer[] = [];
+	let bytes = 0;
+	for (const name of names) {
+		const path = relative(repositoryRoot, resolve(repositoryRoot, name));
+		if (!path || path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path))
+			throw new Error("Git returned an invalid untracked path");
+		const metadata = await lstat(resolve(repositoryRoot, path)).catch(() => undefined);
+		if (!metadata || (!metadata.isFile() && !metadata.isSymbolicLink()))
+			throw new Error(`Untracked Review path is not a file or symbolic link: ${path}`);
+		const chunk = await runGit(
+			repositoryRoot,
+			untrackedDiffArguments(path),
+			MAX_REVIEW_PATCH_BYTES - bytes,
+			[0, 1],
+			false,
+			remainingTime(),
+		);
+		bytes += chunk.length;
+		chunks.push(chunk);
+	}
+	return Buffer.concat(chunks, bytes);
+}
+
+function decodePathList(raw: Buffer, label: string): string[] {
+	const text = decodeUtf8(raw, label);
+	if (!text) return [];
+	return [...new Set(text.split("\0").slice(0, -1))].sort();
+}
+
+export async function listGitReviewPaths(
+	repository: string,
+	source: ReviewSource,
+): Promise<string[]> {
+	const repositoryRoot = await resolveGitRepositoryRoot(repository, COMPLETION_GIT_TIMEOUT_MS);
+	if (source === "untracked") {
+		return decodePathList(
+			await runGit(
+				repositoryRoot,
+				untrackedListArguments([]),
+				1024 * 1024,
+				[0],
+				true,
+				COMPLETION_GIT_TIMEOUT_MS,
+			),
+			"Untracked completion file list",
+		);
+	}
+	const arguments_ = gitDiffArguments({ source, paths: [] });
+	arguments_.splice(1, 0, "--name-only", "-z");
+	return decodePathList(
+		await runGit(
+			repositoryRoot,
+			arguments_,
+			1024 * 1024,
+			[0],
+			true,
+			COMPLETION_GIT_TIMEOUT_MS,
+		),
+		"Review completion file list",
+	);
+}
+
+export async function listGitReviewRequirements(repository: string): Promise<string[]> {
+	const repositoryRoot = await resolveGitRepositoryRoot(repository, COMPLETION_GIT_TIMEOUT_MS);
+	const raw = await runGit(repositoryRoot, [
+		"ls-files",
+		"--cached",
+		"--others",
+		"--exclude-standard",
+		"-z",
+	], 1024 * 1024, [0], true, COMPLETION_GIT_TIMEOUT_MS);
+	return decodePathList(raw, "Review requirement completion file list")
+		.filter((path) => path.endsWith(".md"));
+}
+
+export async function readGitReviewPatch(
+	repository: string,
+	selection: ReviewSelection = DEFAULT_REVIEW_SELECTION,
+): Promise<ReviewPatch> {
+	const repositoryRoot = await resolveGitRepositoryRoot(repository);
+	const normalized = normalizeSelection(selection, repositoryRoot);
 	const before = await resolveHead(repositoryRoot);
-	const raw = await runGit(repositoryRoot, gitDiffArguments(), MAX_REVIEW_PATCH_BYTES);
+	const raw = normalized.source === "untracked"
+		? await readUntrackedPatch(repositoryRoot, normalized)
+		: await runGit(repositoryRoot, gitDiffArguments(normalized), MAX_REVIEW_PATCH_BYTES);
 	const after = await resolveHead(repositoryRoot);
 	if (before !== after)
-		throw new Error("Review HEAD changed while the staged candidate was being captured");
-	return reviewPatchFromBuffer(raw, repositoryRoot, before);
+		throw new Error("Review HEAD changed while the candidate was being captured");
+	return reviewPatchFromBuffer(raw, repositoryRoot, before, normalized);
 }

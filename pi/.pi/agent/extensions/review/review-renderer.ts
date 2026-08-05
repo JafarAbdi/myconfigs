@@ -32,14 +32,30 @@ const COMMENT_CONTROL_CSS = `
 	position: relative;
 }
 [data-utility-button] {
-	opacity: 0;
+	appearance: none;
+	background: transparent;
+	border: 0;
+	border-radius: 5px;
+	color: var(--review-accent);
+	cursor: pointer;
+	display: grid;
+	font: 600 13px/1 ui-sans-serif, system-ui, sans-serif;
+	height: 24px;
+	opacity: 0.55;
+	padding: 0;
+	place-items: center;
+	width: 24px;
 }
-[data-column-number]:hover [data-utility-button],
+[data-column-number]:hover [data-utility-button] {
+	background: var(--review-accent-soft);
+	opacity: 0.78;
+}
+[data-utility-button]:hover,
 [data-utility-button]:focus-visible {
 	opacity: 1;
 }
 [data-utility-button]:focus-visible {
-	outline: 2px solid #72aaff;
+	outline: 2px solid var(--review-accent);
 	outline-offset: 1px;
 }
 [data-disable-line-numbers] [data-column-number] {
@@ -59,6 +75,11 @@ interface AnnotationGroup {
 	comments: HumanComment[];
 }
 
+interface HunkTarget {
+	side: ReviewSide;
+	line: number;
+}
+
 function escapeHtml(value: string): string {
 	return value
 		.replaceAll("&", "&amp;")
@@ -68,6 +89,18 @@ function escapeHtml(value: string): string {
 		.replaceAll("'", "&#39;");
 }
 
+function sourceLabel(source: ReviewPatch["snapshot"]["source"]): string {
+	return source === "staged" ? "Staged" : source === "worktree" ? "Worktree" : "Untracked";
+}
+
+function sourceComparison(source: ReviewPatch["snapshot"]["source"]): string {
+	return source === "staged"
+		? "HEAD → index"
+		: source === "worktree"
+			? "index → tracked working tree"
+			: "/dev/null → untracked files";
+}
+
 function targetLabel(
 	side: ReviewSide,
 	startLine: number,
@@ -75,6 +108,23 @@ function targetLabel(
 ): string {
 	const lines = startLine === endLine ? `L${startLine}` : `L${startLine}–L${endLine}`;
 	return `${side === "additions" ? "new" : "old"} ${lines}`;
+}
+
+function hunkTargets(file: ReviewPatchFile): HunkTarget[] {
+	return file.fileDiff.hunks.map((hunk) => {
+		let additionLine = hunk.additionStart;
+		let deletionLine = hunk.deletionStart;
+		for (const content of hunk.hunkContent) {
+			if (content.type === "context") {
+				additionLine += content.lines;
+				deletionLine += content.lines;
+				continue;
+			}
+			if (content.deletions > 0) return { side: "deletions", line: deletionLine };
+			if (content.additions > 0) return { side: "additions", line: additionLine };
+		}
+		throw new Error(`Review hunk for ${file.filePath} has no changed lines`);
+	});
 }
 
 function annotationGroups(
@@ -110,7 +160,7 @@ function renderAnnotationGroup(group: AnnotationGroup, canEdit: boolean): string
 		lineNumber: group.line,
 	});
 	const findings = group.findings.map(
-		(finding) => `<article class="annotation audit-finding">
+		(finding) => `<article class="annotation audit-finding" data-agent-comment>
 	<div class="annotation-label"><strong>Audit finding</strong><span>${escapeHtml(finding.category)} · ${escapeHtml(targetLabel(finding.side, finding.line))}</span></div>
 	<p class="finding-message">${escapeHtml(finding.message)}</p>
 </article>`,
@@ -122,6 +172,25 @@ function renderAnnotationGroup(group: AnnotationGroup, canEdit: boolean): string
 </article>`,
 	);
 	return `<div class="annotation-group" slot="${escapeHtml(slot)}">${[...findings, ...comments].join("")}</div>`;
+}
+
+function renderGeneralFeedback(state: ReviewState): string {
+	if (!state.generalComment) {
+		return state.decision
+			? ""
+			: `<section class="general-feedback empty-general-feedback" aria-label="General feedback">
+	<button type="button" id="add-general-comment" class="button quiet">Add general feedback</button>
+</section>`;
+	}
+	const actions = state.decision
+		? ""
+		: `<div class="comment-actions"><button type="button" class="edit-general-comment">Edit</button><button type="button" class="delete-general-comment">Delete</button></div>`;
+	return `<section class="general-feedback" aria-label="General feedback">
+	<article class="annotation human-comment general-comment">
+		<div class="annotation-label"><strong>General feedback</strong><div class="annotation-meta"><span>Entire candidate</span>${actions}</div></div>
+		<p>${escapeHtml(state.generalComment.body)}</p>
+	</article>
+</section>`;
 }
 
 function renderDecision(state: ReviewState): string {
@@ -172,6 +241,21 @@ function renderModeControls(
 	${link("auto", "Auto", "0")}
 	${link("split", "Split", "1")}
 	${link("stack", "Stack", "2")}
+</nav>`;
+}
+
+function renderNavigationControl(
+	kind: "hunk" | "agent-comment",
+	label: "Hunk" | "Agent",
+	count: number,
+	previousShortcut: string,
+	nextShortcut: string,
+): string {
+	const disabled = count === 0 ? " disabled" : "";
+	return `<nav class="navigation-control" aria-label="${label} navigation">
+	<button type="button" id="previous-${kind}" aria-label="Previous ${label.toLowerCase()}" title="Previous ${label.toLowerCase()} (${previousShortcut})" disabled>↑</button>
+	<span id="${kind}-position">${count === 0 ? `No ${label.toLowerCase()}s` : `${label}s ${count}`}</span>
+	<button type="button" id="next-${kind}" aria-label="Next ${label.toLowerCase()}" title="Next ${label.toLowerCase()} (${nextShortcut})"${disabled}>↓</button>
 </nav>`;
 }
 
@@ -248,7 +332,8 @@ export class ReviewRenderer {
 		const changeType = file.type === "change"
 			? ""
 			: `<span class="change-type">${escapeHtml(file.type)}</span>`;
-		return `<section id="file-${index}" class="file-section" data-review-file="${escapeHtml(file.filePath)}">
+		const targets = escapeHtml(JSON.stringify(hunkTargets(file)));
+		return `<section id="file-${index}" class="file-section" data-review-file="${escapeHtml(file.filePath)}" data-hunk-targets="${targets}">
 	<header class="file-header"><div><h2>${escapeHtml(file.filePath)}</h2>${previous}</div>${changeType}</header>
 	${diff}
 </section>`;
@@ -261,8 +346,12 @@ export class ReviewRenderer {
 		autoLayout?: ReviewAutoLayout,
 	): Promise<string> {
 		const resolvedMode = options.mode === "auto" ? (autoLayout ?? "split") : options.mode;
+		const source = sourceLabel(this.patch.snapshot.source);
+		const scope = this.patch.snapshot.paths.length === 0
+			? "all source paths"
+			: `selected: ${JSON.stringify(this.patch.snapshot.paths)}`;
 		const files = this.patch.empty
-			? `<section class="empty-diff"><h2>No staged changes to review</h2><p>The exact staged Git patch is empty.</p></section>`
+			? `<section class="empty-diff"><h2>No ${source.toLowerCase()} changes to review</h2><p>The exact selected Git candidate is empty.</p></section>`
 			: (await Promise.all(
 				this.patch.files.map((file, index) =>
 					this.renderFile(file, index, state, options, resolvedMode),
@@ -272,9 +361,14 @@ export class ReviewRenderer {
 			`<a href="#file-${index}"${index === 0 ? ' aria-current="location"' : ""} title="${escapeHtml(file.filePath)}"><span class="sidebar-path">${escapeHtml(file.filePath)}</span><span class="file-counts"><span class="additions">+${file.changed.additions.length}</span><span class="deletions">-${file.changed.deletions.length}</span></span></a>`,
 		).join("");
 		const completed = state.decision !== null;
-		const approveDisabled = completed || state.humanComments.length > 0;
+		const humanCommentCount = state.humanComments.length + (state.generalComment ? 1 : 0);
+		const hunkCount = this.patch.files.reduce(
+			(total, file) => total + file.fileDiff.hunks.length,
+			0,
+		);
+		const approveDisabled = completed || humanCommentCount > 0;
 		const feedbackDisabled = completed ||
-			(state.auditFindings.length === 0 && state.humanComments.length === 0);
+			(state.auditFindings.length === 0 && humanCommentCount === 0);
 		return `<!doctype html>
 <html lang="en">
 <head>
@@ -285,9 +379,11 @@ export class ReviewRenderer {
 </head>
 <body class="sidebar-hidden" data-api-base="${escapeHtml(basePath)}api/" data-mode="${options.mode}" data-resolved-mode="${resolvedMode}" data-layout="${resolvedMode === "stack" ? "unified" : "split"}" data-completed="${completed}">
 	<header class="topbar">
-		<div class="review-title" title="Exact staged snapshot at HEAD ${escapeHtml(state.snapshot.headOid)}"><strong>Review</strong><span>${this.patch.files.length} file${this.patch.files.length === 1 ? "" : "s"}</span></div>
+		<div class="review-title" title="${source} candidate · ${escapeHtml(sourceComparison(this.patch.snapshot.source))} · HEAD ${escapeHtml(state.snapshot.headOid)}"><strong>${source} review</strong><span>${this.patch.files.length} file${this.patch.files.length === 1 ? "" : "s"}</span></div>
 		<div class="topbar-actions">
 			${renderDecision(state)}
+			${renderNavigationControl("hunk", "Hunk", hunkCount, "[", "]")}
+			${options.auditFindings ? renderNavigationControl("agent-comment", "Agent", state.auditFindings.length, "{", "}") : ""}
 			${renderModeControls(basePath, options, autoLayout)}
 			${renderViewMenu(basePath, options, autoLayout)}
 		</div>
@@ -295,7 +391,8 @@ export class ReviewRenderer {
 	<main class="review-shell">
 		<aside class="file-sidebar" aria-label="Changed files"><div class="sidebar-heading">Files</div><nav>${sidebar}</nav></aside>
 		<div class="review-content">
-			<section class="review-context"><span>Staged diff</span><span id="review-instruction">${completed ? "Read-only completion receipt." : "Click + on a changed line to comment; Shift-click + to extend a contiguous range."}</span></section>
+			<section class="review-context"><span>${source} · ${escapeHtml(sourceComparison(this.patch.snapshot.source))} · ${escapeHtml(scope)}</span><span id="review-instruction">${completed ? "Read-only completion receipt." : "Click + on a changed line to comment; Shift-click + to extend a contiguous range."}</span></section>
+			${renderGeneralFeedback(state)}
 			<div class="files">${files}</div>
 		</div>
 	</main>
@@ -306,7 +403,7 @@ export class ReviewRenderer {
 	</section>
 	<footer class="decision-bar">
 		<div class="decision-inner">
-			<p id="browser-status" role="status" aria-live="polite">${state.decision ? `${state.decision.kind === "approve" ? "Approved" : "Feedback sent"}. Decision recorded; this tab may be closed.` : `${state.humanComments.length} saved comment${state.humanComments.length === 1 ? "" : "s"}.`}</p>
+			<p id="browser-status" role="status" aria-live="polite">${state.decision ? `${state.decision.kind === "approve" ? "Approved" : "Feedback sent"}. Decision recorded; this tab may be closed.` : `${humanCommentCount} saved comment${humanCommentCount === 1 ? "" : "s"}.`}</p>
 			<div class="decision-actions">
 				<button type="button" class="button approve" data-decision="approve"${approveDisabled ? " disabled" : ""}>Approve</button>
 				<button type="button" class="button feedback" data-decision="send-feedback"${feedbackDisabled ? " disabled" : ""}>Send Feedback</button>

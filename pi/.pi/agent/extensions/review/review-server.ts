@@ -232,8 +232,8 @@ function staleMessage(original: ReviewPatch, current: ReviewPatch): string {
 	if (original.snapshot.headOid !== current.snapshot.headOid)
 		return "Review is stale: HEAD changed; run /review again.";
 	if (!original.snapshot.raw.equals(current.snapshot.raw))
-		return "Review is stale: staged patch bytes changed; run /review again.";
-	return "Review is stale: the staged candidate repository changed; run /review again.";
+		return `Review is stale: ${original.snapshot.source} candidate patch bytes changed; run /review again.`;
+	return "Review is stale: the selected candidate identity changed; run /review again.";
 }
 
 export async function createReviewServer(
@@ -243,14 +243,19 @@ export async function createReviewServer(
 		patch,
 		auditFindings,
 		view: initialView = DEFAULT_REVIEW_VIEW_OPTIONS,
-		readPatch = readGitReviewPatch,
+		readPatch: providedReadPatch,
 	} = options;
+	const readPatch = providedReadPatch ?? ((repository: string) => readGitReviewPatch(repository, {
+		source: patch.snapshot.source,
+		paths: [...patch.snapshot.paths],
+	}));
 	const store = new ReviewStore(patch, auditFindings);
 	const renderer = new ReviewRenderer(patch);
 	const capability = randomBytes(24).toString("base64url");
 	const basePath = `/${capability}/`;
 	const apiPath = `${basePath}api`;
 	const commentsPath = `${apiPath}/comments`;
+	const generalCommentPath = `${apiPath}/general-comment`;
 	let expectedHost = "";
 	let terminalScheduled = false;
 	let resolveDecision!: (decision: ReviewServerDecision) => void;
@@ -315,6 +320,20 @@ export async function createReviewServer(
 				sendJson(response, 201, { state });
 				return;
 			}
+			if (request.method === "PUT" && url.pathname === generalCommentPath) {
+				if (terminalScheduled)
+					throw new ReviewStateError("review already has a terminal result", 409);
+				const state = store.setGeneralComment(await readJson(request));
+				sendJson(response, 200, { state });
+				return;
+			}
+			if (request.method === "DELETE" && url.pathname === generalCommentPath) {
+				if (terminalScheduled)
+					throw new ReviewStateError("review already has a terminal result", 409);
+				const state = store.deleteGeneralComment();
+				sendJson(response, 200, { state });
+				return;
+			}
 			const id = commentId(url.pathname, commentsPath);
 			if (id && request.method === "PATCH") {
 				if (terminalScheduled)
@@ -340,7 +359,7 @@ export async function createReviewServer(
 				} catch {
 					if (terminalScheduled)
 						throw new ReviewStateError("review already has a terminal result", 409);
-					const error = "Review is stale: the staged candidate could not be reread; run /review again.";
+					const error = "Review is stale: the selected candidate could not be reread; run /review again.";
 					scheduleDecision(response, { kind: "stale", error });
 					sendJson(response, 409, { error });
 					return;

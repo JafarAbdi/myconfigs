@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "demo": "node review-demo.ts",
     "test:focused": "node --test index.test.ts",
     "test:full": "node --test *.test.ts",
     "test": "npm run test:full"

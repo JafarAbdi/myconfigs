@@ -132,9 +132,11 @@ test("loopback capability routes retain security, views, bounds, and comment CRU
 		const stateResponse = await fetch(new URL("state", api));
 		const stateText = await stateResponse.text();
 		const initial = JSON.parse(stateText);
+		assert.equal(initial.state.version, 2);
 		assert.deepEqual(initial.state.snapshot, { headOid: patch.snapshot.headOid });
 		assert.equal(initial.state.auditFindings.length, 1);
 		assert.equal(initial.state.humanComments.length, 0);
+		assert.equal(initial.state.generalComment, null);
 		assert.deepEqual(initial.files[0].changed.additions, [2, 3]);
 		assert.doesNotMatch(stateText, /repositoryRoot|"raw"|diff --git|\/repository/u);
 
@@ -177,6 +179,71 @@ test("loopback capability routes retain security, views, bounds, and comment CRU
 	}
 });
 
+test("general-comment route provides exact CRUD, decisions, Markdown, and terminal guards", async () => {
+	const patch = demoReviewPatch();
+	const server = await createReviewServer({
+		patch,
+		auditFindings: [],
+		readPatch: unchangedPatchReader(patch),
+	});
+	try {
+		const route = new URL("api/general-comment", server.url);
+		assert.equal((await fetch(route, {
+			method: "PUT",
+			body: JSON.stringify({ body: "No." }),
+			headers: {
+				"content-type": "application/json",
+				origin: "https://example.invalid",
+			},
+		})).status, 403);
+		assert.equal((await fetch(route, { method: "PUT", body: "{}" })).status, 415);
+		assert.equal((await json(route, "PUT", { body: "No.", extra: true })).status, 400);
+		assert.equal((await json(route, "PUT", { body: " " })).status, 400);
+
+		const createdResponse = await json(route, "PUT", { body: "Candidate-wide concern." });
+		assert.equal(createdResponse.status, 200);
+		const created = (await createdResponse.json()).state.generalComment;
+		assert.equal(created.body, "Candidate-wide concern.");
+		const updatedResponse = await json(route, "PUT", { body: "  Revised concern.  " });
+		assert.equal(updatedResponse.status, 200);
+		const updated = (await updatedResponse.json()).state.generalComment;
+		assert.equal(updated.body, "Revised concern.");
+		assert.equal(updated.createdAt, created.createdAt);
+		assert.equal((await json(new URL("api/decision", server.url), "POST", {
+			kind: "approve",
+		})).status, 409);
+
+		const deleted = await json(route, "DELETE");
+		assert.equal(deleted.status, 200);
+		assert.equal((await deleted.json()).state.generalComment, null);
+		assert.equal((await json(route, "DELETE")).status, 404);
+		assert.equal((await json(route, "PUT", { body: "Address this across the candidate." })).status, 200);
+
+		const decisionResponse = await json(new URL("api/decision", server.url), "POST", {
+			kind: "send-feedback",
+		});
+		assert.equal(decisionResponse.status, 200);
+		const receipt = await decisionResponse.json();
+		assert.equal(receipt.state.decision.kind, "send-feedback");
+		assert.deepEqual(await server.decision, {
+			kind: "send-feedback",
+			decidedAt: receipt.state.decision.decidedAt,
+			feedbackMarkdown: `# Review feedback
+
+## General
+
+**HUMAN**
+
+Address this across the candidate.
+`,
+		});
+		assert.equal((await json(route, "PUT", { body: "late" })).status, 409);
+		assert.equal((await json(route, "DELETE")).status, 409);
+	} finally {
+		await server.close();
+	}
+});
+
 test("audit-only Send Feedback returns a deterministic receipt after the response", async () => {
 	const patch = demoReviewPatch();
 	let rereadStarted!: () => void;
@@ -211,10 +278,11 @@ test("audit-only Send Feedback returns a deterministic receipt after the respons
 			decidedAt: receipt.state.decision.decidedAt,
 			feedbackMarkdown: `# Review feedback
 
-## Audit findings
-- src/greeting.ts:new L2 — Whitespace-only names now take a new fallback path.
+## src/greeting.ts:new L2
 
-## Human comments
+> **AGENT**
+>
+> Whitespace-only names now take a new fallback path.
 `,
 		});
 		assert.equal(resolved, true);
@@ -292,7 +360,7 @@ test("exact HEAD and staged-byte drift each return 409 without recording a decis
 				original.snapshot.repositoryRoot,
 				original.snapshot.headOid,
 			),
-			error: /Review is stale: staged patch bytes changed/u,
+			error: /Review is stale: staged candidate patch bytes changed/u,
 		},
 	];
 	for (const drift of cases) await t.test(drift.name, async () => {
@@ -377,6 +445,37 @@ test("default freshness checks and approval do not mutate Git or create durable 
 			entries: readdirSync(repository).sort(),
 		}, before);
 		assert.equal((await fetch(new URL("api/state", server.url))).status, 200);
+	} finally {
+		await server?.close();
+		rmSync(repository, { recursive: true, force: true });
+	}
+});
+
+test("default untracked subset freshness ignores changes outside the selected paths", async () => {
+	const repository = mkdtempSync(join(tmpdir(), "review-server-untracked-"));
+	let server: ReviewServer | undefined;
+	try {
+		git(repository, "init", "-b", "main");
+		git(repository, "config", "user.name", "Review test");
+		git(repository, "config", "user.email", "review@example.invalid");
+		writeFileSync(join(repository, "tracked.txt"), "base\n");
+		git(repository, "add", "tracked.txt");
+		git(repository, "commit", "-m", "base");
+		writeFileSync(join(repository, "selected.txt"), "selected\n");
+		const { readGitReviewPatch } = await import("./review-git.ts");
+		const patch = await readGitReviewPatch(repository, {
+			source: "untracked",
+			paths: ["selected.txt"],
+		});
+		server = await createReviewServer({ patch, auditFindings: [] });
+		writeFileSync(join(repository, "outside.txt"), "outside\n");
+		const beforeDecision = git(repository, "status", "--porcelain=v2");
+		const response = await json(new URL("api/decision", server.url), "POST", {
+			kind: "approve",
+		});
+		assert.equal(response.status, 200);
+		assert.equal((await server.decision).kind, "approve");
+		assert.equal(git(repository, "status", "--porcelain=v2"), beforeDecision);
 	} finally {
 		await server?.close();
 		rmSync(repository, { recursive: true, force: true });
