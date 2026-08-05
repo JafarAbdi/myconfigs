@@ -103,10 +103,10 @@ export class SshConnection {
 		return this.remoteHomePath(".cache");
 	}
 
-	async changeRemoteCwd(input: string): Promise<string> {
+	async resolveRemoteCwd(input: string): Promise<string> {
 		const target = input.trim();
 		if (!target) {
-			throw new Error("Usage: /ssh-cd <remote-directory>");
+			throw new Error("SSH remote cwd must not be empty");
 		}
 		const nextRemoteCwd = (await this.exec(this.buildChangeDirectoryCommand(target))).toString("utf8").trim();
 		this.setRemoteCwd(nextRemoteCwd);

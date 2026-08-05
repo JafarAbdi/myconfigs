@@ -8,12 +8,7 @@ import {
 	createReadToolDefinition,
 	createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import {
-	type CompletionErrorReporter,
-	createRemoteAtAutocompleteProvider,
-	getRemoteDirectoryCompletions,
-	parseHiddenFlag,
-} from "./autocomplete.ts";
+import { type CompletionErrorReporter, createRemoteAtAutocompleteProvider } from "./autocomplete.ts";
 import { SshConnection } from "./connection.ts";
 import { SSH_STATE_CUSTOM_TYPE } from "./constants.ts";
 import {
@@ -94,7 +89,7 @@ async function connectTarget(target: SshTarget, localCwd: string, ctx: Extension
 		updateSshPhaseStatus(ctx, "connecting");
 		await nextConnection.connect();
 		if (target.remoteCwd) {
-			await nextConnection.changeRemoteCwd(target.remoteCwd);
+			await nextConnection.resolveRemoteCwd(target.remoteCwd);
 		} else {
 			nextConnection.setRemoteCwd((await nextConnection.exec("pwd")).toString().trim());
 		}
@@ -284,37 +279,6 @@ export default function (pi: ExtensionAPI) {
 
 	let lastCompletionError = "";
 	let reportCompletionError: CompletionErrorReporter = () => {};
-
-	pi.registerCommand("ssh-cd", {
-		description: "Change SSH remote working directory (-h to include hidden dirs)",
-		getArgumentCompletions: async (argumentPrefix) => {
-			const ssh = getConnection();
-			return ssh ? getRemoteDirectoryCompletions(ssh, argumentPrefix, reportCompletionError) : null;
-		},
-		handler: async (args, ctx) => {
-			const ssh = getConnection();
-			if (!ssh) {
-				ctx.ui.notify("SSH is not connected. Start pi with --ssh user@host:/path.", "warning");
-				updateSshStatus(ctx, null);
-				return;
-			}
-			if (!ctx.isIdle()) {
-				ctx.ui.notify("Wait for the current agent turn to finish before changing SSH cwd.", "warning");
-				return;
-			}
-			try {
-				const nextRemoteCwd = await ssh.changeRemoteCwd(parseHiddenFlag(args).rest);
-				persistConnection(ssh);
-				if (!delegateChild) publishSshConnectionDescriptor(ssh);
-				updateSshStatus(ctx, ssh);
-				ctx.ui.notify(`SSH cwd: ${ssh.remote}:${nextRemoteCwd}`, "info");
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				updateSshStatus(ctx, ssh, message);
-				ctx.ui.notify(`SSH cd failed: ${message}`, "error");
-			}
-		},
-	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		reportCompletionError = (error) => {

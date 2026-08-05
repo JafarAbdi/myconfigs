@@ -17,8 +17,8 @@ independent host-local execution, with no per-invocation remote re-provisioning.
 - R3: SSH mode owns its execution tools exclusively: startup fails, naming the conflicting owner,
   if any other extension has already registered `read`/`write`/`edit`/`bash`/`host_bash`/`ls`/
   `find`/`grep`.
-- R4: `/ssh-cd <dir>` changes and persists the remote cwd, supports remote-directory autocomplete
-  (`-h` to include hidden entries), and only runs while the agent is idle.
+- R4: The remote cwd is selected and validated at `session_start` from `--ssh` or persisted state,
+  then remains fixed for the session.
 - R5: `@`-mention autocomplete resolves against the remote filesystem, ranked through remote `fzf`.
 - R6: A session resumed without `--ssh` reconnects automatically from persisted remote+cwd;
   reconnect failure fails startup rather than silently falling back to local execution.

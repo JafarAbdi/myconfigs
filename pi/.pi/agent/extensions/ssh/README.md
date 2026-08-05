@@ -18,19 +18,12 @@ user@host:/remote/path
 host:/remote/path
 ```
 
-## Commands
-
-```text
-/ssh-cd [-h] <remote-dir>
-```
-
-`/ssh-cd` supports remote directory autocomplete. `-h` includes hidden directories.
-
 ## Behavior
 
 - `read`, `write`, `edit`, `ls`, `find`, `grep`, `bash`, and user `!` commands always run
   on the SSH remote.
-- Relative paths resolve against the remote cwd. Absolute paths are remote absolute paths.
+- Relative paths resolve against the remote cwd selected at startup. Absolute paths are remote absolute paths.
+- The remote cwd is fixed for the session; select it with `--ssh user@host:/remote/path`.
 - `host_bash` runs on the host machine running Pi, with Pi's local cwd. It is available
   only while SSH mode is active. Use it for every host-local command or file, including Pi
   docs, extensions, skills, prompts, and agent config.
@@ -60,7 +53,7 @@ SSH mode requires ownership of its execution tools so every tool has one unambig
 
 ## Tool bootstrap
 
-If remote `fd`, `rg`, or `fzf` is missing, pi detects the remote's architecture (Linux `amd64` or `arm64`), downloads and caches that tool's binary on the host, then uploads it to the remote. `fzf` ranks path autocomplete candidates (`/ssh-cd` and `@` references). If remote `uv` is available, pi also installs Python command wrappers that route agents toward `uv`. Both host cache and remote install use:
+If remote `fd`, `rg`, or `fzf` is missing, pi detects the remote's architecture (Linux `amd64` or `arm64`), downloads and caches that tool's binary on the host, then uploads it to the remote. `fzf` ranks `@` path autocomplete candidates. If remote `uv` is available, pi also installs Python command wrappers that route agents toward `uv`. Both host cache and remote install use:
 
 ```text
 ~/.cache/pi/ssh-tools/
@@ -106,5 +99,4 @@ Autocomplete:
 
 ```text
 @.ssh/con<Tab>
-/ssh-cd work<Tab>
 ```

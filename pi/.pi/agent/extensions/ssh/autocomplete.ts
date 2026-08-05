@@ -8,7 +8,6 @@ const PATH_DELIMITERS = new Set([" ", "\t", '"', "'", "="]);
 export type CompletionErrorReporter = (error: unknown) => void;
 
 type RemoteSearch = { baseDir: string; displayBase: string; query: string };
-type RemoteDirectorySearch = RemoteSearch & { isQuoted: boolean };
 
 function findLastDelimiter(text: string): number {
 	for (let i = text.length - 1; i >= 0; i -= 1) {
@@ -108,33 +107,6 @@ function resolveRemoteSearch(rawQuery: string): RemoteSearch {
 	};
 }
 
-export function parseHiddenFlag(input: string): { includeHidden: boolean; rest: string } {
-	const trimmed = input.trimStart();
-	const match = /^-h(\s+|$)/.exec(trimmed);
-	if (match) {
-		return { includeHidden: true, rest: trimmed.slice(match[0].length) };
-	}
-	return { includeHidden: false, rest: input };
-}
-
-function parseRemoteDirectorySearch(argumentPrefix: string): RemoteDirectorySearch {
-	const trimmed = argumentPrefix.trimStart();
-	const isQuoted = trimmed.startsWith('"');
-	const rawQuery = isQuoted ? trimmed.slice(1) : trimmed;
-	const search = rawQuery === "~" ? { baseDir: "~/", displayBase: "~/", query: "" } : resolveRemoteSearch(rawQuery);
-	return { ...search, isQuoted };
-}
-
-function remoteBaseDirExpression(baseDir: string): string {
-	if (baseDir === "~" || baseDir === "~/") {
-		return '"$HOME"';
-	}
-	if (baseDir.startsWith("~/")) {
-		return `"$HOME"/${shellQuote(baseDir.slice(2))}`;
-	}
-	return shellQuote(baseDir);
-}
-
 function createRemoteFindCommand(remoteCwd: string, fdPath: string, fzfPath: string, search: RemoteSearch): string {
 	const baseDir = shellQuote(search.baseDir);
 	const fdArgs = [
@@ -161,89 +133,6 @@ function createRemoteFindCommand(remoteCwd: string, fdPath: string, fzfPath: str
 	const fdCommand = `${shellQuote(fdPath)} ${fdArgs.map(shellQuote).join(" ")}`;
 	const filter = remoteFilterStage(fzfPath, search.query);
 	return [`cd ${shellQuote(remoteCwd)}`, `${fdCommand} | ${filter} | ${markDirectoriesCommand}`].join(" && ");
-}
-
-function createRemoteDirectoryCommand(
-	remoteCwd: string,
-	fdPath: string,
-	fzfPath: string,
-	search: RemoteDirectorySearch,
-	includeHidden: boolean,
-): string {
-	const baseDir = remoteBaseDirExpression(search.baseDir);
-	const fdArgs = [
-		"--max-results",
-		String(REMOTE_FD_CANDIDATES_MAX),
-		"--type",
-		"d",
-		"--follow",
-		...(includeHidden ? ["--hidden"] : []),
-		...fdExcludeArgs(REMOTE_FD_EXCLUDES),
-	];
-
-	const markDirectoriesCommand = [
-		'while IFS= read -r p; do [ -n "$p" ] || continue',
-		"raw=$" + "{p#./}",
-		"clean=$" + "{raw%/}",
-		"printf '%s/\\n' \"$clean\"",
-		"done",
-	].join("; ");
-	const fdCommand = `${shellQuote(fdPath)} --base-directory ${baseDir} ${fdArgs.map(shellQuote).join(" ")}`;
-	const filter = remoteFilterStage(fzfPath, search.query);
-	return [`cd ${shellQuote(remoteCwd)}`, `${fdCommand} | ${filter} | ${markDirectoriesCommand}`].join(" && ");
-}
-
-function buildDirectoryCompletionValue(remotePath: string, isQuotedPrefix: boolean): string {
-	if (!isQuotedPrefix && !remotePath.includes(" ")) {
-		return remotePath;
-	}
-	return `"${remotePath}"`;
-}
-
-function formatRemoteDirectoryCompletionItems(entries: string[], search: RemoteDirectorySearch): AutocompleteItem[] {
-	const seen = new Set<string>();
-	return entries
-		.map((entry) => toDisplayPath(entry.trim()))
-		.filter((entry) => entry.length > 0 && entry !== "./")
-		.filter((entry) => {
-			if (seen.has(entry)) return false;
-			seen.add(entry);
-			return true;
-		})
-		.slice(0, REMOTE_AUTOCOMPLETE_SUGGESTIONS_MAX)
-		.map((entry) => {
-			const directory = entry.endsWith("/") ? entry : `${entry}/`;
-			const displayPath = `${search.displayBase}${directory}`;
-			return {
-				value: buildDirectoryCompletionValue(displayPath, search.isQuoted),
-				label: `${pathBasename(displayPath)}/`,
-				description: displayPath,
-			};
-		});
-}
-
-export async function getRemoteDirectoryCompletions(
-	connection: SshConnection,
-	argumentPrefix: string,
-	onError: CompletionErrorReporter,
-): Promise<AutocompleteItem[] | null> {
-	const { includeHidden, rest } = parseHiddenFlag(argumentPrefix);
-	const search = parseRemoteDirectorySearch(rest);
-	try {
-		const output = await connection.exec(
-			createRemoteDirectoryCommand(
-				connection.remoteCwd,
-				connection.requireFdPath(),
-				connection.requireFzfPath(),
-				search,
-				includeHidden,
-			),
-		);
-		return formatRemoteDirectoryCompletionItems(output.toString("utf8").split("\n"), search);
-	} catch (error) {
-		onError(error);
-		return null;
-	}
 }
 
 function formatRemoteAutocompleteItems(
