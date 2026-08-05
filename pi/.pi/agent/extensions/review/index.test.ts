@@ -9,12 +9,14 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import {
+import review, {
 	createReviewController,
 	readReviewRequirement,
 	registerReview,
 	type ReviewDependencies,
 } from "./index.ts";
+import { AUDIT_RESULT_TOOL } from "./audit-output.ts";
+import { RESULT_TOOL_ENV } from "../subagent/runtimes.ts";
 import type { ReviewPatch } from "./review-git.ts";
 import type {
 	ReviewServer,
@@ -167,6 +169,24 @@ async function waitForComponent(components: unknown[]): Promise<void> {
 		await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(components.length, 1);
 }
+
+test("the marked audit child registers only its result tool", () => {
+	const previous = process.env[RESULT_TOOL_ENV];
+	const tools: string[] = [];
+	let commands = 0;
+	try {
+		process.env[RESULT_TOOL_ENV] = AUDIT_RESULT_TOOL;
+		review({
+			registerTool(tool: { name: string }) { tools.push(tool.name); },
+			registerCommand() { commands += 1; },
+		} as never);
+	} finally {
+		if (previous === undefined) delete process.env[RESULT_TOOL_ENV];
+		else process.env[RESULT_TOOL_ENV] = previous;
+	}
+	assert.deepEqual(tools, [AUDIT_RESULT_TOOL]);
+	assert.equal(commands, 0);
+});
 
 test("registers only /review and reports command failures through the TUI", async () => {
 	const commands: Array<{ name: string; options: {

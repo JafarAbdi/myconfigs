@@ -29,6 +29,8 @@ export interface RunAgentOptions {
 	model: string | undefined;
 	/** Bounded task description retained for progress/details; the child still receives `task` exactly. */
 	resultTask?: string;
+	/** Pi-only terminating tool whose details become the normalized output; must be in `agent.tools`. */
+	resultTool?: string;
 	nativeClaude?: NativeClaudeOptions;
 	signal?: AbortSignal;
 	onProgress?: (partial: RunResult) => void;
@@ -91,9 +93,12 @@ export async function shutdownAgents(): Promise<void> {
 
 /** Run one configured or caller-constructed role in an isolated child process. */
 export function runAgent(options: RunAgentOptions): Promise<RunResult> {
-	const { agent, task, cwd, inherited, model, resultTask, nativeClaude, signal, onProgress } = options;
+	const { agent, task, cwd, inherited, model, resultTask, resultTool, nativeClaude, signal, onProgress } = options;
 	const startedAtMs = Date.now();
 	const runtime = selectRuntime(model);
+	if (resultTool !== undefined && runtime.name !== "pi") throw new Error("resultTool is only supported for Pi children");
+	if (resultTool !== undefined && !agent.tools.includes(resultTool))
+		throw new Error(`resultTool ${resultTool} is not declared in agent.tools`);
 	const invocation = runtime.invoke(agent, task, inherited, model, nativeClaude);
 	const trace = runtime.name === "claude" ? createClaudeTrace(inherited.sessionDir, cwd, invocation) : undefined;
 	const result: RunResult = {
@@ -112,7 +117,7 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(invocation.command, invocation.args, {
 			cwd,
-			env: childEnvironment(runtime.name),
+			env: childEnvironment(runtime.name, process.env, resultTool),
 			shell: false,
 			stdio: [invocation.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
 		});
@@ -128,6 +133,9 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 		LIVE.add(child);
 		const protocol = createChildProtocol();
 		const activity = createActivityTracker(result);
+		const expectsNativeResult = runtime.name === "claude" && nativeClaude?.jsonSchema !== undefined;
+		const structuredResultLabel = resultTool ?? (expectsNativeResult ? "native Claude structured output" : undefined);
+		let structuredResults = 0;
 		let protocolError: string | undefined;
 
 		const failProtocol = (message: string) => {
@@ -147,7 +155,35 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 				return; // A non-JSON line is diagnostic noise, not a protocol failure.
 			}
 			if (!isRecord(event)) return;
-			if (!runtime.consume(event, result, activity)) return;
+			if (
+				resultTool !== undefined && structuredResults > 0 && event.type === "message_end" &&
+				isRecord(event.message) && event.message.role === "assistant"
+			) {
+				failProtocol(`child continued after ${resultTool}`);
+				return;
+			}
+			let structuredOutput: string | undefined;
+			if (
+				resultTool !== undefined && event.type === "tool_execution_end" &&
+				event.toolName === resultTool && event.isError === false && isRecord(event.result)
+			) structuredOutput = JSON.stringify(event.result.details);
+			else if (
+				expectsNativeResult && event.type === "result" && Object.hasOwn(event, "structured_output")
+			) structuredOutput = JSON.stringify(event.structured_output);
+			if (structuredOutput !== undefined) {
+				structuredResults += 1;
+				if (structuredResults > 1) {
+					failProtocol(`child returned ${structuredResultLabel} more than once`);
+					return;
+				}
+				result.output = structuredOutput;
+			}
+			const changed = runtime.consume(event, result, activity);
+			if (
+				resultTool !== undefined && event.type === "message_end" &&
+				isRecord(event.message) && event.message.role === "assistant"
+			) result.output = "";
+			if (!changed) return;
 			const boundsError = runResultBoundsError(result);
 			if (boundsError) {
 				failProtocol(boundsError);
@@ -209,6 +245,19 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 			result.durationMs = Date.now() - startedAtMs;
 			if (!result.output.trim() && !result.errorMessage && protocol.stderr().trim()) {
 				result.errorMessage = protocol.stderr().trim().split("\n").slice(-5).join("\n");
+			}
+			const terminalFailure = result.stopReason === "error" || result.stopReason === "aborted" || result.stopReason === "length";
+			if (structuredResultLabel !== undefined && !protocolError && !result.termination && !terminalFailure) {
+				if (structuredResults === 1) {
+					result.stopReason = "stop";
+					result.errorMessage = undefined;
+				} else {
+					result.output = "";
+					result.stopReason = "error";
+					result.errorMessage = resultTool
+						? `no successful ${resultTool} result`
+						: "native Claude returned no structured output";
+				}
 			}
 			if (trace) trace.finished.then(() => resolve(result), reject);
 			else resolve(result);

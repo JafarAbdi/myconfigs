@@ -93,6 +93,7 @@ export const CHILD_PENDING_LINE_MAX_BYTES = 1024 * 1024;
 export const CHILD_STDERR_MAX_BYTES = 64 * 1024;
 export const RESULT_OUTPUT_MAX_BYTES = 1024 * 1024;
 export const RESULT_DETAILS_MAX_BYTES = 2 * 1024 * 1024;
+export const RESULT_TOOL_ENV = "PI_SUBAGENT_RESULT_TOOL";
 
 export interface ProtocolChunk {
 	lines: string[];
@@ -331,7 +332,11 @@ export interface Runtime {
 	 * parent has no use for — claude alone emits a `thinking_tokens` line every few hundred
 	 * milliseconds — and repainting the tool card for each of those is work nobody sees.
 	 */
-	consume(event: Record<string, unknown>, result: RunResult, activity: ActivityTracker): boolean;
+	consume(
+		event: Record<string, unknown>,
+		result: RunResult,
+		activity: ActivityTracker,
+	): boolean;
 }
 
 /**
@@ -351,9 +356,14 @@ export function delegateModelNames(piModels: string[], includeNativeClaude: bool
 export function childEnvironment(
 	runtime: Runtime["name"],
 	env: NodeJS.ProcessEnv = process.env,
+	resultTool?: string,
 ): NodeJS.ProcessEnv {
-	if (runtime !== "pi" || !env[SSH_DESCRIPTOR_ENV]) return env;
-	return { ...env, [DELEGATE_CHILD_ENV]: "1" };
+	if (runtime !== "pi" || (!env[SSH_DESCRIPTOR_ENV] && resultTool === undefined)) return env;
+	return {
+		...env,
+		...(env[SSH_DESCRIPTOR_ENV] ? { [DELEGATE_CHILD_ENV]: "1" } : {}),
+		...(resultTool !== undefined ? { [RESULT_TOOL_ENV]: resultTool } : {}),
+	};
 }
 
 /**

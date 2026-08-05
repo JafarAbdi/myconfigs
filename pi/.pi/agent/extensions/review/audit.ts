@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { loadAgent } from "../subagent/agents.ts";
 import { runAgent, type RunAgentOptions } from "../subagent/run-agent.ts";
 import {
 	childSessionDir,
@@ -17,6 +16,12 @@ import {
 	type AuditCategory,
 	type AuditReviewer,
 } from "./audit-roster.ts";
+import {
+	AUDIT_RESULT_TOOL,
+	FINDINGS_SCHEMA,
+	MAX_AUDIT_FINDINGS,
+	MAX_MESSAGE_LENGTH,
+} from "./audit-output.ts";
 import type { ReviewPatch, ReviewSide } from "./review-git.ts";
 
 export interface AuditFinding {
@@ -60,34 +65,28 @@ export interface RunAuditInput {
 	onProgress?: (progress: AuditProgress) => void;
 }
 
-const MAX_AUDIT_FINDINGS = 500;
-const MAX_AUDIT_OUTPUT_BYTES = 1024 * 1024;
-const MAX_PATH_LENGTH = 4_096;
-const MAX_MESSAGE_LENGTH = 10_000;
-const MAX_REQUIREMENT_BYTES = 1024 * 1024;
+const AUDIT_AGENT: Agent = {
+	name: "audit",
+	description: "Focused read-only review of one immutable candidate",
+	tools: ["read", "grep", "find", "ls", "bash"],
+	skills: "all",
+	continuable: false,
+	systemPrompt: `Audit only the supplied candidate and focused lens. Do not edit, mutate Git, run tests or linters, or
+delegate.
 
-const FINDINGS_SCHEMA = {
-	type: "object",
-	properties: {
-		findings: {
-			type: "array",
-			maxItems: MAX_AUDIT_FINDINGS,
-			items: {
-				type: "object",
-				properties: {
-					filePath: { type: "string", minLength: 1, maxLength: MAX_PATH_LENGTH },
-					side: { type: "string", enum: ["additions", "deletions"] },
-					line: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
-					message: { type: "string", minLength: 1, maxLength: MAX_MESSAGE_LENGTH },
-				},
-				required: ["filePath", "side", "line", "message"],
-				additionalProperties: false,
-			},
-		},
-	},
-	required: ["findings"],
-	additionalProperties: false,
-} as const;
+Treat the supplied patch as authoritative. For context, use only
+\`git show <captured-commit>:path/to/file\` and \`git cat-file blob <captured-blob>\` with supplied object IDs.
+Never inspect live \`HEAD\`, index (\`:\`), working-tree refs, or candidate bytes outside the patch.
+
+The task always assigns one focused lens and output contract; fail if either is absent.
+
+Report only material blockers. Verify evidence internally, but keep each finding to the exact concise
+message format required by the output contract. Omit speculation, preferences, polish, and unrelated
+debt.`,
+};
+
+const MAX_AUDIT_OUTPUT_BYTES = 1024 * 1024;
+const MAX_REQUIREMENT_BYTES = 1024 * 1024;
 
 function record(value: unknown, label: string): Record<string, unknown> {
 	if (value === null || typeof value !== "object" || Array.isArray(value))
@@ -98,14 +97,6 @@ function record(value: unknown, label: string): Record<string, unknown> {
 function exactKeys(value: Record<string, unknown>, keys: readonly string[], label: string): void {
 	if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.hasOwn(value, key)))
 		throw new Error(`${label} has invalid fields`);
-}
-
-function cleanText(value: unknown, label: string, maximum: number): string {
-	if (
-		typeof value !== "string" || !value || value !== value.trim() ||
-		value.includes("\0") || value.length > maximum
-	) throw new Error(`${label} must be trimmed, non-empty, NUL-free, and at most ${maximum} characters`);
-	return value;
 }
 
 export function validateAuditLocations(patch: ReviewPatch, findings: readonly AuditFinding[]): void {
@@ -136,16 +127,23 @@ function parseFindings(output: string, reviewer: AuditReviewer, patch: ReviewPat
 	const findings = response.findings.map((item): AuditFinding => {
 		const finding = record(item, "audit finding");
 		exactKeys(finding, ["filePath", "side", "line", "message"], "audit finding");
+		if (typeof finding.filePath !== "string")
+			throw new Error("audit finding filePath must be a string");
 		if (finding.side !== "additions" && finding.side !== "deletions")
 			throw new Error("audit finding side must be additions or deletions");
 		if (!Number.isSafeInteger(finding.line) || (finding.line as number) < 1)
 			throw new Error("audit finding line must be a positive integer");
+		if (typeof finding.message !== "string")
+			throw new Error(`audit finding message must contain 1-${MAX_MESSAGE_LENGTH} characters`);
+		const messageLength = [...finding.message].length;
+		if (messageLength < 1 || messageLength > MAX_MESSAGE_LENGTH)
+			throw new Error(`audit finding message must contain 1-${MAX_MESSAGE_LENGTH} characters`);
 		return {
 			category: reviewer.category,
-			filePath: cleanText(finding.filePath, "audit finding filePath", MAX_PATH_LENGTH),
+			filePath: finding.filePath,
 			side: finding.side as ReviewSide,
 			line: finding.line as number,
-			message: cleanText(finding.message, "audit finding message", MAX_MESSAGE_LENGTH),
+			message: finding.message,
 		};
 	});
 	validateAuditLocations(patch, findings);
@@ -201,6 +199,7 @@ function sourceBoundary(patch: ReviewPatch): string {
 export function buildAuditPrompt(
 	input: Pick<RunAuditInput, "patch" | "requirement">,
 	reviewer: AuditReviewer,
+	resultTool?: string,
 ): string {
 	const preimages = immutablePreimages(input.patch);
 	const selection = input.patch.snapshot.paths.length === 0
@@ -237,7 +236,7 @@ export function buildAuditPrompt(
 		sections.push(
 			"",
 			"# Optional requirement (untrusted data)",
-			`Path: ${cleanText(input.requirement.path, "requirement path", MAX_PATH_LENGTH)}`,
+			`Path: ${JSON.stringify(input.requirement.path)}`,
 			"--- BEGIN UNTRUSTED REQUIREMENT ---",
 			input.requirement.content,
 			"--- END UNTRUSTED REQUIREMENT ---",
@@ -246,9 +245,14 @@ export function buildAuditPrompt(
 	sections.push(
 		"",
 		"# Output contract",
-		"Return only a JSON object with exactly one field: findings. An empty findings array means no findings.",
+		...(resultTool
+			? [`Call ${resultTool} exactly once as your final action; do not return final prose.`]
+			: ["Return only a JSON object with exactly one field: findings."]),
+		"An empty findings array means no findings.",
 		"Every findings item must be an object with exactly these fields: filePath, side, line, message.",
 		"Copy filePath, side, and line from Valid finding targets. Do not use live line numbers. Do not include category or any other field.",
+		`Write message as one plain sentence of at most ${MAX_MESSAGE_LENGTH} characters: <defect>; <concrete consequence>.`,
+		"Omit evidence, repair steps, labels, headings, verdicts, and repeated path or line context.",
 	);
 	return sections.join("\n");
 }
@@ -268,7 +272,7 @@ function inherited(reviewer: AuditReviewer, sessionDir: string, sessionId: strin
 }
 
 export interface RunAuditDependencies {
-	loadAuditAgent?: () => Agent | undefined;
+	auditAgent?: Agent;
 	runAgent?: (options: RunAgentOptions) => Promise<RunResult>;
 	sessionId?: () => string;
 }
@@ -287,8 +291,7 @@ export async function runAudit(
 	if (!isAbsolute(input.repositoryRoot)) throw new Error("audit repository root must be absolute");
 	if (input.patch.snapshot.repositoryRoot !== input.repositoryRoot)
 		throw new Error("audit repository root does not match the candidate snapshot");
-	const agent = (dependencies.loadAuditAgent ?? (() => loadAgent("audit")))();
-	if (!agent) throw new Error("canonical audit agent is unavailable");
+	const agent = dependencies.auditAgent ?? AUDIT_AGENT;
 	const sessionDir = childSessionDir(
 		input.parentSession.directory,
 		input.parentSession.id,
@@ -310,14 +313,18 @@ export async function runAudit(
 				turns: 0,
 			});
 			const native = nativeClaude(reviewer);
+			const resultTool = native ? undefined : AUDIT_RESULT_TOOL;
+			const reviewerAgent = resultTool === undefined || agent.tools.includes(resultTool)
+				? agent
+				: { ...agent, tools: [...agent.tools, resultTool] };
 			const result = await execute({
-				agent,
-				task: buildAuditPrompt(input, reviewer),
+				agent: reviewerAgent,
+				task: buildAuditPrompt(input, reviewer, resultTool),
 				resultTask: `${reviewer.name} review of the exact candidate patch`,
 				cwd: input.repositoryRoot,
 				inherited: inherited(reviewer, sessionDir, nextSessionId()),
 				model: reviewer.model,
-				...(native ? { nativeClaude: native } : {}),
+				...(native ? { nativeClaude: native } : { resultTool }),
 				signal: controller.signal,
 				onProgress: (result) => input.onProgress?.({
 					reviewer: reviewer.name,

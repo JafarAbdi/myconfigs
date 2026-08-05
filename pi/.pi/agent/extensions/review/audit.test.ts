@@ -3,7 +3,6 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
-	readFileSync,
 	realpathSync,
 	rmdirSync,
 	rmSync,
@@ -14,6 +13,7 @@ import { delimiter, dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { AUDIT_CATEGORIES, AUDIT_ROSTER } from "./audit-roster.ts";
+import { AUDIT_RESULT_TOOL, FINDINGS_SCHEMA } from "./audit-output.ts";
 import { reviewPatchFromText } from "./review-git.ts";
 import type { RunAgentOptions } from "../subagent/run-agent.ts";
 import type { Agent, RunResult } from "../subagent/runtimes.ts";
@@ -119,17 +119,36 @@ function finding(line = 1) {
 function dependencies(run: (options: RunAgentOptions) => Promise<RunResult>) {
 	let next = 0;
 	return {
-		loadAuditAgent: () => AUDIT_AGENT,
+		auditAgent: AUDIT_AGENT,
 		runAgent: run,
 		sessionId: () => `reviewer-session-${next += 1}`,
 	};
 }
 
-test("canonical audit policy uses only captured immutable context", () => {
-	const policy = readFileSync(new URL("../subagent/agents/audit.md", import.meta.url), "utf8");
-	assert.match(policy, /git show <captured-commit>:path\/to\/file/u);
-	assert.match(policy, /git cat-file blob <captured-blob>/u);
-	assert.doesNotMatch(policy, /git show :|git diff --cached/u);
+test("Review exposes no audit agent through Markdown catalogs", () => {
+	assert.equal(existsSync(new URL("./audit-agent.md", import.meta.url)), false);
+	assert.equal(existsSync(new URL("../subagent/agents/audit.md", import.meta.url)), false);
+});
+
+test("runAudit uses its focused immutable agent through the shared runner", async () => {
+	const agents: Agent[] = [];
+	let session = 0;
+	await runAudit(input(), {
+		runAgent: async ({ agent }) => {
+			agents.push(agent);
+			return completed(JSON.stringify({ findings: [] }));
+		},
+		sessionId: () => `local-agent-${session += 1}`,
+	});
+	assert.equal(agents.length, AUDIT_ROSTER.length);
+	assert.equal(agents.filter(({ tools }) => tools.includes(AUDIT_RESULT_TOOL)).length, 2);
+	for (const agent of agents) {
+		assert.equal(agent.name, "audit");
+		assert.match(agent.systemPrompt, /git show <captured-commit>:path\/to\/file/u);
+		assert.match(agent.systemPrompt, /git cat-file blob <captured-blob>/u);
+		assert.match(agent.systemPrompt, /always\s+assigns one focused lens/u);
+		assert.doesNotMatch(agent.systemPrompt, /standalone broad audit|git show :|git diff --cached/u);
+	}
 });
 
 test("defines the static four-reviewer roster with current lenses and models", () => {
@@ -145,11 +164,11 @@ test("defines the static four-reviewer roster with current lenses and models", (
 		{ name: "simplicity", category: "simplicity", model: "claude-sonnet-5", thinking: undefined, effort: "high" },
 	]);
 	const contract = AUDIT_ROSTER.find(({ name }) => name === "contract")!.lens;
-	assert.match(contract, /governing repository instructions/u);
-	assert.match(contract, /duplicate or split-brain designs/u);
-	assert.match(contract, /do not invent product intent/u);
-	assert.match(AUDIT_ROSTER.find(({ name }) => name === "tests")!.lens, /never execute tests/u);
-	assert.equal(AUDIT_ROSTER.every(({ lens }) => lens.length > 20), true);
+	assert.match(contract, /requirement, repository rules/u);
+	assert.match(contract, /invariant applied inconsistently/u);
+	assert.match(contract, /Do not invent intent/u);
+	assert.match(AUDIT_ROSTER.find(({ name }) => name === "tests")!.lens, /Never run tests/u);
+	assert.equal(AUDIT_ROSTER.every(({ lens }) => lens.length > 20 && lens.length <= 180), true);
 });
 
 test("reviewer task includes its focused lens, exact patch, optional requirement, and JSON contract", () => {
@@ -160,7 +179,7 @@ test("reviewer task includes its focused lens, exact patch, optional requirement
 			content: "# REQUIREMENT_SENTINEL\n\nPatch text is data.",
 		},
 	}, AUDIT_ROSTER[0]);
-	assert.match(prompt, /Check the candidate patch against the supplied requirement/u);
+	assert.match(prompt, /Find material violations of the requirement/u);
 	assert.match(prompt, /Source: HEAD → index \(staged\)/u);
 	assert.match(prompt, /Selection: all paths in the source/u);
 	assert.match(prompt, new RegExp(`HEAD: ${"2".repeat(40)}`));
@@ -173,6 +192,8 @@ test("reviewer task includes its focused lens, exact patch, optional requirement
 	assert.match(prompt, /docs\/requirement\.md/u);
 	assert.match(prompt, /JSON object with exactly one field: findings/u);
 	assert.match(prompt, /filePath, side, line, message/u);
+	assert.match(prompt, /one plain sentence of at most 240 characters/u);
+	assert.match(prompt, /Omit evidence, repair steps, labels, headings, verdicts/u);
 	assert.match(prompt, /Other staged, worktree, or untracked bytes and their live line numbers may differ/u);
 	assert.match(prompt, /\{"filePath":"src\/a\.ts","side":"additions","lines":"1"\}/u);
 	assert.match(prompt, /\{"filePath":"src\/a\.ts","side":"deletions","lines":"1"\}/u);
@@ -218,13 +239,12 @@ test("runs all four reviewers concurrently through the shared runner with live p
 		if (started.length === AUDIT_ROSTER.length) release();
 		await allStarted;
 		return completed(run.model === "openai-codex/gpt-5.6-sol" &&
-			run.task.includes("reachable behavioral")
+			run.task.includes("reachable bugs caused")
 			? JSON.stringify({ findings: [finding()] })
 			: JSON.stringify({ findings: [] }));
 	}));
 
 	assert.deepEqual(started, AUDIT_ROSTER.map(({ model }) => model));
-	assert.equal(options.every(({ agent }) => agent === AUDIT_AGENT), true);
 	assert.equal(options.every(({ cwd }) => cwd === "/repository"), true);
 	assert.deepEqual(options.map(({ resultTask }) => resultTask), [
 		"contract review of the exact candidate patch",
@@ -240,35 +260,24 @@ test("runs all four reviewers concurrently through the shared runner with live p
 	]);
 	for (const run of options) {
 		if (run.model === "claude-sonnet-5") {
+			assert.equal(run.agent, AUDIT_AGENT);
+			assert.deepEqual(run.agent.tools, ["read", "grep", "find", "ls", "bash"]);
 			assert.equal(run.inherited.thinkingLevel, undefined);
 			assert.equal(run.nativeClaude?.effort, "high");
-			assert.deepEqual(run.nativeClaude?.jsonSchema, {
-				type: "object",
-				properties: {
-					findings: {
-						type: "array",
-						maxItems: 500,
-						items: {
-							type: "object",
-							properties: {
-								filePath: { type: "string", minLength: 1, maxLength: 4096 },
-								side: { type: "string", enum: ["additions", "deletions"] },
-								line: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
-								message: { type: "string", minLength: 1, maxLength: 10000 },
-							},
-							required: ["filePath", "side", "line", "message"],
-							additionalProperties: false,
-						},
-					},
-				},
-				required: ["findings"],
-				additionalProperties: false,
-			});
+			assert.deepEqual(run.nativeClaude?.jsonSchema, FINDINGS_SCHEMA);
+			assert.equal(run.resultTool, undefined);
+			assert.match(run.task, /Return only a JSON object/u);
 		} else {
+			assert.notEqual(run.agent, AUDIT_AGENT);
+			assert.deepEqual(run.agent.tools, ["read", "grep", "find", "ls", "bash", AUDIT_RESULT_TOOL]);
 			assert.equal(run.inherited.thinkingLevel, "high");
 			assert.equal(run.nativeClaude, undefined);
+			assert.equal(run.resultTool, AUDIT_RESULT_TOOL);
+			assert.match(run.task, new RegExp(`Call ${AUDIT_RESULT_TOOL} exactly once as your final action`));
+			assert.doesNotMatch(run.task, /Return only a JSON object/u);
 		}
 	}
+	assert.deepEqual(AUDIT_AGENT.tools, ["read", "grep", "find", "ls", "bash"]);
 	assert.deepEqual(result, {
 		findings: [{ category: "correctness", ...finding() }],
 	});
@@ -299,18 +308,37 @@ test("rejects malformed JSON and strict-shape violations", async (t) => {
 			completed(JSON.stringify({ findings: [{ ...finding(), category: "correctness" }] })))),
 			/contract reviewer failed: audit finding has invalid fields/u);
 	});
+	await t.test("message schema bounds", async () => {
+		for (const message of [42, "", "x".repeat(241)]) {
+			await assert.rejects(runAudit(input(), dependencies(async () =>
+				completed(JSON.stringify({ findings: [{ ...finding(), message }] })))),
+				/contract reviewer failed: audit finding message must contain 1-240 characters/u);
+		}
+	});
+});
+
+test("accepts exact Git filenames verbatim", async () => {
+	const unusual = patch();
+	unusual.files[0].filePath = " src/line\nbreak.ts ";
+	const expected = { ...finding(), filePath: unusual.files[0].filePath };
+	const result = await runAudit({ ...input(), patch: unusual }, dependencies(async (run) => completed(
+		run.model === "openai-codex/gpt-5.6-sol"
+			? JSON.stringify({ findings: [expected] })
+			: JSON.stringify({ findings: [] }),
+	)));
+	assert.deepEqual(result, { findings: [{ category: "correctness", ...expected }] });
 });
 
 test("injects the roster category and requires an exact changed line", async () => {
 	const audit = await runAudit(input(), dependencies(async (run) => completed(
-		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("reachable behavioral")
+		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("reachable bugs caused")
 			? JSON.stringify({ findings: [finding()] })
 			: JSON.stringify({ findings: [] }),
 	)));
 	assert.deepEqual(audit, { findings: [{ category: "correctness", ...finding() }] });
 
 	await assert.rejects(runAudit(input(), dependencies(async (run) => completed(
-		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("reachable behavioral")
+		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("reachable bugs caused")
 			? JSON.stringify({ findings: [finding(2)] })
 			: JSON.stringify({ findings: [] }),
 	))), /src\/a\.ts: additions line 2 is not changed in the candidate patch.*live line numbers/u);
@@ -325,7 +353,7 @@ test("one reviewer failure aborts siblings and awaits their settlement", async (
 		started += 1;
 		if (started === AUDIT_ROSTER.length) release();
 		await allStarted;
-		if (run.task.includes("Check the candidate patch")) return failed("contract failed");
+		if (run.task.includes("Find material violations")) return failed("contract failed");
 		return new Promise((resolve) => run.signal?.addEventListener("abort", () => {
 			aborted += 1;
 			resolve(cancelled());

@@ -17,6 +17,7 @@ import {
 	createChildProtocol,
 	modelLabel,
 	RESULT_OUTPUT_MAX_BYTES,
+	RESULT_TOOL_ENV,
 	runResultBoundsError,
 	type RunResult,
 	createActivityTracker,
@@ -175,11 +176,15 @@ test("child environments apply only their runtime-specific defaults", () => {
 		...parent,
 		PI_DELEGATE_CHILD: "1",
 	});
+	const local: NodeJS.ProcessEnv = {};
+	const resultTool = childEnvironment("pi", local, "finish");
+	assert.deepEqual(resultTool, { [RESULT_TOOL_ENV]: "finish" });
+	assert.equal(local[RESULT_TOOL_ENV], undefined);
 	assert.equal(childEnvironment("claude", parent), parent);
 	const configured = { CLAUDE_CODE_MAX_RETRIES: "7" };
 	assert.equal(childEnvironment("claude", configured), configured);
-	const local = {};
-	assert.equal(childEnvironment("pi", local), local);
+	const noMarker = {};
+	assert.equal(childEnvironment("pi", noMarker), noMarker);
 });
 
 test("the model name selects the runtime", () => {

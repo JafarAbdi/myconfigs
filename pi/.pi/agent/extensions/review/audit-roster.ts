@@ -23,7 +23,7 @@ export const AUDIT_ROSTER = [
 		model: "openai-codex/gpt-5.6-terra",
 		thinking: "high",
 		effort: undefined,
-		lens: "Check the candidate patch against the supplied requirement, governing repository instructions, established local invariants, exclusions, and candidate boundary. Detect contradictory or uneven implementations, duplicate or split-brain designs, temporary shortcuts, and unjustified concentration of responsibility only when they have a material consequence. When no requirement is supplied, do not invent product intent, and distinguish an actual violated convention from a personal preference.",
+		lens: "Find material violations of the requirement, repository rules, or one invariant applied inconsistently. Do not invent intent or report preferences.",
 	},
 	{
 		name: "correctness",
@@ -31,7 +31,7 @@ export const AUDIT_ROSTER = [
 		model: "openai-codex/gpt-5.6-sol",
 		thinking: "high",
 		effort: undefined,
-		lens: "Find reachable behavioral, security, data-loss, timing, lifetime, bounds, and error-handling defects caused by the patch. Trace the smallest amount of nearby code needed to prove the failure path, and do not report hypothetical misuse without a reachable caller.",
+		lens: "Find reachable bugs caused by the patch: wrong behavior, security, data loss, races, lifetime, bounds, or error handling. Ignore hypothetical misuse.",
 	},
 	{
 		name: "tests",
@@ -39,7 +39,7 @@ export const AUDIT_ROSTER = [
 		model: "claude-sonnet-5",
 		thinking: undefined,
 		effort: "high",
-		lens: "Statically review test honesty and integrity; never execute tests. Look for deleted or skipped tests, weakened assertions, fixtures or mocks that bypass real behavior, discovery or configuration changes that hide tests, behavioral inequivalence, and material claims lacking the proof required by the change. Do not demand blanket coverage or tests for changes that do not materially need them.",
+		lens: "Find tests hidden, deleted, skipped, weakened, or made behaviorally dishonest, and material behavior left unproved. Never run tests or demand blanket coverage.",
 	},
 	{
 		name: "simplicity",
@@ -47,6 +47,6 @@ export const AUDIT_ROSTER = [
 		model: "claude-sonnet-5",
 		thinking: undefined,
 		effort: "high",
-		lens: "Look for material complexity that the requirement does not justify and that deletion or an existing local mechanism would remove. Do not penalize necessary core changes merely because they touch core code, and do not propose broad cleanup unrelated to the candidate behavior.",
+		lens: "Find material complexity removable without losing required behavior, especially duplicate state or existing mechanisms not reused. Ignore unrelated cleanup.",
 	},
 ] as const satisfies readonly AuditReviewer[];

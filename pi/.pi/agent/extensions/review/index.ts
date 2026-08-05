@@ -6,6 +6,7 @@ import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { AUDIT_ROSTER } from "./audit-roster.ts";
+import { isAuditResultChild, registerAuditResultTool } from "./audit-output.ts";
 import { parseReviewCommand } from "./review-command.ts";
 import { reviewArgumentCompletions } from "./review-completion.ts";
 import type {
@@ -452,5 +453,9 @@ export function registerReview(
 }
 
 export default function review(pi: ExtensionAPI): void {
+	if (isAuditResultChild()) {
+		registerAuditResultTool(pi);
+		return;
+	}
 	registerReview(pi);
 }
