@@ -240,9 +240,6 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				(includeNativeClaude ? `; enabled Pi and native local Claude models are available. ` : `; enabled Pi models are available. `) +
 				`Agents: ${roster}`,
 			promptSnippet: "Delegate or continue one bounded agent task in its own process",
-			promptGuidelines: [
-				"Use delegate for independent review, research, or bounded implementation.",
-			],
 			parameters: Type.Object({
 				agent: Type.Optional(Type.String({
 					description: `Fresh run role; one of: ${catalog.map((agent) => agent.name).join(", ")}`,
