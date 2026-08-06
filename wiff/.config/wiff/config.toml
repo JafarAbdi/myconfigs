@@ -1,0 +1,58 @@
+# Copy to ~/.config/wiff/config.toml
+# (or set WIFF_CONFIG_DIR to the directory containing this file)
+
+# Press T in wiff and choose “Catppuccin Mocha” for the theme.
+# Themes are currently selected in the TUI, not persisted in config.toml.
+
+[keymap]
+# Vim-style navigation
+line_down    = ["j"]
+line_up      = ["k"]
+page_down    = ["ctrl-d"]
+page_up      = ["ctrl-u"]
+top          = ["g g"]
+bottom       = ["G"]
+next_file    = ["] f"]
+prev_file    = ["[ f"]
+next_hunk    = ["] h"]
+prev_hunk    = ["[ h"]
+next_comment = ["] c"]
+prev_comment = ["[ c"]
+
+# View
+pick_theme          = ["T"]
+pick_file           = ["t"]
+pick_comment        = ["C"]
+toggle_fold         = ["enter"]
+toggle_comment      = ["tab"]
+toggle_wrap         = ["w"]
+toggle_line_numbers = ["L"]
+hide_comments       = ["H"]
+
+# Comments
+select_lines    = ["v"]
+add_comment     = ["c"]
+reply_comment   = ["r"]
+edit_comment    = ["e"]
+resolve_comment = ["x"]
+delete_comment  = ["d"]
+set_verdict     = ["a"]
+
+# The default submit key is ctrl-d, which conflicts with Vim page-down.
+submit_comment  = ["ctrl-g"]
+
+# Search
+search_forward  = ["/"]
+search_backward = ["?"]
+search_next     = ["n"]
+search_prev     = ["N"]
+
+# Session
+save             = ["ctrl-s"]
+refresh          = ["ctrl-r"]
+publish          = ["P"]
+add_file         = ["A"]
+compare_versions = ["V"]
+suspend          = ["ctrl-z"]
+help             = ["h"]
+quit             = ["q"]
