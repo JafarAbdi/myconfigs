@@ -210,6 +210,16 @@ local snippet_common = {
     text = "pstree -sp (pid_picker | head -1)",
   },
   {
+    glyph = "🧭",
+    name = "who launched pid",
+    text = "set pid (pid_picker | head -1); ps -o user=,pid=,ppid=,lstart=,args= -p $pid; pstree -sp $pid",
+  },
+  {
+    glyph = "📂",
+    name = "processes in pid cwd",
+    text = "set pid (pid_picker | head -1); set dir (readlink /proc/$pid/cwd); echo $dir; for proc in /proc/[0-9]*; set p (string split / $proc)[-1]; set cwd (readlink /proc/$p/cwd 2>/dev/null); test \"$cwd\" = \"$dir\"; and ps -o user=,pid=,ppid=,stat=,args= -p $p; end",
+  },
+  {
     glyph = "🔬",
     name = "strace — syscalls (kernel boundary)",
     text = "strace -f -p (pid_picker | head -1)",
