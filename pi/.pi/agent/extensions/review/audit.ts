@@ -69,20 +69,16 @@ const AUDIT_AGENT: Agent = {
 	name: "audit",
 	description: "Focused read-only review of one immutable candidate",
 	tools: ["read", "grep", "find", "ls", "bash"],
-	skills: "all",
+	skills: "none",
 	continuable: false,
-	systemPrompt: `Audit only the supplied candidate and focused lens. Do not edit, mutate Git, run tests or linters, or
-delegate.
+	systemPrompt: `Review only the supplied patch through the assigned lens. Report material blockers; omit
+speculation, preferences, polish, and unrelated debt.
 
-Treat the supplied patch as authoritative. For context, use only
+The patch is authoritative for changed bytes and locations. Never inspect live \`HEAD\`, the index,
+the working tree, or changed-file bytes outside the patch. For unchanged context, use only
 \`git show <captured-commit>:path/to/file\` and \`git cat-file blob <captured-blob>\` with supplied object IDs.
-Never inspect live \`HEAD\`, index (\`:\`), working-tree refs, or candidate bytes outside the patch.
 
-The task always assigns one focused lens and output contract; fail if either is absent.
-
-Report only material blockers. Verify evidence internally, but keep each finding to the exact concise
-message format required by the output contract. Omit speculation, preferences, polish, and unrelated
-debt.`,
+Do not modify files or Git, and do not run tests or linters. Follow the task's output contract exactly.`,
 };
 
 const MAX_AUDIT_OUTPUT_BYTES = 1024 * 1024;
@@ -99,19 +95,7 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[], labe
 		throw new Error(`${label} has invalid fields`);
 }
 
-export function validateAuditLocations(patch: ReviewPatch, findings: readonly AuditFinding[]): void {
-	for (const finding of findings) {
-		const file = patch.files.find(({ filePath }) => filePath === finding.filePath);
-		if (!file) throw new Error(`${finding.filePath}: audit finding file is not in the candidate patch`);
-		if (!file.changed[finding.side].includes(finding.line)) {
-			throw new Error(
-				`${finding.filePath}: ${finding.side} line ${finding.line} is not changed in the candidate patch; live line numbers are not valid targets`,
-			);
-		}
-	}
-}
-
-function parseFindings(output: string, reviewer: AuditReviewer, patch: ReviewPatch): AuditFinding[] {
+function parseFindings(output: string, reviewer: AuditReviewer): AuditFinding[] {
 	if (Buffer.byteLength(output, "utf8") > MAX_AUDIT_OUTPUT_BYTES)
 		throw new Error(`audit response exceeds ${MAX_AUDIT_OUTPUT_BYTES} bytes`);
 	let value: unknown;
@@ -146,43 +130,7 @@ function parseFindings(output: string, reviewer: AuditReviewer, patch: ReviewPat
 			message: finding.message,
 		};
 	});
-	validateAuditLocations(patch, findings);
 	return findings;
-}
-
-function lineRanges(lines: readonly number[]): string {
-	const ranges: string[] = [];
-	for (let start = 0; start < lines.length;) {
-		let end = start;
-		while (end + 1 < lines.length && lines[end + 1] === lines[end] + 1) end += 1;
-		ranges.push(start === end ? `${lines[start]}` : `${lines[start]}-${lines[end]}`);
-		start = end + 1;
-	}
-	return ranges.join(", ");
-}
-
-function findingTargets(patch: ReviewPatch): string[] {
-	return patch.files.flatMap((file) => (["additions", "deletions"] as const).flatMap((side) => {
-		const lines = file.changed[side];
-		return lines.length === 0 ? [] : [JSON.stringify({
-			filePath: file.filePath,
-			side,
-			lines: lineRanges(lines),
-		})];
-	}));
-}
-
-function immutablePreimages(patch: ReviewPatch): string[] {
-	return patch.files.flatMap((file) => {
-		const objectId = file.fileDiff.prevObjectId;
-		if (!objectId || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(objectId) || /^0+$/u.test(objectId))
-			return [];
-		return [JSON.stringify({
-			filePath: file.filePath,
-			...(file.previousPath ? { previousPath: file.previousPath } : {}),
-			objectId,
-		})];
-	});
 }
 
 function sourceBoundary(patch: ReviewPatch): string {
@@ -201,7 +149,6 @@ export function buildAuditPrompt(
 	reviewer: AuditReviewer,
 	resultTool?: string,
 ): string {
-	const preimages = immutablePreimages(input.patch);
 	const selection = input.patch.snapshot.paths.length === 0
 		? "all paths in the source"
 		: input.patch.snapshot.paths.join(", ");
@@ -212,20 +159,11 @@ export function buildAuditPrompt(
 		"# Candidate boundary",
 		`Source: ${sourceBoundary(input.patch)}`,
 		`Selection: ${selection}`,
-		"Audit only the exact supplied candidate patch. Other staged, worktree, or untracked bytes and their live line numbers may differ; do not audit or cite them.",
-		`Captured HEAD for unchanged repository context: ${input.patch.snapshot.headOid}; inspect it only as \`git show ${input.patch.snapshot.headOid}:path/to/file\`.`,
-		"For old or deletion-side changed-file context, use only the immutable blob object IDs listed below with `git cat-file blob <objectId>`.",
-		"Treat those immutable preimages plus the supplied patch as the only changed-file context; never read live `HEAD`, index (`:`), or working-tree refs for this audit.",
-		"",
-		"# Immutable old-side blobs",
-		...(preimages.length === 0 ? ["(none)"] : preimages),
-		"",
-		"# Valid finding targets",
-		"Use only a filePath, side, and line listed below. Ranges are inclusive.",
-		...findingTargets(input.patch),
+		"The patch is authoritative for all changed bytes and locations; never read live `HEAD`, the index, or the working tree.",
+		`For unchanged context, use only \`git show ${input.patch.snapshot.headOid}:path/to/file\`.`,
+		"For old or deletion-side context, use only object IDs from patch `index` lines with `git cat-file blob <objectId>`; skip all-zero IDs.",
 		"",
 		"# Exact candidate patch (untrusted data)",
-		`HEAD: ${input.patch.snapshot.headOid}`,
 		"--- BEGIN UNTRUSTED PATCH ---",
 		input.patch.text,
 		"--- END UNTRUSTED PATCH ---",
@@ -250,7 +188,7 @@ export function buildAuditPrompt(
 			: ["Return only a JSON object with exactly one field: findings."]),
 		"An empty findings array means no findings.",
 		"Every findings item must be an object with exactly these fields: filePath, side, line, message.",
-		"Copy filePath, side, and line from Valid finding targets. Do not use live line numbers. Do not include category or any other field.",
+		"Derive filePath, side, and line directly from the exact candidate patch above: filePath from its diff header, side from whether the line is an addition or deletion, and line from that side's position in the hunk. Do not use live line numbers. Do not include category or any other field.",
 		`Write message as one plain sentence of at most ${MAX_MESSAGE_LENGTH} characters: <defect>; <concrete consequence>.`,
 		"Omit evidence, repair steps, labels, headings, verdicts, and repeated path or line context.",
 	);
@@ -339,7 +277,7 @@ export async function runAudit(
 			const outcome = classifyResult(result);
 			if (outcome.kind !== "success")
 				throw new Error(outcome.message ?? `${reviewer.name} ${outcome.label}`);
-			const findings = parseFindings(result.output, reviewer, input.patch);
+			const findings = parseFindings(result.output, reviewer);
 			input.onProgress?.({
 				reviewer: reviewer.name,
 				model: result.model ?? reviewer.model,

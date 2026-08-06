@@ -2,42 +2,114 @@
 
 ## Objective
 
-Provide one small Review extension that audits one exact, explicitly scoped Git candidate and lets one human review it in a local browser.
+One small Review extension audits one exact, explicitly scoped Git candidate and hands it to one
+Pi-session-scoped Wiff review for one experienced operator's explicit decision.
 
 ## Requirements
 
-- R1: `/review [staged|worktree|untracked] [--requirement FILE.md] [-- PATH...]` captures exactly one source: `HEAD → index` for staged (the default), `index → tracked working tree` for worktree, or `/dev/null → untracked files` for untracked. Repeated literal repository-relative files and directories after `--` select a subset; no paths select the whole source. The command keeps `/review [optional-requirements-or-plan.md]` compatibility, provides source-aware argument completion, rejects an empty or oversized candidate, and never mutates Git.
-- R2: Every invocation runs four fresh focused reviewers concurrently through the shared subagent runner and Review-local `audit` agent: contract, correctness, tests, and simplicity. The contract reviewer covers intent, governing context, and implementation coherence. Every finding is one plain sentence of at most 240 characters naming the defect and concrete consequence. The static roster declares category, model, and high thinking/effort; provider-qualified models use Pi and recognized bare `claude-*` models use native local Claude. The TUI shows every reviewer's model and latest activity; Ctrl+O adds turn details without dumping call history.
-- R3: One ephemeral browser review identifies the candidate source and selected scope and shows its immutable patch, advisory audit findings, editable human changed-line comments, and at most one editable candidate-wide human general comment; it provides previous/next hunk and audit-finding navigation, then accepts exactly one explicit Approve or Send Feedback decision.
-- R4: The invoking TUI never opens a browser automatically; it waits with an `Open review ↗` link until a decision, cancellation, reload, or shutdown.
-- R5: Send Feedback submits deterministic Markdown as an actual user message and starts an ordinary Pi turn. Approve only ends the review.
-- R6: Both browser decisions re-capture the same source and literal path selection, revalidate the exact HEAD object ID and candidate patch bytes, and reject a stale candidate. Changes outside a selected subset do not make that candidate stale.
+- R1: `/review [staged|worktree|untracked] [--requirement FILE.md] [-- PATH...]` captures exactly
+  one source: `HEAD → index` for staged (default), `index → tracked working tree` for worktree, or
+  `/dev/null → untracked files` for untracked. Repeated literal repository-relative paths after
+  `--` select a subset; no paths select the whole source. The command keeps
+  `/review [optional-requirements-or-plan.md]` compatibility, provides source-aware completion,
+  reads an optional requirement file with existing path/symlink/size/UTF-8 checks, rejects an
+  empty or larger-than-8-MiB candidate, and never mutates Git.
+- R2: Every invocation runs four fresh read-only reviewers concurrently through the shared
+  subagent runner and Review-local `audit` agent: contract, correctness, tests, simplicity. Each
+  finding is one plain sentence of at most 240 characters. The static roster fixes category,
+  model, and high thinking/effort; progress shows every reviewer's model and latest activity; a
+  reviewer failure cancels its siblings and publishes nothing.
+- R3: A non-empty full Pi session ID deterministically names one Wiff project,
+  `pi-review-<full-pi-session-id>`, passed to every Wiff command as `--project`. A fresh Pi session
+  creates an independent review even for the same candidate; reloading the same session reuses the
+  same project and trusts Wiff's active session inside it. `wiff session list --project <project>`
+  distinguishes exact `No sessions.` (absent) from any other output (existing session); rows are
+  never parsed, counted, or chosen among.
+- R4: Review adds no argument hash, metadata encoding, or continuity enforcement across repeated
+  `/review` calls against the same open review; the human-readable Wiff description is for
+  operators only and is never parsed by Review.
+- R5: After all four auditors succeed, Review revalidates freshness (I2); on a mismatch it fails
+  before creating, refreshing, or publishing to Wiff, leaving any existing session untouched.
+- R6: Review pipes exact non-empty patch bytes over stdin to
+  `wiff new --no-tui --agent --author pi-review --project <project> --description <text>` on first
+  use, or `wiff refresh --agent --author pi-review --project <project>` on a later round; Wiff's
+  native Git capture is never used for a Review candidate.
+- R7: After create/refresh, Review reads `wiff render --format json --project <project>` only for
+  programmatic state, and validates `schema_version`, `session.id`/`session.project`, `comments`,
+  and optional `verdicts` (each with author name, author kind, and disposition); it fails visibly
+  on unsupported or malformed output.
+- R8: Review publishes each finding in deterministic roster/result order with `wiff comment add`,
+  passing `--agent --author review/<category> --session <id> --project <project> --file <path>
+  --line <line>` and an optional `--side before` (default `after` side for additions, `before` for
+  deletions), body over stdin, never through a shell. Audit findings never set a verdict, and every
+  subprocess exit is checked.
+- R9: Review hands the terminal to Wiff through Pi's external-editor pattern inside
+  `ctx.ui.custom()`: `tui.stop()`, spawn `wiff resume --project <project>` with inherited stdio and
+  the repository root as cwd, await the child exit, and in `finally` call `tui.start()` and
+  `requestRender(true)`. A non-zero Wiff exit is an error that retains Wiff state; inherited stderr
+  remains visible in the terminal. If Wiff removed its own session, Review reports the removal and
+  ends without recreating it.
+- R10: After every successful Wiff exit, Review re-renders JSON state, refuses if Wiff's active
+  session ID differs from the session it opened, shows a compact human-verdict and comment
+  summary, and offers exactly **Approve and remove**, **Discuss and plan**, **Fix feedback now**,
+  **Keep for later**, **Reopen Wiff**. Cancelling the menu asks again. Reopen relaunches the same
+  session with no recapture, audit, or refresh; Keep retains Wiff and ends without a Pi turn;
+  Approve, Discuss, and Fix each revalidate freshness (I2) first. Approve then removes the
+  JSON-reported session with `wiff session rm <id> --project <project>` and reports failure without
+  claiming approval. Discuss and Fix each render ordinary `wiff render` Markdown, embed it verbatim
+  in one deterministic user message with untrusted-review-data framing, and start one ordinary Pi
+  turn. Discuss requires a read-only, one-material-question-per-turn interview, a concise confirmed
+  plan, and a later explicit `proceed` before implementation. Fix authorizes immediate work and one
+  material question only when blocked. Both instruct the implementing turn to add and immediately
+  resolve one concise Wiff review note recording agreed decisions and changes, then resolve each
+  addressed comment; every instructed Wiff command includes the session and project.
 
 ## Invariants
 
-- I1: One source plus its literal path selection is the sole candidate boundary. Sources never mix within an invocation, and Review owns no task, branch, index, worktree, checkpoint, commit, lifecycle, or publication state.
-- I2: Reviewer findings are advisory, causally attached to exact candidate changed lines, category-validated, and aggregated directly without a synthesis pass.
-- I3: Browser and human-review state is process-local and in memory. Reload, shutdown, cancellation, or candidate drift discards an undecided review; only complete child session/debug traces persist in the standard parent `subagents/<parent-id>/` tree.
-- I4: Review never edits code, runs tests or linters, stages, commits, pushes, publishes, deploys, or creates pull requests. The Review-local audit agent may use Bash and applicable skills for inspection; it cannot delegate.
-- I5: Planning, research, implementation, fixes, verification, commits, publication, and configured subagents remain ordinary manual Pi work outside Review.
+- I1: One invocation's source plus its ordered literal path selection is its candidate boundary;
+  changes outside the selected paths never make that candidate stale.
+- I2: Freshness compares repository root, HEAD OID, source, ordered paths, and exact patch bytes
+  against this invocation's captured snapshot. A mismatch before publication aborts with any
+  existing Wiff state untouched; a mismatch at Approve, Discuss, or Fix rejects the decision,
+  retains Wiff, and requires a new `/review` round.
+- I3: Findings are advisory, bounded, category-attributed, and published without a synthesis pass,
+  only after all four auditors succeed.
+- I4: Review persists no state in Pi or in a sidecar; Wiff is the sole owner of review state, UI,
+  comments, anchors, rebasing, dispositions, verdicts, and durable history.
+- I5: Review never edits code, runs tests or linters, mutates Git, commits, pushes, deploys, or
+  owns a correction loop.
+- I6: Review uses only Wiff's public CLI; it never reads or writes Wiff's journal files.
 
 ## Constraints
 
-- C1: Bind only to `127.0.0.1` on an ephemeral port and protect every route with an unguessable capability path, strict origin/host checks, request bounds, and a restrictive CSP.
-- C2: Render with pinned `@pierre/diffs@1.3.1`; keep diff text selectable and expose explicit `+` controls only on changed lines.
-- C3: Findings and line comments target exact changed additions or deletions. Human ranges are contiguous changed lines in one file and side; the single candidate-wide human general comment has no line target.
-- C4: Keep audit and browser state bounded. Refuse rather than truncate a candidate or silently degrade any reviewer failure; no browser server starts unless all four reviewers succeed.
-- C5: Existing `~/.pi/agent/juruc/` data and managed worktrees are out of scope and must remain untouched.
+- C1: Candidate and audit data remain bounded; Review refuses rather than truncates them.
+- C2: A non-empty full Pi session ID is mandatory; there is no fallback identity.
+- C3: Wiff is resolved from `PATH`. Its JSON output is schema-checked and never parsed with regex,
+  timers, random IDs, or hashes; its Markdown output is used verbatim in generated Pi turns and
+  never parsed.
+- C4: Publication failure on a newly created session makes one best-effort removal attempt; on a
+  refreshed session the refreshed session and already-added comments are retained. Either way
+  Review shows an immediate error notification, installs a persistent diagnostic widget (session,
+  published count, failed finding, command context, stderr), and sets a
+  `review: publication failed` footer status; it does not launch Wiff or accept a decision until
+  the next `/review` or session removal.
+- C5: Existing managed worktrees and unrelated Pi data remain untouched.
 
 ## Assumptions
 
-- A1: One experienced local operator owns an invocation and explicitly chooses the intended source and optional file/directory subset; staged remains the default.
-- A2: The operator may mutate the selected candidate while Review is open; freshness checks turn that into a clean stale-review failure.
-- A3: Firefox is primary, Chromium is the regression target, and Safari is unsupported until tested.
+- A1: One experienced operator owns an invocation and repeats the same source, paths, and
+  requirement while a review remains open; a different `/review` call during an open review is
+  operator error.
+- A2: The operator may mutate the selected candidate while Wiff is open; freshness checks (I2) turn
+  that into a clean stale-decision failure rather than silent drift.
 
 ## Non-Goals
 
-- N1: No durable browser/human review history, restart recovery, task migration, remote sharing, accounts, collaboration, or telemetry.
-- N2: No browser editing, candidate selection, staging, committing, terminals, general-purpose threads, reactions, assignments, or review-platform features beyond the required comments and read-only navigation. Review does not select individual hunks or combine Git sources.
-- N3: No automatic retrying, approval, publication, or Review-owned correction loop. Fixing starts only after the human explicitly chooses Send Feedback, and then proceeds as an ordinary Pi turn.
-- N4: No Review-specific runtime or trace tree. The shared subagent runner is the only subagent runtime dependency; Review owns its focused audit policy. Pi session JSONL and native Claude raw stream/stderr use the standard parent `subagents/<parent-id>/` tree solely for auditability and debugging.
+- N1: No browser, HTTP server, custom renderer, `@pierre/diffs` or other diff parser, review-state
+  database, Pi session entry, or Wiff-specific or custom Pi tool, skill, or global Pi
+  skill-settings change.
+- N2: No Review-specific implementation of comments, replies, anchors, navigation, dispositions,
+  verdict aggregation, or history — Wiff owns all of it.
+- N3: No automatic retry, deduplication, rollback, or misuse-protection machinery around Wiff's
+  append-only history.
+- N4: No Wiff source changes.

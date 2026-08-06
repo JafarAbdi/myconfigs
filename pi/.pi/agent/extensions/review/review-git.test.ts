@@ -6,8 +6,6 @@ import { join } from "node:path";
 import test from "node:test";
 import {
 	gitDiffArguments,
-	MAX_REVIEW_CHANGED_LINES,
-	MAX_REVIEW_FILES,
 	MAX_REVIEW_PATCH_BYTES,
 	listGitReviewPaths,
 	listGitReviewRequirements,
@@ -58,27 +56,10 @@ test("captures only the exact staged modified, new, renamed, and deleted candida
 		assert.equal(patch.text, expectedRaw.toString("utf8"));
 		assert.match(patch.text, /staged new/u);
 		assert.doesNotMatch(patch.text, /UNSTAGED|unstaged replacement|unstaged\.txt/u);
-		assert.deepEqual(patch.files.map(({ filePath }) => filePath).sort(), [
-			"deleted.txt",
-			"modified.txt",
-			"new.txt",
-			"rename-new.txt",
-		]);
-		assert.deepEqual(
-			patch.files.find(({ filePath }) => filePath === "modified.txt")?.changed,
-			{ additions: [2], deletions: [2] },
-		);
-		assert.deepEqual(
-			patch.files.find(({ filePath }) => filePath === "new.txt")?.changed,
-			{ additions: [1], deletions: [] },
-		);
-		const renamed = patch.files.find(({ filePath }) => filePath === "rename-new.txt");
-		assert.equal(renamed?.previousPath, "rename-old.txt");
-		assert.equal(renamed?.type, "rename-pure");
-		assert.deepEqual(
-			patch.files.find(({ filePath }) => filePath === "deleted.txt")?.changed,
-			{ additions: [], deletions: [1] },
-		);
+		assert.match(patch.text, /--- a\/modified\.txt[\s\S]*-two\n\+TWO/u);
+		assert.match(patch.text, /\+\+\+ b\/new\.txt[\s\S]*\+staged new/u);
+		assert.match(patch.text, /similarity index 100%\nrename from rename-old\.txt\nrename to rename-new\.txt/u);
+		assert.match(patch.text, /--- a\/deleted\.txt[\s\S]*-remove me/u);
 		assert.equal(git(repository, "rev-parse", "HEAD"), beforeHead);
 		assert.equal(git(repository, "status", "--porcelain=v2"), beforeStatus);
 	} finally {
@@ -115,15 +96,14 @@ test("captures staged, worktree, and untracked sources as separate path-scoped c
 		assert.match(worktree.text, /-staged\n\+worktree/u);
 		assert.match(worktree.text, /worktree only/u);
 		assert.doesNotMatch(worktree.text, /untracked file/u);
-		assert.equal(worktree.files.every(({ fileDiff }) =>
-			fileDiff.prevObjectId === undefined || fileDiff.prevObjectId.length === 40), true);
+		assert.match(worktree.text, /index [0-9a-f]{40}\.\.[0-9a-f]{40}/u);
 
 		const untracked = await readGitReviewPatch(repository, {
 			source: "untracked",
 			paths: ["."],
 		});
 		assert.equal(untracked.snapshot.source, "untracked");
-		assert.deepEqual(untracked.files.map(({ filePath }) => filePath), ["untracked file.txt"]);
+		assert.match(untracked.text, /\+\+\+ b\/untracked file\.txt/u);
 		assert.match(untracked.text, /\+new file/u);
 		assert.doesNotMatch(untracked.text, /ignored/u);
 		assert.deepEqual(await listGitReviewPaths(repository, "staged"), [
@@ -207,21 +187,8 @@ function syntheticPatch(files: number, changedPairsPerFile: number): string {
 	return `${parts.join("\n")}\n`;
 }
 
-test("preserves the existing file, changed-line, and byte ceilings", () => {
-	assert.equal(reviewPatchFromText(syntheticPatch(MAX_REVIEW_FILES, 1), ROOT, HEAD).files.length, MAX_REVIEW_FILES);
-	assert.throws(
-		() => reviewPatchFromText(syntheticPatch(MAX_REVIEW_FILES + 1, 1), ROOT, HEAD),
-		new RegExp(`above the ${MAX_REVIEW_FILES} Review limit`),
-	);
-	const pairs = MAX_REVIEW_CHANGED_LINES / 2;
-	assert.equal(
-		reviewPatchFromText(syntheticPatch(1, pairs), ROOT, HEAD).files[0].changed.additions.length * 2,
-		MAX_REVIEW_CHANGED_LINES,
-	);
-	assert.throws(
-		() => reviewPatchFromText(syntheticPatch(1, pairs + 1), ROOT, HEAD),
-		new RegExp(`above the ${MAX_REVIEW_CHANGED_LINES} Review limit`),
-	);
+test("preserves the existing byte ceiling", () => {
+	assert.equal(reviewPatchFromText(syntheticPatch(1, 1), ROOT, HEAD).empty, false);
 	assert.throws(
 		() => reviewPatchFromText(`${syntheticPatch(1, 1)}${"#".repeat(MAX_REVIEW_PATCH_BYTES)}`, ROOT, HEAD),
 		(error) => error instanceof Error && /Review is too large/u.test(error.message),
@@ -235,7 +202,6 @@ test("represents an empty staged candidate without mutating Git", async () => {
 		const patch = await readGitReviewPatch(repository);
 		assert.equal(patch.empty, true);
 		assert.equal(patch.snapshot.raw.length, 0);
-		assert.deepEqual(patch.files, []);
 		assert.equal(git(repository, "status", "--porcelain=v2"), before);
 	} finally {
 		rmSync(repository, { recursive: true, force: true });

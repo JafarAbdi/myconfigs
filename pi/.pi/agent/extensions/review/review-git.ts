@@ -1,4 +1,3 @@
-import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -19,30 +18,15 @@ export interface ReviewSnapshot {
 	readonly raw: Buffer;
 }
 
-export interface ReviewPatchFile {
-	filePath: string;
-	previousPath?: string;
-	type: FileDiffMetadata["type"];
-	changed: Record<ReviewSide, number[]>;
-	fileDiff: FileDiffMetadata;
-}
-
 export interface ReviewPatch {
 	snapshot: ReviewSnapshot;
 	text: string;
 	empty: boolean;
-	files: ReviewPatchFile[];
 }
 
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
-/**
- * Measured Review ceilings. Pierre SSR rendered 500 files with 10,000 changed
- * lines at roughly 31 MiB of HTML; larger candidates are refused, not truncated.
- */
 export const MAX_REVIEW_PATCH_BYTES = 8 * 1024 * 1024;
-export const MAX_REVIEW_FILES = 500;
-export const MAX_REVIEW_CHANGED_LINES = 10_000;
 export const MAX_REVIEW_SELECTION_PATHS = 500;
 const GIT_TIMEOUT_MS = 10_000;
 const COMPLETION_GIT_TIMEOUT_MS = 2_000;
@@ -81,32 +65,6 @@ export function gitDiffArguments(
 		"--",
 		...selection.paths.map(literalPathspec),
 	];
-}
-
-function collectChangedLines(file: FileDiffMetadata): Record<ReviewSide, number[]> {
-	const additions = new Set<number>();
-	const deletions = new Set<number>();
-	for (const hunk of file.hunks) {
-		let additionLine = hunk.additionStart;
-		let deletionLine = hunk.deletionStart;
-		for (const content of hunk.hunkContent) {
-			if (content.type === "context") {
-				additionLine += content.lines;
-				deletionLine += content.lines;
-				continue;
-			}
-			for (let offset = 0; offset < content.additions; offset += 1)
-				additions.add(additionLine + offset);
-			for (let offset = 0; offset < content.deletions; offset += 1)
-				deletions.add(deletionLine + offset);
-			additionLine += content.additions;
-			deletionLine += content.deletions;
-		}
-	}
-	return {
-		additions: [...additions].sort((left, right) => left - right),
-		deletions: [...deletions].sort((left, right) => left - right),
-	};
 }
 
 function requireOid(value: string, label: string): string {
@@ -173,28 +131,7 @@ export function reviewPatchFromBuffer(
 	if (raw.length > MAX_REVIEW_PATCH_BYTES)
 		throw oversized("the cumulative patch", raw.length, MAX_REVIEW_PATCH_BYTES);
 	const text = decodeUtf8(raw, "Review patch");
-	if (raw.length === 0) return { snapshot, text, empty: true, files: [] };
-
-	const parsed = parsePatchFiles(text, `${snapshot.headOid}:${snapshot.source}`, true)
-		.flatMap((entry) => entry.files);
-	if (parsed.length === 0)
-		throw new Error("Git produced a non-empty Review patch that Pierre could not parse");
-	if (parsed.length > MAX_REVIEW_FILES)
-		throw oversized("the changed file count", parsed.length, MAX_REVIEW_FILES);
-	const files = parsed.map((fileDiff) => ({
-		filePath: fileDiff.name,
-		...(fileDiff.prevName === undefined ? {} : { previousPath: fileDiff.prevName }),
-		type: fileDiff.type,
-		changed: collectChangedLines(fileDiff),
-		fileDiff,
-	}));
-	const changedLines = files.reduce(
-		(total, file) => total + file.changed.additions.length + file.changed.deletions.length,
-		0,
-	);
-	if (changedLines > MAX_REVIEW_CHANGED_LINES)
-		throw oversized("the changed line count", changedLines, MAX_REVIEW_CHANGED_LINES);
-	return { snapshot, text, empty: false, files };
+	return { snapshot, text, empty: raw.length === 0 };
 }
 
 export function reviewPatchFromText(
@@ -356,8 +293,6 @@ async function readUntrackedPatch(
 	);
 	const text = decodeUtf8(listed, "Untracked file list");
 	const names = text ? text.split("\0").slice(0, -1) : [];
-	if (names.length > MAX_REVIEW_FILES)
-		throw oversized("the changed file count", names.length, MAX_REVIEW_FILES);
 	const chunks: Buffer[] = [];
 	let bytes = 0;
 	for (const name of names) {

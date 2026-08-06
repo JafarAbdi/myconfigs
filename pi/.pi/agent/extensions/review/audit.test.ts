@@ -61,7 +61,7 @@ const AUDIT_AGENT: Agent = {
 	name: "audit",
 	description: "Audits exact candidate changes.",
 	tools: ["read", "grep", "find", "ls", "bash"],
-	skills: "all",
+	skills: "none",
 	continuable: false,
 	systemPrompt: "Canonical audit policy.",
 };
@@ -146,7 +146,8 @@ test("runAudit uses its focused immutable agent through the shared runner", asyn
 		assert.equal(agent.name, "audit");
 		assert.match(agent.systemPrompt, /git show <captured-commit>:path\/to\/file/u);
 		assert.match(agent.systemPrompt, /git cat-file blob <captured-blob>/u);
-		assert.match(agent.systemPrompt, /always\s+assigns one focused lens/u);
+		assert.match(agent.systemPrompt, /Follow the task's output contract exactly/u);
+		assert.equal(agent.skills, "none");
 		assert.doesNotMatch(agent.systemPrompt, /standalone broad audit|git show :|git diff --cached/u);
 	}
 });
@@ -182,10 +183,9 @@ test("reviewer task includes its focused lens, exact patch, optional requirement
 	assert.match(prompt, /Find material violations of the requirement/u);
 	assert.match(prompt, /Source: HEAD → index \(staged\)/u);
 	assert.match(prompt, /Selection: all paths in the source/u);
-	assert.match(prompt, new RegExp(`HEAD: ${"2".repeat(40)}`));
 	assert.match(prompt, new RegExp(`git show ${"2".repeat(40)}:path/to/file`));
 	assert.match(prompt, new RegExp(`git cat-file blob <objectId>[\\s\\S]+${"1".repeat(40)}`));
-	assert.match(prompt, /never read live `HEAD`, index \(`:`\), or working-tree refs/u);
+	assert.match(prompt, /never read live `HEAD`, the index, or the working tree/u);
 	assert.doesNotMatch(prompt, /git show :path|git show HEAD:path/u);
 	assert.match(prompt, /diff --git a\/src\/a\.ts/u);
 	assert.match(prompt, /REQUIREMENT_SENTINEL/u);
@@ -194,9 +194,9 @@ test("reviewer task includes its focused lens, exact patch, optional requirement
 	assert.match(prompt, /filePath, side, line, message/u);
 	assert.match(prompt, /one plain sentence of at most 240 characters/u);
 	assert.match(prompt, /Omit evidence, repair steps, labels, headings, verdicts/u);
-	assert.match(prompt, /Other staged, worktree, or untracked bytes and their live line numbers may differ/u);
-	assert.match(prompt, /\{"filePath":"src\/a\.ts","side":"additions","lines":"1"\}/u);
-	assert.match(prompt, /\{"filePath":"src\/a\.ts","side":"deletions","lines":"1"\}/u);
+	assert.match(prompt, /patch is authoritative for all changed bytes and locations/u);
+	assert.match(prompt, /Derive filePath, side, and line directly from the exact candidate patch above/u);
+	assert.doesNotMatch(prompt, /Valid finding targets|Immutable old-side blobs/u);
 	assert.doesNotMatch(prompt, /Canonical audit policy|\/repository|browser comment/iu);
 });
 
@@ -210,7 +210,6 @@ test("worktree reviewer tasks use captured index blobs and selected scope", () =
 	const prompt = buildAuditPrompt({ patch: worktree }, AUDIT_ROSTER[1]);
 	assert.match(prompt, /Source: index → tracked working tree \(worktree\)/u);
 	assert.match(prompt, /Selection: src\/a\.ts/u);
-	assert.match(prompt, new RegExp(`"objectId":"${"1".repeat(40)}"`));
 	assert.match(prompt, /git cat-file blob <objectId>/u);
 	assert.doesNotMatch(prompt, /git show :|git diff --cached|working-tree refs for this audit[\s\S]*git diff/u);
 });
@@ -278,6 +277,7 @@ test("runs all four reviewers concurrently through the shared runner with live p
 		}
 	}
 	assert.deepEqual(AUDIT_AGENT.tools, ["read", "grep", "find", "ls", "bash"]);
+	assert.equal(AUDIT_AGENT.skills, "none");
 	assert.deepEqual(result, {
 		findings: [{ category: "correctness", ...finding() }],
 	});
@@ -318,10 +318,8 @@ test("rejects malformed JSON and strict-shape violations", async (t) => {
 });
 
 test("accepts exact Git filenames verbatim", async () => {
-	const unusual = patch();
-	unusual.files[0].filePath = " src/line\nbreak.ts ";
-	const expected = { ...finding(), filePath: unusual.files[0].filePath };
-	const result = await runAudit({ ...input(), patch: unusual }, dependencies(async (run) => completed(
+	const expected = { ...finding(), filePath: " src/line\nbreak.ts " };
+	const result = await runAudit(input(), dependencies(async (run) => completed(
 		run.model === "openai-codex/gpt-5.6-sol"
 			? JSON.stringify({ findings: [expected] })
 			: JSON.stringify({ findings: [] }),
@@ -329,7 +327,7 @@ test("accepts exact Git filenames verbatim", async () => {
 	assert.deepEqual(result, { findings: [{ category: "correctness", ...expected }] });
 });
 
-test("injects the roster category and requires an exact changed line", async () => {
+test("injects the roster category without locally validating the finding's location", async () => {
 	const audit = await runAudit(input(), dependencies(async (run) => completed(
 		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("reachable bugs caused")
 			? JSON.stringify({ findings: [finding()] })
@@ -337,11 +335,12 @@ test("injects the roster category and requires an exact changed line", async () 
 	)));
 	assert.deepEqual(audit, { findings: [{ category: "correctness", ...finding() }] });
 
-	await assert.rejects(runAudit(input(), dependencies(async (run) => completed(
+	const unchangedLine = await runAudit(input(), dependencies(async (run) => completed(
 		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("reachable bugs caused")
 			? JSON.stringify({ findings: [finding(2)] })
 			: JSON.stringify({ findings: [] }),
-	))), /src\/a\.ts: additions line 2 is not changed in the candidate patch.*live line numbers/u);
+	)));
+	assert.deepEqual(unchangedLine, { findings: [{ category: "correctness", ...finding(2) }] });
 });
 
 test("one reviewer failure aborts siblings and awaits their settlement", async () => {
