@@ -217,7 +217,7 @@ local snippet_common = {
   {
     glyph = "📂",
     name = "processes in pid cwd",
-    text = "set pid (pid_picker | head -1); set dir (readlink /proc/$pid/cwd); echo $dir; for proc in /proc/[0-9]*; set p (string split / $proc)[-1]; set cwd (readlink /proc/$p/cwd 2>/dev/null); test \"$cwd\" = \"$dir\"; and ps -o user=,pid=,ppid=,stat=,args= -p $p; end",
+    text = 'set pid (pid_picker | head -1); set dir (readlink /proc/$pid/cwd); echo $dir; for proc in /proc/[0-9]*; set p (string split / $proc)[-1]; set cwd (readlink /proc/$p/cwd 2>/dev/null); test "$cwd" = "$dir"; and ps -o user=,pid=,ppid=,stat=,args= -p $p; end',
   },
   {
     glyph = "🔬",
@@ -324,18 +324,11 @@ config.keys = {
   { key = "p", mods = "SHIFT|CTRL", action = act.ActivateCommandPalette },
   { key = "c", mods = "LEADER", action = act.SpawnTab("CurrentPaneDomain") },
   { key = "a", mods = "LEADER", action = act.ActivateLastTab },
-  {
-    key = "d",
-    mods = "LEADER",
-    action = act.DetachDomain("CurrentPaneDomain"),
-  },
+  { key = "d", mods = "LEADER", action = act.DetachDomain("CurrentPaneDomain") },
   {
     key = "r",
     mods = "LEADER",
-    action = act.ActivateKeyTable({
-      name = "resize_pane",
-      one_shot = false,
-    }),
+    action = act.ActivateKeyTable({ name = "resize_pane", one_shot = false }),
   },
   {
     key = "u",
@@ -360,11 +353,7 @@ config.keys = {
   { key = "n", mods = "ALT|SHIFT", action = act.SwitchToWorkspace },
   { key = "Copy", mods = "NONE", action = act.CopyTo("Clipboard") },
   { key = "Paste", mods = "NONE", action = act.PasteFrom("Clipboard") },
-  {
-    key = "q",
-    mods = "LEADER|CTRL",
-    action = act.SendString("\x11"),
-  },
+  { key = "q", mods = "LEADER|CTRL", action = act.SendString("\x11") },
   { key = "UpArrow", mods = "SHIFT", action = act.ScrollToPrompt(-1) },
   { key = "DownArrow", mods = "SHIFT", action = act.ScrollToPrompt(1) },
   -- Send the Kitty CSI-u shift+enter sequence so apps (pi, Claude Code) decode a
@@ -380,13 +369,10 @@ config.key_tables = {
   resize_pane = {
     { key = "LeftArrow", action = act.AdjustPaneSize({ "Left", 1 }) },
     { key = "h", action = act.AdjustPaneSize({ "Left", 1 }) },
-
     { key = "RightArrow", action = act.AdjustPaneSize({ "Right", 1 }) },
     { key = "l", action = act.AdjustPaneSize({ "Right", 1 }) },
-
     { key = "UpArrow", action = act.AdjustPaneSize({ "Up", 1 }) },
     { key = "k", action = act.AdjustPaneSize({ "Up", 1 }) },
-
     { key = "DownArrow", action = act.AdjustPaneSize({ "Down", 1 }) },
     { key = "j", action = act.AdjustPaneSize({ "Down", 1 }) },
     -- Cancel the mode by pressing escape
