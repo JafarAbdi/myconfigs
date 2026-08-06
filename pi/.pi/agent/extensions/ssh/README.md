@@ -73,7 +73,7 @@ run their file and shell tools through SSH without installing anything remotely.
 
 ## Resume
 
-Sessions started with `--ssh` persist SSH target and remote cwd. Resuming without `--ssh` reconnects automatically. If reconnect fails, startup fails.
+Sessions started with `--ssh` persist SSH target and remote cwd and are named `ssh host:/remote/cwd`, so the target is visible in Pi's `/resume` selector. Resuming without `--ssh` reconnects automatically. If reconnect fails, startup fails.
 
 ## Test
 

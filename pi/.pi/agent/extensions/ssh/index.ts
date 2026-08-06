@@ -341,6 +341,10 @@ export default function (pi: ExtensionAPI) {
 				createRemoteAtAutocompleteProvider(current, getConnection, reportCompletionError),
 			);
 		}
+		const sessionName = `ssh ${sshStatusText(connection)}`;
+		if (ctx.sessionManager.getSessionName() !== sessionName) {
+			pi.setSessionName(sessionName);
+		}
 		updateSshStatus(ctx, connection);
 		ctx.ui.notify(`SSH mode: ${sshStatusText(connection)}`, "info");
 		pi.events.emit("ssh:connected", undefined);
