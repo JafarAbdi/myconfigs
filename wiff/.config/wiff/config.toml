@@ -1,20 +1,17 @@
-theme     = "Catppuccin Mocha"
 diff_mode = "unified"
+
+[theme]
+appearance = "dark"
+dark       = "Catppuccin Mocha"
 
 [keymap]
 # Vim-style navigation
-line_down    = ["down"]
-line_up      = ["up"]
-page_down    = ["ctrl-d"]
-page_up      = ["ctrl-u"]
-top          = ["g g"]
-bottom       = ["G"]
-next_file    = ["] f"]
-prev_file    = ["[ f"]
-next_hunk    = ["] h"]
-prev_hunk    = ["[ h"]
-next_comment = ["] c"]
-prev_comment = ["[ c"]
+line_down = ["down"]
+line_up   = ["up"]
+page_down = ["ctrl-d"]
+page_up   = ["ctrl-u"]
+top       = ["g g"]
+bottom    = ["G"]
 
 # View
 pick_theme          = ["T"]
