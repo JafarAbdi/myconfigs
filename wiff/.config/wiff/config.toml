@@ -1,8 +1,5 @@
-# Copy to ~/.config/wiff/config.toml
-# (or set WIFF_CONFIG_DIR to the directory containing this file)
-
-# Press T in wiff and choose “Catppuccin Mocha” for the theme.
-# Themes are currently selected in the TUI, not persisted in config.toml.
+theme = "Catppuccin Mocha"
+diff_mode = "unified"
 
 [keymap]
 # Vim-style navigation
