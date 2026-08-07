@@ -1,10 +1,10 @@
-theme = "Catppuccin Mocha"
+theme     = "Catppuccin Mocha"
 diff_mode = "unified"
 
 [keymap]
 # Vim-style navigation
-line_down    = ["j"]
-line_up      = ["k"]
+line_down    = ["down"]
+line_up      = ["up"]
 page_down    = ["ctrl-d"]
 page_up      = ["ctrl-u"]
 top          = ["g g"]
@@ -36,7 +36,7 @@ delete_comment  = ["d"]
 set_verdict     = ["a"]
 
 # The default submit key is ctrl-d, which conflicts with Vim page-down.
-submit_comment  = ["ctrl-g"]
+submit_comment = ["ctrl-g"]
 
 # Search
 search_forward  = ["/"]
