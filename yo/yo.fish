@@ -1,3 +1,9 @@
+# yo drives WezTerm panes; without one (e.g. plain ssh, which does not forward
+# WEZTERM_PANE) there is nothing to set up, so don't define anything at all.
+if not set -q WEZTERM_PANE; or test -z "$WEZTERM_PANE"
+    return 0
+end
+
 set -l __yo_file (realpath (status filename) 2>/dev/null)
 if test -z "$__yo_file"
     echo 'yo: cannot resolve yo.fish path' >&2
