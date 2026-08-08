@@ -5,6 +5,7 @@
     ],
     "defaultMode": "auto"
   },
+  "model": "claude-fable-5[1m]",
   "alwaysThinkingEnabled": true,
   "effortLevel": "xhigh",
   "advisorModel": "opus",
