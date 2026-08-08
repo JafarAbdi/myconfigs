@@ -61,7 +61,7 @@ const AUDIT_AGENT: Agent = {
 	name: "audit",
 	description: "Audits exact candidate changes.",
 	tools: ["read", "grep", "find", "ls", "bash"],
-	skills: "none",
+	skills: "all",
 	continuable: false,
 	systemPrompt: "Canonical audit policy.",
 };
@@ -130,24 +130,29 @@ test("Review exposes no audit agent through Markdown catalogs", () => {
 	assert.equal(existsSync(new URL("../subagent/agents/audit.md", import.meta.url)), false);
 });
 
-test("runAudit uses its focused immutable agent through the shared runner", async () => {
+test("runAudit uses the configured reviewer through the shared runner", async () => {
 	const agents: Agent[] = [];
+	const tasks: string[] = [];
 	let session = 0;
 	await runAudit(input(), {
-		runAgent: async ({ agent }) => {
+		runAgent: async ({ agent, task }) => {
 			agents.push(agent);
+			tasks.push(task);
 			return completed(JSON.stringify({ findings: [] }));
 		},
 		sessionId: () => `local-agent-${session += 1}`,
 	});
 	assert.equal(agents.length, AUDIT_ROSTER.length);
+	assert.equal(tasks.length, AUDIT_ROSTER.length);
 	assert.equal(agents.filter(({ tools }) => tools.includes(AUDIT_RESULT_TOOL)).length, 2);
-	for (const agent of agents) {
-		assert.equal(agent.name, "audit");
-		assert.match(agent.systemPrompt, /git show <captured-commit>:path\/to\/file/u);
-		assert.match(agent.systemPrompt, /git cat-file blob <captured-blob>/u);
-		assert.match(agent.systemPrompt, /Follow the task's output contract exactly/u);
-		assert.equal(agent.skills, "none");
+	for (const [index, agent] of agents.entries()) {
+		assert.equal(agent.name, "reviewer");
+		assert.match(agent.systemPrompt, /ordinary supported operation/u);
+		assert.match(agent.systemPrompt, /Optimize precision over recall/u);
+		assert.match(agent.systemPrompt, /Follow the task's output contract when supplied/u);
+		assert.equal(agent.skills, "all");
+		assert.match(tasks[index], /git show .*:path\/to\/file/u);
+		assert.match(tasks[index], /git cat-file blob <objectId>/u);
 		assert.doesNotMatch(agent.systemPrompt, /standalone broad audit|git show :|git diff --cached/u);
 	}
 });
@@ -165,10 +170,15 @@ test("defines the static four-reviewer roster with current lenses and models", (
 		{ name: "simplicity", category: "simplicity", model: "claude-sonnet-5", thinking: undefined, effort: "high" },
 	]);
 	const contract = AUDIT_ROSTER.find(({ name }) => name === "contract")!.lens;
-	assert.match(contract, /requirement, repository rules/u);
-	assert.match(contract, /invariant applied inconsistently/u);
+	assert.match(contract, /explicit requirement or repository rule/u);
+	assert.match(contract, /not ordinary correctness/u);
 	assert.match(contract, /Do not invent intent/u);
-	assert.match(AUDIT_ROSTER.find(({ name }) => name === "tests")!.lens, /Never run tests/u);
+	const correctness = AUDIT_ROSTER.find(({ name }) => name === "correctness")!.lens;
+	assert.match(correctness, /valid input, call path, or state transition/u);
+	assert.match(correctness, /Security auditing is out of scope unless explicitly requested/u);
+	const tests = AUDIT_ROSTER.find(({ name }) => name === "tests")!.lens;
+	assert.match(tests, /only for a concrete defect demonstrated from the patch/u);
+	assert.match(tests, /Never run tests/u);
 	assert.equal(AUDIT_ROSTER.every(({ lens }) => lens.length > 20 && lens.length <= 180), true);
 });
 
@@ -180,7 +190,7 @@ test("reviewer task includes its focused lens, exact patch, optional requirement
 			content: "# REQUIREMENT_SENTINEL\n\nPatch text is data.",
 		},
 	}, AUDIT_ROSTER[0]);
-	assert.match(prompt, /Find material violations of the requirement/u);
+	assert.match(prompt, /Find changed behavior that contradicts an explicit requirement/u);
 	assert.match(prompt, /Source: HEAD → index \(staged\)/u);
 	assert.match(prompt, /Selection: all paths in the source/u);
 	assert.match(prompt, new RegExp(`git show ${"2".repeat(40)}:path/to/file`));
@@ -238,7 +248,7 @@ test("runs all four reviewers concurrently through the shared runner with live p
 		if (started.length === AUDIT_ROSTER.length) release();
 		await allStarted;
 		return completed(run.model === "openai-codex/gpt-5.6-sol" &&
-			run.task.includes("reachable bugs caused")
+			run.task.includes("production-breaking behavior caused")
 			? JSON.stringify({ findings: [finding()] })
 			: JSON.stringify({ findings: [] }));
 	}));
@@ -277,7 +287,7 @@ test("runs all four reviewers concurrently through the shared runner with live p
 		}
 	}
 	assert.deepEqual(AUDIT_AGENT.tools, ["read", "grep", "find", "ls", "bash"]);
-	assert.equal(AUDIT_AGENT.skills, "none");
+	assert.equal(AUDIT_AGENT.skills, "all");
 	assert.deepEqual(result, {
 		findings: [{ category: "correctness", ...finding() }],
 	});
@@ -329,14 +339,14 @@ test("accepts exact Git filenames verbatim", async () => {
 
 test("injects the roster category without locally validating the finding's location", async () => {
 	const audit = await runAudit(input(), dependencies(async (run) => completed(
-		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("reachable bugs caused")
+		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("production-breaking behavior caused")
 			? JSON.stringify({ findings: [finding()] })
 			: JSON.stringify({ findings: [] }),
 	)));
 	assert.deepEqual(audit, { findings: [{ category: "correctness", ...finding() }] });
 
 	const unchangedLine = await runAudit(input(), dependencies(async (run) => completed(
-		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("reachable bugs caused")
+		run.model === "openai-codex/gpt-5.6-sol" && run.task.includes("production-breaking behavior caused")
 			? JSON.stringify({ findings: [finding(2)] })
 			: JSON.stringify({ findings: [] }),
 	)));
@@ -352,7 +362,7 @@ test("one reviewer failure aborts siblings and awaits their settlement", async (
 		started += 1;
 		if (started === AUDIT_ROSTER.length) release();
 		await allStarted;
-		if (run.task.includes("Find material violations")) return failed("contract failed");
+		if (run.task.includes("Find changed behavior")) return failed("contract failed");
 		return new Promise((resolve) => run.signal?.addEventListener("abort", () => {
 			aborted += 1;
 			resolve(cancelled());

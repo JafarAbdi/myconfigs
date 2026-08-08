@@ -14,11 +14,9 @@ Pi-session-scoped Wiff review for one experienced operator's explicit decision.
   `/review [optional-requirements-or-plan.md]` compatibility, provides source-aware completion,
   reads an optional requirement file with existing path/symlink/size/UTF-8 checks, rejects an
   empty or larger-than-8-MiB candidate, and never mutates Git.
-- R2: Every invocation runs four fresh read-only reviewers concurrently through the shared
-  subagent runner and Review-local `audit` agent: contract, correctness, tests, simplicity. Each
-  finding is one plain sentence of at most 240 characters. The static roster fixes category,
-  model, and high thinking/effort; progress shows every reviewer's model and latest activity; a
-  reviewer failure cancels its siblings and publishes nothing.
+- R2: Every invocation runs four fresh read-only reviewers concurrently: contract, correctness,
+  tests, and simplicity. Each concrete material finding is one plain sentence of at most 240
+  characters. Progress identifies each reviewer; a reviewer failure publishes nothing.
 - R3: A non-empty full Pi session ID deterministically names one Wiff project,
   `pi-review-<full-pi-session-id>`, passed to every Wiff command as `--project`. A fresh Pi session
   creates an independent review even for the same candidate; reloading the same session reuses the
@@ -72,8 +70,8 @@ Pi-session-scoped Wiff review for one experienced operator's explicit decision.
   against this invocation's captured snapshot. A mismatch before publication aborts with any
   existing Wiff state untouched; a mismatch at Approve, Discuss, or Fix rejects the decision,
   retains Wiff, and requires a new `/review` round.
-- I3: Findings are advisory, bounded, category-attributed, and published without a synthesis pass,
-  only after all four auditors succeed.
+- I3: Findings are advisory, bounded, category-attributed, and published only after all four
+  auditors succeed. No finding automatically authorizes implementation work.
 - I4: Review persists no state in Pi or in a sidecar; Wiff is the sole owner of review state, UI,
   comments, anchors, rebasing, dispositions, verdicts, and durable history.
 - I5: Review never edits code, runs tests or linters, mutates Git, commits, pushes, deploys, or
@@ -87,12 +85,8 @@ Pi-session-scoped Wiff review for one experienced operator's explicit decision.
 - C3: Wiff is resolved from `PATH`. Its JSON output is schema-checked and never parsed with regex,
   timers, random IDs, or hashes; its Markdown output is used verbatim in generated Pi turns and
   never parsed.
-- C4: Publication failure on a newly created session makes one best-effort removal attempt; on a
-  refreshed session the refreshed session and already-added comments are retained. Either way
-  Review shows an immediate error notification, installs a persistent diagnostic widget (session,
-  published count, failed finding, command context, stderr), and sets a
-  `review: publication failed` footer status; it does not launch Wiff or accept a decision until
-  the next `/review` or session removal.
+- C4: Publication failure stops the workflow, preserves existing Wiff state, and reports an
+  actionable error without launching Wiff or accepting a decision.
 - C5: Existing managed worktrees and unrelated Pi data remain untouched.
 
 ## Assumptions

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { loadAgent } from "../subagent/agents.ts";
 import { runAgent, type RunAgentOptions } from "../subagent/run-agent.ts";
 import {
 	childSessionDir,
@@ -64,22 +65,6 @@ export interface RunAuditInput {
 	signal?: AbortSignal;
 	onProgress?: (progress: AuditProgress) => void;
 }
-
-const AUDIT_AGENT: Agent = {
-	name: "audit",
-	description: "Focused read-only review of one immutable candidate",
-	tools: ["read", "grep", "find", "ls", "bash"],
-	skills: "none",
-	continuable: false,
-	systemPrompt: `Review only the supplied patch through the assigned lens. Report material blockers; omit
-speculation, preferences, polish, and unrelated debt.
-
-The patch is authoritative for changed bytes and locations. Never inspect live \`HEAD\`, the index,
-the working tree, or changed-file bytes outside the patch. For unchanged context, use only
-\`git show <captured-commit>:path/to/file\` and \`git cat-file blob <captured-blob>\` with supplied object IDs.
-
-Do not modify files or Git, and do not run tests or linters. Follow the task's output contract exactly.`,
-};
 
 const MAX_AUDIT_OUTPUT_BYTES = 1024 * 1024;
 const MAX_REQUIREMENT_BYTES = 1024 * 1024;
@@ -229,7 +214,8 @@ export async function runAudit(
 	if (!isAbsolute(input.repositoryRoot)) throw new Error("audit repository root must be absolute");
 	if (input.patch.snapshot.repositoryRoot !== input.repositoryRoot)
 		throw new Error("audit repository root does not match the candidate snapshot");
-	const agent = dependencies.auditAgent ?? AUDIT_AGENT;
+	const agent = dependencies.auditAgent ?? loadAgent("reviewer");
+	if (!agent) throw new Error("reviewer agent is unavailable");
 	const sessionDir = childSessionDir(
 		input.parentSession.directory,
 		input.parentSession.id,
