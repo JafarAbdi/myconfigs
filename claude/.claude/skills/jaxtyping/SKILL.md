@@ -1,6 +1,6 @@
 ---
 name: jaxtyping
-description: ALWAYS load before writing, editing, or creating any JAX, PyTorch, NumPy, or other array/tensor code — do not write tensor code without loading it first. Typing conventions using jaxtyping + beartype for runtime type checking of array shapes. Despite the name "jaxtyping", it works with any array library.
+description: ALWAYS load before writing, editing, or creating any JAX, PyTorch, or other tensor code — do not write tensor code without loading it first. Typing conventions using jaxtyping + beartype for runtime type checking of array shapes. Despite the name "jaxtyping", it works with any array library.
 ---
 
 # Array Typing Conventions (jaxtyping + beartype)
