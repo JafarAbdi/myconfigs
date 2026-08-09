@@ -1505,6 +1505,30 @@ vim.keymap.set("n", "<M-o>", function()
 end, { silent = true })
 vim.keymap.set("n", "<leader>j", jumplist, { silent = true })
 
+-- Paste: save a clipboard PNG next to the note and link it; text falls through
+vim.paste = (function(overridden)
+  return function(lines, phase)
+    -- phase >= 2: continuation of a text paste already delegated below
+    if phase >= 2 or vim.bo.filetype ~= "markdown" then
+      return overridden(lines, phase)
+    end
+    -- sloppy clipboard owners (e.g. xclip -i) serve text for any requested
+    -- target, so validate the PNG signature instead of trusting the exit code
+    local png = vim.system({ "xclip", "-selection", "clipboard", "-t", "image/png", "-o" }):wait()
+    if png.code ~= 0 or not vim.startswith(png.stdout, "\137PNG\r\n\26\n") then
+      return overridden(lines, phase)
+    end
+    local dir = vim.fs.joinpath(vim.fn.expand("%:p:h"), "attachments")
+    vim.fn.mkdir(dir, "p")
+    local fname = os.date("%Y%m%d_%H%M%S") .. ".png"
+    local f = assert(io.open(vim.fs.joinpath(dir, fname), "wb"))
+    f:write(png.stdout)
+    f:close()
+    vim.api.nvim_put({ ("![image](attachments/%s)"):format(fname) }, "c", true, true)
+    return false -- cancel: core drains the rest of this paste stream
+  end
+end)(vim.paste)
+
 -- Diagnostic keymaps
 vim.keymap.set("n", "<leader>q", quickfix, { silent = true })
 vim.keymap.set("n", "<leader>dq", function()
