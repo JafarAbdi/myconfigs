@@ -1,5 +1,5 @@
 /**
- * Subagent — run one bounded task in a fresh-context child process.
+ * Subagent — run one task in a fresh-context child process.
  *
  * Agents are markdown files in ./agents/: frontmatter defines role metadata and capabilities, and
  * the body is appended to the child's default system prompt. The child gets its own persistent
@@ -23,14 +23,10 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-	DEFAULT_MAX_BYTES,
-	DEFAULT_MAX_LINES,
 	type ExtensionAPI,
-	formatSize,
 	getAgentDir,
 	getMarkdownTheme,
 	type Theme,
-	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Markdown, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -47,7 +43,6 @@ import {
 	modelLabel,
 	preview,
 	type RunResult,
-	selectRuntime,
 } from "./runtimes.ts";
 
 const AGENT_DIR = getAgentDir();
@@ -234,12 +229,12 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 			name: "delegate",
 			label: "Delegate",
 			description:
-				`Run one isolated, bounded task as a configured agent. Start a fresh run with agent, or ` +
+				`Run one isolated task as a configured agent. Start a fresh run with agent, or ` +
 				`resume an exact prior continuable run with runId. The child does not see the parent ` +
 				`conversation, so provide a complete brief and exact file paths. Omit model to inherit the current Pi model` +
 				(includeNativeClaude ? `; enabled Pi and native local Claude models are available. ` : `; enabled Pi models are available. `) +
 				`Agents: ${roster}`,
-			promptSnippet: "Delegate or continue one bounded agent task in its own process",
+			promptSnippet: "Delegate or continue one agent task in its own process",
 			parameters: Type.Object({
 				agent: Type.Optional(Type.String({
 					description: `Fresh run role; one of: ${catalog.map((agent) => agent.name).join(", ")}`,
@@ -310,13 +305,12 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					}
 					agent = found;
 					model = params.model;
-					const runtime = selectRuntime(model);
 					sessionDir = childSessionDir(
 						ctx.sessionManager.getSessionDir(),
 						ctx.sessionManager.getSessionId(),
 						AGENT_DIR,
 					);
-					runId = runtime.name === "pi" && agent.continuable ? randomUUID() : undefined;
+					runId = agent.continuable ? randomUUID() : undefined;
 					inherited = {
 						appendSystemPrompt: inheritedAppendSystemPrompt,
 						model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
@@ -353,40 +347,23 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					const continuation = runId && agent.continuable
 						? `${continuationBreadcrumb(runId)}\n\n`
 						: "";
-					const failure = truncateHead(
-						`${continuation}${outcome.message ?? `${agent.name} failed.`}`,
-						{ maxLines: 12, maxBytes: 1200 },
-					);
 					return {
-						content: [{ type: "text" as const, text: failure.content }],
+						content: [{
+							type: "text" as const,
+							text: `${continuation}${outcome.message ?? `${agent.name} failed.`}`,
+						}],
 						details: result,
 						usage: result.usage,
 					};
 				}
-				// Tools must bound what they put in the parent's context, and several of these run at
-				// once. `details` keeps the whole report for the expanded view.
-				const reportSource = [
+				const report = [
 					runId && agent.continuable
 						? continuationBreadcrumb(runId)
 						: "",
 					result.output,
 				].filter(Boolean).join("\n\n");
-				const report = truncateHead(
-					reportSource,
-					{
-						maxLines: DEFAULT_MAX_LINES,
-						maxBytes: DEFAULT_MAX_BYTES,
-					},
-				);
 				return {
-					content: [
-						{
-							type: "text" as const,
-							text: report.truncated
-								? `${report.content}\n\n[Report truncated to ${formatSize(report.outputBytes)} of ${formatSize(report.totalBytes)} — full text in the tool details.]`
-								: report.content,
-						},
-					],
+					content: [{ type: "text" as const, text: report }],
 					details: result,
 					usage: result.usage,
 				};

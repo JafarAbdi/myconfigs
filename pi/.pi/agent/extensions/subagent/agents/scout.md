@@ -1,6 +1,6 @@
 ---
 description: Explores a codebase and returns focused evidence or a bounded plan
-tools: read, grep, find, ls
+tools: read, grep, find, ls, bash
 skills: all
 ---
 

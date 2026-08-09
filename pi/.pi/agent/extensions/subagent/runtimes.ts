@@ -86,110 +86,11 @@ export interface Step {
 	outcome?: "ok" | "failed";
 }
 
-/** Steps kept, and so also steps shown: a tail is a tail, and a loop cannot grow the parent's memory. */
-export const STEP_LIMIT = 40;
-/** Protocol and result limits are byte limits because child streams are byte streams. */
-export const CHILD_PENDING_LINE_MAX_BYTES = 1024 * 1024;
-export const CHILD_STDERR_MAX_BYTES = 64 * 1024;
-export const RESULT_OUTPUT_MAX_BYTES = 1024 * 1024;
-export const RESULT_DETAILS_MAX_BYTES = 2 * 1024 * 1024;
 export const RESULT_TOOL_ENV = "PI_SUBAGENT_RESULT_TOOL";
 
-export interface ProtocolChunk {
-	lines: string[];
-	error?: string;
-}
-
 /**
- * Incrementally splits child stdout without readline or an unbounded string. Only retained data is
- * bounded: the current unterminated line and stderr. Completed protocol lines are consumed and
- * discarded, so bounding their lifetime total would reject healthy verbose runs.
- */
-export function createChildProtocol(): {
-	pushStdout(chunk: Uint8Array): ProtocolChunk;
-	pushStderr(chunk: Uint8Array): string | undefined;
-	finishStdout(): ProtocolChunk;
-	stderr(): string;
-} {
-	let pending = Buffer.alloc(0);
-	let stderr = Buffer.alloc(0);
-	let error: string | undefined;
-
-	const fail = (message: string): ProtocolChunk => {
-		if (!error) error = message;
-		return { lines: [], error };
-	};
-	const appendPending = (chunk: Uint8Array): boolean => {
-		if (pending.length + chunk.length > CHILD_PENDING_LINE_MAX_BYTES) {
-			error = `child stdout line exceeded ${CHILD_PENDING_LINE_MAX_BYTES} bytes`;
-			return false;
-		}
-		if (chunk.length)
-			pending = pending.length ? Buffer.concat([pending, chunk]) : Buffer.from(chunk);
-		return true;
-	};
-
-	return {
-		pushStdout(chunk) {
-			if (error) return { lines: [], error };
-			const bytes = Buffer.from(chunk);
-			const lines: string[] = [];
-			let offset = 0;
-			while (offset < bytes.length) {
-				const newline = bytes.indexOf(0x0a, offset);
-				const end = newline < 0 ? bytes.length : newline;
-				if (!appendPending(bytes.subarray(offset, end))) return { lines: [], error };
-				if (newline < 0) break;
-				lines.push(pending.toString("utf8"));
-				pending = Buffer.alloc(0);
-				offset = newline + 1;
-			}
-			return { lines };
-		},
-		pushStderr(chunk) {
-			if (error) return error;
-			if (stderr.length + chunk.length > CHILD_STDERR_MAX_BYTES) {
-				error = `child stderr exceeded ${CHILD_STDERR_MAX_BYTES} bytes`;
-				return error;
-			}
-			if (chunk.length) stderr = stderr.length ? Buffer.concat([stderr, chunk]) : Buffer.from(chunk);
-			return undefined;
-		},
-		finishStdout() {
-			if (error) return { lines: [], error };
-			if (!pending.length) return { lines: [] };
-			const line = pending.toString("utf8");
-			pending = Buffer.alloc(0);
-			return { lines: [line] };
-		},
-		stderr() {
-			return stderr.toString("utf8");
-		},
-	};
-}
-
-function byteLength(value: string): number {
-	return Buffer.byteLength(value, "utf8");
-}
-
-/** Bound the result object that is retained as tool details and progress metadata. */
-export function runResultBoundsError(value: { output: string }): string | undefined {
-	if (byteLength(value.output) > RESULT_OUTPUT_MAX_BYTES)
-		return `subagent result output exceeded ${RESULT_OUTPUT_MAX_BYTES} bytes`;
-	try {
-		const bytes = byteLength(JSON.stringify(value));
-		return bytes > RESULT_DETAILS_MAX_BYTES
-			? `subagent result details exceeded ${RESULT_DETAILS_MAX_BYTES} bytes`
-			: undefined;
-	} catch {
-		return "subagent result details could not be serialized";
-	}
-}
-
-/**
- * A memory bound, not a display one: a heredoc pasted into `bash` should not sit in the parent
- * across every step. How much of this actually fits on a line is the renderer's business, decided
- * against the terminal it can see.
+ * Tool details are presentation summaries, not retained arguments: a pasted heredoc is represented
+ * by a short preview, then fitted to the actual terminal width by the renderer.
  */
 const DETAIL_STORED_MAX = 2000;
 
@@ -280,8 +181,6 @@ export function createActivityTracker(result: RunResult): ActivityTracker {
 	return {
 		start(id, tool, detail) {
 			const step: Step = { tool, detail };
-			// Oldest first, because the tail is what you are watching.
-			if (result.steps.length >= STEP_LIMIT) result.steps.shift();
 			result.steps.push(step);
 			if (id) live.set(id, step);
 			else unidentified = step;
@@ -436,8 +335,7 @@ export function isRunResult(value: unknown): value is RunResult {
 		(value.thinking === undefined || typeof value.thinking === "number") &&
 		isUsage(value.usage) &&
 		optionalStrings.every((key) => value[key] === undefined || typeof value[key] === "string") &&
-		(value.termination === undefined || value.termination === "cancelled") &&
-		runResultBoundsError(value as { output: string }) === undefined
+		(value.termination === undefined || value.termination === "cancelled")
 	);
 }
 
@@ -471,18 +369,12 @@ export function modelLabel(result: RunResult): string | undefined {
 
 function errorContext(result: RunResult): string {
 	const model = modelLabel(result);
-	return model ? ` (${preview(model, 100)})` : "";
-}
-
-function errorDetail(result: RunResult): string | undefined {
-	const detail = result.errorMessage?.replace(/\s+/g, " ").trim();
-	if (!detail) return undefined;
-	return detail.length > 300 ? `${detail.slice(0, 299)}…` : detail;
+	return model ? ` (${model})` : "";
 }
 
 export function classifyResult(result: RunResult): ResultOutcome {
 	const context = errorContext(result);
-	const detail = errorDetail(result);
+	const detail = result.errorMessage?.trim() || undefined;
 	const suffix = detail ? `: ${detail}` : ".";
 
 	if (result.termination === "cancelled") {
@@ -562,13 +454,18 @@ const claudeRuntime: Runtime = {
 			"--verbose",
 			"--output-format",
 			"stream-json",
-			"--no-session-persistence",
 			// No `--mcp-config` alongside it, so the child loads zero MCP servers: nothing outside
 			// the allowlist, and nothing to orphan when the child is killed.
 			"--strict-mcp-config",
 			"--append-system-prompt",
 			systemPrompt,
 		];
+		if (inherited.sessionId) {
+			args.push(inherited.resume ? "--resume" : "--session-id", inherited.sessionId);
+		} else {
+			// One-shot roles do not leave sessions that this extension will never resume.
+			args.push("--no-session-persistence");
+		}
 		// Always set in normal use: naming a native claude model selects this runtime.
 		if (model) args.push("--model", model);
 		// Slash commands may still make skills available unless both fences are set.

@@ -12,13 +12,8 @@ import {
 	delegateModelNames,
 	emptyUsage,
 	CLAUDE_MODEL_NAMES,
-	CHILD_PENDING_LINE_MAX_BYTES,
-	CHILD_STDERR_MAX_BYTES,
-	createChildProtocol,
 	modelLabel,
-	RESULT_OUTPUT_MAX_BYTES,
 	RESULT_TOOL_ENV,
-	runResultBoundsError,
 	type RunResult,
 	createActivityTracker,
 	selectRuntime,
@@ -64,32 +59,6 @@ function steps(result: RunResult): string[] {
 			`${!step.outcome ? "⋯" : step.outcome === "failed" ? "✗" : "✓"} ${step.tool}${step.detail ? ` ${step.detail}` : ""}`,
 	);
 }
-
-test("child protocol preserves noisy JSONL and split lines", () => {
-	const protocol = createChildProtocol();
-	assert.deepEqual(protocol.pushStdout(Buffer.from("diagnostic noise\n{\"ok\":1")), { lines: ["diagnostic noise"] });
-	assert.deepEqual(protocol.pushStdout(Buffer.from("}\n")), { lines: ['{"ok":1}'] });
-	assert.deepEqual(protocol.finishStdout(), { lines: [] });
-});
-
-test("child protocol bounds retained lines and stderr, not consumed stream totals", () => {
-	const line = createChildProtocol();
-	assert.match(line.pushStdout(Buffer.alloc(CHILD_PENDING_LINE_MAX_BYTES + 1, 120)).error ?? "", /line exceeded/);
-
-	const stream = createChildProtocol();
-	const completedLine = Buffer.from(`${"x".repeat(1023)}\n`);
-	for (let index = 0; index < 5000; index++) {
-		assert.deepEqual(stream.pushStdout(completedLine), { lines: ["x".repeat(1023)] });
-	}
-	assert.deepEqual(stream.finishStdout(), { lines: [] });
-
-	const error = createChildProtocol();
-	assert.match(error.pushStderr(Buffer.alloc(CHILD_STDERR_MAX_BYTES + 1, 120)) ?? "", /stderr exceeded/);
-});
-
-test("oversized retained result output is rejected before it becomes details", () => {
-	assert.match(runResultBoundsError({ output: "x".repeat(RESULT_OUTPUT_MAX_BYTES + 1) }) ?? "", /result output exceeded/);
-});
 
 test("agent frontmatter reads only role and capability fields", () => {
 	assert.deepEqual(
@@ -303,6 +272,7 @@ test("claude argv fences the child and carries one system prompt", () => {
 	assert.ok(args.includes("--strict-mcp-config"));
 	// stream-json refuses to run without it.
 	assert.ok(args.includes("--verbose"));
+	// One-shot roles do not leave native sessions behind.
 	assert.ok(args.includes("--no-session-persistence"));
 
 	// The task goes on stdin: --tools and --allowed-tools are variadic and swallow a positional.
@@ -366,6 +336,22 @@ test("pi sessions use extension-owned IDs and resume the exact run", () => {
 	});
 	assert.equal(resumed.args[resumed.args.indexOf("--session") + 1], "run-id");
 	assert.ok(!resumed.args.includes("--session-id"));
+});
+
+test("native Claude sessions use extension-owned IDs and resume the exact run", () => {
+	const writer = agent({ name: "writer", continuable: true, tools: ["read", "edit"] });
+	const runtime = selectRuntime("claude-opus-5");
+	const created = runtime.invoke(writer, "write", { sessionId: "11111111-1111-4111-8111-111111111111" });
+	assert.equal(created.args[created.args.indexOf("--session-id") + 1], "11111111-1111-4111-8111-111111111111");
+	assert.ok(!created.args.includes("--resume"));
+	assert.ok(!created.args.includes("--no-session-persistence"));
+	const resumed = runtime.invoke(writer, "repair", {
+		sessionId: "11111111-1111-4111-8111-111111111111",
+		resume: true,
+	});
+	assert.equal(resumed.args[resumed.args.indexOf("--resume") + 1], "11111111-1111-4111-8111-111111111111");
+	assert.ok(!resumed.args.includes("--session-id"));
+	assert.ok(!resumed.args.includes("--no-session-persistence"));
 });
 
 test("runtime argv is independent of configured agent names", () => {
@@ -489,6 +475,19 @@ test("a pi tool event with no id still clears the line, because pi omits ids", (
 	assert.deepEqual(steps(run), ["✓ bash"]);
 });
 
+test("tool activity retains the complete step history", () => {
+	const run = result();
+	const activity = createActivityTracker(run);
+	for (let index = 0; index < 50; index++) {
+		const id = String(index);
+		activity.start(id, "read", `file-${index}`);
+		activity.end(id);
+	}
+	assert.equal(run.steps.length, 50);
+	assert.equal(run.steps[0]?.detail, "file-0");
+	assert.equal(run.steps.at(-1)?.detail, "file-49");
+});
+
 test("run usage comes from modelUsage, which is the only cumulative figure", () => {
 	const { result: run } = runClaude([
 		{ type: "system", subtype: "init", model: "claude-opus-5" },
@@ -594,6 +593,13 @@ test("an unknown model fails in-band, with exit code 0 and empty stderr", () => 
 	assert.equal(run.stopReason, "error");
 	assert.match(run.errorMessage ?? "", /api status 404/);
 	assert.equal(classifyResult(run).kind, "model-error");
+});
+
+test("classification preserves complete provider errors", () => {
+	const errorMessage = `provider failed: ${"x".repeat(1000)}`;
+	const outcome = classifyResult(result({ stopReason: "error", errorMessage }));
+	assert.equal(outcome.kind, "model-error");
+	assert.match(outcome.message ?? "", new RegExp(`${"x".repeat(1000)}$`, "u"));
 });
 
 test("a tool call carries the argument that identifies it", () => {

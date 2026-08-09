@@ -87,6 +87,56 @@ process.stdout.write(JSON.stringify({
 	}
 });
 
+test("Pi accepts large protocol records, diagnostics, and final output", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "subagent-run-agent-large-"));
+	const script = installPi(directory, `
+const large = "x".repeat(2 * 1024 * 1024 + 1);
+process.stdout.write(JSON.stringify({ type: "agent_end", messages: [large] }) + "\\n");
+process.stderr.write("d".repeat(128 * 1024));
+process.stdout.write(JSON.stringify({
+	type: "message_end",
+	message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: large }] },
+}) + "\\n");
+`);
+	const previousScript = process.argv[1];
+	process.argv[1] = script;
+	try {
+		const result = await runAgent({
+			agent: AGENT,
+			task: "inspect",
+			cwd: directory,
+			inherited: {},
+			model: undefined,
+		});
+		assert.equal(result.stopReason, "stop");
+		assert.equal(result.output, "x".repeat(2 * 1024 * 1024 + 1));
+		assert.equal(result.errorMessage, undefined);
+	} finally {
+		process.argv[1] = previousScript;
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("Pi preserves complete stderr when it is the only failure detail", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "subagent-run-agent-stderr-"));
+	const script = installPi(directory, `process.stderr.write("d".repeat(128 * 1024));`);
+	const previousScript = process.argv[1];
+	process.argv[1] = script;
+	try {
+		const result = await runAgent({
+			agent: AGENT,
+			task: "inspect",
+			cwd: directory,
+			inherited: {},
+			model: undefined,
+		});
+		assert.equal(result.errorMessage, "d".repeat(128 * 1024));
+	} finally {
+		process.argv[1] = previousScript;
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
 test("Pi result tools reject duplicate successful submissions", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "subagent-run-agent-duplicate-result-"));
 	const script = installPi(directory, `

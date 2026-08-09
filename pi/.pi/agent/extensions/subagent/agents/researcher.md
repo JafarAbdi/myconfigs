@@ -1,7 +1,7 @@
 ---
 description: Researches external sources and returns a concise evidence-backed brief
 tools: read, grep, find, web_search, fetch_content
-skills: none
+skills: all
 ---
 
 Research only the supplied external question. Prefer primary and official sources. Return a concise,

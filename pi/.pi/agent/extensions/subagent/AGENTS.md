@@ -2,16 +2,17 @@
 
 ## Objective
 
-Run one bounded child-agent trajectory with explicit capabilities, observable cost, and a small
-authoritative text result.
+Run one child-agent trajectory with explicit capabilities, observable cost, and an authoritative text
+result.
 
 ## Requirements
 
 - R1: Every child receives only the tools declared by its agent definition.
 - R2: Every initial run starts with fresh, independent conversation state.
 - R3: A role may resume only when its definition declares `continuable: true`, using the exact
-  extension-owned persisted Pi session from the prior invocation.
-- R4: Every role returns ordinary Markdown or text through the same normalized result path.
+  extension-owned persisted runtime session from the prior invocation.
+- R4: Every role returns ordinary Markdown or text through the same normalized result path without
+  runner-imposed size limits.
 - R5: Pi and native Claude invoke configured roles through name-independent runtime paths.
 
 ## Invariants
@@ -21,18 +22,21 @@ authoritative text result.
 - I3: Runner behavior depends on declared capabilities and invocation state, never configured agent
   names.
 - I4: Reloading a role without its continuation capability prevents further resumption.
-- I5: Native Claude runs are non-continuable while that runtime supplies no extension-owned run ID.
+- I5: The runner does not truncate or reject child protocol, diagnostics, reports, or step history
+  based on extension-defined size or count limits.
 
 ## Constraints
 
-- C1: Keep the runner process-based and dependency-free beyond Pi's existing runtime.
+- C1: Keep the runner process-based and use the existing Pi and native Claude CLIs.
 - C2: Preserve explicit tool fences and skill control for both runtimes.
-- C3: Bound reports placed in the parent context while retaining detailed tool metadata for display.
-- C4: Preserve rich progress, usage accounting, cancellation, and protocol bounds.
+- C3: Presentation-only previews may be shortened; child protocol, diagnostics, reports, and step
+  history remain untruncated.
+- C4: Preserve rich progress, usage accounting, and cancellation.
 
 ## Assumptions
 
 - A1: Pi child sessions can be assigned and resumed by extension-owned session IDs.
+- A2: Native Claude print-mode sessions can be assigned and resumed by extension-owned session IDs.
 
 ## Non-Goals
 

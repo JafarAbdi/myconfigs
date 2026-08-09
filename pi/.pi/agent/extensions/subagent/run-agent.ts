@@ -3,18 +3,17 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createWriteStream, mkdirSync, type WriteStream, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { finished } from "node:stream/promises";
 import {
 	childEnvironment,
 	createActivityTracker,
-	createChildProtocol,
 	emptyUsage,
 	isRecord,
 	type Agent,
 	type Inherited,
 	type NativeClaudeOptions,
 	type RunResult,
-	runResultBoundsError,
 	selectRuntime,
 } from "./runtimes.ts";
 
@@ -27,7 +26,7 @@ export interface RunAgentOptions {
 	cwd: string;
 	inherited: Inherited;
 	model: string | undefined;
-	/** Bounded task description retained for progress/details; the child still receives `task` exactly. */
+	/** Task description retained for progress/details; the child still receives `task` exactly. */
 	resultTask?: string;
 	/** Pi-only terminating tool whose details become the normalized output; must be in `agent.tools`. */
 	resultTool?: string;
@@ -131,7 +130,7 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 		// Tracked so session teardown can end it. A child outliving its session is not merely a
 		// stray process: it goes on spending tokens with nothing left to read what it produces.
 		LIVE.add(child);
-		const protocol = createChildProtocol();
+		const stderr: Buffer[] = [];
 		const activity = createActivityTracker(result);
 		const expectsNativeResult = runtime.name === "claude" && nativeClaude?.jsonSchema !== undefined;
 		const structuredResultLabel = resultTool ?? (expectsNativeResult ? "native Claude structured output" : undefined);
@@ -147,7 +146,7 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 			void terminateChild(child);
 		};
 		const consume = (line: string) => {
-			if (!line.trim()) return;
+			if (protocolError || !line.trim()) return;
 			let event: unknown;
 			try {
 				event = JSON.parse(line);
@@ -183,24 +182,7 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 				resultTool !== undefined && event.type === "message_end" &&
 				isRecord(event.message) && event.message.role === "assistant"
 			) result.output = "";
-			if (!changed) return;
-			const boundsError = runResultBoundsError(result);
-			if (boundsError) {
-				failProtocol(boundsError);
-				return;
-			}
-			onProgress?.(snapshot(result, startedAtMs));
-		};
-		const consumeChunk = (chunk: Buffer | Uint8Array) => {
-			const parsed = protocol.pushStdout(chunk);
-			if (parsed.error) {
-				failProtocol(parsed.error);
-				return;
-			}
-			for (const line of parsed.lines) {
-				if (protocolError) return;
-				consume(line);
-			}
+			if (changed) onProgress?.(snapshot(result, startedAtMs));
 		};
 
 		const stdout = child.stdout;
@@ -210,11 +192,8 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 			stdout.pipe(trace.stdout);
 			stderrStream.pipe(trace.stderr);
 		}
-		stdout.on("data", consumeChunk);
-		stderrStream.on("data", (chunk: Buffer | Uint8Array) => {
-			const error = protocol.pushStderr(chunk);
-			if (error) failProtocol(error);
-		});
+		createInterface({ input: stdout, crlfDelay: Infinity }).on("line", consume);
+		stderrStream.on("data", (chunk: Buffer | Uint8Array) => stderr.push(Buffer.from(chunk)));
 
 		const kill = () => {
 			result.termination = "cancelled";
@@ -230,22 +209,12 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 		child.once("close", () => {
 			LIVE.delete(child);
 			signal?.removeEventListener("abort", kill);
-			if (!protocolError) {
-				const final = protocol.finishStdout();
-				if (final.error) failProtocol(final.error);
-				else for (const line of final.lines) consume(line);
-			}
-			if (!protocolError) {
-				const boundsError = runResultBoundsError(result);
-				if (boundsError) failProtocol(boundsError);
-			}
 			// A step still open here never finished, and keeps its running mark to say so rather
 			// than reading as the last thing that succeeded.
 			result.activity = undefined;
 			result.durationMs = Date.now() - startedAtMs;
-			if (!result.output.trim() && !result.errorMessage && protocol.stderr().trim()) {
-				result.errorMessage = protocol.stderr().trim().split("\n").slice(-5).join("\n");
-			}
+			const diagnostic = Buffer.concat(stderr).toString("utf8").trim();
+			if (!result.output.trim() && !result.errorMessage && diagnostic) result.errorMessage = diagnostic;
 			const terminalFailure = result.stopReason === "error" || result.stopReason === "aborted" || result.stopReason === "length";
 			if (structuredResultLabel !== undefined && !protocolError && !result.termination && !terminalFailure) {
 				if (structuredResults === 1) {
