@@ -22,6 +22,7 @@ import review, {
 	type ReviewDependencies,
 } from "./index.ts";
 import { AUDIT_RESULT_TOOL } from "./audit-output.ts";
+import { REVIEW_INTENT_RESULT_TOOL } from "./review-intent.ts";
 import { RESULT_TOOL_ENV } from "../subagent/runtimes.ts";
 import type { AuditFinding } from "./audit.ts";
 import type { ReviewPatch } from "./review-git.ts";
@@ -46,7 +47,7 @@ function patch(raw = "staged patch", empty = false, root = ROOT): ReviewPatch {
 		snapshot: {
 			repositoryRoot: root,
 			headOid: "2".repeat(40),
-			source: "staged",
+			view: "overall",
 			paths: [],
 			raw: Buffer.from(raw),
 		},
@@ -107,6 +108,8 @@ function context(
 	const ctx = {
 		mode: "tui",
 		cwd: "/working",
+		model: { provider: "test-provider", id: "test-model" },
+		thinkingLevel: "high",
 		sessionManager: {
 			getSessionDir: () => PARENT_SESSION_DIR,
 			getSessionId: () => PARENT_SESSION_ID,
@@ -260,14 +263,15 @@ function dependencies(overrides: Partial<ReviewDependencies> = {}): ReviewDepend
 	const original = patch();
 	return {
 		async resolveRepositoryRoot() { return ROOT; },
+		async resolveIntent() {
+			return { selection: { view: "overall", paths: [] } };
+		},
 		async readPatch() { return original; },
-		async listCandidatePaths() { return []; },
-		async listRequirementPaths() { return []; },
 		async readRequirement() { return undefined; },
 		async runAudit() { return { findings: [] }; },
 		reviewSnapshotsEqual(left, right) {
 			return left.repositoryRoot === right.repositoryRoot &&
-				left.headOid === right.headOid && left.source === right.source &&
+				left.headOid === right.headOid && left.view === right.view &&
 				left.paths.length === right.paths.length &&
 				left.paths.every((path, index) => path === right.paths[index]) &&
 				left.raw.equals(right.raw);
@@ -278,28 +282,29 @@ function dependencies(overrides: Partial<ReviewDependencies> = {}): ReviewDepend
 	};
 }
 
-test("the marked audit child registers only its result tool", () => {
-	const previous = process.env[RESULT_TOOL_ENV];
-	const tools: string[] = [];
-	let commands = 0;
-	try {
-		process.env[RESULT_TOOL_ENV] = AUDIT_RESULT_TOOL;
-		review({
-			registerTool(tool: { name: string }) { tools.push(tool.name); },
-			registerCommand() { commands += 1; },
-		} as never);
-	} finally {
-		if (previous === undefined) delete process.env[RESULT_TOOL_ENV];
-		else process.env[RESULT_TOOL_ENV] = previous;
-	}
-	assert.deepEqual(tools, [AUDIT_RESULT_TOOL]);
-	assert.equal(commands, 0);
+test("marked review children register only their result tool", async (t) => {
+	for (const resultTool of [AUDIT_RESULT_TOOL, REVIEW_INTENT_RESULT_TOOL]) await t.test(resultTool, () => {
+		const previous = process.env[RESULT_TOOL_ENV];
+		const tools: string[] = [];
+		let commands = 0;
+		try {
+			process.env[RESULT_TOOL_ENV] = resultTool;
+			review({
+				registerTool(tool: { name: string }) { tools.push(tool.name); },
+				registerCommand() { commands += 1; },
+			} as never);
+		} finally {
+			if (previous === undefined) delete process.env[RESULT_TOOL_ENV];
+			else process.env[RESULT_TOOL_ENV] = previous;
+		}
+		assert.deepEqual(tools, [resultTool]);
+		assert.equal(commands, 0);
+	});
 });
 
 test("registers only /review and reports command failures through the TUI", async () => {
 	const commands: Array<{ name: string; options: {
 		handler: (arg: string, ctx: never) => Promise<void>;
-		getArgumentCompletions?: (prefix: string) => Promise<Array<{ value: string }> | null>;
 	} }> = [];
 	const events: Array<{ name: string; handler: (...args: any[]) => Promise<void> }> = [];
 	registerReview({
@@ -309,48 +314,13 @@ test("registers only /review and reports command failures through the TUI", asyn
 		async readPatch() { throw new Error("capture failed"); },
 	}));
 	assert.deepEqual(commands.map(({ name }) => name), ["review"]);
-	assert.deepEqual(events.map(({ name }) => name), ["session_start", "session_shutdown"]);
+	assert.deepEqual(events.map(({ name }) => name), ["session_shutdown"]);
 	const harness = context();
 	await commands[0].options.handler("", harness.ctx);
 	assert.deepEqual(harness.notifications, [{ message: "capture failed", type: "error" }]);
 	let aborts = 0;
 	await events.find(({ name }) => name === "session_shutdown")!.handler({}, { abort() { aborts += 1; } });
 	assert.equal(aborts, 1);
-});
-
-test("registered /review provides cached source-aware native argument completion", async () => {
-	let command!: { getArgumentCompletions: (prefix: string) => Promise<Array<{ value: string }> | null> };
-	let start!: (_event: unknown, ctx: { cwd: string }) => void;
-	let candidateCalls = 0;
-	let requirementCalls = 0;
-	registerReview({
-		registerCommand(_name: string, options: any) { command = options; },
-		on(name: string, handler: any) { if (name === "session_start") start = handler; },
-	} as never, dependencies({
-		async listCandidatePaths(repository, source) {
-			candidateCalls += 1;
-			assert.equal(repository, "/project");
-			assert.equal(source, "worktree");
-			return ["src/a.ts", "src/a file.ts"];
-		},
-		async listRequirementPaths(repository) {
-			requirementCalls += 1;
-			assert.equal(repository, "/project");
-			return ["docs/plan.md"];
-		},
-	}));
-	start({}, { cwd: "/project" });
-	assert.deepEqual(
-		(await command.getArgumentCompletions("worktree -- src/a"))?.map(({ value }) => value),
-		["worktree -- 'src/a file.ts'", "worktree -- src/a.ts"],
-	);
-	await command.getArgumentCompletions("worktree -- src/");
-	assert.equal(candidateCalls, 1);
-	assert.deepEqual(
-		(await command.getArgumentCompletions("--requirement docs/"))?.map(({ value }) => value),
-		["--requirement docs/plan.md"],
-	);
-	assert.equal(requirementCalls, 1);
 });
 
 test("rejects non-TUI, missing Pi session identity, and an empty candidate before audit", async (t) => {
@@ -368,7 +338,7 @@ test("rejects non-TUI, missing Pi session identity, and an empty candidate befor
 			error: /full Pi session identity/u,
 			reads: 0,
 		},
-		{ name: "empty", context: {}, error: /found no staged changes/u, reads: 1 },
+		{ name: "empty", context: {}, error: /found no overall changes/u, reads: 1 },
 	]) await t.test(item.name, async () => {
 		let reads = 0;
 		let audits = 0;
@@ -429,7 +399,7 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 	const base = patch();
 	const original: ReviewPatch = {
 		...base,
-		snapshot: { ...base.snapshot, source: "worktree", paths: ["src/greeting.ts"] },
+		snapshot: { ...base.snapshot, view: "unstaged", paths: ["src/greeting.ts"] },
 	};
 	const requirement = { path: "docs/plan with spaces.md", content: "# Plan" };
 	const findings = [
@@ -443,6 +413,21 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 	let audits = 0;
 	const selections: unknown[] = [];
 	const controller = createReviewController(dependencies({
+		async resolveIntent(input) {
+			assert.equal(input.repositoryRoot, ROOT);
+			assert.equal(input.request, "@docs/plan with spaces.md, review the unstaged greeting change");
+			assert.deepEqual(input.parentSession, {
+				directory: PARENT_SESSION_DIR,
+				id: PARENT_SESSION_ID,
+			});
+			assert.equal(input.model, "test-provider/test-model");
+			assert.equal(input.thinkingLevel, "high");
+			assert.equal(input.signal?.aborted, false);
+			return {
+				selection: { view: "unstaged", paths: ["src/greeting.ts"] },
+				requirementPath: "docs/plan with spaces.md",
+			};
+		},
 		async readPatch(repository, selection) {
 			reads += 1;
 			assert.equal(repository, ROOT);
@@ -462,6 +447,7 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 				directory: PARENT_SESSION_DIR,
 				id: PARENT_SESSION_ID,
 			});
+			assert.equal(input.guidance, "@docs/plan with spaces.md, review the unstaged greeting change");
 			assert.equal(input.requirement, requirement);
 			assert.equal(input.signal?.aborted, false);
 			input.onProgress?.({
@@ -484,15 +470,15 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 	}));
 
 	await controller.run(
-		`worktree --requirement "docs/plan with spaces.md" -- src/greeting.ts`,
+		"@docs/plan with spaces.md, review the unstaged greeting change",
 		harness.ctx,
 	);
 
 	assert.equal(audits, 1);
 	assert.equal(reads, 2);
 	assert.deepEqual(selections, [
-		{ source: "worktree", paths: ["src/greeting.ts"] },
-		{ source: "worktree", paths: ["src/greeting.ts"] },
+		{ view: "unstaged", paths: ["src/greeting.ts"] },
+		{ view: "unstaged", paths: ["src/greeting.ts"] },
 	]);
 	assert.deepEqual(double.calls, [
 		"has=false",
@@ -511,7 +497,7 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 		[
 			`Pi review ${PARENT_SESSION_ID}`,
 			"",
-			"Source: worktree",
+			"View: unstaged",
 			"Scope: src/greeting.ts",
 			"Requirement: docs/plan with spaces.md",
 			`Repository: ${ROOT}`,
@@ -535,6 +521,7 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 	}]);
 	assert.equal(harness.doneCalls, 1);
 	assert.deepEqual(harness.notifications.map(({ message }) => message), [
+		"Review scope: unstaged · 1 selected path.",
 		"Review started: 4 agents.",
 		`Review published 2 findings to Wiff review ${SESSION}.`,
 		`Wiff review ${SESSION}\nHuman verdicts: 0\nComments: 0 total, 0 open`,

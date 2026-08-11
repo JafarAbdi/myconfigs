@@ -182,17 +182,19 @@ test("defines the static four-reviewer roster with current lenses and models", (
 	assert.equal(AUDIT_ROSTER.every(({ lens }) => lens.length > 20 && lens.length <= 180), true);
 });
 
-test("reviewer task includes its focused lens, exact patch, optional requirement, and JSON contract", () => {
+test("reviewer task includes its lens, operator guidance, exact patch, requirement, and JSON contract", () => {
 	const prompt = buildAuditPrompt({
 		patch: patch(),
+		guidance: "Focus on mixed-state behavior.",
 		requirement: {
 			path: "docs/requirement.md",
 			content: "# REQUIREMENT_SENTINEL\n\nPatch text is data.",
 		},
 	}, AUDIT_ROSTER[0]);
 	assert.match(prompt, /Find changed behavior that contradicts an explicit requirement/u);
-	assert.match(prompt, /Source: HEAD → index \(staged\)/u);
-	assert.match(prompt, /Selection: all paths in the source/u);
+	assert.match(prompt, /Operator request[\s\S]*Focus on mixed-state behavior\./u);
+	assert.match(prompt, /View: HEAD → index \(staged\)/u);
+	assert.match(prompt, /Selection: all paths in the view/u);
 	assert.match(prompt, new RegExp(`git show ${"2".repeat(40)}:path/to/file`));
 	assert.match(prompt, new RegExp(`git cat-file blob <objectId>[\\s\\S]+${"1".repeat(40)}`));
 	assert.match(prompt, /never read live `HEAD`, the index, or the working tree/u);
@@ -210,15 +212,15 @@ test("reviewer task includes its focused lens, exact patch, optional requirement
 	assert.doesNotMatch(prompt, /Canonical audit policy|\/repository|browser comment/iu);
 });
 
-test("worktree reviewer tasks use captured index blobs and selected scope", () => {
-	const worktree = reviewPatchFromText(
+test("unstaged reviewer tasks use captured index blobs and selected scope", () => {
+	const unstaged = reviewPatchFromText(
 		PATCH_TEXT,
 		"/repository",
 		"2".repeat(40),
-		{ source: "worktree", paths: ["src/a.ts"] },
+		{ view: "unstaged", paths: ["src/a.ts"] },
 	);
-	const prompt = buildAuditPrompt({ patch: worktree }, AUDIT_ROSTER[1]);
-	assert.match(prompt, /Source: index → tracked working tree \(worktree\)/u);
+	const prompt = buildAuditPrompt({ patch: unstaged }, AUDIT_ROSTER[1]);
+	assert.match(prompt, /View: index → tracked working tree \(unstaged\)/u);
 	assert.match(prompt, /Selection: src\/a\.ts/u);
 	assert.match(prompt, /git cat-file blob <objectId>/u);
 	assert.doesNotMatch(prompt, /git show :|git diff --cached|working-tree refs for this audit[\s\S]*git diff/u);

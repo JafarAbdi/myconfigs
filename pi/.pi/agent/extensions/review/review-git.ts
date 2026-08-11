@@ -3,17 +3,17 @@ import { lstat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export type ReviewSide = "additions" | "deletions";
-export type ReviewSource = "staged" | "worktree" | "untracked";
+export type ReviewView = "staged" | "unstaged" | "untracked" | "overall";
 
 export interface ReviewSelection {
-	readonly source: ReviewSource;
+	readonly view: ReviewView;
 	readonly paths: readonly string[];
 }
 
 export interface ReviewSnapshot {
 	readonly repositoryRoot: string;
 	readonly headOid: string;
-	readonly source: ReviewSource;
+	readonly view: ReviewView;
 	readonly paths: readonly string[];
 	readonly raw: Buffer;
 }
@@ -29,10 +29,9 @@ const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 export const MAX_REVIEW_PATCH_BYTES = 8 * 1024 * 1024;
 export const MAX_REVIEW_SELECTION_PATHS = 500;
 const GIT_TIMEOUT_MS = 10_000;
-const COMPLETION_GIT_TIMEOUT_MS = 2_000;
 
 export const DEFAULT_REVIEW_SELECTION: ReviewSelection = {
-	source: "staged",
+	view: "staged",
 	paths: [],
 };
 
@@ -49,11 +48,11 @@ function literalPathspec(path: string): string {
 export function gitDiffArguments(
 	selection: ReviewSelection = DEFAULT_REVIEW_SELECTION,
 ): string[] {
-	if (selection.source === "untracked")
+	if (selection.view === "untracked")
 		throw new Error("untracked Review capture does not use git diff against a Git tree");
 	return [
 		"diff",
-		...(selection.source === "staged" ? ["--cached"] : []),
+		...(selection.view === "staged" ? ["--cached"] : []),
 		"--no-color",
 		"--no-ext-diff",
 		"--no-textconv",
@@ -61,7 +60,7 @@ export function gitDiffArguments(
 		"--find-renames",
 		"--full-index",
 		"--unified=3",
-		...(selection.source === "staged" ? ["HEAD"] : []),
+		...(selection.view === "staged" || selection.view === "overall" ? ["HEAD"] : []),
 		"--",
 		...selection.paths.map(literalPathspec),
 	];
@@ -82,8 +81,10 @@ function normalizeSelection(
 	selection: ReviewSelection,
 	repositoryRoot: string,
 ): ReviewSelection {
-	if (selection.source !== "staged" && selection.source !== "worktree" && selection.source !== "untracked")
-		throw new Error("Review source must be staged, worktree, or untracked");
+	if (
+		selection.view !== "staged" && selection.view !== "unstaged" &&
+		selection.view !== "untracked" && selection.view !== "overall"
+	) throw new Error("Review view must be staged, unstaged, untracked, or overall");
 	if (!Array.isArray(selection.paths) || selection.paths.length > MAX_REVIEW_SELECTION_PATHS)
 		throw new Error(`Review accepts at most ${MAX_REVIEW_SELECTION_PATHS} selected paths`);
 	const paths: string[] = [];
@@ -102,7 +103,7 @@ function normalizeSelection(
 			paths.push(path);
 		}
 	}
-	return { source: selection.source, paths };
+	return { view: selection.view, paths };
 }
 
 function decodeUtf8(raw: Buffer, label: string): string {
@@ -124,7 +125,7 @@ export function reviewPatchFromBuffer(
 	const snapshot = {
 		repositoryRoot: root,
 		headOid: requireOid(headOid, "HEAD"),
-		source: normalized.source,
+		view: normalized.view,
 		paths: normalized.paths,
 		raw: Buffer.from(raw),
 	};
@@ -149,7 +150,7 @@ export function reviewSnapshotsEqual(
 ): boolean {
 	return left.repositoryRoot === right.repositoryRoot &&
 		left.headOid === right.headOid &&
-		left.source === right.source &&
+		left.view === right.view &&
 		left.paths.length === right.paths.length &&
 		left.paths.every((path, index) => path === right.paths[index]) &&
 		left.raw.equals(right.raw);
@@ -324,47 +325,33 @@ function decodePathList(raw: Buffer, label: string): string[] {
 
 export async function listGitReviewPaths(
 	repository: string,
-	source: ReviewSource,
+	view: ReviewView,
 ): Promise<string[]> {
-	const repositoryRoot = await resolveGitRepositoryRoot(repository, COMPLETION_GIT_TIMEOUT_MS);
-	if (source === "untracked") {
-		return decodePathList(
-			await runGit(
-				repositoryRoot,
-				untrackedListArguments([]),
-				1024 * 1024,
-				[0],
-				true,
-				COMPLETION_GIT_TIMEOUT_MS,
-			),
-			"Untracked completion file list",
-		);
-	}
-	const arguments_ = gitDiffArguments({ source, paths: [] });
-	arguments_.splice(1, 0, "--name-only", "-z");
-	return decodePathList(
-		await runGit(
-			repositoryRoot,
-			arguments_,
-			1024 * 1024,
-			[0],
-			true,
-			COMPLETION_GIT_TIMEOUT_MS,
-		),
-		"Review completion file list",
+	const repositoryRoot = await resolveGitRepositoryRoot(repository);
+	const untracked = async (): Promise<string[]> => decodePathList(
+		await runGit(repositoryRoot, untrackedListArguments([]), 1024 * 1024),
+		"Untracked review file list",
 	);
+	if (view === "untracked") return untracked();
+	const arguments_ = gitDiffArguments({ view, paths: [] });
+	arguments_.splice(1, 0, "--name-only", "-z");
+	const tracked = decodePathList(
+		await runGit(repositoryRoot, arguments_, 1024 * 1024),
+		"Review changed file list",
+	);
+	return view === "overall" ? [...new Set([...tracked, ...await untracked()])].sort() : tracked;
 }
 
 export async function listGitReviewRequirements(repository: string): Promise<string[]> {
-	const repositoryRoot = await resolveGitRepositoryRoot(repository, COMPLETION_GIT_TIMEOUT_MS);
+	const repositoryRoot = await resolveGitRepositoryRoot(repository);
 	const raw = await runGit(repositoryRoot, [
 		"ls-files",
 		"--cached",
 		"--others",
 		"--exclude-standard",
 		"-z",
-	], 1024 * 1024, [0], true, COMPLETION_GIT_TIMEOUT_MS);
-	return decodePathList(raw, "Review requirement completion file list")
+	], 1024 * 1024);
+	return decodePathList(raw, "Review requirement file list")
 		.filter((path) => path.endsWith(".md"));
 }
 
@@ -375,9 +362,18 @@ export async function readGitReviewPatch(
 	const repositoryRoot = await resolveGitRepositoryRoot(repository);
 	const normalized = normalizeSelection(selection, repositoryRoot);
 	const before = await resolveHead(repositoryRoot);
-	const raw = normalized.source === "untracked"
-		? await readUntrackedPatch(repositoryRoot, normalized)
-		: await runGit(repositoryRoot, gitDiffArguments(normalized), MAX_REVIEW_PATCH_BYTES);
+	let raw: Buffer;
+	if (normalized.view === "untracked") {
+		raw = await readUntrackedPatch(repositoryRoot, normalized);
+	} else {
+		raw = await runGit(repositoryRoot, gitDiffArguments(normalized), MAX_REVIEW_PATCH_BYTES);
+		if (normalized.view === "overall") {
+			const untracked = await readUntrackedPatch(repositoryRoot, normalized);
+			if (raw.length + untracked.length > MAX_REVIEW_PATCH_BYTES)
+				throw oversized("the cumulative patch", raw.length + untracked.length, MAX_REVIEW_PATCH_BYTES);
+			raw = Buffer.concat([raw, untracked]);
+		}
+	}
 	const after = await resolveHead(repositoryRoot);
 	if (before !== after)
 		throw new Error("Review HEAD changed while the candidate was being captured");

@@ -61,6 +61,7 @@ export interface RunAuditInput {
 	repositoryRoot: string;
 	patch: ReviewPatch;
 	parentSession: AuditParentSession;
+	guidance?: string;
 	requirement?: AuditRequirement;
 	signal?: AbortSignal;
 	onProgress?: (progress: AuditProgress) => void;
@@ -118,31 +119,41 @@ function parseFindings(output: string, reviewer: AuditReviewer): AuditFinding[] 
 	return findings;
 }
 
-function sourceBoundary(patch: ReviewPatch): string {
-	switch (patch.snapshot.source) {
+function viewBoundary(patch: ReviewPatch): string {
+	switch (patch.snapshot.view) {
 		case "staged":
 			return "HEAD → index (staged)";
-		case "worktree":
-			return "index → tracked working tree (worktree)";
+		case "unstaged":
+			return "index → tracked working tree (unstaged)";
 		case "untracked":
 			return "/dev/null → untracked files (untracked)";
+		case "overall":
+			return "HEAD → final working tree, including untracked files (overall)";
 	}
 }
 
 export function buildAuditPrompt(
-	input: Pick<RunAuditInput, "patch" | "requirement">,
+	input: Pick<RunAuditInput, "patch" | "guidance" | "requirement">,
 	reviewer: AuditReviewer,
 	resultTool?: string,
 ): string {
 	const selection = input.patch.snapshot.paths.length === 0
-		? "all paths in the source"
+		? "all paths in the view"
 		: input.patch.snapshot.paths.join(", ");
 	const sections = [
 		"# Focused lens",
 		reviewer.lens,
+		...(input.guidance
+			? [
+				"",
+				"# Operator request",
+				"Use this as review emphasis only; the candidate boundary and output contract take precedence.",
+				input.guidance,
+			]
+			: []),
 		"",
 		"# Candidate boundary",
-		`Source: ${sourceBoundary(input.patch)}`,
+		`View: ${viewBoundary(input.patch)}`,
 		`Selection: ${selection}`,
 		"The patch is authoritative for all changed bytes and locations; never read live `HEAD`, the index, or the working tree.",
 		`For unchanged context, use only \`git show ${input.patch.snapshot.headOid}:path/to/file\`.`,

@@ -7,8 +7,12 @@ import { lstat, open, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { AUDIT_ROSTER } from "./audit-roster.ts";
 import { isAuditResultChild, registerAuditResultTool } from "./audit-output.ts";
-import { parseReviewCommand } from "./review-command.ts";
-import { reviewArgumentCompletions } from "./review-completion.ts";
+import {
+	isReviewIntentChild,
+	registerReviewIntentResultTool,
+	type ResolvedReviewIntent,
+	type RunReviewIntentInput,
+} from "./review-intent.ts";
 import {
 	addWiffComment,
 	createWiffSession,
@@ -31,7 +35,6 @@ import type {
 	ReviewPatch,
 	ReviewSelection,
 	ReviewSnapshot,
-	ReviewSource,
 } from "./review-git.ts";
 import type {
 	AddWiffCommentOptions,
@@ -91,7 +94,7 @@ function selectionMatchesSnapshot(
 	selection: ReviewSelection,
 	snapshot: ReviewSnapshot,
 ): boolean {
-	return selection.source === snapshot.source &&
+	return selection.view === snapshot.view &&
 		selection.paths.length === snapshot.paths.length &&
 		selection.paths.every((path, index) => path === snapshot.paths[index]);
 }
@@ -143,9 +146,8 @@ function renderProgress(
 
 export interface ReviewDependencies {
 	resolveRepositoryRoot(repository: string): Promise<string>;
+	resolveIntent(input: Omit<RunReviewIntentInput, "inventory">): Promise<ResolvedReviewIntent>;
 	readPatch(repository: string, selection: ReviewSelection): Promise<ReviewPatch>;
-	listCandidatePaths(repository: string, source: ReviewSource): Promise<string[]>;
-	listRequirementPaths(repository: string): Promise<string[]>;
 	readRequirement(repositoryRoot: string, argument: string): Promise<AuditRequirement | undefined>;
 	runAudit(input: RunAuditInput): Promise<AuditResult>;
 	reviewSnapshotsEqual(left: ReviewSnapshot, right: ReviewSnapshot): boolean | Promise<boolean>;
@@ -164,14 +166,23 @@ const defaultDependencies: ReviewDependencies = {
 	async resolveRepositoryRoot(repository) {
 		return (await import("./review-git.ts")).resolveGitRepositoryRoot(repository);
 	},
+	async resolveIntent(input) {
+		const git = await import("./review-git.ts");
+		const intent = await import("./review-intent.ts");
+		const [staged, unstaged, untracked, overall, requirements] = await Promise.all([
+			git.listGitReviewPaths(input.repositoryRoot, "staged"),
+			git.listGitReviewPaths(input.repositoryRoot, "unstaged"),
+			git.listGitReviewPaths(input.repositoryRoot, "untracked"),
+			git.listGitReviewPaths(input.repositoryRoot, "overall"),
+			git.listGitReviewRequirements(input.repositoryRoot),
+		]);
+		return intent.runReviewIntent({
+			...input,
+			inventory: { staged, unstaged, untracked, overall, requirements },
+		});
+	},
 	async readPatch(repository, selection) {
 		return (await import("./review-git.ts")).readGitReviewPatch(repository, selection);
-	},
-	async listCandidatePaths(repository, source) {
-		return (await import("./review-git.ts")).listGitReviewPaths(repository, source);
-	},
-	async listRequirementPaths(repository) {
-		return (await import("./review-git.ts")).listGitReviewRequirements(repository);
 	},
 	readRequirement: readReviewRequirement,
 	async runAudit(input) {
@@ -256,8 +267,8 @@ export function describeCandidate(
 	return [
 		`Pi review ${piSessionId}`,
 		"",
-		`Source: ${snapshot.source}`,
-		`Scope: ${snapshot.paths.length === 0 ? "all paths in the source" : snapshot.paths.join(" ")}`,
+		`View: ${snapshot.view}`,
+		`Scope: ${snapshot.paths.length === 0 ? "all paths in the view" : snapshot.paths.join(" ")}`,
 		...(requirement ? [`Requirement: ${requirement.path}`] : []),
 		`Repository: ${snapshot.repositoryRoot}`,
 	].join("\n");
@@ -472,26 +483,40 @@ export function createReviewController(
 				const project = dependencies.deriveWiffProject(parentSession.id);
 
 				const repositoryRoot = await dependencies.resolveRepositoryRoot(ctx.cwd);
-				const command = parseReviewCommand(argument, repositoryRoot);
-				const patch = await dependencies.readPatch(repositoryRoot, command.selection);
+				if (!ctx.model) throw new Error("/review requires an active model to resolve its request");
+				const intent = await dependencies.resolveIntent({
+					repositoryRoot,
+					request: argument,
+					parentSession,
+					model: `${ctx.model.provider}/${ctx.model.id}`,
+					thinkingLevel: ctx.thinkingLevel,
+					signal: aborts.signal,
+				});
+				const patch = await dependencies.readPatch(repositoryRoot, intent.selection);
 				if (patch.snapshot.repositoryRoot !== repositoryRoot)
 					throw new Error("Review capture returned a different repository root");
-				if (!selectionMatchesSnapshot(command.selection, patch.snapshot))
-					throw new Error("Review capture did not preserve the requested source and path selection");
+				if (!selectionMatchesSnapshot(intent.selection, patch.snapshot))
+					throw new Error("Review capture did not preserve the resolved view and path selection");
 				if (patch.empty) {
-					const scope = command.selection.paths.length === 0
+					const scope = intent.selection.paths.length === 0
 						? ""
-						: ` in the selected ${command.selection.paths.length === 1 ? "path" : "paths"}`;
-					throw new Error(`/review found no ${command.selection.source} changes${scope}.`);
+						: ` in the selected ${intent.selection.paths.length === 1 ? "path" : "paths"}`;
+					throw new Error(`/review found no ${intent.selection.view} changes${scope}.`);
 				}
+				ctx.ui.notify(
+					`Review scope: ${intent.selection.view} · ${intent.selection.paths.length === 0
+						? "all changed paths"
+						: `${intent.selection.paths.length} selected ${intent.selection.paths.length === 1 ? "path" : "paths"}`}.`,
+					"info",
+				);
 				const requirement = await dependencies.readRequirement(
 					patch.snapshot.repositoryRoot,
-					command.requirementPath ?? "",
+					intent.requirementPath ?? "",
 				);
 				const requireFreshCandidate = async (stale: string): Promise<void> => {
 					const current = await dependencies.readPatch(
 						patch.snapshot.repositoryRoot,
-						command.selection,
+						intent.selection,
 					);
 					if (!(await dependencies.reviewSnapshotsEqual(patch.snapshot, current.snapshot)))
 						throw new Error(stale);
@@ -519,6 +544,7 @@ export function createReviewController(
 						parentSession,
 						signal: aborts.signal,
 						onProgress: (update) => renderProgress(ctx, progress, expanded, update),
+						...(argument.trim() ? { guidance: argument.trim() } : {}),
 						...(requirement ? { requirement } : {}),
 					});
 				} finally {
@@ -640,40 +666,12 @@ export function registerReview(
 	dependencies: ReviewDependencies = defaultDependencies,
 ): void {
 	const controller = createReviewController(dependencies);
-	const completionCache = new Map<string, { expiresAt: number; value: Promise<string[]> }>();
-	let completionRepository = process.cwd();
-	const cachedCompletion = (key: string, load: () => Promise<string[]>): Promise<string[]> => {
-		const now = Date.now();
-		const cached = completionCache.get(key);
-		if (cached && cached.expiresAt > now) return cached.value;
-		const value = load().catch((error) => {
-			completionCache.delete(key);
-			throw error;
-		});
-		completionCache.set(key, { expiresAt: now + 1_000, value });
-		return value;
-	};
-	pi.on("session_start", (_event, ctx) => {
-		completionRepository = ctx.cwd;
-		completionCache.clear();
-	});
 	pi.on("session_shutdown", async (_event, ctx) => {
-		completionCache.clear();
 		ctx.abort();
 		await controller.shutdown();
 	});
 	pi.registerCommand("review", {
-		description: "Audit staged, worktree, or untracked Git changes",
-		getArgumentCompletions: (prefix) => reviewArgumentCompletions(prefix, {
-			listCandidatePaths: (source) => cachedCompletion(
-				`${completionRepository}\0${source}`,
-				() => dependencies.listCandidatePaths(completionRepository, source),
-			),
-			listRequirementPaths: () => cachedCompletion(
-				`${completionRepository}\0requirements`,
-				() => dependencies.listRequirementPaths(completionRepository),
-			),
-		}),
+		description: "Audit Git changes described in free-form text",
 		async handler(argument, ctx) {
 			try {
 				await controller.run(argument, ctx, (feedback) => {
@@ -690,6 +688,10 @@ export function registerReview(
 export default function review(pi: ExtensionAPI): void {
 	if (isAuditResultChild()) {
 		registerAuditResultTool(pi);
+		return;
+	}
+	if (isReviewIntentChild()) {
+		registerReviewIntentResultTool(pi);
 		return;
 	}
 	registerReview(pi);

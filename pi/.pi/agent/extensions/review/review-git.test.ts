@@ -50,7 +50,7 @@ test("captures only the exact staged modified, new, renamed, and deleted candida
 		const expectedRaw = execFileSync("git", gitDiffArguments(), { cwd: repository });
 		assert.equal(patch.snapshot.repositoryRoot, repository);
 		assert.equal(patch.snapshot.headOid, beforeHead);
-		assert.equal(patch.snapshot.source, "staged");
+		assert.equal(patch.snapshot.view, "staged");
 		assert.deepEqual(patch.snapshot.paths, []);
 		assert.equal(patch.snapshot.raw.equals(expectedRaw), true);
 		assert.equal(patch.text, expectedRaw.toString("utf8"));
@@ -67,7 +67,7 @@ test("captures only the exact staged modified, new, renamed, and deleted candida
 	}
 });
 
-test("captures staged, worktree, and untracked sources as separate path-scoped candidates", async () => {
+test("captures staged, unstaged, untracked, and overall path-scoped views", async () => {
 	const repository = createRepository("review-git-sources-");
 	try {
 		writeFileSync(join(repository, ".gitignore"), "ignored.txt\n");
@@ -80,41 +80,56 @@ test("captures staged, worktree, and untracked sources as separate path-scoped c
 		const beforeStatus = git(repository, "status", "--porcelain=v2");
 
 		const staged = await readGitReviewPatch(repository, {
-			source: "staged",
+			view: "staged",
 			paths: ["modified.txt"],
 		});
-		assert.equal(staged.snapshot.source, "staged");
+		assert.equal(staged.snapshot.view, "staged");
 		assert.deepEqual(staged.snapshot.paths, ["modified.txt"]);
 		assert.match(staged.text, /\+staged/u);
 		assert.doesNotMatch(staged.text, /worktree|untracked file/u);
 
-		const worktree = await readGitReviewPatch(repository, {
-			source: "worktree",
+		const unstaged = await readGitReviewPatch(repository, {
+			view: "unstaged",
 			paths: ["modified.txt", "rename-old.txt"],
 		});
-		assert.equal(worktree.snapshot.source, "worktree");
-		assert.match(worktree.text, /-staged\n\+worktree/u);
-		assert.match(worktree.text, /worktree only/u);
-		assert.doesNotMatch(worktree.text, /untracked file/u);
-		assert.match(worktree.text, /index [0-9a-f]{40}\.\.[0-9a-f]{40}/u);
+		assert.equal(unstaged.snapshot.view, "unstaged");
+		assert.match(unstaged.text, /-staged\n\+worktree/u);
+		assert.match(unstaged.text, /worktree only/u);
+		assert.doesNotMatch(unstaged.text, /untracked file/u);
+		assert.match(unstaged.text, /index [0-9a-f]{40}\.\.[0-9a-f]{40}/u);
 
 		const untracked = await readGitReviewPatch(repository, {
-			source: "untracked",
+			view: "untracked",
 			paths: ["."],
 		});
-		assert.equal(untracked.snapshot.source, "untracked");
+		assert.equal(untracked.snapshot.view, "untracked");
 		assert.match(untracked.text, /\+\+\+ b\/untracked file\.txt/u);
 		assert.match(untracked.text, /\+new file/u);
 		assert.doesNotMatch(untracked.text, /ignored/u);
+		const overall = await readGitReviewPatch(repository, {
+			view: "overall",
+			paths: ["modified.txt", "untracked file.txt"],
+		});
+		assert.equal(overall.snapshot.view, "overall");
+		assert.match(overall.text, /-two\n\+worktree/u);
+		assert.match(overall.text, /\+new file/u);
+		assert.doesNotMatch(overall.text, /\+staged/u);
+
 		assert.deepEqual(await listGitReviewPaths(repository, "staged"), [
 			".gitignore",
 			"modified.txt",
 		]);
-		assert.deepEqual(await listGitReviewPaths(repository, "worktree"), [
+		assert.deepEqual(await listGitReviewPaths(repository, "unstaged"), [
 			"modified.txt",
 			"rename-old.txt",
 		]);
 		assert.deepEqual(await listGitReviewPaths(repository, "untracked"), ["untracked file.txt"]);
+		assert.deepEqual(await listGitReviewPaths(repository, "overall"), [
+			".gitignore",
+			"modified.txt",
+			"rename-old.txt",
+			"untracked file.txt",
+		]);
 		assert.equal(git(repository, "status", "--porcelain=v2"), beforeStatus);
 		writeFileSync(join(repository, "review.md"), "# Requirement\n");
 		assert.deepEqual(await listGitReviewRequirements(repository), ["review.md"]);
@@ -124,7 +139,7 @@ test("captures staged, worktree, and untracked sources as separate path-scoped c
 		writeFileSync(join(repository, "outside-selection.txt"), "unrelated\n");
 		const statusWithUnrelated = git(repository, "status", "--porcelain=v2");
 		const stagedAgain = await readGitReviewPatch(repository, {
-			source: "staged",
+			view: "staged",
 			paths: ["modified.txt"],
 		});
 		assert.equal(reviewSnapshotsEqual(staged.snapshot, stagedAgain.snapshot), true);
@@ -148,7 +163,7 @@ test("uses bounded terminal diff commands with literal selected paths", () => {
 		"HEAD",
 		"--",
 	]);
-	assert.deepEqual(gitDiffArguments({ source: "worktree", paths: ["src/[literal].ts"] }), [
+	assert.deepEqual(gitDiffArguments({ view: "unstaged", paths: ["src/[literal].ts"] }), [
 		"diff",
 		"--no-color",
 		"--no-ext-diff",
@@ -160,7 +175,8 @@ test("uses bounded terminal diff commands with literal selected paths", () => {
 		"--",
 		":(top,literal)src/[literal].ts",
 	]);
-	assert.throws(() => gitDiffArguments({ source: "untracked", paths: [] }), /does not use git diff/u);
+	assert.equal(gitDiffArguments({ view: "overall", paths: [] }).includes("HEAD"), true);
+	assert.throws(() => gitDiffArguments({ view: "untracked", paths: [] }), /does not use git diff/u);
 });
 
 const ROOT = "/repository";
@@ -214,7 +230,7 @@ test("snapshot freshness compares repository root, HEAD, and exact bytes", () =>
 	assert.equal(reviewSnapshotsEqual(patch.snapshot, equal), true);
 	assert.equal(reviewSnapshotsEqual(patch.snapshot, { ...equal, repositoryRoot: "/other" }), false);
 	assert.equal(reviewSnapshotsEqual(patch.snapshot, { ...equal, headOid: "3".repeat(40) }), false);
-	assert.equal(reviewSnapshotsEqual(patch.snapshot, { ...equal, source: "worktree" }), false);
+	assert.equal(reviewSnapshotsEqual(patch.snapshot, { ...equal, view: "unstaged" }), false);
 	assert.equal(reviewSnapshotsEqual(patch.snapshot, { ...equal, paths: ["src"] }), false);
 	const changedBytes = Buffer.from(equal.raw);
 	changedBytes[changedBytes.length - 1] ^= 1;
