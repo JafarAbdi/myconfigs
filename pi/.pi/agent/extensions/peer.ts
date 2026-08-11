@@ -155,9 +155,6 @@ function incomingContent(from: PeerInfo, message: string): string {
 		`Working directory: ${from.cwd}`,
 		"",
 		message,
-		"",
-		`Act on this message if needed. Send requested results to ${from.id} using peer.`,
-		"Never acknowledge receipt or discuss whether a response is needed.",
 	].join("\n");
 }
 
@@ -545,10 +542,10 @@ export default function (pi: ExtensionAPI) {
 				}>({
 					name: "peer",
 					label: "Peer",
-					description: "List or message live local Pi TUI sessions. Send only when explicitly requested by the user or an inbound peer; never send acknowledgements or social replies.",
+					description: "List live local Pi TUI sessions or send a plain-text message to one.",
 					promptSnippet: "List or explicitly message live local Pi peers",
 					promptGuidelines: [
-						"Use peer only when the user explicitly requests peer coordination or an inbound peer asks for a substantive reply.",
+						"Use peer only when the user explicitly requests peer coordination or an inbound peer requests a substantive reply; never send acknowledgements or social replies.",
 					],
 					parameters: PARAMETERS,
 					async execute(_toolCallId, params, signal) {
@@ -589,7 +586,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("peer", {
-		description: "List peers or send with /peer <name-or-id> <message>",
+		description: "List peers or run a task for one with /peer <name-or-id> <task>",
 		getArgumentCompletions: completePeer,
 		handler: async (args, ctx) => {
 			const active = runtime;
@@ -609,16 +606,19 @@ export default function (pi: ExtensionAPI) {
 			}
 			const separator = input.search(/\s/u);
 			if (separator < 0) {
-				ctx.ui.notify("Usage: /peer <name-or-id> <message>", "warning");
+				ctx.ui.notify("Usage: /peer <name-or-id> <task>", "warning");
 				return;
 			}
 			try {
-				const sent = await sendPeer(
-					active,
+				const self = currentPeer(active);
+				const target = resolveTarget(
+					await discoverPeers(active),
+					self.id,
 					input.slice(0, separator),
-					input.slice(separator).trim(),
 				);
-				ctx.ui.notify(`Peer ${peerLabel(sent.target)} accepted message ${sent.messageId}`, "info");
+				const task = input.slice(separator).trim();
+				const request = `Complete this task and send the result to peer ${target.id}: ${task}`;
+				pi.sendUserMessage(request, { deliverAs: "followUp" });
 			} catch (error) {
 				ctx.ui.notify(errorMessage(error), "error");
 			}
