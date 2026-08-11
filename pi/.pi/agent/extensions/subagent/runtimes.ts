@@ -276,6 +276,7 @@ const CLAUDE_TOOLS: Record<string, string> = {
 	find: "Glob",
 	ls: "Glob",
 	bash: "Bash",
+	host_bash: "Bash",
 	edit: "Edit",
 	write: "Write",
 	web_search: "WebSearch",

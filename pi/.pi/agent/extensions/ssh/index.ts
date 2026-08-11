@@ -244,7 +244,7 @@ function registerSshToolOverrides(
 		promptSnippet: "Execute commands or access files on the host machine running Pi",
 		promptGuidelines: [
 			"In SSH mode, read, write, edit, ls, find, grep, bash, and ! operate on the SSH remote. " +
-				"Use host_bash for every host-local command or file, including Pi docs, extensions, skills, " +
+				"Use host_bash for every host-local command or file, including Pi docs, extensions, " +
 				"prompts, and agent config. Host and remote cwd are independent.",
 		],
 	});

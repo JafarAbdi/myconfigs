@@ -24,6 +24,7 @@ export PI_TELEMETRY=0
 # Authenticates pi's built-in llama.cpp provider without /login or auth.json.
 # Router URL only -- pi appends /v1 itself.
 export LLAMA_BASE_URL=http://desktop.tail79ed4.ts.net:8080
+export SEARXNG_URL=https://server.tail79ed4.ts.net/searxng
 
 # To prevent JAX from allocating all GPU memory
 export XLA_PYTHON_CLIENT_PREALLOCATE=false

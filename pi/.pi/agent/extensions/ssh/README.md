@@ -26,7 +26,7 @@ host:/remote/path
 - The remote cwd is fixed for the session; select it with `--ssh user@host:/remote/path`.
 - `host_bash` runs on the host machine running Pi, with Pi's local cwd. It is available
   only while SSH mode is active. Use it for every host-local command or file, including Pi
-  docs, extensions, skills, prompts, and agent config.
+  docs, extensions, prompts, and agent config.
 - Host and remote cwd are independent. Paths never select a machine implicitly.
 - `@` autocomplete uses the remote cwd.
 - Footer shows `ssh host:/remote/cwd`.

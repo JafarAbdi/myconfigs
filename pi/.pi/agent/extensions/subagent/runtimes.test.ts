@@ -210,6 +210,7 @@ test("the tools line is the capability, passed through unedited", () => {
 test("tool names translate, and find/ls collapse to one Glob", () => {
 	assert.deepEqual(claudeTools(agent({ tools: ["read", "grep", "find", "ls"] })), ["Glob", "Grep", "Read"]);
 	assert.deepEqual(claudeTools(agent({ tools: ["web_search", "fetch_content"] })), ["WebFetch", "WebSearch"]);
+	assert.deepEqual(claudeTools(agent({ tools: ["host_bash"] })), ["Bash"]);
 });
 
 test("an explicit empty capability invokes both runtimes with no tools", () => {

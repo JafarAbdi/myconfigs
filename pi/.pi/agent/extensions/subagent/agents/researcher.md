@@ -1,6 +1,6 @@
 ---
 description: Researches external sources and returns a concise evidence-backed brief
-tools: read, grep, find, web_search, fetch_content
+tools: web_search, fetch_content, read, grep, find, bash
 skills: all
 ---
 
