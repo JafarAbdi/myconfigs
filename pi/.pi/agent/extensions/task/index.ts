@@ -758,7 +758,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		stageAtTurnStart = undefined;
 		showTask(ctx, task);
 		if (advanced && ctx.mode === "tui" && ctx.ui.getEditorText().length === 0) {
-			ctx.ui.setEditorText("/task");
+			ctx.ui.setEditorText(`/task ${task.slug}`);
 		}
 	});
 

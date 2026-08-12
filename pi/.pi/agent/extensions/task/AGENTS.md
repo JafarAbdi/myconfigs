@@ -27,8 +27,9 @@ keypress and every piece of task state a file the operator can edit.
   longer agree rather than changing them. Redoing one phase is `phase set-status <name> open`.
 - R1c: When a planning turn starts with its own artifact missing and settles with the derived stage
   advanced exactly once, the widget immediately shows the next stage and an empty editor is
-  prefilled with `/task`. The command is never submitted: the operator's Enter key remains the gate.
-  A draft already in the editor is untouched, and later revisions do not pretend the task advanced.
+  prefilled with `/task <slug>`. The command is never submitted: the operator's Enter key remains
+  the gate. A draft already in the editor is untouched, and later revisions do not pretend the task
+  advanced.
 - R1d: The idle widget is a one-line five-stage rail: completed stages are successful, the current
   stage is accented, and future stages are dim. During implementation a second line names the open
   phase and its position in the full phase list. A live run keeps that position, the inherited model
