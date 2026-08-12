@@ -7,15 +7,17 @@ it, and hands it to one Pi-session-scoped Wiff review for one experienced operat
 
 ## Requirements
 
-- R1: `/review TEXT` passes bounded free-form text plus bounded changed-path and Markdown-path
-  inventories to one fresh structured resolver using Pi's active model. The resolver chooses one
-  view: `HEAD → index` for staged, `index → tracked working tree` for unstaged, `/dev/null →
-  untracked files` for untracked, or final working tree versus `HEAD` plus untracked files for
-  overall. Overall is the default for mixed, all, or unspecified layers. It returns either every
-  path in that view or an exact inventory-backed file subset and may identify one repository-relative
-  Markdown requirement. Review host-validates the result, reads the requirement with existing
-  path/symlink/size/UTF-8 checks, forwards TEXT to every auditor as guidance, rejects an empty or
-  larger-than-8-MiB candidate, and never mutates Git.
+- R1: Every bounded `/review` request, including bare and `@`-prefixed requests, goes with bounded
+  changed-path inventories to one fresh structured Luna resolver.
+  The resolver chooses one view: `HEAD → index` for staged, `index → tracked working tree` for
+  unstaged, `/dev/null → untracked files` for untracked, or final working tree versus `HEAD` plus
+  untracked files for overall. Overall is the default for mixed, all, or unspecified layers. It
+  returns `null` for the whole view or selected paths as exact inventory entries; an empty array
+  fails without broadening. While Luna runs, Review shows Pi's cancellable bordered loader. After
+  resolution it immediately appends one TUI-only expandable Pi entry naming the model, view,
+  whole-view/subset mode, and every exact inventory path in scope. Review host-validates the result,
+  forwards TEXT to every auditor as guidance, rejects an empty or larger-than-8-MiB candidate, and
+  never mutates Git.
 - R2: Every invocation runs four fresh read-only reviewers concurrently: contract, correctness,
   tests, and simplicity. Each concrete material finding is one plain sentence of at most 240
   characters. Progress identifies each reviewer; a reviewer failure publishes nothing.
@@ -74,8 +76,9 @@ it, and hands it to one Pi-session-scoped Wiff review for one experienced operat
   retains Wiff, and requires a new `/review` round.
 - I3: Findings are advisory, bounded, category-attributed, and published only after all four
   auditors succeed. No finding automatically authorizes implementation work.
-- I4: Review persists no state in Pi or in a sidecar; Wiff is the sole owner of review state, UI,
-  comments, anchors, rebasing, dispositions, verdicts, and durable history.
+- I4: Review persists no workflow state in Pi or in a sidecar. Its Pi scope entry is presentation
+  history only and never enters model context; Wiff is the sole owner of review state, comments,
+  anchors, rebasing, dispositions, verdicts, and durable review history.
 - I5: Review never edits code, runs tests or linters, mutates Git, commits, pushes, deploys, or
   owns a correction loop.
 - I6: Review uses only Wiff's public CLI; it never reads or writes Wiff's journal files.
@@ -100,9 +103,10 @@ it, and hands it to one Pi-session-scoped Wiff review for one experienced operat
 
 ## Non-Goals
 
-- N1: No browser, HTTP server, custom renderer, `@pierre/diffs` or other diff parser, review-state
-  database, Pi session entry, user-visible custom Pi tool, skill, or global Pi skill-settings
-  change. Child-only structured result tools are protocol adapters, not user-facing capabilities.
+- N1: No browser, HTTP server, diff renderer, `@pierre/diffs` or other diff parser, review-state
+  database, model-context Pi message, user-visible custom Pi tool, skill, or global Pi
+  skill-settings change. The scope entry renderer is presentation-only; child-only structured
+  result tools are protocol adapters, not user-facing capabilities.
 - N2: No Review-specific implementation of comments, replies, anchors, navigation, dispositions,
   verdict aggregation, or history — Wiff owns all of it.
 - N3: No automatic retry, deduplication, rollback, or misuse-protection machinery around Wiff's

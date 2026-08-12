@@ -7,7 +7,6 @@ import {
 	classifyResult,
 	RESULT_TOOL_ENV,
 	type Agent,
-	type Inherited,
 	type RunResult,
 } from "../subagent/runtimes.ts";
 import {
@@ -17,6 +16,7 @@ import {
 } from "./review-git.ts";
 
 export const REVIEW_INTENT_RESULT_TOOL = "review_intent_result";
+export const REVIEW_INTENT_MODEL = "openai-codex/gpt-5.6-luna";
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_INTENT_INPUT_BYTES = 1024 * 1024;
 const MAX_INTENT_OUTPUT_BYTES = 1024 * 1024;
@@ -27,12 +27,11 @@ export interface ReviewPathInventory {
 	unstaged: readonly string[];
 	untracked: readonly string[];
 	overall: readonly string[];
-	requirements: readonly string[];
 }
 
 export interface ResolvedReviewIntent {
 	selection: ReviewSelection;
-	requirementPath?: string;
+	resolvedPaths: string[];
 }
 
 export interface ReviewIntentParentSession {
@@ -45,8 +44,6 @@ export interface RunReviewIntentInput {
 	request: string;
 	inventory: ReviewPathInventory;
 	parentSession: ReviewIntentParentSession;
-	model: string;
-	thinkingLevel?: Inherited["thinkingLevel"];
 	signal?: AbortSignal;
 }
 
@@ -64,19 +61,9 @@ export const REVIEW_INTENT_SCHEMA = {
 			enum: ["staged", "unstaged", "untracked", "overall"],
 		},
 		paths: {
-			type: "array",
+			type: ["array", "null"],
 			maxItems: MAX_REVIEW_SELECTION_PATHS,
 			items: { type: "string", minLength: 1, maxLength: MAX_PATH_BYTES },
-		},
-		requirementPath: {
-			type: "string",
-			minLength: 1,
-			maxLength: MAX_PATH_BYTES,
-		},
-		error: {
-			type: "string",
-			minLength: 1,
-			maxLength: 240,
 		},
 	},
 	required: ["view", "paths"],
@@ -111,10 +98,9 @@ function record(value: unknown, label: string): Record<string, unknown> {
 }
 
 function exactResultKeys(value: Record<string, unknown>): void {
-	const allowed = new Set(["view", "paths", "requirementPath", "error"]);
 	if (
-		!Object.hasOwn(value, "view") || !Object.hasOwn(value, "paths") ||
-		Object.keys(value).some((key) => !allowed.has(key))
+		Object.keys(value).length !== 2 ||
+		!Object.hasOwn(value, "view") || !Object.hasOwn(value, "paths")
 	) throw new Error("review intent response has invalid fields");
 }
 
@@ -134,13 +120,14 @@ export function parseReviewIntentResult(
 	exactResultKeys(result);
 	if (!isReviewView(result.view))
 		throw new Error("review intent view must be staged, unstaged, untracked, or overall");
-	if (result.error !== undefined) {
-		if (typeof result.error !== "string" || !result.error || [...result.error].length > 240)
-			throw new Error("review intent error must contain 1-240 characters");
-		throw new Error(`Could not resolve review request: ${result.error}`);
-	}
+	if (result.paths === null) return {
+		selection: { view: result.view, paths: [] },
+		resolvedPaths: [...inventory[result.view]],
+	};
 	if (!Array.isArray(result.paths) || result.paths.length > MAX_REVIEW_SELECTION_PATHS)
 		throw new Error(`review intent paths must contain at most ${MAX_REVIEW_SELECTION_PATHS} items`);
+	if (result.paths.length === 0)
+		throw new Error("review request did not match any changed paths");
 
 	const available = new Set(inventory[result.view]);
 	const paths: string[] = [];
@@ -155,15 +142,7 @@ export function parseReviewIntentResult(
 		}
 	}
 
-	const requirementPath = result.requirementPath;
-	if (
-		requirementPath !== undefined &&
-		(typeof requirementPath !== "string" || !requirementPath || byteLength(requirementPath) > MAX_PATH_BYTES)
-	) throw new Error(`review intent requirementPath must be a non-empty string of at most ${MAX_PATH_BYTES} bytes`);
-	return {
-		selection: { view: result.view, paths },
-		...(requirementPath === undefined ? {} : { requirementPath }),
-	};
+	return { selection: { view: result.view, paths }, resolvedPaths: [...paths] };
 }
 
 export function buildReviewIntentPrompt(input: Pick<RunReviewIntentInput, "request" | "inventory">): string {
@@ -178,7 +157,6 @@ export function buildReviewIntentPrompt(input: Pick<RunReviewIntentInput, "reque
 			untracked: input.inventory.untracked,
 			overall: input.inventory.overall,
 		},
-		requirementPaths: input.inventory.requirements,
 	}, null, 2);
 	if (byteLength(evidence) > MAX_INTENT_INPUT_BYTES)
 		throw new Error(`Review intent input exceeds ${MAX_INTENT_INPUT_BYTES} bytes; narrow the repository changes`);
@@ -193,12 +171,10 @@ export function buildReviewIntentPrompt(input: Pick<RunReviewIntentInput, "reque
 		"- overall: final working tree versus HEAD, including untracked files. Use this for mixed staged and unstaged changes, 'all', 'everything', or when no layer is specified.",
 		"",
 		"# Resolution rules",
-		"Return paths as exact entries from the chosen view's changedPaths array.",
-		"Use an empty paths array for every changed path in the chosen view.",
+		"Return selected files as exact entries from the chosen view's changedPaths array.",
+		"Set paths to null for the whole view.",
 		"For a requested directory or concept, select the matching exact changed files; never return a directory or invented path.",
-		"If a requested subset has no exact match or the request cannot map to one view, set a concise error and do not broaden the scope.",
-		"Set requirementPath only when the operator references a Markdown requirement or plan. Remove a leading @ and return its repository-relative path.",
-		"The requirementPaths list is discovery evidence, not permission to invent a requirement.",
+		"Return an empty paths array when no exact path matches or the request cannot map to one view; never broaden the scope.",
 		`Call ${REVIEW_INTENT_RESULT_TOOL} exactly once as the final action; do not return final prose.`,
 		"",
 		"# Input",
@@ -211,7 +187,6 @@ export async function runReviewIntent(
 	dependencies: RunReviewIntentDependencies = {},
 ): Promise<ResolvedReviewIntent> {
 	if (!isAbsolute(input.repositoryRoot)) throw new Error("review intent repository root must be absolute");
-	if (!input.model) throw new Error("/review requires an active model to resolve its request");
 	const agentDir = await (dependencies.agentDir?.() ?? import("@earendil-works/pi-coding-agent")
 		.then(({ getAgentDir }) => getAgentDir()));
 	const result = await (dependencies.runAgent ?? runAgent)({
@@ -226,9 +201,9 @@ export async function runReviewIntent(
 				agentDir,
 			),
 			sessionId: (dependencies.sessionId ?? randomUUID)(),
-			...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+			thinkingLevel: "minimal",
 		},
-		model: input.model,
+		model: REVIEW_INTENT_MODEL,
 		resultTool: REVIEW_INTENT_RESULT_TOOL,
 		signal: input.signal,
 	});

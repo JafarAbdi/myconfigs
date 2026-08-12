@@ -6,6 +6,7 @@ import {
 	buildReviewIntentPrompt,
 	parseReviewIntentResult,
 	registerReviewIntentResultTool,
+	REVIEW_INTENT_MODEL,
 	REVIEW_INTENT_RESULT_TOOL,
 	runReviewIntent,
 	type ReviewPathInventory,
@@ -16,7 +17,6 @@ const INVENTORY: ReviewPathInventory = {
 	unstaged: ["src/b.ts", "src/mixed.ts"],
 	untracked: ["src/new.ts"],
 	overall: ["src/a.ts", "src/b.ts", "src/mixed.ts", "src/new.ts"],
-	requirements: ["docs/plan.md"],
 };
 
 function completed(output: string): RunResult {
@@ -42,34 +42,38 @@ function completed(output: string): RunResult {
 
 test("the resolver prompt makes overall the natural mixed-state view", () => {
 	const prompt = buildReviewIntentPrompt({
-		request: "Review @docs/plan.md and the complete mixed change",
+		request: "Review the complete mixed change",
 		inventory: INVENTORY,
 	});
 	assert.match(prompt, /overall: final working tree versus HEAD, including untracked files/u);
 	assert.match(prompt, /Use this for mixed staged and unstaged changes/u);
 	assert.match(prompt, /when no layer is specified/u);
-	assert.match(prompt, /no exact match.*set a concise error.*do not broaden the scope/u);
+	assert.match(prompt, /paths to null for the whole view/u);
+	assert.match(prompt, /empty paths array.*no exact path matches.*never broaden/u);
 	assert.match(prompt, new RegExp(`Call ${REVIEW_INTENT_RESULT_TOOL} exactly once`));
-	assert.match(prompt, /Review @docs\/plan\.md and the complete mixed change/u);
+	assert.match(prompt, /Review the complete mixed change/u);
 	assert.match(prompt, /"overall": \[/u);
-	assert.match(prompt, /"docs\/plan\.md"/u);
 });
 
 test("intent results select only exact changed files in the chosen view", () => {
 	assert.deepEqual(parseReviewIntentResult(JSON.stringify({
 		view: "overall",
 		paths: ["src/mixed.ts", "src/new.ts", "src/mixed.ts"],
-		requirementPath: "docs/plan.md",
 	}), INVENTORY), {
 		selection: { view: "overall", paths: ["src/mixed.ts", "src/new.ts"] },
-		requirementPath: "docs/plan.md",
+		resolvedPaths: ["src/mixed.ts", "src/new.ts"],
 	});
 	assert.deepEqual(parseReviewIntentResult(JSON.stringify({
 		view: "staged",
-		paths: [],
+		paths: null,
 	}), INVENTORY), {
 		selection: { view: "staged", paths: [] },
+		resolvedPaths: ["src/a.ts", "src/mixed.ts"],
 	});
+	assert.throws(
+		() => parseReviewIntentResult(JSON.stringify({ view: "overall", paths: [] }), INVENTORY),
+		/did not match any changed paths/u,
+	);
 	assert.throws(
 		() => parseReviewIntentResult(JSON.stringify({ view: "staged", paths: ["src/b.ts"] }), INVENTORY),
 		/selected an unchanged path: src\/b\.ts/u,
@@ -81,40 +85,60 @@ test("intent results reject malformed and expanded shapes", () => {
 		["not json", /not valid JSON/u],
 		[JSON.stringify({ view: "everything", paths: [] }), /view must be/u],
 		[JSON.stringify({ view: "overall", paths: [], confidence: 1 }), /invalid fields/u],
+		[JSON.stringify({ view: "overall", paths: [], requirementPath: "docs/plan.md" }), /invalid fields/u],
+		[JSON.stringify({ view: "overall", paths: [], error: "No match." }), /invalid fields/u],
 		[JSON.stringify({ view: "overall", paths: "src/a.ts" }), /paths must contain/u],
-		[JSON.stringify({ view: "overall", paths: [], error: "No changed auth path matched." }), /Could not resolve review request: No changed auth path matched\./u],
 	] as const) assert.throws(() => parseReviewIntentResult(output, INVENTORY), error);
 });
 
-test("runReviewIntent uses one fresh structured child with the active model", async () => {
+test("runReviewIntent uses one fresh structured Luna child", async () => {
 	let options: RunAgentOptions | undefined;
 	const result = await runReviewIntent({
 		repositoryRoot: "/repository",
-		request: "staged only",
+		request: "@src/a.ts, also check auth",
 		inventory: INVENTORY,
 		parentSession: { directory: "/sessions/project", id: "parent-id" },
-		model: "test-provider/test-model",
-		thinkingLevel: "high",
 	}, {
 		agentDir: () => "/agent",
 		sessionId: () => "intent-session",
 		async runAgent(input) {
 			options = input;
-			return completed(JSON.stringify({ view: "staged", paths: [] }));
+			return completed(JSON.stringify({ view: "staged", paths: ["src/a.ts", "src/mixed.ts"] }));
 		},
 	});
-	assert.deepEqual(result, { selection: { view: "staged", paths: [] } });
+	assert.deepEqual(result, {
+		selection: { view: "staged", paths: ["src/a.ts", "src/mixed.ts"] },
+		resolvedPaths: ["src/a.ts", "src/mixed.ts"],
+	});
 	assert.equal(options?.cwd, "/repository");
-	assert.equal(options?.model, "test-provider/test-model");
+	assert.equal(options?.model, REVIEW_INTENT_MODEL);
 	assert.equal(options?.resultTool, REVIEW_INTENT_RESULT_TOOL);
 	assert.equal(options?.resultTask, "resolve the review request");
+	assert.match(options?.task ?? "", /@src\/a\.ts, also check auth/u);
 	assert.deepEqual(options?.agent.tools, [REVIEW_INTENT_RESULT_TOOL]);
 	assert.equal(options?.agent.skills, "none");
 	assert.deepEqual(options?.inherited, {
 		sessionDir: "/sessions/project/subagents/parent-id",
 		sessionId: "intent-session",
-		thinkingLevel: "high",
+		thinkingLevel: "minimal",
 	});
+});
+
+test("runReviewIntent rejects oversized @ requests before invoking Luna", async () => {
+	let called = false;
+	await assert.rejects(runReviewIntent({
+		repositoryRoot: "/repository",
+		request: `@${"a".repeat(64 * 1024)}`,
+		inventory: INVENTORY,
+		parentSession: { directory: "/sessions/project", id: "parent-id" },
+	}, {
+		agentDir: () => "/agent",
+		async runAgent() {
+			called = true;
+			return completed("");
+		},
+	}), /Review request exceeds 65536 bytes/u);
+	assert.equal(called, false);
 });
 
 test("runReviewIntent reports child failure without accepting output", async () => {
@@ -123,7 +147,6 @@ test("runReviewIntent reports child failure without accepting output", async () 
 		request: "overall",
 		inventory: INVENTORY,
 		parentSession: { directory: "/sessions/project", id: "parent-id" },
-		model: "test-provider/test-model",
 	}, {
 		agentDir: () => "/agent",
 		async runAgent() {
@@ -138,8 +161,12 @@ test("registers one terminating structured result tool", async () => {
 		registerTool(value: unknown) { tool = value; },
 	} as never);
 	assert.equal(tool.name, REVIEW_INTENT_RESULT_TOOL);
+	assert.deepEqual(Object.keys(tool.parameters.properties), ["view", "paths"]);
+	assert.deepEqual(tool.parameters.required, ["view", "paths"]);
+	assert.deepEqual(tool.parameters.properties.paths.type, ["array", "null"]);
 	assert.equal(tool.constrainedSampling.strict, "require");
-	const result = await tool.execute("call", { view: "overall", paths: [] });
+	const params = { view: "overall", paths: INVENTORY.overall };
+	const result = await tool.execute("call", params);
 	assert.equal(result.terminate, true);
-	assert.deepEqual(result.details, { view: "overall", paths: [] });
+	assert.deepEqual(result.details, params);
 });

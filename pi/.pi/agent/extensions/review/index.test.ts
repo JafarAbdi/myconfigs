@@ -1,14 +1,5 @@
 import assert from "node:assert/strict";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	symlinkSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import review, {
 	APPROVE_DECISION,
@@ -16,13 +7,13 @@ import review, {
 	DISCUSS_DECISION,
 	FIX_DECISION,
 	KEEP_DECISION,
-	readReviewRequirement,
 	registerReview,
 	REOPEN_DECISION,
+	REVIEW_SCOPE_ENTRY,
 	type ReviewDependencies,
 } from "./index.ts";
 import { AUDIT_RESULT_TOOL } from "./audit-output.ts";
-import { REVIEW_INTENT_RESULT_TOOL } from "./review-intent.ts";
+import { REVIEW_INTENT_MODEL, REVIEW_INTENT_RESULT_TOOL } from "./review-intent.ts";
 import { RESULT_TOOL_ENV } from "../subagent/runtimes.ts";
 import type { AuditFinding } from "./audit.ts";
 import type { ReviewPatch } from "./review-git.ts";
@@ -48,7 +39,7 @@ function patch(raw = "staged patch", empty = false, root = ROOT): ReviewPatch {
 			repositoryRoot: root,
 			headOid: "2".repeat(40),
 			view: "overall",
-			paths: [],
+			paths: ["src/a.ts"],
 			raw: Buffer.from(raw),
 		},
 		text: raw,
@@ -148,7 +139,7 @@ function context(
 						start() { tuiCalls.push("start"); },
 						requestRender(force?: boolean) { tuiCalls.push(`requestRender(${force})`); },
 					};
-					Promise.resolve(factory(tui, {}, { matches: () => false }, done)).then(
+					Promise.resolve(factory(tui, ctx.ui.theme, { matches: () => false }, done)).then(
 						(component) => components.push(component),
 						reject,
 					);
@@ -262,12 +253,25 @@ function wiffDouble(configuration: WiffDoubleOptions = {}): WiffDouble {
 function dependencies(overrides: Partial<ReviewDependencies> = {}): ReviewDependencies {
 	const original = patch();
 	return {
+		async loadIntentLoader() {
+			return (_tui, _theme, message) => {
+				const abort = new AbortController();
+				return {
+					signal: abort.signal,
+					render: () => [message],
+					handleInput(data: string) { if (data === "\x1b") abort.abort(); },
+					invalidate() {},
+				};
+			};
+		},
 		async resolveRepositoryRoot() { return ROOT; },
 		async resolveIntent() {
-			return { selection: { view: "overall", paths: [] } };
+			return {
+				selection: { view: "overall", paths: ["src/a.ts"] },
+				resolvedPaths: ["src/a.ts"],
+			};
 		},
 		async readPatch() { return original; },
-		async readRequirement() { return undefined; },
 		async runAudit() { return { findings: [] }; },
 		reviewSnapshotsEqual(left, right) {
 			return left.repositoryRoot === right.repositoryRoot &&
@@ -308,6 +312,8 @@ test("registers only /review and reports command failures through the TUI", asyn
 	} }> = [];
 	const events: Array<{ name: string; handler: (...args: any[]) => Promise<void> }> = [];
 	registerReview({
+		appendEntry() {},
+		registerEntryRenderer() {},
 		registerCommand(name: string, options: any) { commands.push({ name, options }); },
 		on(name: string, handler: () => Promise<void>) { events.push({ name, handler }); },
 	} as never, dependencies({
@@ -321,6 +327,102 @@ test("registers only /review and reports command failures through the TUI", asyn
 	let aborts = 0;
 	await events.find(({ name }) => name === "session_shutdown")!.handler({}, { abort() { aborts += 1; } });
 	assert.equal(aborts, 1);
+});
+
+test("shows cancellable Luna resolution before any Git capture", async (t) => {
+	await t.test("visible loader", async () => {
+		const started = deferred<void>();
+		const resolution = deferred<{
+			selection: { view: "overall"; paths: string[] };
+			resolvedPaths: string[];
+		}>();
+		const harness = context();
+		const controller = createReviewController(dependencies({
+			resolveIntent() { started.resolve(); return resolution.promise; },
+			async readPatch() { throw new Error("capture stopped"); },
+		}));
+		const running = controller.run("auth", harness.ctx);
+		await started.promise;
+		await Promise.resolve();
+		assert.deepEqual(harness.components[0]?.render(80), ["Luna is resolving review scope…"]);
+		resolution.resolve({
+			selection: { view: "overall", paths: [] },
+			resolvedPaths: ["src/a.ts"],
+		});
+		await assert.rejects(running, /capture stopped/u);
+	});
+
+	await t.test("Escape cancellation", async () => {
+		const started = deferred<void>();
+		let reads = 0;
+		const harness = context();
+		const controller = createReviewController(dependencies({
+			resolveIntent(input) {
+				started.resolve();
+				return new Promise((_resolve, reject) => input.signal?.addEventListener(
+					"abort",
+					() => reject(new Error("resolver aborted")),
+					{ once: true },
+				));
+			},
+			async readPatch() { reads += 1; return patch(); },
+		}));
+		const running = controller.run("auth", harness.ctx);
+		await started.promise;
+		await Promise.resolve();
+		harness.components[0]?.handleInput?.("\x1b");
+		await assert.rejects(running, /Review scope resolution cancelled/u);
+		assert.equal(reads, 0);
+	});
+});
+
+test("records Luna's exact whole-view decision as an expandable TUI-only entry", async () => {
+	let command!: { handler: (arg: string, ctx: never) => Promise<void> };
+	let renderer!: (entry: { data: any }, options: { expanded: boolean }, theme: any) => {
+		render(width: number): string[];
+	};
+	const entries: Array<{ type: string; data: unknown }> = [];
+	registerReview({
+		appendEntry(type: string, data: unknown) { entries.push({ type, data }); },
+		registerEntryRenderer(type: string, value: typeof renderer) {
+			assert.equal(type, REVIEW_SCOPE_ENTRY);
+			renderer = value;
+		},
+		registerCommand(_name: string, options: typeof command) { command = options; },
+		on() {},
+	} as never, dependencies({
+		async resolveIntent() {
+			return {
+				selection: { view: "overall", paths: [] },
+				resolvedPaths: ["src/a.ts", "src/new.ts"],
+			};
+		},
+		async readPatch() { throw new Error("capture stopped"); },
+	}));
+	const harness = context();
+	await command.handler("everything", harness.ctx);
+	assert.deepEqual(entries, [{
+		type: REVIEW_SCOPE_ENTRY,
+		data: {
+			model: REVIEW_INTENT_MODEL,
+			view: "overall",
+			selection: "whole view",
+			paths: ["src/a.ts", "src/new.ts"],
+		},
+	}]);
+	const theme = { fg: (_color: string, text: string) => text };
+	assert.deepEqual(renderer(entries[0] as never, { expanded: false }, theme).render(200), [
+		`Luna scope · ${REVIEW_INTENT_MODEL} · overall · whole view · 2 files · Ctrl+O details`,
+	]);
+	assert.deepEqual(renderer(entries[0] as never, { expanded: true }, theme).render(200), [
+		`Luna scope · ${REVIEW_INTENT_MODEL} · overall · whole view · 2 files`,
+		`Model: ${REVIEW_INTENT_MODEL}`,
+		"View: overall",
+		"Selection: whole view",
+		"Exact paths (2):",
+		'  "src/a.ts"',
+		'  "src/new.ts"',
+	]);
 });
 
 test("rejects non-TUI, missing Pi session identity, and an empty candidate before audit", async (t) => {
@@ -358,50 +460,12 @@ test("rejects non-TUI, missing Pi session identity, and an empty candidate befor
 	});
 });
 
-test("treats the trimmed argument as one bounded repository-relative Markdown file", async () => {
-	const root = mkdtempSync(join(tmpdir(), "review-requirement-"));
-	const outside = mkdtempSync(join(tmpdir(), "review-requirement-outside-"));
-	try {
-		mkdirSync(join(root, "docs"));
-		writeFileSync(join(root, "docs", "plan with spaces.md"), "# Plan\n✓\n");
-		writeFileSync(join(root, "plain.txt"), "plain\n");
-		mkdirSync(join(root, "directory.md"));
-		writeFileSync(join(root, "invalid.md"), Buffer.from([0xff]));
-		writeFileSync(join(root, "large.md"), Buffer.alloc(1024 * 1024 + 1));
-		symlinkSync(join(root, "docs", "plan with spaces.md"), join(root, "linked.md"));
-		writeFileSync(join(outside, "outside.md"), "outside\n");
-		symlinkSync(outside, join(root, "linked-directory"));
-
-		assert.deepEqual(
-			await readReviewRequirement(root, "  docs/plan with spaces.md  "),
-			{ path: "docs/plan with spaces.md", content: "# Plan\n✓\n" },
-		);
-		assert.equal(await readReviewRequirement(root, "   "), undefined);
-		for (const invalid of [
-			"../escape.md",
-			join(root, "docs", "plan with spaces.md"),
-			"bad\0name.md",
-			"plain.txt",
-			"missing.md",
-			"directory.md",
-			"linked.md",
-			"linked-directory/outside.md",
-			"invalid.md",
-			"large.md",
-		]) await assert.rejects(readReviewRequirement(root, invalid));
-	} finally {
-		rmSync(root, { recursive: true, force: true });
-		rmSync(outside, { recursive: true, force: true });
-	}
-});
-
 test("a fresh invocation captures, audits, revalidates, creates, publishes, opens Wiff, and summarizes", async () => {
 	const base = patch();
 	const original: ReviewPatch = {
 		...base,
 		snapshot: { ...base.snapshot, view: "unstaged", paths: ["src/greeting.ts"] },
 	};
-	const requirement = { path: "docs/plan with spaces.md", content: "# Plan" };
 	const findings = [
 		finding(),
 		finding({ category: "test-integrity", filePath: "src/b.ts", side: "deletions", line: 3, message: "Test weakened; regressions go unproved." }),
@@ -415,17 +479,15 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 	const controller = createReviewController(dependencies({
 		async resolveIntent(input) {
 			assert.equal(input.repositoryRoot, ROOT);
-			assert.equal(input.request, "@docs/plan with spaces.md, review the unstaged greeting change");
+			assert.equal(input.request, "review the unstaged greeting change");
 			assert.deepEqual(input.parentSession, {
 				directory: PARENT_SESSION_DIR,
 				id: PARENT_SESSION_ID,
 			});
-			assert.equal(input.model, "test-provider/test-model");
-			assert.equal(input.thinkingLevel, "high");
 			assert.equal(input.signal?.aborted, false);
 			return {
 				selection: { view: "unstaged", paths: ["src/greeting.ts"] },
-				requirementPath: "docs/plan with spaces.md",
+				resolvedPaths: ["src/greeting.ts"],
 			};
 		},
 		async readPatch(repository, selection) {
@@ -433,11 +495,6 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 			assert.equal(repository, ROOT);
 			selections.push(selection);
 			return original;
-		},
-		async readRequirement(root, argument) {
-			assert.equal(root, ROOT);
-			assert.equal(argument, "docs/plan with spaces.md");
-			return requirement;
 		},
 		async runAudit(input) {
 			audits += 1;
@@ -447,8 +504,7 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 				directory: PARENT_SESSION_DIR,
 				id: PARENT_SESSION_ID,
 			});
-			assert.equal(input.guidance, "@docs/plan with spaces.md, review the unstaged greeting change");
-			assert.equal(input.requirement, requirement);
+			assert.equal(input.guidance, "review the unstaged greeting change");
 			assert.equal(input.signal?.aborted, false);
 			input.onProgress?.({
 				reviewer: "contract",
@@ -470,7 +526,7 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 	}));
 
 	await controller.run(
-		"@docs/plan with spaces.md, review the unstaged greeting change",
+		"review the unstaged greeting change",
 		harness.ctx,
 	);
 
@@ -499,7 +555,6 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 			"",
 			"View: unstaged",
 			"Scope: src/greeting.ts",
-			"Requirement: docs/plan with spaces.md",
 			`Repository: ${ROOT}`,
 		].join("\n"),
 	);
@@ -519,9 +574,8 @@ test("a fresh invocation captures, audits, revalidates, creates, publishes, open
 		],
 		cancellable: true,
 	}]);
-	assert.equal(harness.doneCalls, 1);
+	assert.equal(harness.doneCalls, 2);
 	assert.deepEqual(harness.notifications.map(({ message }) => message), [
-		"Review scope: unstaged · 1 selected path.",
 		"Review started: 4 agents.",
 		`Review published 2 findings to Wiff review ${SESSION}.`,
 		`Wiff review ${SESSION}\nHuman verdicts: 0\nComments: 0 total, 0 open`,
@@ -654,7 +708,7 @@ test("partial publication shows immediate and persistent diagnostics, never laun
 		]);
 		assert.equal(double.published.length, 1);
 		assert.deepEqual(harness.selects, []);
-		assert.equal(harness.doneCalls, 0);
+		assert.equal(harness.doneCalls, 1);
 		assert.deepEqual(harness.notifications.at(-1), {
 			message: "Review could not publish the simplicity finding for src/gone.ts:4: wiff comment add failed (exit 1): unknown file src/gone.ts",
 			type: "error",
@@ -766,7 +820,7 @@ test("Reopen relaunches the same session and summary without recapturing, auditi
 		"state",
 	]);
 	assert.equal(harness.selects.length, 3);
-	assert.equal(harness.doneCalls, 3);
+	assert.equal(harness.doneCalls, 4);
 });
 
 test("cancelling the decision menu requires an explicit choice without reopening Wiff", async () => {
@@ -801,7 +855,7 @@ test("a non-zero Wiff exit fails the invocation after the custom component compl
 	const harness = context();
 	const controller = createReviewController(dependencies({ ...double.deps }));
 	await assert.rejects(controller.run("", harness.ctx), /wiff resume exited \(1\)/u);
-	assert.equal(harness.doneCalls, 1);
+	assert.equal(harness.doneCalls, 2);
 	assert.deepEqual(harness.selects, []);
 	assert.equal(double.present, true);
 	assert.equal(double.calls.some((call) => call.startsWith("rm(")), false);
@@ -938,6 +992,8 @@ test("registered /review submits Wiff feedback as one user message", async () =>
 	const harness = context();
 	harness.decide(DISCUSS_DECISION);
 	registerReview({
+		appendEntry() {},
+		registerEntryRenderer() {},
 		registerCommand(_name: string, options: any) { command = options; },
 		on() {},
 		sendUserMessage(message: string) { sent.push(message); },
@@ -1056,7 +1112,7 @@ test("session shutdown terminates the Wiff child and completes the handover comp
 	await controller.shutdown();
 	await aborted.promise;
 	await rejected;
-	assert.equal(harness.doneCalls, 1);
+	assert.equal(harness.doneCalls, 2);
 	assert.deepEqual(harness.selects, []);
 	assert.equal(double.calls.includes(`rm(${SESSION})`), false);
 });
@@ -1074,7 +1130,7 @@ test("a run started during shutdown refuses before touching Git or Wiff", async 
 	assert.deepEqual(double.calls, []);
 });
 
-test("the controller keeps no browser, subprocess, timer, regex, or Pi persistence machinery", () => {
+test("the controller adds only presentation persistence and no hidden workflow machinery", () => {
 	const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 	assert.doesNotMatch(source, /child_process|xdg-open|firefox|chromium|openExternal|console\.|sendMessage|setEditorText/u);
 	for (
@@ -1085,7 +1141,6 @@ test("the controller keeps no browser, subprocess, timer, regex, or Pi persisten
 			"createHash",
 			"RegExp",
 			"/gu",
-			"appendEntry",
 			"setSessionName",
 			"registerSkill",
 			"review-server",
@@ -1094,6 +1149,7 @@ test("the controller keeps no browser, subprocess, timer, regex, or Pi persisten
 			"@pierre/diffs",
 		]
 	) assert.equal(source.includes(forbidden), false, `index.ts must not use ${forbidden}`);
+	assert.match(source, /pi\.appendEntry\(REVIEW_SCOPE_ENTRY, scope\)/u);
 	assert.match(source, /pi\.sendUserMessage\(feedback\)/u);
 	assert.doesNotMatch(source, /registerCommand\((?!"review")/u);
 });

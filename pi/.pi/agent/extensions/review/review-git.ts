@@ -342,19 +342,6 @@ export async function listGitReviewPaths(
 	return view === "overall" ? [...new Set([...tracked, ...await untracked()])].sort() : tracked;
 }
 
-export async function listGitReviewRequirements(repository: string): Promise<string[]> {
-	const repositoryRoot = await resolveGitRepositoryRoot(repository);
-	const raw = await runGit(repositoryRoot, [
-		"ls-files",
-		"--cached",
-		"--others",
-		"--exclude-standard",
-		"-z",
-	], 1024 * 1024);
-	return decodePathList(raw, "Review requirement file list")
-		.filter((path) => path.endsWith(".md"));
-}
-
 export async function readGitReviewPatch(
 	repository: string,
 	selection: ReviewSelection = DEFAULT_REVIEW_SELECTION,

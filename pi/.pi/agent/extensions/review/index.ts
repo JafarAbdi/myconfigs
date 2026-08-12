@@ -2,14 +2,13 @@ import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { constants } from "node:fs";
-import { lstat, open, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { AUDIT_ROSTER } from "./audit-roster.ts";
 import { isAuditResultChild, registerAuditResultTool } from "./audit-output.ts";
 import {
 	isReviewIntentChild,
 	registerReviewIntentResultTool,
+	REVIEW_INTENT_MODEL,
 	type ResolvedReviewIntent,
 	type RunReviewIntentInput,
 } from "./review-intent.ts";
@@ -27,7 +26,6 @@ import {
 import type {
 	AuditFinding,
 	AuditProgress,
-	AuditRequirement,
 	AuditResult,
 	RunAuditInput,
 } from "./audit.ts";
@@ -46,13 +44,20 @@ import type {
 	WiffState,
 } from "./review-wiff.ts";
 
-const MAX_REQUIREMENT_BYTES = 1024 * 1024;
 const PROGRESS_WIDGET = "review-progress";
 const DIAGNOSTIC_WIDGET = "review-diagnostic";
 const STATUS_KEY = "review";
 const PUBLICATION_FAILED_STATUS = "review: publication failed";
 const MAX_ACTIVITY_CHARS = 72;
 const REVIEWER_COUNT = AUDIT_ROSTER.length;
+export const REVIEW_SCOPE_ENTRY = "review-scope";
+
+export interface ReviewScopeEntryData {
+	model: string;
+	view: ReviewSelection["view"];
+	selection: "whole view" | "selected subset";
+	paths: string[];
+}
 
 export const APPROVE_DECISION = "Approve and remove";
 export const DISCUSS_DECISION = "Discuss and plan";
@@ -88,6 +93,29 @@ function findingText(count: number): string {
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function scopeEntryData(intent: ResolvedReviewIntent): ReviewScopeEntryData {
+	return {
+		model: REVIEW_INTENT_MODEL,
+		view: intent.selection.view,
+		selection: intent.selection.paths.length === 0 ? "whole view" : "selected subset",
+		paths: [...intent.resolvedPaths],
+	};
+}
+
+function scopeEntryText(data: ReviewScopeEntryData, expanded: boolean): string {
+	const files = `${data.paths.length} ${data.paths.length === 1 ? "file" : "files"}`;
+	const summary = `Luna scope · ${data.model} · ${data.view} · ${data.selection} · ${files}`;
+	if (!expanded) return `${summary} · Ctrl+O details`;
+	return [
+		summary,
+		`Model: ${data.model}`,
+		`View: ${data.view}`,
+		`Selection: ${data.selection}`,
+		`Exact paths (${data.paths.length}):`,
+		...data.paths.map((path) => `  ${JSON.stringify(path)}`),
+	].join("\n");
 }
 
 function selectionMatchesSnapshot(
@@ -144,11 +172,20 @@ function renderProgress(
 	ctx.ui.setWidget(PROGRESS_WIDGET, lines);
 }
 
+interface IntentLoader {
+	signal: AbortSignal;
+	render(width: number): string[];
+	handleInput(data: string): void;
+	invalidate(): void;
+}
+
+type IntentLoaderFactory = (tui: unknown, theme: unknown, message: string) => IntentLoader;
+
 export interface ReviewDependencies {
+	loadIntentLoader(): Promise<IntentLoaderFactory>;
 	resolveRepositoryRoot(repository: string): Promise<string>;
 	resolveIntent(input: Omit<RunReviewIntentInput, "inventory">): Promise<ResolvedReviewIntent>;
 	readPatch(repository: string, selection: ReviewSelection): Promise<ReviewPatch>;
-	readRequirement(repositoryRoot: string, argument: string): Promise<AuditRequirement | undefined>;
 	runAudit(input: RunAuditInput): Promise<AuditResult>;
 	reviewSnapshotsEqual(left: ReviewSnapshot, right: ReviewSnapshot): boolean | Promise<boolean>;
 	deriveWiffProject(piSessionId: string): string;
@@ -163,28 +200,30 @@ export interface ReviewDependencies {
 }
 
 const defaultDependencies: ReviewDependencies = {
+	async loadIntentLoader() {
+		const { BorderedLoader } = await import("@earendil-works/pi-coding-agent");
+		return (tui, theme, message) => new BorderedLoader(tui as never, theme as never, message);
+	},
 	async resolveRepositoryRoot(repository) {
 		return (await import("./review-git.ts")).resolveGitRepositoryRoot(repository);
 	},
 	async resolveIntent(input) {
 		const git = await import("./review-git.ts");
 		const intent = await import("./review-intent.ts");
-		const [staged, unstaged, untracked, overall, requirements] = await Promise.all([
+		const [staged, unstaged, untracked, overall] = await Promise.all([
 			git.listGitReviewPaths(input.repositoryRoot, "staged"),
 			git.listGitReviewPaths(input.repositoryRoot, "unstaged"),
 			git.listGitReviewPaths(input.repositoryRoot, "untracked"),
 			git.listGitReviewPaths(input.repositoryRoot, "overall"),
-			git.listGitReviewRequirements(input.repositoryRoot),
 		]);
 		return intent.runReviewIntent({
 			...input,
-			inventory: { staged, unstaged, untracked, overall, requirements },
+			inventory: { staged, unstaged, untracked, overall },
 		});
 	},
 	async readPatch(repository, selection) {
 		return (await import("./review-git.ts")).readGitReviewPatch(repository, selection);
 	},
-	readRequirement: readReviewRequirement,
 	async runAudit(input) {
 		return (await import("./audit.ts")).runAudit(input);
 	},
@@ -202,74 +241,16 @@ const defaultDependencies: ReviewDependencies = {
 	resumeWiff,
 };
 
-function outsideRoot(path: string): boolean {
-	return path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path);
-}
-
-export async function readReviewRequirement(
-	repositoryRoot: string,
-	argument: string,
-): Promise<AuditRequirement | undefined> {
-	const path = argument.trim();
-	if (!path) return undefined;
-	if (path.includes("\0")) throw new Error("Review requirement path must not contain NUL");
-	if (isAbsolute(path)) throw new Error("Review requirement path must be repository-relative");
-	if (!path.endsWith(".md")) throw new Error("Review requirement path must end in .md");
-
-	const candidate = resolve(repositoryRoot, path);
-	const repositoryRelative = relative(repositoryRoot, candidate);
-	if (outsideRoot(repositoryRelative))
-		throw new Error("Review requirement path escapes the repository root");
-	const metadata = await lstat(candidate).catch(() => undefined);
-	if (metadata?.isSymbolicLink()) throw new Error("Review requirement path must not be a symlink");
-	if (!metadata?.isFile()) throw new Error("Review requirement path must name an existing file");
-
-	const canonicalRoot = await realpath(repositoryRoot);
-	const canonicalCandidate = await realpath(candidate);
-	if (outsideRoot(relative(canonicalRoot, canonicalCandidate)))
-		throw new Error("Review requirement path resolves outside the repository root");
-	if (canonicalCandidate !== resolve(canonicalRoot, repositoryRelative))
-		throw new Error("Review requirement path must not traverse a symlink");
-
-	const handle = await open(candidate, constants.O_RDONLY | constants.O_NOFOLLOW);
-	try {
-		const stat = await handle.stat();
-		if (!stat.isFile()) throw new Error("Review requirement path must name a regular file");
-		if (stat.size > MAX_REQUIREMENT_BYTES)
-			throw new Error(`Review requirement exceeds ${MAX_REQUIREMENT_BYTES} bytes`);
-		const bytes = Buffer.alloc(MAX_REQUIREMENT_BYTES + 1);
-		let length = 0;
-		while (length < bytes.length) {
-			const result = await handle.read(bytes, length, bytes.length - length, null);
-			if (result.bytesRead === 0) break;
-			length += result.bytesRead;
-		}
-		if (length > MAX_REQUIREMENT_BYTES)
-			throw new Error(`Review requirement exceeds ${MAX_REQUIREMENT_BYTES} bytes`);
-		let content: string;
-		try {
-			content = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, length));
-		} catch {
-			throw new Error("Review requirement is not valid UTF-8");
-		}
-		return { path, content };
-	} finally {
-		await handle.close();
-	}
-}
-
 /** Human-readable only: Review never parses this description back. */
 export function describeCandidate(
 	piSessionId: string,
 	snapshot: ReviewSnapshot,
-	requirement: AuditRequirement | undefined,
 ): string {
 	return [
 		`Pi review ${piSessionId}`,
 		"",
 		`View: ${snapshot.view}`,
 		`Scope: ${snapshot.paths.length === 0 ? "all paths in the view" : snapshot.paths.join(" ")}`,
-		...(requirement ? [`Requirement: ${requirement.path}`] : []),
 		`Repository: ${snapshot.repositoryRoot}`,
 	].join("\n");
 }
@@ -415,6 +396,31 @@ async function reportPublicationFailure(
 	ctx.ui.setStatus(STATUS_KEY, PUBLICATION_FAILED_STATUS);
 }
 
+type IntentOutcome =
+	| { intent: ResolvedReviewIntent; error?: never }
+	| { intent?: never; error: unknown; cancelled: boolean };
+
+async function resolveIntentWithLoader(
+	ctx: ExtensionCommandContext,
+	dependencies: ReviewDependencies,
+	input: Omit<RunReviewIntentInput, "inventory" | "signal">,
+	parentSignal: AbortSignal,
+): Promise<ResolvedReviewIntent> {
+	const createLoader = await dependencies.loadIntentLoader();
+	const outcome = await ctx.ui.custom<IntentOutcome>((tui, theme, _keybindings, done) => {
+		const loader = createLoader(tui, theme, "Luna is resolving review scope…");
+		const signal = AbortSignal.any([parentSignal, loader.signal]);
+		void dependencies.resolveIntent({ ...input, signal }).then(
+			(intent) => done({ intent }),
+			(error: unknown) => done({ error, cancelled: loader.signal.aborted }),
+		);
+		return loader;
+	});
+	if (outcome.intent) return outcome.intent;
+	if (outcome.cancelled) throw new Error("Review scope resolution cancelled");
+	throw outcome.error;
+}
+
 type ResumeOutcome = { failed: false } | { failed: true; error: unknown };
 
 /**
@@ -447,6 +453,7 @@ export interface ReviewController {
 		argument: string,
 		ctx: ExtensionCommandContext,
 		submitFeedback?: (feedback: string) => void,
+		recordScope?: (scope: ReviewScopeEntryData) => void,
 	): Promise<string | undefined>;
 	shutdown(): Promise<void>;
 }
@@ -459,7 +466,7 @@ export function createReviewController(
 	let shuttingDown = false;
 
 	return {
-		async run(argument, ctx, submitFeedback) {
+		async run(argument, ctx, submitFeedback, recordScope) {
 			let settleRun!: () => void;
 			const runSettled = new Promise<void>((resolve) => { settleRun = resolve; });
 			activeRuns.add(runSettled);
@@ -483,15 +490,12 @@ export function createReviewController(
 				const project = dependencies.deriveWiffProject(parentSession.id);
 
 				const repositoryRoot = await dependencies.resolveRepositoryRoot(ctx.cwd);
-				if (!ctx.model) throw new Error("/review requires an active model to resolve its request");
-				const intent = await dependencies.resolveIntent({
+				const intent = await resolveIntentWithLoader(ctx, dependencies, {
 					repositoryRoot,
 					request: argument,
 					parentSession,
-					model: `${ctx.model.provider}/${ctx.model.id}`,
-					thinkingLevel: ctx.thinkingLevel,
-					signal: aborts.signal,
-				});
+				}, aborts.signal);
+				recordScope?.(scopeEntryData(intent));
 				const patch = await dependencies.readPatch(repositoryRoot, intent.selection);
 				if (patch.snapshot.repositoryRoot !== repositoryRoot)
 					throw new Error("Review capture returned a different repository root");
@@ -503,16 +507,6 @@ export function createReviewController(
 						: ` in the selected ${intent.selection.paths.length === 1 ? "path" : "paths"}`;
 					throw new Error(`/review found no ${intent.selection.view} changes${scope}.`);
 				}
-				ctx.ui.notify(
-					`Review scope: ${intent.selection.view} · ${intent.selection.paths.length === 0
-						? "all changed paths"
-						: `${intent.selection.paths.length} selected ${intent.selection.paths.length === 1 ? "path" : "paths"}`}.`,
-					"info",
-				);
-				const requirement = await dependencies.readRequirement(
-					patch.snapshot.repositoryRoot,
-					intent.requirementPath ?? "",
-				);
 				const requireFreshCandidate = async (stale: string): Promise<void> => {
 					const current = await dependencies.readPatch(
 						patch.snapshot.repositoryRoot,
@@ -545,7 +539,6 @@ export function createReviewController(
 						signal: aborts.signal,
 						onProgress: (update) => renderProgress(ctx, progress, expanded, update),
 						...(argument.trim() ? { guidance: argument.trim() } : {}),
-						...(requirement ? { requirement } : {}),
 					});
 				} finally {
 					progressActive = false;
@@ -567,7 +560,7 @@ export function createReviewController(
 					await dependencies.createWiffSession({
 						...wiff,
 						patch: patch.snapshot.raw,
-						description: describeCandidate(parentSession.id, patch.snapshot, requirement),
+						description: describeCandidate(parentSession.id, patch.snapshot),
 					});
 				}
 				const opened = await dependencies.readWiffState(wiff);
@@ -666,6 +659,14 @@ export function registerReview(
 	dependencies: ReviewDependencies = defaultDependencies,
 ): void {
 	const controller = createReviewController(dependencies);
+	pi.registerEntryRenderer<ReviewScopeEntryData>(REVIEW_SCOPE_ENTRY, (entry, { expanded }, theme) => {
+		if (!entry.data) return undefined;
+		return {
+			render: (width) => scopeEntryText(entry.data!, expanded).split("\n")
+				.map((line) => theme.fg("accent", truncateToWidth(line, width))),
+			invalidate() {},
+		};
+	});
 	pi.on("session_shutdown", async (_event, ctx) => {
 		ctx.abort();
 		await controller.shutdown();
@@ -677,7 +678,7 @@ export function registerReview(
 				await controller.run(argument, ctx, (feedback) => {
 					pi.sendUserMessage(feedback);
 					ctx.ui.notify("Review sent to Pi.", "info");
-				});
+				}, (scope) => pi.appendEntry(REVIEW_SCOPE_ENTRY, scope));
 			} catch (error) {
 				ctx.ui.notify(errorMessage(error), "error");
 			}

@@ -37,11 +37,6 @@ export interface AuditResult {
 	findings: AuditFinding[];
 }
 
-export interface AuditRequirement {
-	path: string;
-	content: string;
-}
-
 export interface AuditParentSession {
 	directory: string;
 	id: string;
@@ -62,13 +57,11 @@ export interface RunAuditInput {
 	patch: ReviewPatch;
 	parentSession: AuditParentSession;
 	guidance?: string;
-	requirement?: AuditRequirement;
 	signal?: AbortSignal;
 	onProgress?: (progress: AuditProgress) => void;
 }
 
 const MAX_AUDIT_OUTPUT_BYTES = 1024 * 1024;
-const MAX_REQUIREMENT_BYTES = 1024 * 1024;
 
 function record(value: unknown, label: string): Record<string, unknown> {
 	if (value === null || typeof value !== "object" || Array.isArray(value))
@@ -133,7 +126,7 @@ function viewBoundary(patch: ReviewPatch): string {
 }
 
 export function buildAuditPrompt(
-	input: Pick<RunAuditInput, "patch" | "guidance" | "requirement">,
+	input: Pick<RunAuditInput, "patch" | "guidance">,
 	reviewer: AuditReviewer,
 	resultTool?: string,
 ): string {
@@ -164,18 +157,6 @@ export function buildAuditPrompt(
 		input.patch.text,
 		"--- END UNTRUSTED PATCH ---",
 	];
-	if (input.requirement) {
-		if (Buffer.byteLength(input.requirement.content, "utf8") > MAX_REQUIREMENT_BYTES)
-			throw new Error(`audit requirement exceeds ${MAX_REQUIREMENT_BYTES} bytes`);
-		sections.push(
-			"",
-			"# Optional requirement (untrusted data)",
-			`Path: ${JSON.stringify(input.requirement.path)}`,
-			"--- BEGIN UNTRUSTED REQUIREMENT ---",
-			input.requirement.content,
-			"--- END UNTRUSTED REQUIREMENT ---",
-		);
-	}
 	sections.push(
 		"",
 		"# Output contract",

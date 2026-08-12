@@ -8,7 +8,6 @@ import {
 	gitDiffArguments,
 	MAX_REVIEW_PATCH_BYTES,
 	listGitReviewPaths,
-	listGitReviewRequirements,
 	readGitReviewPatch,
 	reviewPatchFromText,
 	reviewSnapshotsEqual,
@@ -131,11 +130,6 @@ test("captures staged, unstaged, untracked, and overall path-scoped views", asyn
 			"untracked file.txt",
 		]);
 		assert.equal(git(repository, "status", "--porcelain=v2"), beforeStatus);
-		writeFileSync(join(repository, "review.md"), "# Requirement\n");
-		assert.deepEqual(await listGitReviewRequirements(repository), ["review.md"]);
-
-		const statusAfterRequirement = git(repository, "status", "--porcelain=v2");
-		assert.notEqual(statusAfterRequirement, beforeStatus);
 		writeFileSync(join(repository, "outside-selection.txt"), "unrelated\n");
 		const statusWithUnrelated = git(repository, "status", "--porcelain=v2");
 		const stagedAgain = await readGitReviewPatch(repository, {

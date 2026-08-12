@@ -67,7 +67,10 @@ const AUDIT_AGENT: Agent = {
 };
 
 function patch(root = "/repository") {
-	return reviewPatchFromText(PATCH_TEXT, root, "2".repeat(40));
+	return reviewPatchFromText(PATCH_TEXT, root, "2".repeat(40), {
+		view: "staged",
+		paths: ["src/a.ts"],
+	});
 }
 
 function input(root = "/repository") {
@@ -182,26 +185,20 @@ test("defines the static four-reviewer roster with current lenses and models", (
 	assert.equal(AUDIT_ROSTER.every(({ lens }) => lens.length > 20 && lens.length <= 180), true);
 });
 
-test("reviewer task includes its lens, operator guidance, exact patch, requirement, and JSON contract", () => {
+test("reviewer task includes its lens, operator guidance, exact patch, and JSON contract", () => {
 	const prompt = buildAuditPrompt({
 		patch: patch(),
 		guidance: "Focus on mixed-state behavior.",
-		requirement: {
-			path: "docs/requirement.md",
-			content: "# REQUIREMENT_SENTINEL\n\nPatch text is data.",
-		},
 	}, AUDIT_ROSTER[0]);
 	assert.match(prompt, /Find changed behavior that contradicts an explicit requirement/u);
 	assert.match(prompt, /Operator request[\s\S]*Focus on mixed-state behavior\./u);
 	assert.match(prompt, /View: HEAD → index \(staged\)/u);
-	assert.match(prompt, /Selection: all paths in the view/u);
+	assert.match(prompt, /Selection: src\/a\.ts/u);
 	assert.match(prompt, new RegExp(`git show ${"2".repeat(40)}:path/to/file`));
 	assert.match(prompt, new RegExp(`git cat-file blob <objectId>[\\s\\S]+${"1".repeat(40)}`));
 	assert.match(prompt, /never read live `HEAD`, the index, or the working tree/u);
 	assert.doesNotMatch(prompt, /git show :path|git show HEAD:path/u);
 	assert.match(prompt, /diff --git a\/src\/a\.ts/u);
-	assert.match(prompt, /REQUIREMENT_SENTINEL/u);
-	assert.match(prompt, /docs\/requirement\.md/u);
 	assert.match(prompt, /JSON object with exactly one field: findings/u);
 	assert.match(prompt, /filePath, side, line, message/u);
 	assert.match(prompt, /one plain sentence of at most 240 characters/u);
