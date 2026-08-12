@@ -2,27 +2,38 @@
 
 ## Objective
 
-One command carries one task from an idea to a branch of finished phases: research and design with
-the operator present, then one fresh implementer per phase, with every gate a keypress and every
-piece of state a file the operator can edit.
+One command carries one task from an idea to finished phases: one persistent Pi session per planning
+stage with the operator present, then one fresh implementer child per phase, with every gate a
+keypress and every piece of task state a file the operator can edit.
 
 ## Requirements
 
 - R1: A task moves through five stages — questions, research, design, phases, implement — and the
   stage is derived from which artifact is missing: `questions.md`, then any note in `research/`,
   then `plan.md`, then any file in `phases/`. `/task` enters the current stage; `/task <slug>`
-  resumes an autocompleted task; bare `/task` resolves the session's task from the branch of its
-  working directory, else from the session name, else opens the picker.
-- R1a: Each stage receives only its own brief and the paths of the artifacts before it, and starts
-  from a clean context: every stage brief is marked in the session, and a later stage navigates back
-  to the entry before the first mark. The anchor is therefore the session's own record and survives
-  a resume. The abandoned branch remains in the session tree, and the session itself is never
-  replaced — a replacement would arrive without R6's hold, because `session_start` fires before
-  anything can tell the new extension instance which task it belongs to.
-- R1b: `/task <slug> <stage>` enters any stage, finished or not. There is no redo mode: the brief
-  reads what is on disk, so it asks for a revision exactly when the artifact is there. An artifact
-  is never deleted or moved aside, and the stage reports which later artifacts may no longer agree
-  rather than changing them. Redoing one phase is `phase set-status <name> open`.
+  resumes an autocompleted task; `/task <slug> <stage> [new]` autocompletes every argument; bare
+  `/task` resolves the session's task from its stage marker, else from the branch, else opens the
+  picker.
+- R1a: Each planning stage owns one persistent Pi session named `<slug> · <stage>`. First entry
+  creates it and records standard model/reasoning entries plus a structured task/stage marker before
+  sending that stage's brief. The replacement runtime restores those standard entries. Later
+  `/task <slug> <stage>`
+  searches Pi sessions with that name, switches to the newest matching marked session and sends no
+  message. If it is already active, nothing runs. `/task <slug> <stage> new` always creates a fresh
+  marked child session and sends the brief; older sessions remain in `/resume`. The session marker
+  is identity only, never progress.
+- R1b: A planning brief reads what is on disk, so a completed artifact asks for revision in place.
+  An artifact is never deleted or moved aside, and the stage reports which later artifacts may no
+  longer agree rather than changing them. Redoing one phase is `phase set-status <name> open`.
+- R1c: When a planning turn starts with its own artifact missing and settles with the derived stage
+  advanced exactly once, the widget immediately shows the next stage and an empty editor is
+  prefilled with `/task`. The command is never submitted: the operator's Enter key remains the gate.
+  A draft already in the editor is untouched, and later revisions do not pretend the task advanced.
+- R1d: The idle widget is a one-line five-stage rail: completed stages are successful, the current
+  stage is accented, and future stages are dim. During implementation a second line names the open
+  phase and its position in the full phase list. A live run keeps that position, the inherited model
+  and reasoning level in its header above the recent steps. The task name and paths are left to pi
+  and the picker rather than repeated.
 - R2: The picker lists every readable task with its derived progress, creates a task only through
   an explicit `+ new task` entry, and deletes one only behind a confirmation naming the task
   directory, the worktree, and how much uncommitted work that worktree holds. A delete removes
@@ -38,8 +49,8 @@ piece of state a file the operator can edit.
 - R4: Phase order is the `NN-` filename prefix; a phase is identified by its file stem. Adding,
   reordering, and removing phases with an editor is equivalent to doing it through the tool.
 - R5: The `phase` tool (`list`, `show`, `create`, `set-status`) is registered unconditionally and
-  resolves its task from the working directory, so a planning session and an implementer child use
-  the same one. Every call renders as a single transcript line.
+  resolves its task from the stage marker or working-directory branch, so a planning session and an
+  implementer child use the same one. Every call renders as a single transcript line.
 - R6: A session is planning exactly while the task it drives has no worktree, and that is decided
   per tool call from `task.json` — no mode is entered or left, and no toolset is borrowed. While
   planning, only read/grep/find/ls/bash/write/edit/delegate/phase may run: `write` and `edit` are
@@ -58,7 +69,8 @@ piece of state a file the operator can edit.
 
 ## Invariants
 
-- I1: No model orchestrates the loop. Every transition is code, driven by an operator keypress.
+- I1: No model orchestrates the loop. Every transition is code, driven by an operator keypress;
+  prefilling the next `/task` command never submits it, while resuming a stage sends no message.
 - I2: Children cannot delegate (the runner never grants `delegate`), so no child can start a review,
   an audit, or another implementer.
 - I3: The extension performs exactly two Git writes — `worktree add` at R1's worktree step and
@@ -67,8 +79,8 @@ piece of state a file the operator can edit.
   staged, committed, merged, rebased, or pushed.
 - I4: The extension runs no lint, test, or build command. Verification is whatever the repository
   documents, found during research, written into the phase, and run by the implementer.
-- I5: State is the task directory. Nothing is stored in the session, and nothing task-related is
-  ever written into the repository under work.
+- I5: Progress is the task directory. A planning session stores only its task/stage identity and
+  inherited runtime settings; nothing task-related is written into the repository under work.
 - I7: What the extension parses, the models cannot write. `task.json` is written only by the
   extension and `phases/` only through the `phase` tool, so a corrupt structured file cannot arrive
   from a model — and neither is named in any brief, so the confinement is a backstop rather than a
@@ -95,9 +107,12 @@ piece of state a file the operator can edit.
 
 ## Assumptions
 
-- A1: One worktree belongs to one task, and one session drives one task at a time. Concurrent tasks
-  are separate worktrees. Nothing locks a phase: two sessions told to run the same one will both run
-  it, and that is operator error rather than a case to defend against.
+- A1: One worktree belongs to one task, and one session drives one task at a time. A task may have
+  one current workspace session per planning stage plus older sessions created explicitly with
+  `new`; ordinary entry resumes the newest. Task-stage session names are not manually renamed; the
+  name is a lookup prefilter, while the marker confirms identity. Concurrent tasks are separate
+  worktrees. Nothing locks a phase: two sessions told to run the same one will both run it, and
+  that is operator error rather than a case to defend against.
 - A2: `scout` and `researcher` are read-only by instruction, not by capability — both declare
   `bash`, and a delegated child is a separate process this extension's gate never sees. R6 fences
   which roles may be delegated to, which is what stops the planner reaching implementation; what a

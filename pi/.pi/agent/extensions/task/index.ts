@@ -22,6 +22,7 @@ import {
 	getAgentDir,
 	type ExtensionAPI,
 	rawKeyHint,
+	SessionManager,
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
@@ -68,8 +69,35 @@ import {
 
 const WIDGET = "task";
 
-/** Marks where a stage brief was delivered, so the next stage can rewind to the same clean point. */
+/** Structured identity for one persistent planning-stage session. */
 const STAGE_MARK = "task-stage";
+
+interface StageMarkDetails {
+	slug: string;
+	stage: Stage;
+	workspace: true;
+}
+
+function stageMark(entries: readonly unknown[]): StageMarkDetails | undefined {
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index] as { type?: unknown; customType?: unknown; data?: unknown };
+		if (entry.type !== "custom" || entry.customType !== STAGE_MARK) continue;
+		const data = entry.data as Partial<StageMarkDetails> | undefined;
+		if (
+			!data ||
+			data.workspace !== true ||
+			typeof data.slug !== "string" ||
+			typeof data.stage !== "string" ||
+			!isStage(data.stage)
+		) return undefined;
+		return { slug: data.slug, stage: data.stage, workspace: true };
+	}
+	return undefined;
+}
+
+function stageSessionName(slug: string, stage: Stage): string {
+	return `${slug} · ${stage}`;
+}
 
 /** pi truncates a widget at ten lines, so the live run shows this many steps and counts the rest. */
 const RUN_WIDGET_STEPS = 6;
@@ -148,60 +176,62 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		root !== undefined && (root === task.header.repository || root === worktreePath(task));
 
 	/**
-	 * Which task this session is driving, derived rather than stored: the branch names it inside its
-	 * repository or worktree, while the session name — set by an explicit start or resume — keeps
-	 * naming it from any directory.
+	 * Which task this session drives: a planning workspace carries a structured session entry and an
+	 * implementation workspace is named by its Git branch. The structured entry exists before the
+	 * replacement runtime starts, so its tool gate is active from the first event in a fresh stage.
 	 */
-	const activeTask = (cwd: string): TaskRef | undefined => {
+	const activeTask = (cwd: string, entries: readonly unknown[] = []): TaskRef | undefined => {
+		const marked = stageMark(entries);
+		const byMark = marked ? taskIfPresent(marked.slug) : undefined;
+		if (byMark) return byMark;
 		const root = repositoryRoot(cwd);
 		const branch = currentBranch(cwd);
 		const byBranch = branch ? taskIfPresent(branch) : undefined;
-		if (byBranch && drives(byBranch, root)) return byBranch;
-		const name = pi.getSessionName();
-		return name ? taskIfPresent(name) : undefined;
+		return byBranch && drives(byBranch, root) ? byBranch : undefined;
 	};
 
 	registerPhaseTool(pi, {
-		resolveTask: (cwd) => {
-			const task = activeTask(cwd);
-			if (!task) throw new Error(`no task is active in ${cwd}; the phase tool works inside a task only`);
+		resolveTask: (ctx) => {
+			const task = activeTask(ctx.cwd, ctx.sessionManager.getEntries());
+			if (!task) throw new Error(`no task is active in ${ctx.cwd}; the phase tool works inside a task only`);
 			return readTask(tasksRoot(), task.slug);
 		},
 	});
 
 	// ── the widget: the whole state of the task, always the next thing to do ──────────────────────
 
-	/**
-	 * Three lines, whatever the task: where it is, what runs next, and how to run it. pi caps a
-	 * widget at ten lines, so a per-phase list would silently drop the line that says what /task
-	 * does — and the full list is one `phase list` away, in a place that can hold it.
-	 */
+	/** One compact rail for planning; implementation adds only the phase currently under the key. */
 	const widgetLines = (ctx: ExtensionContext, task: Task): string[] => {
 		const theme = ctx.ui.theme;
-		const { done, total } = taskProgress(task);
 		const stage = currentStage(task);
-		const next = nextOpenPhase(task);
+		const stageIndex = STAGES.indexOf(stage);
+		const complete = stage === "implement" && task.phases.every((phase) => phase.status === "done");
+		const rail = STAGES.map((name, index) => {
+			if (index < stageIndex || (complete && index === stageIndex)) {
+				return theme.fg("success", `✓ ${name}`);
+			}
+			if (index === stageIndex) return theme.fg("accent", theme.bold(`● ${name}`));
+			return theme.fg("dim", `○ ${name}`);
+		}).join(theme.fg("dim", " › "));
+		if (stage !== "implement") return [rail];
+
+		const phase = nextOpenPhase(task);
+		if (!phase) return [rail, theme.fg("success", `phases ${task.phases.length}/${task.phases.length} complete`)];
+		const position = task.phases.findIndex((candidate) => candidate.name === phase.name) + 1;
 		return [
-			`${theme.fg("accent", theme.bold(`task ${task.slug}`))}${theme.fg("muted", ` · ${taskSummary(task)}`)}`,
-			next
-				? `${theme.fg("muted", "○")} ${theme.fg("toolTitle", next.name)} ${next.title}`
-				: theme.fg("dim", hasWorktree(task) ? worktreePath(task) : task.directory),
-			theme.fg(
-				"dim",
-				stage !== "implement"
-					? `${stage} stage · /task continues it`
-					: !hasWorktree(task)
-						? "/task creates the worktree"
-						: done < total
-							? "/task runs the next phase"
-							: "every phase done · merge when you are ready",
-			),
+			rail,
+			`${theme.fg("accent", `phase ${position}/${task.phases.length}`)}` +
+			`${theme.fg("muted", ` · ${phase.name} — ${phase.title}`)}`,
 		];
 	};
 
 	const showTask = (ctx: ExtensionContext, task: Task): void => {
 		ctx.ui.setWidget(WIDGET, widgetLines(ctx, task));
 	};
+
+	/** The identity of this planning workspace, persisted in the session before it starts. */
+	const enteredStage = (ctx: ExtensionContext): StageMarkDetails | undefined =>
+		stageMark(ctx.sessionManager.getEntries());
 
 	/** `edit src/a.ts`, `bash cargo test` — what the child is doing, as it does it. */
 	const stepLine = (step: RunResult["steps"][number], theme: ExtensionContext["ui"]["theme"]): string => {
@@ -221,9 +251,11 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		const theme = ctx.ui.theme;
 		const recent = run.steps.slice(-RUN_WIDGET_STEPS);
 		const skipped = run.steps.length - recent.length;
+		const position = task.phases.findIndex((candidate) => candidate.name === phase.name) + 1;
+		const model = ctx.model ? `${ctx.model.id}/${ctx.thinkingLevel ?? "off"}` : "unknown model";
 		ctx.ui.setWidget(WIDGET, [
-			`${theme.fg("accent", theme.bold(`task ${task.slug}`))}` +
-			`${theme.fg("muted", ` · ${phase.name} · ${run.turns} turns · ${run.steps.length} steps`)}` +
+			`${theme.fg("accent", theme.bold("implement"))}` +
+			`${theme.fg("muted", ` · phase ${position}/${task.phases.length} · ${phase.name} · ${model} · ${run.turns} turns · ${run.steps.length} steps`)}` +
 			`${theme.fg("dim", ` · ${rawKeyHint(Key.escape, "stop")}`)}`,
 			...(skipped > 0 ? [theme.fg("dim", `  … ${skipped} earlier`)] : []),
 			...recent.map((step) => stepLine(step, theme)),
@@ -241,13 +273,13 @@ export default function taskExtension(pi: ExtensionAPI): void {
 	 * to choose a stage. A reload, a resume, a second session, a redo and a deleted task all get the
 	 * right answer for free, because none of them can disagree with a fact nobody stored.
 	 */
-	const planningTask = (cwd: string): TaskRef | undefined => {
-		const task = activeTask(cwd);
+	const planningTask = (ctx: ExtensionContext): TaskRef | undefined => {
+		const task = activeTask(ctx.cwd, ctx.sessionManager.getEntries());
 		return task && !hasWorktree(task) ? task : undefined;
 	};
 
 	pi.on("tool_call", async (event, ctx) => {
-		const task = planningTask(ctx.cwd);
+		const task = planningTask(ctx);
 		if (!task) return undefined;
 
 		// Named rather than derived from the active set: a tool registered after the session started
@@ -551,46 +583,85 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		}
 	};
 
-	/**
-	 * Entering a stage: name the session after the task, give the stage a clean context, deliver its
-	 * brief. There is no mode to enter — the gate above reads the same files this does.
-	 *
-	 * Clean context is a rewind, not a new session. The first stage this session enters records the
-	 * point it started from; every later stage navigates back to it, so each one reads the artifacts
-	 * cold instead of inheriting the last stage's conversation. Nothing is lost — the branch it came
-	 * from stays in the session tree. A replacement session would be worse than pointless here: pi
-	 * fires `session_start` before anything can tell the new extension instance which task it belongs
-	 * to (agent-session-runtime.ts:250-258).
-	 */
-	const enterStage = async (ctx: ExtensionCommandContext, task: Task, stage: Stage): Promise<void> => {
-		// The anchor is the session's own record, not a variable: the entry just before the first
-		// stage this session delivered. Resuming or reloading loses nothing, because nothing was held.
-		const entries = ctx.sessionManager.getEntries();
-		const firstMark = entries.findIndex(
-			(entry) => (entry as { customType?: string }).customType === STAGE_MARK,
-		);
-		const anchor = firstMark > 0 ? (entries[firstMark - 1] as { id?: string }).id : undefined;
-		if (anchor !== undefined) await ctx.navigateTree(anchor);
-		showTask(ctx, task);
-		pi.sendMessage(
-			{ customType: STAGE_MARK, content: `${task.slug} · ${stage}`, display: false },
-			{ triggerTurn: false },
-		);
-		pi.sendUserMessage(stageBrief(task, stage), { deliverAs: "followUp" });
-		ctx.ui.notify(`${task.slug}: ${stage} stage`, "info");
+	/** The latest saved workspace for this task stage; `SessionManager.list` is newest first. */
+	const stageSession = async (ctx: ExtensionCommandContext, task: Task, stage: Stage): Promise<string | undefined> => {
+		const name = stageSessionName(task.slug, stage);
+		const sessionDir = ctx.sessionManager.getSessionDir();
+		const sessions = [
+			...await SessionManager.listAll(),
+			...await SessionManager.listAll(sessionDir),
+		].sort((left, right) => right.modified.getTime() - left.modified.getTime());
+		for (const session of sessions) {
+			if (session.name !== name) continue;
+			const mark = stageMark(SessionManager.open(session.path).getEntries());
+			if (mark?.slug === task.slug && mark.stage === stage) return session.path;
+		}
+		return undefined;
 	};
 
-	const advance = async (ctx: ExtensionCommandContext, task: Task, redo?: Stage): Promise<void> => {
-		pi.setSessionName(task.slug);
+	/**
+	 * A stage workspace is one persistent Pi session. Ordinary entry resumes it without sending a
+	 * message; `new` replaces it with a blank child session, whose setup entry makes the read-only
+	 * gate active before the replacement instance's `session_start` event.
+	 */
+	const enterStage = async (
+		ctx: ExtensionCommandContext,
+		task: Task,
+		stage: Stage,
+		freshSession: boolean,
+	): Promise<void> => {
+		const name = stageSessionName(task.slug, stage);
+		const current = stageMark(ctx.sessionManager.getEntries());
+		if (!freshSession && current?.slug === task.slug && current.stage === stage) {
+			showTask(ctx, task);
+			ctx.ui.notify(`${name}: already active`, "info");
+			return;
+		}
+
+		if (!freshSession) {
+			const saved = await stageSession(ctx, task, stage);
+			if (saved) {
+				const result = await ctx.switchSession(saved);
+				if (result.cancelled) ctx.ui.notify(`${name}: resume cancelled`, "warning");
+				return;
+			}
+		}
+
+		const parentSession = ctx.sessionManager.getSessionFile();
+		const inheritedModel = ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined;
+		const inheritedThinkingLevel = ctx.thinkingLevel;
+		// TODO(pi#5263): Restore these into Pi 0.84's live runtime once setters are session-only.
+		const mark: StageMarkDetails = { slug: task.slug, stage, workspace: true };
+		const result = await ctx.newSession({
+			...(parentSession ? { parentSession } : {}),
+			setup: async (session) => {
+				if (inheritedModel) session.appendModelChange(inheritedModel.provider, inheritedModel.id);
+				if (inheritedThinkingLevel) session.appendThinkingLevelChange(inheritedThinkingLevel);
+				session.appendCustomEntry(STAGE_MARK, mark);
+				session.appendSessionInfo(name);
+			},
+			withSession: async (replacement) => {
+				await replacement.sendUserMessage(stageBrief(task, stage));
+			},
+		});
+		if (result.cancelled) ctx.ui.notify(`${name}: new session cancelled`, "warning");
+	};
+
+	const advance = async (
+		ctx: ExtensionCommandContext,
+		task: Task,
+		redo?: Stage,
+		freshSession = false,
+	): Promise<void> => {
 		let current = task;
 		const stage = redo ?? currentStage(current);
 
 		if (stage !== "implement") {
-			// Whether this stage's artifact already exists is the brief's business, read from disk —
-			// entering a finished stage and entering a fresh one are the same move.
-			await enterStage(ctx, current, stage);
+			await enterStage(ctx, current, stage, freshSession);
 			return;
 		}
+
+		if (freshSession) throw new Error("new is available for planning stages only");
 
 		if (!hasWorktree(current)) {
 			const started = await createWorktree(ctx, current);
@@ -618,38 +689,47 @@ export default function taskExtension(pi: ExtensionAPI): void {
 
 	pi.registerCommand("task", {
 		description: "Plan and implement one task in its own worktree, one phase at a time",
-		// `/task <slug>` continues a task; `/task <slug> <stage>` redoes one stage of it. The second
-		// word completes to the stage names, which is the whole of how redo is discovered.
+		// pi replaces the whole argument prefix with an item's value. A task completion therefore keeps
+		// a trailing space: typing the first stage letter (or pressing Tab immediately) asks this same
+		// callback for the second argument instead of leaving the completed slug as a dead end.
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
-			const [slug, stage] = words(prefix);
-			const naming = stage !== undefined || prefix.endsWith(" ");
-			const items = naming
-				? STAGES.filter((name) => name.startsWith(stage ?? "")).map((name) => ({
-					value: `${slug} ${name}`,
-					label: name,
-					description: `redo the ${name} stage`,
-				}))
-				: listTasks(tasksRoot())
-					.tasks.filter((task) => task.slug.startsWith(slug ?? ""))
-					.map((task) => ({ value: task.slug, label: task.slug, description: taskSummary(task) }));
+			const [slug, stage, mode] = words(prefix);
+			const completingMode = mode !== undefined || (stage !== undefined && prefix.endsWith(" "));
+			const completingStage = !completingMode && (stage !== undefined || prefix.endsWith(" "));
+			const items = completingMode
+				? stage !== "implement" && "new".startsWith(mode ?? "")
+					? [{ value: `${slug} ${stage} new`, label: "new", description: "start a fresh stage session" }]
+					: []
+				: completingStage
+					? STAGES.filter((name) => name.startsWith(stage ?? "")).map((name) => ({
+						value: `${slug} ${name} `,
+						label: name,
+						description: `resume the ${name} stage`,
+					}))
+					: listTasks(tasksRoot())
+						.tasks.filter((task) => task.slug.startsWith(slug ?? ""))
+						.map((task) => ({ value: `${task.slug} `, label: task.slug, description: taskSummary(task) }));
 			return items.length ? items : null;
 		},
 		handler: async (args, ctx) => {
 			try {
 				if (ctx.mode !== "tui") throw new Error("/task needs the interactive TUI");
 				await ctx.waitForIdle();
-				const [slug, stage, ...rest] = words(args);
-				if (rest.length) throw new Error("/task takes a task name and optionally one stage");
+				const [slug, stage, mode, ...rest] = words(args);
+				if (rest.length || (mode !== undefined && mode !== "new")) {
+					throw new Error("/task takes a task name, optionally one stage, then optionally new");
+				}
+				if (mode === "new" && stage === undefined) throw new Error("new requires a stage");
 				if (stage !== undefined && !isStage(stage)) {
 					throw new Error(`no stage ${stage}; stages are ${STAGES.join(", ")}`);
 				}
 				if (slug !== undefined) {
 					const named = taskIfPresent(slug);
 					if (!named) throw new Error(`no task ${slug}; run /task to see them`);
-					await advance(ctx, readTask(tasksRoot(), named.slug), stage);
+					await advance(ctx, readTask(tasksRoot(), named.slug), stage, mode === "new");
 					return;
 				}
-				const active = activeTask(ctx.cwd);
+				const active = activeTask(ctx.cwd, ctx.sessionManager.getEntries());
 				const task = active ? readTask(tasksRoot(), active.slug) : await chooseTask(ctx);
 				if (task) await advance(ctx, task);
 			} catch (error) {
@@ -658,10 +738,55 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	// A resumed session shows where its task is and nothing else: the read-only hold is decided per
-	// tool call, and the interrupted conversation is still right there, so no brief is re-sent.
+	// A stage artifact is the transition signal. Once the turn that wrote it fully settles, repaint
+	// from disk and put the existing command under the operator's Enter key. Revisions are excluded:
+	// their derived stage was already downstream when their brief arrived, so they did not advance.
+	let stageAtTurnStart: Stage | undefined;
+	pi.on("agent_start", (_event, ctx) => {
+		if (stageAtTurnStart !== undefined) return;
+		const active = activeTask(ctx.cwd, ctx.sessionManager.getEntries());
+		stageAtTurnStart = active ? currentStage(readTask(tasksRoot(), active.slug)) : undefined;
+	});
+
+	pi.on("agent_settled", (_event, ctx) => {
+		const active = activeTask(ctx.cwd, ctx.sessionManager.getEntries());
+		if (!active) return;
+		const task = readTask(tasksRoot(), active.slug);
+		const entered = enteredStage(ctx);
+		const next = entered ? STAGES[STAGES.indexOf(entered.stage) + 1] : undefined;
+		const advanced = stageAtTurnStart === entered?.stage && currentStage(task) === next;
+		stageAtTurnStart = undefined;
+		showTask(ctx, task);
+		if (advanced && ctx.mode === "tui" && ctx.ui.getEditorText().length === 0) {
+			ctx.ui.setEditorText("/task");
+		}
+	});
+
+	// Pi treats Tab after a command argument as forced file completion. Route that one case back
+	// through ordinary slash-command completion so `/task <slug> ` can offer its stage argument.
 	pi.on("session_start", async (_event, ctx) => {
-		const active = activeTask(ctx.cwd);
+		ctx.ui.addAutocompleteProvider((current) => ({
+			triggerCharacters: [],
+			getSuggestions(lines, line, column, options) {
+				const before = (lines[line] ?? "").slice(0, column);
+				return current.getSuggestions(
+					lines,
+					line,
+					column,
+					options.force && before.startsWith("/task ") ? { ...options, force: false } : options,
+				);
+			},
+			applyCompletion(lines, line, column, item, prefix) {
+				return current.applyCompletion(lines, line, column, item, prefix);
+			},
+			shouldTriggerFileCompletion(lines, line, column) {
+				return current.shouldTriggerFileCompletion?.(lines, line, column) ?? true;
+			},
+		}));
+
+		// A resumed session shows where its task is and nothing else: the read-only hold is decided per
+		// tool call, and the interrupted conversation is still right there, so no brief is re-sent.
+		const active = activeTask(ctx.cwd, ctx.sessionManager.getEntries());
 		if (!active) return;
 		showTask(ctx, readTask(tasksRoot(), active.slug));
 	});

@@ -40,12 +40,16 @@ you are about to do, no recap of what you just did, no closing summary. Never pa
 context the operator already has. Nothing you write to the files is abbreviated for the same
 reason: they hold the detail, in full and without filler, so the conversation does not have to.`;
 
-const ONE_QUESTION = `Every message ends with exactly one question. Two or three options with
-trade-offs and a recommendation is still one question. When several things are open, ask the one
-that unblocks the rest. Never ask what the project can answer — go and look. Discussion is not a
-cue to edit: pushback and thinking aloud are conversation; write to the file once a decision is
-resolved. Re-paint, do not append — the document reads as a spec written on purpose, never as a
-log of the conversation.`;
+const ONE_QUESTION = `Until the artifact is complete, every message ends with exactly one question.
+Two or three options with trade-offs and a recommendation is still one question. When several
+things are open, ask the one that unblocks the rest. Never ask what the project can answer — go and
+look. Discussion is not a cue to edit: pushback and thinking aloud are conversation; write to the
+file once a decision is resolved. Re-paint, do not append — the document reads as a spec written on
+purpose, never as a log of the conversation.`;
+
+const STAGE_END = `Once the artifact is complete, end with one declarative sentence naming the stage
+complete. Do not ask whether to proceed. When this advances the task, pi prefills "/task" after the
+turn; the operator's Enter key starts the next stage.`;
 
 function heading(task: Task, stage: Stage): string {
 	return `Task "${task.slug}" — ${stage} stage.
@@ -89,7 +93,7 @@ proposing anything: a question the repository already answers is noise.
 ${ONE_QUESTION}
 
 Propose the questions as a list, discuss them, and write the file when the operator is satisfied.
-Then say the stage is done.`;
+${STAGE_END}`;
 }
 
 function researchBrief(task: Task): string {
@@ -119,7 +123,9 @@ contracts, english-y pseudocode. Never diff blocks — there is no proposed chan
 notes how it is tested today; "no tests" is a finding.
 
 Open questions get one more pass, then go to the operator: find the answer, answer it themselves,
-or drop it. When it is written, say the stage is done — the design reads this document cold.`;
+or drop it. The design reads this document cold.
+
+${STAGE_END}`;
 }
 
 function designBrief(task: Task): string {
@@ -158,7 +164,9 @@ Every piece of scope put as in or out by name, each "out" recorded with its reas
 operator is this same stage, not an interruption.
 
 End with a whole-read gate: the operator reads ${planPath(task)} top to bottom before it counts as
-the plan. Then say the stage is done.`;
+the plan.
+
+${STAGE_END}`;
 }
 
 function phasesBrief(task: Task): string {
@@ -185,8 +193,9 @@ this repository — never invented — and manual steps only where they are real
 
 ${ONE_QUESTION}
 
-Propose the slicing first and settle it, then write the phases. Then say the stage is done — the
-operator runs /task to create the worktree.`;
+Propose the slicing first and settle it, then write the phases.
+
+${STAGE_END}`;
 }
 
 export function stageBrief(task: Task, stage: Stage): string {

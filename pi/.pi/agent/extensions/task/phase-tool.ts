@@ -9,7 +9,7 @@
  * Rendering is deliberately one line. The point of a tool over a file edit is exposure, not screen.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type, type Static } from "typebox";
 import {
@@ -77,8 +77,8 @@ function summary(details: PhaseToolDetails): string {
 }
 
 export interface PhaseToolDependencies {
-	/** The task this session drives, resolved from the working directory. Throws when there is none. */
-	resolveTask(cwd: string): Task;
+	/** The task this session drives, resolved from its branch or stage marker. Throws when absent. */
+	resolveTask(ctx: ExtensionContext): Task;
 }
 
 export function registerPhaseTool(pi: ExtensionAPI, dependencies: PhaseToolDependencies): void {
@@ -108,7 +108,7 @@ export function registerPhaseTool(pi: ExtensionAPI, dependencies: PhaseToolDepen
 		},
 
 		async execute(_toolCallId, parameters: PhaseToolParameters, _signal, _onUpdate, ctx) {
-			const task = dependencies.resolveTask(ctx.cwd);
+			const task = dependencies.resolveTask(ctx);
 
 			if (parameters.action === "list") {
 				const { done, total } = taskProgress(task);
