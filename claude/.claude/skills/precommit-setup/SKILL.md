@@ -34,7 +34,9 @@ config format, faster, single binary. Tell the user to run `prek install` /
      - `manage.py` or `INSTALLED_APPS` in a settings file → Django block
      - `*.ipynb` files present → notebook (nb-clean) block
    - `CMakeLists.txt` or `*.cpp`/`*.hpp`/`*.cc` → C++/CMake section
-   - `package.json` → Prettier section
+   - `package.json` → JS/TS section: `oxlint` for linting, plus **one** of
+     `prettier` / `oxfmt` for formatting. If the repo already pins ESLint or
+     Biome, ask before adding oxlint rather than stacking a second linter.
    - `Dockerfile` → Docker section
    - `.github/workflows/*.yml` → GitHub Actions section (actionlint, zizmor)
    - `*.lua` (and it's a Neovim config, not a game engine plugin dir) → Lua section
@@ -48,8 +50,9 @@ config format, faster, single binary. Tell the user to run `prek install` /
    need to be asked about Rust) but check with the user before adding opt-in
    sections that aren't clearly load-bearing (security scanners, license
    headers, type checking) — those are opt-in in the template for a reason.
-   The template keeps `ty` and `pyrefly` side by side for type checking (both
-   do the same job) — ask which one a repo should get, don't install both.
+   The template keeps `ty` and `pyrefly` side by side for type checking, and
+   `prettier` and `oxfmt` side by side for JS/TS formatting. Each pair does one
+   job — ask which one a repo should get, don't install both.
 
 4. **If duplicate-purpose hooks would both apply** (e.g. the repo already pins
    black instead of ruff, or codespell instead of typos), don't silently
@@ -60,11 +63,23 @@ config format, faster, single binary. Tell the user to run `prek install` /
    clobber unrelated repo-specific local hooks it already has (e.g. a
    project-specific linter) — merge those forward into the new file.
 
-6. **Write** the trimmed config to `<target>/.pre-commit-config.yaml`, keeping
+6. **Offer custom lints if the repo has written-down conventions** an
+   off-the-shelf linter can't enforce — a `CONVENTIONS.md`/`CLAUDE.md`/style
+   guide, or a pattern the user keeps correcting by hand. Don't add these
+   unprompted; name the two or three rules you'd write and let the user pick.
+   The CUSTOM section at the bottom of the template documents the three shapes
+   (`repo: local`, ast-grep YAML, oxlint JS plugin) and when each applies.
+
+   Before writing anything custom, check whether an existing linter already
+   covers it — ruff and oxlint both ship hundreds of opt-in rules, and a repo
+   whose ruff config only enables the defaults is usually leaving the majority
+   of its wanted rules switched off. Enabling those beats hand-rolling.
+
+7. **Write** the trimmed config to `<target>/.pre-commit-config.yaml`, keeping
    the same per-section `# ===== LANGUAGE =====` comment headers from the
    template so it stays legible and easy to prune later by hand.
 
-7. **Tell the user** to run `prek install` and that `rev:` pins should be
+8. **Tell the user** to run `prek install` and that `rev:` pins should be
    refreshed periodically with `prek autoupdate` — the pins in the template
    are a snapshot, not permanent.
 

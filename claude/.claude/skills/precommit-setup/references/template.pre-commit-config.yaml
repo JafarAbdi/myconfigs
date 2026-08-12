@@ -50,7 +50,7 @@ repos:
       - id: pretty-format-json
 
   - repo: https://github.com/crate-ci/typos
-    rev: v1.48.0
+    rev: v1.49.0
     hooks:
       - id: typos
 
@@ -60,7 +60,7 @@ repos:
   # ruff config in references/ruff.toml (a good default select/ignore list).
   # =====================================================================
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.2
     hooks:
       - id: ruff-check
         args: [--fix]
@@ -68,13 +68,13 @@ repos:
 
   # uv projects: keep uv.lock in sync with pyproject.toml
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: "0.11.26"
+    rev: "0.12.3"
     hooks:
       - id: uv-lock
 
   # Static typing
   - repo: https://github.com/astral-sh/ty-pre-commit
-    rev: v0.0.65
+    rev: v0.0.70
     hooks:
       - id: ty
   - repo: https://github.com/facebook/pyrefly-pre-commit
@@ -91,11 +91,11 @@ repos:
 
   # Django projects
   - repo: https://github.com/adamchainz/django-upgrade
-    rev: 1.28.0
+    rev: 1.31.1
     hooks:
       - id: django-upgrade
   - repo: https://github.com/Riverside-Healthcare/djLint
-    rev: v1.36.4
+    rev: v1.44.2
     hooks:
       - id: djlint-reformat-django
       - id: djlint-django
@@ -122,7 +122,7 @@ repos:
   # C++ / CMake
   # =====================================================================
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v21.1.8
+    rev: v22.1.8
     hooks:
       - id: clang-format
 
@@ -143,7 +143,7 @@ repos:
   # YAML lint (beyond the syntax-only check-yaml above)
   # =====================================================================
   - repo: https://github.com/adrienverge/yamllint
-    rev: v1.37.1
+    rev: v1.38.0
     hooks:
       - id: yamllint
 
@@ -151,28 +151,44 @@ repos:
   # MARKDOWN / DOCS
   # =====================================================================
   - repo: https://github.com/DavidAnson/markdownlint-cli2
-    rev: v0.22.1
+    rev: v0.23.2
     hooks:
       - id: markdownlint-cli2
   - repo: https://github.com/tcort/markdown-link-check
-    rev: v3.14.1
+    rev: v3.15.0
     hooks:
       - id: markdown-link-check
 
   # =====================================================================
-  # PRETTIER (JS/TS/CSS/JSON/YAML/MD formatting)
-  # rbubley fork — pre-commit/mirrors-prettier is archived/unmaintained.
+  # JAVASCRIPT / TYPESCRIPT LINT — oxlint. typescript/unicorn/oxc plugins on
+  # by default; react, import, jsx-a11y, vitest etc. opt-in via flags or
+  # `.oxlintrc.json`. Add `args: [--fix]` to autofix on commit.
+  # =====================================================================
+  - repo: https://github.com/oxc-project/mirrors-oxlint
+    rev: v1.78.0
+    hooks:
+      - id: oxlint
+
+  # =====================================================================
+  # JS/TS FORMATTING — pick ONE. prettier: mature, also does CSS/JSON/YAML/MD
+  # (rbubley fork; pre-commit/mirrors-prettier is archived). oxfmt: oxlint's
+  # toolchain, faster, JS/TS/JSX only, pre-1.0.
   # =====================================================================
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.6.2
+    rev: v3.9.6
     hooks:
       - id: prettier
+
+  - repo: https://github.com/oxc-project/mirrors-oxfmt
+    rev: v0.63.0
+    hooks:
+      - id: oxfmt
 
   # =====================================================================
   # DOCKER
   # =====================================================================
   - repo: https://github.com/hadolint/hadolint
-    rev: v2.14.0
+    rev: v2.15.1
     hooks:
       - id: hadolint-docker
 
@@ -184,7 +200,7 @@ repos:
     hooks:
       - id: actionlint
   - repo: https://github.com/woodruffw/zizmor-pre-commit
-    rev: v1.15.2
+    rev: v1.29.0
     hooks:
       - id: zizmor
 
@@ -193,7 +209,7 @@ repos:
   # (see references/ruff.toml), not a separate bandit hook.
   # =====================================================================
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.28.0
+    rev: v8.30.1
     hooks:
       - id: gitleaks
 
@@ -213,6 +229,33 @@ repos:
   # LICENSE HEADERS
   # =====================================================================
   - repo: https://github.com/google/addlicense
-    rev: v1.2.0-rc0
+    rev: v1.2.0
     hooks:
       - id: addlicense
+
+  # =====================================================================
+  # CUSTOM / PROJECT-SPECIFIC LINTS — house conventions no linter ships with.
+  # Check existing configs first: ruff and oxlint both have hundreds of opt-in
+  # rules most repos leave switched off. Then, cheapest first:
+  #
+  # 1. `repo: local` — any executable. See the Rust section above.
+  # 2. ast-grep — structural YAML rules, ~20 languages, no upstream hook so
+  #    wire it locally (below). sgconfig.yml -> ruleDirs; rules/*.yml ->
+  #    id/language/severity/message/rule; rule-tests/*.yml -> `ast-grep test`.
+  #    Match on kind/pattern/regex + inside/has/follows/precedes, composed
+  #    with all/any/not/matches. Gotchas: `pattern` misses nodes the grammar
+  #    wraps (use `regex`); one `not:` per object (wrap in `all:`); `regex`
+  #    is not multiline — `^` anchors to node text, not each line.
+  # 3. oxlint JS plugin — for JS/TS rules needing scope or symbols, which
+  #    ast-grep has no access to. In .oxlintrc.json / oxlint.config.ts:
+  #      jsPlugins: [{ name: "house", specifier: "./tools/house/index.ts" }]
+  #    then enable as "house/<rule-id>": "error". See dmmulroy/anti-slop.
+  # =====================================================================
+  - repo: local
+    hooks:
+      - id: ast-grep
+        name: ast-grep (custom structural lints)
+        entry: ast-grep scan
+        language: system
+        types: [text]
+        require_serial: false

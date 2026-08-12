@@ -1,6 +1,7 @@
 ---
 name: grok-mermaid
 description: Render Mermaid as ASCII-style Unicode terminal diagrams. Use for text diagrams, architecture diagrams, flowcharts, and state, class, ER, or sequence diagrams in plain-text output.
+disable-model-invocation: true
 compatibility: Requires Deno. The first render requires network access to cache grok-mermaid.
 ---
 
