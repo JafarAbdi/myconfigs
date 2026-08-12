@@ -47,7 +47,8 @@ const PHASE_SCHEMA = Type.Object({
 	body: Type.Union([Type.String({ maxLength: MAX_BODY_LENGTH }), Type.Null()], {
 		description:
 			"The phase itself: what it accomplishes, the concrete per-file changes, and how to verify " +
-			"it. Markdown, and what the implementer reads. Create only, null otherwise.",
+			"it. Plain, concise Markdown; use the smallest diagram or diff only when clearer than prose. " +
+			"This is what the implementer reads. Create only, null otherwise.",
 	}),
 	status: Type.Union([Type.Literal("open"), Type.Literal("done"), Type.Null()], {
 		description: "set-status only, null otherwise.",

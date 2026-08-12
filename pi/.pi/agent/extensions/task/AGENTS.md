@@ -46,6 +46,10 @@ keypress and every piece of task state a file the operator can edit.
   outside `notes/`, and the `phase` tool is the only way a model reaches a phase.
 - R3a: The worktree is `../<repository>-<slug>` and is never recorded. Whether it exists is what
   separates planning from implementing, so that question is asked of the filesystem.
+- R3b: Model-written Markdown uses plain human language, says each point once, and carries every
+  fact or decision the next stage needs without using length as a substitute for completeness. It
+  uses the smallest useful visual only when that is clearer than prose. Each visual sits
+  beside the short text it supports; decorative or duplicate views are omitted.
 - R4: Phase order is the `NN-` filename prefix; a phase is identified by its file stem. Adding,
   reordering, and removing phases with an editor is equivalent to doing it through the tool.
 - R5: The `phase` tool (`list`, `show`, `create`, `set-status`) is registered unconditionally and

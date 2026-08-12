@@ -32,13 +32,32 @@ installing anything. You can write inside the task directory, and you can delega
 ${RESEARCH_AGENTS.join(" and ")} children, which have their own tools and fresh contexts.`;
 
 /**
- * How to talk, in every stage. The operator reads slowly; the documents do not. Detail belongs in
- * the files, which carry it in full — what reaches the terminal is the decision and the question.
+ * How to talk and write, in every stage. The operator reads slowly; completeness is carried by
+ * facts and decisions, not by word count.
  */
-const VOICE = `Say it once, in the fewest words that stay accurate. No preamble, no announcing what
-you are about to do, no recap of what you just did, no closing summary. Never pad a question with
-context the operator already has. Nothing you write to the files is abbreviated for the same
-reason: they hold the detail, in full and without filler, so the conversation does not have to.`;
+const VOICE = `Speak in plain human language, like one person talking to another. Use the
+repository's own names when precision needs them, and explain what they do in ordinary words. Say
+each point once, in the fewest words that stay accurate. No filler, jargon, repetition, preamble,
+announcement, recap, or closing summary. Never pad a question with context the operator already
+has.
+
+Write every Markdown artifact the same way: short sentences and paragraphs, with only the sections
+the next stage needs. Complete means it carries every fact or decision the next stage needs, not
+that it is long.
+
+When structure is clearer visually, pick the smallest view that makes the point clear:
+- English-y pseudocode for logic or an algorithm.
+- A call tree for runtime control flow.
+- A component tree for UI structure, including only the state and module boundaries that matter.
+- A shallow annotated file tree for file ownership or a broad refactor.
+- Mermaid for component interaction, a sequence, or data flow.
+- A \`diff\` when the point is what changes and the surrounding shape already exists.
+- The whole code block when most of it is new, omitted context would hide ownership or order, or the
+  reader needs a copyable target shape.
+
+Put each visual beside the short text it supports. Keep only the calls, files, props, states, and
+boundaries needed for the point. Do not force a visual where one sentence is clearer, and do not
+pile up several views that say the same thing.`;
 
 const ONE_QUESTION = `Until the artifact is complete, every message ends with exactly one question.
 Two or three options with trade-offs and a recommendation is still one question. When several
