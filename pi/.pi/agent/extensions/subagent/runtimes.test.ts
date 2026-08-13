@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
 	type ActivityTracker,
+	activityLabel,
 	type Agent,
 	agentFromFrontmatter,
 	childEnvironment,
@@ -12,6 +13,7 @@ import {
 	delegateModelNames,
 	emptyUsage,
 	CLAUDE_MODEL_NAMES,
+	isRunResult,
 	modelLabel,
 	RESULT_TOOL_ENV,
 	type RunResult,
@@ -59,6 +61,12 @@ function steps(result: RunResult): string[] {
 			`${!step.outcome ? "⋯" : step.outcome === "failed" ? "✗" : "✓"} ${step.tool}${step.detail ? ` ${step.detail}` : ""}`,
 	);
 }
+
+test("run results accept structured activity, not presentation strings", () => {
+	assert.equal(isRunResult(result({ activity: { kind: "thinking", tokens: 50 } })), true);
+	assert.equal(isRunResult(result({ activity: { kind: "tools", label: "read(a.ts)" } })), true);
+	assert.equal(isRunResult({ ...result(), activity: "thinking" }), false);
+});
 
 test("agent frontmatter reads only role and capability fields", () => {
 	assert.deepEqual(
@@ -448,7 +456,7 @@ test("pi accumulates usage per message, where claude assigns a run total once", 
 	});
 
 	runtime.consume({ type: "tool_execution_start", toolName: "read", toolCallId: "1", args: { path: "a.ts" } }, run, activity);
-	assert.equal(run.activity, "read(a.ts)");
+	assert.deepEqual(run.activity, { kind: "tools", label: "read(a.ts)" });
 	runtime.consume({ type: "tool_execution_end", toolCallId: "1" }, run, activity);
 	assert.equal(run.activity, undefined);
 	assert.deepEqual(steps(run), ["✓ read a.ts"]);
@@ -470,7 +478,7 @@ test("a pi tool event with no id still clears the line, because pi omits ids", (
 	const run = result();
 	const activity = createActivityTracker(run);
 	runtime.consume({ type: "tool_execution_start", toolName: "bash" }, run, activity);
-	assert.equal(run.activity, "bash");
+	assert.deepEqual(run.activity, { kind: "tools", label: "bash" });
 	runtime.consume({ type: "tool_execution_end" }, run, activity);
 	assert.equal(run.activity, undefined);
 	assert.deepEqual(steps(run), ["✓ bash"]);
@@ -487,6 +495,15 @@ test("tool activity retains the complete step history", () => {
 	assert.equal(run.steps.length, 50);
 	assert.equal(run.steps[0]?.detail, "file-0");
 	assert.equal(run.steps.at(-1)?.detail, "file-49");
+});
+
+test("tool activity kind is independent of its presentation label", () => {
+	const run = result();
+	createActivityTracker(run).start("1", "thinking-tool", "about thinking");
+	assert.deepEqual(run.activity, {
+		kind: "tools",
+		label: "thinking-tool(about thinking)",
+	});
 });
 
 test("run usage comes from modelUsage, which is the only cumulative figure", () => {
@@ -628,6 +645,7 @@ test("both lanes report the same call the same way", () => {
 	const seen: string[] = [];
 	const activity: ActivityTracker = {
 		think: () => undefined,
+		idle: () => undefined,
 		start: (_id, tool, detail) => seen.push(`start ${tool} ${detail}`),
 		end: (_id, failed) => seen.push(`end ${failed}`),
 	};
@@ -663,31 +681,49 @@ test("tool activity tracks by id, and an unidentified result ends nothing", () =
 
 	runtime.consume(message("assistant", [{ type: "tool_use", id: "a", name: "Read" }]), run, activity);
 	runtime.consume(message("assistant", [{ type: "tool_use", id: "b", name: "Grep" }]), run, activity);
-	assert.equal(run.activity, "Read, Grep");
+	assert.deepEqual(run.activity, { kind: "tools", label: "Read, Grep" });
 
 	// A block with no id must not clear the pair: that would drop a running sibling off the line.
 	runtime.consume(message("user", [{ type: "tool_result" }]), run, activity);
-	assert.equal(run.activity, "Read, Grep");
+	assert.deepEqual(run.activity, { kind: "tools", label: "Read, Grep" });
 
 	runtime.consume(message("user", [{ type: "tool_result", tool_use_id: "a" }]), run, activity);
-	assert.equal(run.activity, "Grep");
+	assert.deepEqual(run.activity, { kind: "tools", label: "Grep" });
 	// The finished one is marked; the one still running keeps its ⋯ even after the run ends.
 	assert.deepEqual(steps(run), ["✓ Read", "⋯ Grep"]);
+});
+
+test("Pi thinking deltas show thinking until the stream ends", () => {
+	const run = result({ agent: "implementer" });
+	const activity = createActivityTracker(run);
+	const runtime = selectRuntime(undefined);
+	assert.equal(runtime.consume({
+		type: "message_update",
+		assistantMessageEvent: { type: "thinking_delta", delta: "hmm" },
+	}, run, activity), true);
+	assert.deepEqual(run.activity, { kind: "thinking" });
+	assert.equal(runtime.consume({
+		type: "message_update",
+		assistantMessageEvent: { type: "thinking_end" },
+	}, run, activity), true);
+	assert.equal(run.activity, undefined);
 });
 
 test("a think before any tool still shows on the line", () => {
 	// During a long initial think no tool has started, so this is the only visible activity.
 	const { result: run } = runClaude([{ type: "system", subtype: "thinking_tokens", estimated_tokens: 50 }]);
-	assert.equal(run.activity, "thinking 50");
+	assert.deepEqual(run.activity, { kind: "thinking", tokens: 50 });
+	assert.ok(run.activity);
+	assert.equal(activityLabel(run.activity), "thinking 50");
 
-	// A running tool outranks it, and the count returns when the tool finishes.
+	// A running tool replaces it.
 	const message = (role: string, content: unknown[]) => ({ type: role, message: { role, content } });
 	const runtime = selectRuntime("claude-opus-5");
 	const activity = createActivityTracker(run);
 	runtime.consume(message("assistant", [{ type: "tool_use", id: "a", name: "Bash", input: { command: "ls" } }]), run, activity);
-	assert.equal(run.activity, "Bash(ls)");
+	assert.deepEqual(run.activity, { kind: "tools", label: "Bash(ls)" });
 	runtime.consume(message("user", [{ type: "tool_result", tool_use_id: "a" }]), run, activity);
-	assert.equal(run.activity, "thinking 50");
+	assert.equal(run.activity, undefined);
 });
 
 test("bookkeeping events do not ask for a redraw", () => {
@@ -700,7 +736,7 @@ test("bookkeeping events do not ask for a redraw", () => {
 	assert.equal(consume({ type: "assistant" }), false);
 	// Thinking tokens are the exception: during a long think they are the only thing moving.
 	assert.equal(consume({ type: "system", subtype: "thinking_tokens", estimated_tokens: 40 }), true);
-	assert.equal(run.thinking, 40);
+	assert.deepEqual(run.activity, { kind: "thinking", tokens: 40 });
 
 	assert.equal(consume({ type: "system", subtype: "init", model: "claude-opus-5" }), true);
 	assert.equal(consume({ type: "assistant", message: { role: "assistant", content: [] } }), true);

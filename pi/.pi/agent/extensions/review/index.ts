@@ -3,6 +3,7 @@ import type {
 	ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { activityLabel } from "../subagent/runtimes.ts";
 import { AUDIT_ROSTER } from "./audit-roster.ts";
 import { isAuditResultChild, registerAuditResultTool } from "./audit-output.ts";
 import {
@@ -84,7 +85,7 @@ function modelName(model: string): string {
 function latestActivity(state: AuditProgress): string | undefined {
 	const step = state.latestStep;
 	if (step) return activityText(step.detail ? `${step.tool}(${step.detail})` : step.tool);
-	return state.activity ? activityText(state.activity) : undefined;
+	return state.activity ? activityText(activityLabel(state.activity)) : undefined;
 }
 
 function findingText(count: number): string {
@@ -150,7 +151,7 @@ function renderProgress(
 			? findingText(count)
 			: state.phase === "started"
 				? "starting"
-				: activityText(state.activity);
+				: activityText(state.activity ? activityLabel(state.activity) : undefined);
 		const coloredStatus = theme.fg(
 			state.phase === "complete" ? color : state.phase === "started" ? "dim" : "thinkingText",
 			status,

@@ -32,6 +32,8 @@ export interface RunAgentOptions {
 	resultTool?: string;
 	nativeClaude?: NativeClaudeOptions;
 	signal?: AbortSignal;
+	/** Called when the operating system confirms that the child process started. */
+	onStart?: () => void;
 	onProgress?: (partial: RunResult) => void;
 }
 
@@ -92,7 +94,7 @@ export async function shutdownAgents(): Promise<void> {
 
 /** Run one configured or caller-constructed role in an isolated child process. */
 export function runAgent(options: RunAgentOptions): Promise<RunResult> {
-	const { agent, task, cwd, inherited, model, resultTask, resultTool, nativeClaude, signal, onProgress } = options;
+	const { agent, task, cwd, inherited, model, resultTask, resultTool, nativeClaude, signal, onStart, onProgress } = options;
 	const startedAtMs = Date.now();
 	const runtime = selectRuntime(model);
 	if (resultTool !== undefined && runtime.name !== "pi") throw new Error("resultTool is only supported for Pi children");
@@ -130,6 +132,7 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 		// Tracked so session teardown can end it. A child outliving its session is not merely a
 		// stray process: it goes on spending tokens with nothing left to read what it produces.
 		LIVE.add(child);
+		if (onStart) child.once("spawn", onStart);
 		const stderr: Buffer[] = [];
 		const activity = createActivityTracker(result);
 		const expectsNativeResult = runtime.name === "claude" && nativeClaude?.jsonSchema !== undefined;

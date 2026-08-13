@@ -87,6 +87,33 @@ process.stdout.write(JSON.stringify({
 	}
 });
 
+test("Pi reports when the child process starts", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "subagent-run-agent-start-"));
+	const script = installPi(directory, `
+process.stdout.write(JSON.stringify({
+	type: "message_end",
+	message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] },
+}) + "\\n");
+`);
+	const previousScript = process.argv[1];
+	process.argv[1] = script;
+	let started = false;
+	try {
+		await runAgent({
+			agent: AGENT,
+			task: "inspect",
+			cwd: directory,
+			inherited: {},
+			model: undefined,
+			onStart: () => { started = true; },
+		});
+		assert.equal(started, true);
+	} finally {
+		process.argv[1] = previousScript;
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
 test("Pi accepts large protocol records, diagnostics, and final output", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "subagent-run-agent-large-"));
 	const script = installPi(directory, `

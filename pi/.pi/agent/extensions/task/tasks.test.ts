@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+	artifactPath,
 	createPhase,
 	createTask,
 	currentStage,
@@ -14,9 +15,14 @@ import {
 	parsePhase,
 	phaseFileName,
 	isStage,
+	planPath,
+	questionsPath,
 	readTask,
+	researchPath,
 	serializePhase,
 	setPhaseStatus,
+	stageComplete,
+	submitArtifact,
 	STAGES,
 	taskProgress,
 	type PhaseHeader,
@@ -256,30 +262,60 @@ test("one broken task costs only itself", () => {
 	});
 });
 
-test("the stage is whichever artifact is missing, and redoing one does not move it back", () => {
+test("stage submissions choose their own fixed path and replace revisions", () => {
+	withRoot((root) => {
+		const task = createTask(root, "joint-rail", HEADER);
+		for (const [stage, path] of [
+			["questions", questionsPath],
+			["research", researchPath],
+			["design", planPath],
+		] as const) {
+			submitArtifact(task, stage, "first version");
+			submitArtifact(task, stage, "revised version\n");
+			assert.equal(artifactPath(task, stage), path(task));
+			assert.equal(readFileSync(path(task), "utf8"), "revised version\n");
+		}
+		assert.throws(() => submitArtifact(task, "phases", "not phases"), /phase tool/);
+		assert.throws(() => submitArtifact(task, "questions", "   "), /must not be blank/);
+	});
+});
+
+test("stage progress and completion share the artifacts on disk", () => {
 	withRoot((root) => {
 		// The model's artifacts live under notes/; task.json and phases/ are the extension's.
 		const write = (relative: string, text: string) =>
 			writeFileSync(join(root, "joint-rail", "notes", relative), text);
+		const state = () => readTask(root, "joint-rail");
+		const complete = () => {
+			const task = state();
+			return STAGES.filter((stage) => stageComplete(task, stage));
+		};
 
 		createTask(root, "joint-rail", HEADER);
-		assert.equal(currentStage(readTask(root, "joint-rail")), "questions");
+		assert.equal(currentStage(state()), "questions");
+		assert.deepEqual(complete(), []);
 
 		write("questions.md", "1. trace the flow\n");
-		assert.equal(currentStage(readTask(root, "joint-rail")), "research");
+		assert.equal(currentStage(state()), "research");
+		assert.deepEqual(complete(), ["questions"]);
 
 		write("research.md", "Rails persist before ack.\n");
-		assert.equal(currentStage(readTask(root, "joint-rail")), "design");
+		assert.equal(currentStage(state()), "design");
 
 		write("plan.md", "# Problem\n");
-		assert.equal(currentStage(readTask(root, "joint-rail")), "phases");
+		assert.equal(currentStage(state()), "phases");
 
-		createPhase(readTask(root, "joint-rail"), "lifecycle-broker", "lifecycle broker", "first");
-		assert.equal(currentStage(readTask(root, "joint-rail")), "implement");
+		createPhase(state(), "lifecycle-broker", "lifecycle broker", "first");
+		assert.equal(currentStage(state()), "implement");
+		assert.deepEqual(complete(), ["questions", "research", "design", "phases"]);
 
 		// Redoing a stage rewrites its artifact; nothing downstream is deleted, so the stage stays.
 		write("plan.md", "# Problem\n\nRewritten.\n");
-		assert.equal(currentStage(readTask(root, "joint-rail")), "implement");
+		assert.equal(currentStage(state()), "implement");
+
+		setPhaseStatus(state(), "01-lifecycle-broker", "done");
+		assert.equal(currentStage(state()), "implement");
+		assert.deepEqual(complete(), STAGES);
 	});
 });
 

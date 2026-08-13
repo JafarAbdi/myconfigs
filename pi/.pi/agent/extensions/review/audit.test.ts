@@ -16,7 +16,7 @@ import { AUDIT_CATEGORIES, AUDIT_ROSTER } from "./audit-roster.ts";
 import { AUDIT_RESULT_TOOL, FINDINGS_SCHEMA } from "./audit-output.ts";
 import { reviewPatchFromText } from "./review-git.ts";
 import type { RunAgentOptions } from "../subagent/run-agent.ts";
-import type { Agent, RunResult } from "../subagent/runtimes.ts";
+import type { Agent, RunActivity, RunResult } from "../subagent/runtimes.ts";
 
 const extensionDirectory = dirname(fileURLToPath(import.meta.url));
 const localModules = join(extensionDirectory, "..", "node_modules");
@@ -231,7 +231,7 @@ test("runs all four reviewers concurrently through the shared runner with live p
 		model: string;
 		phase: string;
 		turns: number;
-		activity?: string;
+		activity?: RunActivity;
 		findings?: number;
 		latestStep?: RunResult["steps"][number];
 	}> = [];
@@ -243,7 +243,7 @@ test("runs all four reviewers concurrently through the shared runner with live p
 	}, dependencies(async (run) => {
 		started.push(run.model!);
 		options.push(run);
-		run.onProgress?.({ ...completed(""), activity: "read(src/a.ts)" });
+		run.onProgress?.({ ...completed(""), activity: { kind: "tools", label: "read(src/a.ts)" } });
 		if (started.length === AUDIT_ROSTER.length) release();
 		await allStarted;
 		return completed(run.model === "openai-codex/gpt-5.6-sol" &&
@@ -293,7 +293,8 @@ test("runs all four reviewers concurrently through the shared runner with live p
 	assert.equal(progress.filter(({ phase }) => phase === "started").length, 4);
 	assert.equal(progress.filter(({ phase }) => phase === "working").length, 4);
 	assert.equal(progress.filter(({ phase }) => phase === "complete").length, 4);
-	assert.equal(progress.every(({ phase, activity }) => phase !== "working" || activity === "read(src/a.ts)"), true);
+	assert.equal(progress.every(({ phase, activity }) =>
+		phase !== "working" || (activity?.kind === "tools" && activity.label === "read(src/a.ts)")), true);
 	assert.deepEqual(
 		progress.find(({ reviewer, phase }) => reviewer === "correctness" && phase === "complete"),
 		{

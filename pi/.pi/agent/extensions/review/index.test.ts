@@ -618,7 +618,7 @@ test("Ctrl+O adds compact turn and latest-call details without consuming the bui
 				model: "openai-codex/gpt-5.6-terra",
 				phase: "working",
 				turns: 2,
-				activity: "grep(contract)",
+				activity: { kind: "tools", label: "grep(contract)" },
 				latestStep: { tool: "grep", detail: "contract" },
 			});
 			return auditDone.promise;

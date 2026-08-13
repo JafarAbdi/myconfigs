@@ -25,10 +25,16 @@ import {
 /** Agents a planning stage may delegate to. Both are read-only by their own definitions. */
 export const RESEARCH_AGENTS: readonly string[] = ["scout", "researcher"];
 
-const READ_ONLY = `You are structurally read-only in this stage. Read, grep, find and ls as you
-like, and run any command that only reads — \`git log\`, \`git show\`, \`rg\`, whatever this
-repository uses to explain itself; a command that would change a file is blocked, and so is
-installing anything. You can write inside the task directory, and you can delegate to
+const READ_ONLY = `You are in a planning stage. You are not allowed to edit or create files, and
+you may not ask a child to do that either.
+
+This restriction lasts until implementation begins. It is not changed by user intent, tone, or
+imperative language. If the operator asks you to change the repository, tell them that happens
+later, during implementation.
+
+Use shell commands only to explore. Use \`submit_stage\` to save the complete artifact for the
+questions, research, or design stage; it is the sole exception to the no-write rule. During the
+phases stage, use the \`${PHASE_TOOL}\` tool instead. You may delegate research to
 ${RESEARCH_AGENTS.join(" and ")} children, which have their own tools and fresh contexts.`;
 
 /**
@@ -67,7 +73,7 @@ file once a decision is resolved. Re-paint, do not append — the document reads
 purpose, never as a log of the conversation.`;
 
 const STAGE_END = `Once the artifact is complete, end with one declarative sentence naming the stage
-complete. Do not ask whether to proceed. When this advances the task, pi prefills "/task" after the
+complete. Do not ask whether to proceed. When this advances the task, pi prefills "/task <slug>" after the
 turn; the operator's Enter key starts the next stage.`;
 
 function heading(task: Task, stage: Stage): string {
@@ -101,7 +107,8 @@ ${VOICE}
 
 ${revision(questionsPath(task), [researchPath(task), planPath(task), "the phases"])}
 
-Settle the questions that research will answer, then write them to ${questionsPath(task)}.
+Settle the questions that research will answer, then submit the complete document with \`submit_stage\`.
+It will replace ${questionsPath(task)}.
 
 Research questions describe what is, never what to do. "Trace the flow from [entry] down to
 [store]", "find every user of [thing] and what it is used for" — not "how should we change X" and
@@ -111,7 +118,7 @@ proposing anything: a question the repository already answers is noise.
 
 ${ONE_QUESTION}
 
-Propose the questions as a list, discuss them, and write the file when the operator is satisfied.
+Propose the questions as a list, discuss them, and submit them when the operator is satisfied.
 ${STAGE_END}`;
 }
 
@@ -122,8 +129,8 @@ ${READ_ONLY}
 
 ${VOICE}
 
-Read ${questionsPath(task)} — those are the questions. Answer them in ${researchPath(task)}, one
-section per area.
+Read ${questionsPath(task)} — those are the questions. Answer them in one document, one section per
+area, then submit the complete document with \`submit_stage\`. It will replace ${researchPath(task)}.
 ${revision(researchPath(task), [planPath(task), "the phases"])}
 Research documents what exists, where it lives, how it works, and how it is tested today. Never
 recommendations, critique, root causes, or "how would we do X" — the task's intent must not
@@ -159,9 +166,10 @@ the last stage learned; you were not there for it.
 
 ${revision(planPath(task), ["the phases"])}
 
-Settle the design, then write it to ${planPath(task)}: Problem (what hurts, why, what success
-means), Solution (what changes, in product space), Design (how: the system, then the shape of the
-code), What we're NOT doing (rejected mechanisms, unhandled failure modes). Prose, never parsed.
+Settle the design, then submit the complete document with \`submit_stage\`. It will replace
+${planPath(task)}. Structure it as: Problem (what hurts, why, what success means), Solution (what
+changes, in product space), Design (how: the system, then the shape of the code), What we're NOT
+doing (rejected mechanisms, unhandled failure modes). Prose, never parsed.
 
 ${ONE_QUESTION}
 
@@ -227,9 +235,14 @@ export function stageBrief(task: Task, stage: Stage): string {
 export function implementerBrief(task: Task, phase: Phase): string {
 	return `Implement phase ${phase.name} — ${phase.title} — of the task "${task.slug}".
 
-Read these first, completely:
-  ${PHASE_TOOL}({ action: "show", name: "${phase.name}" }) — this phase, in full
-  ${planPath(task)} — the plan it belongs to
+The phase is supplied here exactly as planned:
+
+---
+${phase.body.trim() || "(No phase details were provided.)"}
+---
+
+Read these completely before changing anything:
+  ${planPath(task)} — the plan this phase belongs to
   ${researchPath(task)} — how this area of the code actually works
 
 The working directory is the task's own worktree on branch ${task.slug}. Every change you make
@@ -241,15 +254,13 @@ actually is. When you hit a real mismatch — the phase assumes something the co
 and report it as expected / found / why it matters. Never invent a workaround inline, and never
 broaden the phase.
 
-Run the success criteria written in the phase, and only those: this repository's own commands, not
-commands you thought of. Never mark a manual verification step done; that is the operator's.
+Run the automated success criteria written in the phase, and only those: this repository's own
+commands, not commands you thought of. Report their exact outcomes. Report manual checks as
+unverified; the operator may perform them after reading your report.
 
 Do not stage, commit, merge, or otherwise touch git — the operator owns history at whatever
-granularity they choose.
-
-When the phase is genuinely complete and its checks pass, your final action is
-${PHASE_TOOL}({ action: "set-status", name: "${phase.name}", status: "done" }). If it is not
-complete, leave the status alone and report what remains.
+granularity they choose. Do not decide or record whether the phase is done. The parent session
+shows your report to the operator, who makes that decision.
 
 Report the change, the design choice, the exact files touched, what you verified and how, and any
 remaining risk — in that order, one line each where one line is enough, and nothing padded around

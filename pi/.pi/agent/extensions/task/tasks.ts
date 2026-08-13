@@ -2,9 +2,10 @@
  * Task state — the task directory is the whole state, and the operator owns every file in it.
  *
  * `~/.pi/agent/tasks/<slug>/` has two halves. `task.json` (which repository, which base branch,
- * what was asked) and `phases/` are the extension's, written once and through the `phase` tool
- * respectively; `notes/` is the models', one file per stage — `questions.md`, `research.md`,
- * `plan.md`. Nothing here enters the repository under work: a task is discarded by deleting it.
+ * what was asked) and `phases/` are structured extension state, written once and through the
+ * `phase` tool respectively; `notes/` holds submitted model prose, one file per stage —
+ * `questions.md`, `research.md`, `plan.md`. Nothing here enters the repository under work: a task
+ * is discarded by deleting it.
  *
  * A phase file is one JSON header line, a blank line, then prose. Reading state is therefore
  * `readdir` plus `JSON.parse` of one line — there is no markdown parsing anywhere, and a header
@@ -23,9 +24,9 @@ const RESEARCH_FILE = "research.md";
 const PHASES_DIR = "phases";
 
 /**
- * The models' half of a task directory, and the only path any brief ever names. `task.json` and
- * `phases/` are the extension's: nothing tells a model they exist, so nothing has to stop it
- * writing them. What it can see, it owns outright.
+ * The prose half of a task directory, and the only path any brief ever names. `task.json` and
+ * `phases/` are structured extension state; submitted prose reaches this directory through the
+ * path-free stage tool.
  */
 const NOTES_DIR = "notes";
 
@@ -127,13 +128,34 @@ export function researchPath(task: TaskRef): string {
 	return join(notesDir(task), RESEARCH_FILE);
 }
 
-/** Which stage a task is in: the first artifact that does not exist yet names it. */
+/** The stage marker, not model input, chooses where submitted prose is written. */
+export function artifactPath(task: TaskRef, stage: Stage): string {
+	if (stage === "questions") return questionsPath(task);
+	if (stage === "research") return researchPath(task);
+	if (stage === "design") return planPath(task);
+	throw new Error(`the ${stage} stage has no Markdown artifact; use the phase tool instead`);
+}
+
+export function submitArtifact(task: TaskRef, stage: Stage, content: string): string {
+	const text = content.trim();
+	if (!text) throw new Error("artifact content must not be blank");
+	const path = artifactPath(task, stage);
+	writeFileSync(path, `${text}\n`);
+	return path;
+}
+
+/** Whether this stage's artifact exists on disk; the final stage completes when every phase does. */
+export function stageComplete(task: Task, stage: Stage): boolean {
+	if (stage === "questions") return existsSync(questionsPath(task));
+	if (stage === "research") return existsSync(researchPath(task));
+	if (stage === "design") return existsSync(planPath(task));
+	if (stage === "phases") return task.phases.length > 0;
+	return task.phases.length > 0 && task.phases.every((phase) => phase.status === "done");
+}
+
+/** Which stage a task is in: the first incomplete artifact, or implementation once phases exist. */
 export function currentStage(task: Task): Stage {
-	if (!existsSync(questionsPath(task))) return "questions";
-	if (!existsSync(researchPath(task))) return "research";
-	if (!existsSync(planPath(task))) return "design";
-	if (task.phases.length === 0) return "phases";
-	return "implement";
+	return STAGES.find((stage) => stage === "implement" || !stageComplete(task, stage)) ?? "implement";
 }
 
 function phasesDir(task: Task): string {

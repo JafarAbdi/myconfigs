@@ -54,6 +54,15 @@ export function agentFromFrontmatter(
 	};
 }
 
+export type RunActivity =
+	| { kind: "thinking"; tokens?: number }
+	| { kind: "tools"; label: string };
+
+export function activityLabel(activity: RunActivity): string {
+	if (activity.kind === "tools") return activity.label;
+	return activity.tokens === undefined ? "thinking" : `thinking ${activity.tokens}`;
+}
+
 export interface RunResult {
 	agent: string;
 	task: string;
@@ -67,10 +76,8 @@ export interface RunResult {
 	provider?: string;
 	model?: string;
 	termination?: "cancelled";
-	/** Tool the child is running right now. Progress only; absent once it has finished. */
-	activity?: string;
-	/** Thinking tokens so far, when the child reports them. The only sign of life during a long think. */
-	thinking?: number;
+	/** What the child is doing now. Progress only; absent while waiting and once finished. */
+	activity?: RunActivity;
 	/** Every tool the child has run, in order. What `expanded` shows while the run is still going. */
 	steps: Step[];
 	turns: number;
@@ -153,8 +160,9 @@ export interface Invocation {
 export interface ActivityTracker {
 	start(id: string | undefined, tool: string, detail?: string): void;
 	end(id: string | undefined, failed?: boolean): void;
-	/** Reported thinking so far. The line has to be recomputed here, or a think shows nothing at all. */
-	think(tokens: number): void;
+	/** Reported thinking. Native Claude supplies a token estimate; Pi supplies only the event. */
+	think(tokens?: number): void;
+	idle(): void;
 }
 
 /**
@@ -167,19 +175,26 @@ export function createActivityTracker(result: RunResult): ActivityTracker {
 	// it rather than appending a second line for the same call.
 	const live = new Map<string, Step>();
 	let unidentified: Step | undefined;
+	let isThinking = false;
+	let thinkingTokens: number | undefined;
 
 	const refresh = () => {
 		const running = [...live.values(), ...(unidentified ? [unidentified] : [])];
-		// Nothing running is not nothing happening: a long think shows its token count instead.
-		result.activity = running.length
-			? running.map((step) => (step.detail ? `${step.tool}(${step.detail})` : step.tool)).join(", ")
-			: result.thinking
-				? `thinking ${result.thinking}`
-				: undefined;
+		if (running.length) {
+			result.activity = {
+				kind: "tools",
+				label: running.map((step) => (step.detail ? `${step.tool}(${step.detail})` : step.tool)).join(", "),
+			};
+			return;
+		}
+		result.activity = isThinking
+			? { kind: "thinking", ...(thinkingTokens === undefined ? {} : { tokens: thinkingTokens }) }
+			: undefined;
 	};
 
 	return {
 		start(id, tool, detail) {
+			isThinking = false;
 			const step: Step = { tool, detail };
 			result.steps.push(step);
 			if (id) live.set(id, step);
@@ -187,7 +202,12 @@ export function createActivityTracker(result: RunResult): ActivityTracker {
 			refresh();
 		},
 		think(tokens) {
-			result.thinking = tokens;
+			isThinking = true;
+			if (tokens !== undefined) thinkingTokens = tokens;
+			refresh();
+		},
+		idle() {
+			isThinking = false;
 			refresh();
 		},
 		end(id, failed) {
@@ -314,6 +334,12 @@ function isUsage(value: unknown): value is Usage {
 	);
 }
 
+function isRunActivity(value: unknown): value is RunActivity {
+	if (!isRecord(value)) return false;
+	if (value.kind === "tools") return typeof value.label === "string";
+	return value.kind === "thinking" && (value.tokens === undefined || typeof value.tokens === "number");
+}
+
 export function isRunResult(value: unknown): value is RunResult {
 	if (!isRecord(value)) return false;
 	const optionalStrings = [
@@ -321,7 +347,6 @@ export function isRunResult(value: unknown): value is RunResult {
 		"errorMessage",
 		"provider",
 		"model",
-		"activity",
 		"termination",
 	];
 	return (
@@ -333,7 +358,7 @@ export function isRunResult(value: unknown): value is RunResult {
 		Array.isArray(value.steps) &&
 		(value.runId === undefined || typeof value.runId === "string") &&
 		(value.traceId === undefined || typeof value.traceId === "string") &&
-		(value.thinking === undefined || typeof value.thinking === "number") &&
+		(value.activity === undefined || isRunActivity(value.activity)) &&
 		isUsage(value.usage) &&
 		optionalStrings.every((key) => value[key] === undefined || typeof value[key] === "string") &&
 		(value.termination === undefined || value.termination === "cancelled")
@@ -613,6 +638,12 @@ const piRuntime: Runtime = {
 	},
 
 	consume(event, result, activity) {
+		if (event.type === "message_update" && isRecord(event.assistantMessageEvent)) {
+			if (event.assistantMessageEvent.type === "thinking_delta") activity.think();
+			else if (event.assistantMessageEvent.type === "thinking_end") activity.idle();
+			else return false;
+			return true;
+		}
 		if (event.type === "tool_execution_start" && typeof event.toolName === "string") {
 			activity.start(
 				typeof event.toolCallId === "string" ? event.toolCallId : undefined,
@@ -627,6 +658,7 @@ const piRuntime: Runtime = {
 		}
 		if (event.type !== "message_end" || !isRecord(event.message)) return false;
 		if (event.message.role !== "assistant") return false;
+		activity.idle();
 		const message = event.message;
 		result.turns += 1;
 		if (typeof message.provider === "string") result.provider = message.provider;

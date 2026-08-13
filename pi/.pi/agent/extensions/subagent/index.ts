@@ -33,6 +33,7 @@ import { Type } from "typebox";
 import { loadAgents } from "./agents.ts";
 import { runAgent, shutdownAgents } from "./run-agent.ts";
 import {
+	activityLabel,
 	type Agent,
 	childSessionDir,
 	classifyResult,
@@ -142,7 +143,7 @@ function resultHeader(result: RunResult, isPartial: boolean, theme: Theme): stri
 		const color = outcome.kind === "success" ? "success" : "error";
 		header += ` ${theme.fg(color, `[${outcome.label}]`)}`;
 	}
-	const stats = [result.activity, formatStats(result)].filter(Boolean).join(" · ");
+	const stats = [result.activity ? activityLabel(result.activity) : undefined, formatStats(result)].filter(Boolean).join(" · ");
 	return `${header} ${theme.fg("muted", `· ${stats}`)}`;
 }
 
@@ -329,7 +330,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					signal,
 					onProgress: (partial) => {
 						onUpdate?.({
-							content: [{ type: "text", text: partial.activity ?? "thinking" }],
+							content: [{ type: "text", text: partial.activity ? activityLabel(partial.activity) : "waiting" }],
 							details: partial,
 						});
 					},

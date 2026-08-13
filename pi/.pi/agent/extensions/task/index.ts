@@ -4,8 +4,8 @@
  * No model orchestrates this. `/task` advances a state machine derived entirely from the task
  * directory: whichever artifact is missing names the stage, and once the worktree exists the open
  * phases are run one at a time. Models appear only as leaves — the stage conversation, with the
- * operator present and every tool call held to reading the repository, and one fresh implementer
- * child per phase, which cannot delegate further because its runner never grants it `delegate`.
+ * operator present and instructed to use Bash only for exploration, and one fresh implementer child
+ * per phase, which cannot delegate further because its runner never grants it `delegate`.
  *
  * Every gate is a keypress. The extension performs exactly two Git writes, each behind a
  * confirmation: `worktree add` when a plan becomes a workspace, and `worktree remove` behind the
@@ -16,8 +16,8 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
 	getAgentDir,
 	type ExtensionAPI,
@@ -32,7 +32,6 @@ import { Type } from "typebox";
 import { loadAgent } from "../subagent/agents.ts";
 import { runAgent } from "../subagent/run-agent.ts";
 import { childSessionDir, classifyResult, type RunResult } from "../subagent/runtimes.ts";
-import { writeReason } from "./bash-guard.ts";
 import {
 	addWorktree,
 	branchExists,
@@ -47,7 +46,6 @@ import { implementerBrief, RESEARCH_AGENTS, stageBrief } from "./prompts.ts";
 import {
 	createTask,
 	currentStage,
-	notesDir,
 	isSlug,
 	isStage,
 	listTasks,
@@ -57,6 +55,7 @@ import {
 	readTask,
 	readTaskRef,
 	removeTaskDir,
+	setPhaseStatus,
 	STAGES,
 	taskDir,
 	taskProgress,
@@ -66,6 +65,8 @@ import {
 	type Task,
 	type TaskRef,
 } from "./tasks.ts";
+import { registerSubmitStageTool, SUBMIT_STAGE_TOOL } from "./stage-tool.ts";
+import { taskRail } from "./widget.ts";
 
 const WIDGET = "task";
 
@@ -102,12 +103,13 @@ function stageSessionName(slug: string, stage: Stage): string {
 /** pi truncates a widget at ten lines, so the live run shows this many steps and counts the rest. */
 const RUN_WIDGET_STEPS = 6;
 
+type RunState = "preparing" | "waiting" | "thinking" | "running" | "stopping";
+
 /**
- * The planning stage's capability, not its instructions. Everything here is held to reading the
- * repository by the gate below: `write` and `edit` are confined to the task's `notes/`, `bash` to
- * commands that do not obviously write, and `delegate` to the research roles.
+ * Planning keeps exploration tools, delegates only to research roles, and submits artifacts through
+ * one path-free tool. Bash is governed by the planning brief, not by pretending to parse intent.
  */
-const PLANNING_TOOLS = ["read", "grep", "find", "ls", "bash", "write", "edit", "delegate", PHASE_TOOL];
+const PLANNING_TOOLS = ["read", "grep", "find", "ls", "bash", "delegate", PHASE_TOOL, SUBMIT_STAGE_TOOL];
 
 /** Naming a task is two words of work, so it runs on a small model rather than the session's own. */
 const SLUG_MODEL = { provider: "openai-codex", id: "gpt-5.6-luna" };
@@ -132,24 +134,6 @@ const SLUG_PROMPT =
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * The path as the filesystem sees it, symlinks followed. A file that does not exist yet is resolved
- * through its directory, which does — so a link inside the notes directory cannot smuggle a write
- * out of it by pointing somewhere else.
- */
-function realPath(path: string): string {
-	try {
-		return realpathSync(path);
-	} catch {
-		const parent = dirname(path);
-		try {
-			return join(realpathSync(parent), basename(path));
-		} catch {
-			return path;
-		}
-	}
 }
 
 /** `/task` arguments: a task name, then optionally a stage to redo. */
@@ -198,29 +182,35 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	// ── the widget: the whole state of the task, always the next thing to do ──────────────────────
+	registerSubmitStageTool(pi, {
+		resolve: (ctx) => {
+			const mark = stageMark(ctx.sessionManager.getEntries());
+			if (!mark) throw new Error(`${SUBMIT_STAGE_TOOL} works inside a planning-stage session only`);
+			const task = taskIfPresent(mark.slug);
+			if (!task) throw new Error(`no task ${mark.slug}`);
+			return { task, stage: mark.stage };
+		},
+	});
 
-	/** One compact rail for planning; implementation adds only the phase currently under the key. */
+	// ── the widget: the open session and the task state on disk ──────────────────────────────────
+
+	/** One compact rail; an existing worktree adds only the open phase. */
 	const widgetLines = (ctx: ExtensionContext, task: Task): string[] => {
 		const theme = ctx.ui.theme;
-		const stage = currentStage(task);
-		const stageIndex = STAGES.indexOf(stage);
-		const complete = stage === "implement" && task.phases.every((phase) => phase.status === "done");
-		const rail = STAGES.map((name, index) => {
-			if (index < stageIndex || (complete && index === stageIndex)) {
-				return theme.fg("success", `✓ ${name}`);
-			}
-			if (index === stageIndex) return theme.fg("accent", theme.bold(`● ${name}`));
+		const mark = stageMark(ctx.sessionManager.getEntries());
+		const entered = mark?.slug === task.slug ? mark.stage : undefined;
+		const stages = taskRail(task, entered);
+		const rail = stages.map(({ name, state }) => {
+			if (state === "current") return theme.fg("warning", theme.bold(`▶ ${name}`));
+			if (state === "complete") return theme.fg("success", `✓ ${name}`);
 			return theme.fg("dim", `○ ${name}`);
 		}).join(theme.fg("dim", " › "));
-		if (stage !== "implement") return [rail];
-
-		const phase = nextOpenPhase(task);
-		if (!phase) return [rail, theme.fg("success", `phases ${task.phases.length}/${task.phases.length} complete`)];
+		const phase = hasWorktree(task) ? nextOpenPhase(task) : undefined;
+		if (!phase) return [rail];
 		const position = task.phases.findIndex((candidate) => candidate.name === phase.name) + 1;
 		return [
 			rail,
-			`${theme.fg("accent", `phase ${position}/${task.phases.length}`)}` +
+			`${theme.fg("warning", theme.bold(`▶ phase ${position}/${task.phases.length}`))}` +
 			`${theme.fg("muted", ` · ${phase.name} — ${phase.title}`)}`,
 		];
 	};
@@ -243,30 +233,49 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		return `${glyph} ${theme.fg("toolTitle", step.tool)}${step.detail ? theme.fg("dim", ` ${step.detail}`) : ""}`;
 	};
 
+	const runStateLine = (state: RunState, run: RunResult | undefined): string => {
+		if (state === "preparing") return "Preparing agent…";
+		if (state === "waiting") return "Waiting for agent…";
+		if (state === "thinking") return "Thinking…";
+		if (state === "stopping") return "Stopping agent…";
+		return run?.activity?.kind === "tools" ? `Running ${run.activity.label}` : "Running tool…";
+	};
+
 	/**
 	 * The run while it runs. pi caps a widget at ten lines, so the live view is the last few steps
 	 * and a count; the complete list goes into the report, which is a transcript entry and keeps.
 	 */
-	const showRun = (ctx: ExtensionContext, task: Task, phase: Phase, run: RunResult): void => {
+	const showRun = (
+		ctx: ExtensionContext,
+		task: Task,
+		phase: Phase,
+		run: RunResult | undefined,
+		state: RunState,
+		elapsedMs: number,
+	): void => {
 		const theme = ctx.ui.theme;
-		const recent = run.steps.slice(-RUN_WIDGET_STEPS);
-		const skipped = run.steps.length - recent.length;
+		const steps = run?.steps ?? [];
+		const recent = steps.slice(-RUN_WIDGET_STEPS);
+		const skipped = steps.length - recent.length;
 		const position = task.phases.findIndex((candidate) => candidate.name === phase.name) + 1;
 		const model = ctx.model ? `${ctx.model.id}/${ctx.thinkingLevel ?? "off"}` : "unknown model";
+		const elapsed = Math.floor(elapsedMs / 1000);
+		const counts = run ? ` · ${run.turns} turns · ${steps.length} steps` : "";
 		ctx.ui.setWidget(WIDGET, [
 			`${theme.fg("accent", theme.bold("implement"))}` +
-			`${theme.fg("muted", ` · phase ${position}/${task.phases.length} · ${phase.name} · ${model} · ${run.turns} turns · ${run.steps.length} steps`)}` +
+			`${theme.fg("muted", ` · phase ${position}/${task.phases.length} · ${phase.name} · ${model}${counts}`)}` +
 			`${theme.fg("dim", ` · ${rawKeyHint(Key.escape, "stop")}`)}`,
 			...(skipped > 0 ? [theme.fg("dim", `  … ${skipped} earlier`)] : []),
 			...recent.map((step) => stepLine(step, theme)),
-			...(run.activity ? [theme.fg("thinkingText", run.activity)] : []),
+			`${theme.fg("accent", "◐")} ${theme.fg("thinkingText", runStateLine(state, run))}` +
+			`${theme.fg("dim", ` ${elapsed}s`)}`,
 		]);
 	};
 
-	// ── planning: read-only until the task has a worktree ─────────────────────────────────────────
+	// ── planning: no mutation tools until the task has a worktree ─────────────────────────────────
 
 	/**
-	 * The whole of the read-only stage, decided per tool call from the files.
+	 * The whole planning gate, decided per tool call from the files.
 	 *
 	 * There is no mode to enter or leave, and no toolset is borrowed and given back: a session is
 	 * planning exactly while the task it drives has no worktree, which is the same fact `/task` reads
@@ -288,33 +297,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 			return {
 				block: true,
 				reason: `${task.slug} planning: ${event.toolName} is not available while planning. ` +
-					`This stage reads the repository and writes only into ${notesDir(task)}.`,
-			};
-		}
-
-		if (event.toolName === "write" || event.toolName === "edit") {
-			const notes = realPath(notesDir(task));
-			const path = event.input.path;
-			const absolute = typeof path === "string" ? realPath(resolve(ctx.cwd, path)) : undefined;
-			if (absolute && (absolute === notes || absolute.startsWith(notes + sep))) return undefined;
-			return {
-				block: true,
-				reason: `${task.slug} planning: notes go in ${notes}. ` +
-					`The code changes later, in a phase inside the worktree.`,
-			};
-		}
-
-		if (event.toolName === "bash") {
-			const command = event.input.command;
-			const reason = typeof command === "string"
-				? writeReason(command)
-				: "the command is not a string";
-			if (reason === undefined) return undefined;
-			return {
-				block: true,
-				reason: `${task.slug} planning: ${reason}. This stage only reads — building, testing, ` +
-					`installing and editing happen later, in a phase inside the worktree. Wrappers and ` +
-					`redirection are refused too: rephrase as a read, or ask the operator to run it.`,
+					`Use ${SUBMIT_STAGE_TOOL} for the stage artifact and phase for phases.`,
 			};
 		}
 
@@ -487,30 +470,36 @@ export default function taskExtension(pi: ExtensionAPI): void {
 					`\`git worktree prune\` in ${task.header.repository} and delete the task.`,
 			);
 		}
-		const was = new Map(task.phases.map((candidate) => [candidate.name, candidate.status]));
-		const childSessionDirectory = childSessionDir(
-			ctx.sessionManager.getSessionDir(),
-			ctx.sessionManager.getSessionId(),
-			getAgentDir(),
-		);
-		const childSessionId = randomUUID();
+		const startedAt = Date.now();
+		let runState: RunState = "preparing";
+		let latestRun: RunResult | undefined;
+		const repaint = () => showRun(ctx, task, phase, latestRun, runState, Date.now() - startedAt);
+		repaint();
 		const aborts = new AbortController();
 		activeRuns.add(aborts);
+		const clock = setInterval(repaint, 1000);
 		// A phase you cannot stop is the seven-hour run in miniature. Escape ends the child, and is
 		// consumed rather than merely observed: one that also reached the editor would be a second
 		// press away from opening the tree selector over a running phase. The phase then stays open,
 		// its report says how far it got, and /task runs it again.
 		const stopWatchingInput = ctx.ui.onTerminalInput((data) => {
 			if (!matchesKey(data, Key.escape)) return undefined;
+			runState = "stopping";
+			repaint();
 			aborts.abort(new Error("stopped by the operator"));
 			return { consume: true };
 		});
-		let result: RunResult;
+		let result: RunResult | undefined;
+		const childSessionDirectory = childSessionDir(
+			ctx.sessionManager.getSessionDir(),
+			ctx.sessionManager.getSessionId(),
+			getAgentDir(),
+		);
+		const childSessionId = randomUUID();
 		try {
 			result = await runAgent({
-				// The child's capability, granted here and nowhere else: an implementer delegated to
-				// from a conversation has no business closing phases.
-				agent: { ...agent, tools: [...agent.tools, PHASE_TOOL] },
+				// The operator closes the phase after reading the report; the child only changes code.
+				agent,
 				task: implementerBrief(task, phase),
 				resultTask: `${task.slug} ${phase.name}`,
 				cwd: worktree,
@@ -522,18 +511,32 @@ export default function taskExtension(pi: ExtensionAPI): void {
 				},
 				model: undefined,
 				signal: aborts.signal,
-				onProgress: (partial) => showRun(ctx, task, phase, partial),
+				onStart: () => {
+					runState = "waiting";
+					repaint();
+				},
+				onProgress: (partial) => {
+					latestRun = partial;
+					runState = aborts.signal.aborted
+						? "stopping"
+						: partial.activity?.kind === "thinking"
+							? "thinking"
+							: partial.activity?.kind === "tools"
+								? "running"
+								: "waiting";
+					repaint();
+				},
 			});
+			latestRun = result;
 		} finally {
-			// Teardown only. A filesystem read here would throw past the report the run just produced.
+			clearInterval(clock);
 			stopWatchingInput();
 			activeRuns.delete(aborts);
+			if (!result) showTask(ctx, task);
 		}
 
-		// The phase file, not the run, says whether the phase is done: a child that stopped to report
-		// a mismatch finishes successfully and leaves its phase open, which is exactly right.
+		if (!result) return;
 		const updated = readTask(tasksRoot(), task.slug);
-		const after = updated.phases.find((candidate) => candidate.name === phase.name);
 		showTask(ctx, updated);
 		const outcome = classifyResult(result);
 		// Everything the run was, in one entry that keeps: what it did, what it said, and the command
@@ -555,32 +558,47 @@ export default function taskExtension(pi: ExtensionAPI): void {
 			},
 			{ triggerTurn: false },
 		);
-		// The tool can reach every phase of the task, so say so when a run closed one that was not its
-		// own: the operator decides whether that was right, and the file is theirs to correct.
-		const strayed = updated.phases.filter(
-			(candidate) => candidate.name !== phase.name && candidate.status !== was.get(candidate.name),
+
+		// A failed or stopped child never opens a completion prompt. A normal run presents its report,
+		// then the operator decides; check outcomes inform that choice but never make it for them.
+		if (outcome.kind !== "success") {
+			ctx.ui.notify(`${phase.name}: status unchanged — read its report`, "warning");
+			return;
+		}
+		const currentPhase = updated.phases.find((candidate) => candidate.name === phase.name);
+		if (!currentPhase) {
+			ctx.ui.notify(`${phase.name}: its phase file is gone — status unchanged`, "warning");
+			return;
+		}
+		if (currentPhase.status === "done") {
+			ctx.ui.notify(`${phase.name} is already done`, "info");
+			return;
+		}
+		const done = await ctx.ui.confirm(
+			`Mark ${phase.name} done?`,
+			`${phase.title}\n\nRead the report and do any checks you want before answering.`,
 		);
-		if (strayed.length) {
-			const changes = strayed.map((candidate) => `${candidate.name} → ${candidate.status}`).join(", ");
-			ctx.ui.notify(`${phase.name}'s run also changed ${changes}`, "warning");
+		if (!done) {
+			ctx.ui.notify(`${phase.name} left open`, "info");
+			return;
 		}
-		// Stopping and finishing can happen in either order — the child may close its phase and be
-		// killed a moment later. Both facts are reported rather than one of them guessed at.
-		const stopped = result.termination === "cancelled";
-		const { done, total } = taskProgress(updated);
-		if (after?.status === "done") {
-			ctx.ui.notify(
-				stopped
-					? `${phase.name}: you stopped it, and its file says done · ${done}/${total} phases`
-					: `${phase.name} done · ${done}/${total} phases`,
-				stopped ? "warning" : "info",
-			);
-		} else {
-			ctx.ui.notify(
-				`${phase.name} ${stopped ? "stopped" : "ended"} without completing — read its report`,
-				"warning",
-			);
+		const latest = readTask(tasksRoot(), task.slug);
+		const selected = latest.phases.find((candidate) => candidate.name === phase.name);
+		if (!selected) {
+			ctx.ui.notify(`${phase.name}: its phase file is gone — status unchanged`, "warning");
+			showTask(ctx, latest);
+			return;
 		}
+		if (selected.status === "done") {
+			ctx.ui.notify(`${phase.name} is already done`, "info");
+			showTask(ctx, latest);
+			return;
+		}
+		setPhaseStatus(latest, phase.name, "done");
+		const completed = readTask(tasksRoot(), task.slug);
+		showTask(ctx, completed);
+		const progress = taskProgress(completed);
+		ctx.ui.notify(`${phase.name} done · ${progress.done}/${progress.total} phases`, "info");
 	};
 
 	/** The latest saved workspace for this task stage; `SessionManager.list` is newest first. */
@@ -601,7 +619,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 
 	/**
 	 * A stage workspace is one persistent Pi session. Ordinary entry resumes it without sending a
-	 * message; `new` replaces it with a blank child session, whose setup entry makes the read-only
+	 * message; `new` replaces it with a blank child session, whose setup entry makes the planning
 	 * gate active before the replacement instance's `session_start` event.
 	 */
 	const enterStage = async (
@@ -784,7 +802,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 			},
 		}));
 
-		// A resumed session shows where its task is and nothing else: the read-only hold is decided per
+		// A resumed session shows where its task is and nothing else: the planning gate is decided per
 		// tool call, and the interrupted conversation is still right there, so no brief is re-sent.
 		const active = activeTask(ctx.cwd, ctx.sessionManager.getEntries());
 		if (!active) return;

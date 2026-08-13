@@ -1,10 +1,11 @@
 /**
  * The `phase` tool — the only way a model changes the plan's structure.
  *
- * It exists so neither the planning conversation nor an implementer child has to hand-edit JSON:
- * every structural change arrives as validated arguments, and an invalid one is a tool error the
- * model sees and corrects. It is registered unconditionally, because an implementer child runs a
- * pi of its own and resolves its task the same way the parent does — from the branch of its cwd.
+ * It lets the planning conversation change structure without hand-editing JSON: every change
+ * arrives as validated arguments, and an invalid one is a tool error the model sees and corrects.
+ * It is registered unconditionally so its availability never depends on an in-memory mode. The
+ * implementer receives the phase prose directly and is not granted this tool; the operator records
+ * completion after reading its report.
  *
  * Rendering is deliberately one line. The point of a tool over a file edit is exposure, not screen.
  */

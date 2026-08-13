@@ -10,6 +10,7 @@ import {
 	type Agent,
 	type Inherited,
 	type NativeClaudeOptions,
+	type RunActivity,
 	type RunResult,
 } from "../subagent/runtimes.ts";
 import {
@@ -47,7 +48,7 @@ export interface AuditProgress {
 	model: string;
 	phase: "started" | "working" | "complete";
 	turns: number;
-	activity?: string;
+	activity?: RunActivity;
 	findings?: number;
 	latestStep?: RunResult["steps"][number];
 }
