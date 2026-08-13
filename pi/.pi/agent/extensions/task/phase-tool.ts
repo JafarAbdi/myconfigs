@@ -13,6 +13,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type, type Static } from "typebox";
+import { PHASE_TOOL } from "./task-tools.ts";
 import {
 	createPhase,
 	MAX_TITLE_LENGTH,
@@ -21,8 +22,6 @@ import {
 	type PhaseStatus,
 	type Task,
 } from "./tasks.ts";
-
-export const PHASE_TOOL = "phase";
 
 const MAX_BODY_LENGTH = 32_000;
 

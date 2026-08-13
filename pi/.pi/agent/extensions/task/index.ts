@@ -40,7 +40,7 @@ import {
 	repositoryRoot,
 	worktreeChanges,
 } from "./git.ts";
-import { PHASE_TOOL, registerPhaseTool } from "./phase-tool.ts";
+import { registerPhaseTool } from "./phase-tool.ts";
 import { pickTask, taskSummary } from "./picker.ts";
 import { implementerBrief, RESEARCH_AGENTS, stageBrief } from "./prompts.ts";
 import {
@@ -65,7 +65,13 @@ import {
 	type Task,
 	type TaskRef,
 } from "./tasks.ts";
-import { registerSubmitStageTool, SUBMIT_STAGE_TOOL } from "./stage-tool.ts";
+import { registerSubmitStageTool } from "./stage-tool.ts";
+import {
+	activeToolsForTaskStage,
+	PHASE_TOOL,
+	SUBMIT_STAGE_TOOL,
+	taskToolForStage,
+} from "./task-tools.ts";
 import { taskRail } from "./widget.ts";
 
 const WIDGET = "task";
@@ -77,6 +83,11 @@ interface StageMarkDetails {
 	slug: string;
 	stage: Stage;
 	workspace: true;
+}
+
+interface ActiveTaskContext {
+	task: TaskRef;
+	stage?: Stage;
 }
 
 function stageMark(entries: readonly unknown[]): StageMarkDetails | undefined {
@@ -109,7 +120,7 @@ type RunState = "preparing" | "waiting" | "thinking" | "running" | "stopping";
  * Planning keeps exploration tools, delegates only to research roles, and submits artifacts through
  * one path-free tool. Bash is governed by the planning brief, not by pretending to parse intent.
  */
-const PLANNING_TOOLS = ["read", "grep", "find", "ls", "bash", "delegate", PHASE_TOOL, SUBMIT_STAGE_TOOL];
+const PLANNING_TOOLS = ["read", "grep", "find", "ls", "bash", "delegate"];
 
 /** Naming a task is two words of work, so it runs on a small model rather than the session's own. */
 const SLUG_MODEL = { provider: "openai-codex", id: "gpt-5.6-luna" };
@@ -164,15 +175,26 @@ export default function taskExtension(pi: ExtensionAPI): void {
 	 * implementation workspace is named by its Git branch. The structured entry exists before the
 	 * replacement runtime starts, so its tool gate is active from the first event in a fresh stage.
 	 */
-	const activeTask = (cwd: string, entries: readonly unknown[] = []): TaskRef | undefined => {
+	const activeTaskContext = (
+		cwd: string,
+		entries: readonly unknown[] = [],
+	): ActiveTaskContext | undefined => {
 		const marked = stageMark(entries);
-		const byMark = marked ? taskIfPresent(marked.slug) : undefined;
-		if (byMark) return byMark;
+		if (marked) {
+			const task = taskIfPresent(marked.slug);
+			if (task) return { task, stage: marked.stage };
+		}
 		const root = repositoryRoot(cwd);
 		const branch = currentBranch(cwd);
-		const byBranch = branch ? taskIfPresent(branch) : undefined;
-		return byBranch && drives(byBranch, root) ? byBranch : undefined;
+		const task = branch ? taskIfPresent(branch) : undefined;
+		return task && drives(task, root) ? { task } : undefined;
 	};
+
+	const activeTask = (cwd: string, entries: readonly unknown[] = []): TaskRef | undefined =>
+		activeTaskContext(cwd, entries)?.task;
+
+	const sessionTaskContext = (ctx: ExtensionContext): ActiveTaskContext | undefined =>
+		activeTaskContext(ctx.cwd, ctx.sessionManager.getEntries());
 
 	registerPhaseTool(pi, {
 		resolveTask: (ctx) => {
@@ -274,30 +296,36 @@ export default function taskExtension(pi: ExtensionAPI): void {
 
 	// ── planning: no mutation tools until the task has a worktree ─────────────────────────────────
 
-	/**
-	 * The whole planning gate, decided per tool call from the files.
-	 *
-	 * There is no mode to enter or leave, and no toolset is borrowed and given back: a session is
-	 * planning exactly while the task it drives has no worktree, which is the same fact `/task` reads
-	 * to choose a stage. A reload, a resume, a second session, a redo and a deleted task all get the
-	 * right answer for free, because none of them can disagree with a fact nobody stored.
-	 */
-	const planningTask = (ctx: ExtensionContext): TaskRef | undefined => {
-		const task = activeTask(ctx.cwd, ctx.sessionManager.getEntries());
-		return task && !hasWorktree(task) ? task : undefined;
+	/** A marked stage owns its one task tool even after implementation starts, so redo still works. */
+	const syncTaskTools = (ctx: ExtensionContext): void => {
+		const context = sessionTaskContext(ctx);
+		const active = pi.getActiveTools();
+		const next = activeToolsForTaskStage(active, context?.stage);
+		if (active.length === next.length && active.every((name, index) => name === next[index])) return;
+		pi.setActiveTools(next);
 	};
 
+	pi.on("before_agent_start", (_event, ctx) => {
+		syncTaskTools(ctx);
+	});
+
+	/**
+	 * There is no planning mode to enter or leave: the gate asks the filesystem whether this task has
+	 * a worktree on every call. Reloads, resumes, redos and deleted tasks therefore need no stored mode.
+	 */
 	pi.on("tool_call", async (event, ctx) => {
-		const task = planningTask(ctx);
-		if (!task) return undefined;
+		const context = sessionTaskContext(ctx);
+		if (!context || hasWorktree(context.task)) return undefined;
+		const { task, stage } = context;
+		const stageTool = taskToolForStage(stage);
 
 		// Named rather than derived from the active set: a tool registered after the session started
 		// is added to that set automatically, and would otherwise arrive here ungoverned.
-		if (!PLANNING_TOOLS.includes(event.toolName)) {
+		if (!PLANNING_TOOLS.includes(event.toolName) && event.toolName !== stageTool) {
 			return {
 				block: true,
-				reason: `${task.slug} planning: ${event.toolName} is not available while planning. ` +
-					`Use ${SUBMIT_STAGE_TOOL} for the stage artifact and phase for phases.`,
+				reason: `${task.slug} planning: ${event.toolName} is not available in the ` +
+					`${stage ?? "unmarked"} stage.`,
 			};
 		}
 
@@ -783,6 +811,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 	// Pi treats Tab after a command argument as forced file completion. Route that one case back
 	// through ordinary slash-command completion so `/task <slug> ` can offer its stage argument.
 	pi.on("session_start", async (_event, ctx) => {
+		syncTaskTools(ctx);
 		ctx.ui.addAutocompleteProvider((current) => ({
 			triggerCharacters: [],
 			getSuggestions(lines, line, column, options) {

@@ -11,9 +11,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type, type Static } from "typebox";
+import { SUBMIT_STAGE_TOOL } from "./task-tools.ts";
 import { artifactPath, submitArtifact, type Stage, type TaskRef } from "./tasks.ts";
-
-export const SUBMIT_STAGE_TOOL = "submit_stage";
 
 const SUBMIT_STAGE_SCHEMA = Type.Object({
 	content: Type.String({
