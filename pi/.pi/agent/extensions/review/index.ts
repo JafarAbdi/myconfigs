@@ -293,6 +293,8 @@ function feedbackMessage(
 		: [
 			`Fix the unresolved feedback in Wiff session \`${session}\` now.`,
 			"Implement clear feedback immediately and run relevant tests; if genuinely blocked, ask exactly one material question and wait for the answer.",
+			"Fix the root cause of each stated defect, restructuring code when that is the cleanest fix; never paper over a defect with a special case or workaround.",
+			"Keep changes scoped to the stated defects; do not add defensive handling, validation, or error wrapping beyond what a finding demonstrates.",
 		];
 	return [
 		...protocol,

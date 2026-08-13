@@ -137,6 +137,11 @@ export function buildAuditPrompt(
 	const sections = [
 		"# Focused lens",
 		reviewer.lens,
+		"",
+		"# Method",
+		"Before finalizing, list what within this lens you have not yet examined, including boundary cases of valid inputs and state transitions the patch changes, and examine the most likely gaps.",
+		"Re-derive every finding from the exact candidate patch before emitting it; drop any finding you cannot demonstrate.",
+		"Missing defensive handling for inputs that cannot occur is not a finding.",
 		...(input.guidance
 			? [
 				"",

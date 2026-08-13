@@ -192,6 +192,9 @@ test("reviewer task includes its lens, operator guidance, exact patch, and JSON 
 	}, AUDIT_ROSTER[0]);
 	assert.match(prompt, /Find changed behavior that contradicts an explicit requirement/u);
 	assert.match(prompt, /Operator request[\s\S]*Focus on mixed-state behavior\./u);
+	assert.match(prompt, /# Method[\s\S]*boundary cases of valid inputs and state transitions the patch changes/u);
+	assert.match(prompt, /drop any finding you cannot demonstrate/u);
+	assert.match(prompt, /Missing defensive handling for inputs that cannot occur is not a finding\./u);
 	assert.match(prompt, /View: HEAD → index \(staged\)/u);
 	assert.match(prompt, /Selection: src\/a\.ts/u);
 	assert.match(prompt, new RegExp(`git show ${"2".repeat(40)}:path/to/file`));
