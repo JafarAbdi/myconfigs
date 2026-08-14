@@ -25,6 +25,11 @@ config format, faster, single binary. Tell the user to run `prek install` /
    no ruff config yet, offer to add one (merged into pyproject.toml or as a
    standalone ruff.toml); if it already has one, don't silently overwrite its
    `select`/`ignore` choices — diff and ask.
+   For JS/TS repos, `references/oxlintrc.json` plays the same role for oxlint.
+   Note `plugins` *overwrites* the defaults (`eslint`, `typescript`, `unicorn`,
+   `oxc`) rather than adding to them — same inside an `overrides` entry, so
+   every list must be complete. Keep it comment-free: `check-json` and
+   `pretty-format-json` reject jsonc even though oxlint accepts it.
 
 2. **Detect the target repo's ecosystem** by inspecting its root (and one level
    into src/ if ambiguous):
@@ -34,9 +39,14 @@ config format, faster, single binary. Tell the user to run `prek install` /
      - `manage.py` or `INSTALLED_APPS` in a settings file → Django block
      - `*.ipynb` files present → notebook (nb-clean) block
    - `CMakeLists.txt` or `*.cpp`/`*.hpp`/`*.cc` → C++/CMake section
-   - `package.json` → JS/TS section: `oxlint` for linting, plus **one** of
-     `prettier` / `oxfmt` for formatting. If the repo already pins ESLint or
-     Biome, ask before adding oxlint rather than stacking a second linter.
+   - `package.json` → JS/TS section: `oxlint` + `oxfmt`.
+     - React/Next/Vue deps, or `vitest`/`jest` config → enable those oxlint
+       plugins in `.oxlintrc.json`
+     - TypeScript **7.0+** (read the actual pinned version, not just
+       `tsconfig.json`) → offer the opt-in type-aware hook; below 7.0 it can't run
+     - Already on ESLint/Biome → don't stack a second linter. Offer either
+       `npx @oxlint/migrate` to convert a flat config, or keeping both with
+       `eslint-plugin-oxlint` switching off the rules oxlint already covers.
    - `Dockerfile` → Docker section
    - `.github/workflows/*.yml` → GitHub Actions section (actionlint, zizmor)
    - `*.lua` (and it's a Neovim config, not a game engine plugin dir) → Lua section
@@ -50,9 +60,11 @@ config format, faster, single binary. Tell the user to run `prek install` /
    need to be asked about Rust) but check with the user before adding opt-in
    sections that aren't clearly load-bearing (security scanners, license
    headers, type checking) — those are opt-in in the template for a reason.
-   The template keeps `ty` and `pyrefly` side by side for type checking, and
-   `prettier` and `oxfmt` side by side for JS/TS formatting. Each pair does one
-   job — ask which one a repo should get, don't install both.
+   The template keeps `ty` and `pyrefly` side by side for type checking — one
+   job, two tools; ask which, don't install both.
+   Widened `oxfmt` (the template's default) formats JSON/YAML/CSS/Markdown too,
+   so it displaces `pretty-format-json` and `yamllint` — drop those, or narrow
+   oxfmt back to JS/TS. `taplo-format` keeps TOML; oxfmt's regex excludes it.
 
 4. **If duplicate-purpose hooks would both apply** (e.g. the repo already pins
    black instead of ruff, or codespell instead of typos), don't silently

@@ -160,29 +160,61 @@ repos:
       - id: markdown-link-check
 
   # =====================================================================
-  # JAVASCRIPT / TYPESCRIPT LINT — oxlint. typescript/unicorn/oxc plugins on
-  # by default; react, import, jsx-a11y, vitest etc. opt-in via flags or
-  # `.oxlintrc.json`. Add `args: [--fix]` to autofix on commit.
+  # JAVASCRIPT / TYPESCRIPT LINT — oxlint. Configure in `.oxlintrc.json`
+  # (see references/oxlintrc.json), not hook args. `args: [--fix]` autofixes.
   # =====================================================================
   - repo: https://github.com/oxc-project/mirrors-oxlint
     rev: v1.78.0
     hooks:
       - id: oxlint
 
-  # =====================================================================
-  # JS/TS FORMATTING — pick ONE. prettier: mature, also does CSS/JSON/YAML/MD
-  # (rbubley fork; pre-commit/mirrors-prettier is archived). oxfmt: oxlint's
-  # toolchain, faster, JS/TS/JSX only, pre-1.0.
-  # =====================================================================
-  - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.9.6
-    hooks:
-      - id: prettier
+  # OPT-IN anti-slop — 15 rules against LLM-shaped TS (unknown params/returns,
+  # chained assertions, runtime typeof). https://github.com/dmmulroy/anti-slop
+  # Not on npm: vendor it at a pinned SHA, keep `oxlint` and `@oxlint/plugins`
+  # on one version, list under `jsPlugins` in oxlint.config.ts.
+  # Exclude the vendored dir from oxlint and from this file's top-level
+  # `exclude:` — it uses tabs; whitespace hooks would break re-vendoring.
+  #   - repo: local        # mirror's isolated env can't load a repo-local plugin
+  #     hooks:
+  #       - id: oxlint-anti-slop
+  #         name: oxlint (anti-slop)
+  #         entry: npx oxlint --config oxlint.config.ts
+  #         language: system
+  #         types_or: [ts, tsx, javascript, jsx]
 
+  # OPT-IN type-aware rules (no-floating-promises etc). Needs TypeScript 7.0+
+  # and `npm add -D oxlint oxlint-tsgolint`. Local because tsgolint reads the
+  # repo's own tsconfig/@types. Whole-program, so no filenames — types_or keeps
+  # docs commits off it. Add `--type-check` to drop `tsc --noEmit`. RAM-hungry.
+  - repo: local
+    hooks:
+      - id: oxlint-type-aware
+        name: oxlint (type-aware)
+        entry: npx oxlint --type-aware
+        language: system
+        types_or: [ts, tsx]
+        pass_filenames: false
+
+  # =====================================================================
+  # FORMATTING (node repos) — oxfmt (Beta) replaces prettier. Native: JS/TS,
+  # JSON(C/5), CSS/SCSS/Less, GraphQL, YAML. Bundled prettier, no install:
+  # HTML/Vue/Svelte/MD/MDX/Handlebars/MJML. Sorts imports + Tailwind classes.
+  # Config `.oxfmtrc.json`; `oxfmt --migrate=prettier` converts an existing one.
+  #
+  # The two overrides widen the mirror's JS/TS-only default — delete them to
+  # keep it on JS/TS. Regex, not types_or: identify has no tag for
+  # json5/jsonc/mdx/scss/less and unknown tags are a hard error.
+  #
+  # `.toml` left out: taplo-format above owns it. If you take the widened form,
+  # drop pretty-format-json (fights over .json) and yamllint (its rules disagree
+  # with oxfmt's YAML → reformat-then-fail loop).
+  # =====================================================================
   - repo: https://github.com/oxc-project/mirrors-oxfmt
     rev: v0.63.0
     hooks:
       - id: oxfmt
+        types_or: [text]
+        files: \.(js|jsx|mjs|cjs|ts|tsx|mts|cts|json|jsonc|json5|css|scss|less|pcss|postcss|graphql|gql|graphqls|ya?ml|html?|xhtml|vue|svelte|md|markdown|mdx|hbs|handlebars|mjml)$
 
   # =====================================================================
   # DOCKER
@@ -249,7 +281,8 @@ repos:
   # 3. oxlint JS plugin — for JS/TS rules needing scope or symbols, which
   #    ast-grep has no access to. In .oxlintrc.json / oxlint.config.ts:
   #      jsPlugins: [{ name: "house", specifier: "./tools/house/index.ts" }]
-  #    then enable as "house/<rule-id>": "error". See dmmulroy/anti-slop.
+  #    then enable as "house/<rule-id>": "error". The anti-slop block in the
+  #    JS/TS LINT section above is a worked example of this shape.
   # =====================================================================
   - repo: local
     hooks:
