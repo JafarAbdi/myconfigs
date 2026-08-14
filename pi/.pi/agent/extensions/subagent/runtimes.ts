@@ -264,7 +264,7 @@ export interface Runtime {
  * under `-p`, being a plan-mode alias, and a headless subagent never plans. Excluding aliases
  * removes that whole class of surprise instead of special-casing one member of it.
  */
-const CLAUDE_MODELS = new Set(["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-haiku-4-5-20251001"]);
+const CLAUDE_MODELS = new Set(["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-haiku-4-5-20251001", "claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6", "claude-opus-4-6"]);
 /** The same list as a value the `delegate` schema can enumerate: how the model learns these names. */
 export const CLAUDE_MODEL_NAMES = [...CLAUDE_MODELS].sort();
 
