@@ -13,13 +13,19 @@
 
 import { spawnSync } from "node:child_process";
 
+interface GitResult {
+	status: number | null;
+	stdout: string;
+	stderr: string;
+}
+
 /**
  * `spawnSync` reports a failed command as data, so a git error is read rather than reconstructed.
  * A command that could not start at all — a missing directory, no git on PATH — is reported the
  * same way: total, so a question about a path that has gone answers "no", never throws past its
  * caller, and never has to be guarded by an existence check somewhere else.
  */
-function run(cwd: string, args: string[]): { status: number | null; stdout: string; stderr: string } {
+function run(cwd: string, args: string[]): GitResult {
 	const result = spawnSync("git", args, { cwd, encoding: "utf-8" });
 	if (result.error) return { status: null, stdout: "", stderr: result.error.message };
 	return { status: result.status, stdout: result.stdout.trim(), stderr: result.stderr.trim() };

@@ -60,14 +60,16 @@ keypress and every piece of task state a file the operator can edit.
 - R5: The `phase` tool (`list`, `show`, `create`, `set-status`) is registered unconditionally but
   active only in a matching marked phases-stage session. It remains active after the worktree exists
   so `set-status <name> open` can redo a completed phase. It resolves its task from the stage marker
-  or working-directory branch. Every call renders as a single transcript line. Implementer children
-  are given the phase prose directly and are not granted this tool.
+  or working-directory branch. Every call has a compact single-line rendering; operator-requested
+  expansion shows its persisted call-time detail without rereading task files or defining progress.
+  Implementer children are given the phase prose directly and are not granted this tool.
 - R6: A session is planning exactly while the task it drives has no worktree, and that is decided
   per tool call from `task.json` — no mode is entered or left, and no toolset is borrowed. A matching
   questions, research, or design stage marker exposes `submit_stage`; a matching phases marker
   exposes `phase`; neither task tool is exposed elsewhere. Worktree creation does not strip a
   marked stage's tool, so its artifact or a completed phase can still be revised. While planning,
-  only read/grep/find/ls/bash/delegate and the active stage tool may run. `submit_stage` accepts only
+  only read/grep/find/ls/bash/web_search/fetch_content/delegate and the active stage tool may run.
+  `submit_stage` accepts only
   the complete Markdown content and derives its destination from the stage marker; `delegate`
   reaches only the research agents. Bash runs unchanged and the planning brief tells the model to
   use it only for exploration. Any other tool is refused by name, so one registered after the

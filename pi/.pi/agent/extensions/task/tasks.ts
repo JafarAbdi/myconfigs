@@ -95,6 +95,11 @@ export interface TaskCatalog {
 	broken: string[];
 }
 
+export interface TaskProgress {
+	done: number;
+	total: number;
+}
+
 export function isSlug(value: string): boolean {
 	if (!value.length || value.length > MAX_SLUG_LENGTH) return false;
 	if (value.startsWith("-") || value.endsWith("-")) return false;
@@ -167,35 +172,52 @@ function phasesDir(task: Task): string {
  * malformed. Model-produced structure never arrives here unchecked: it comes through the `phase`
  * tool, whose JSON Schema pi validates before this module sees it.
  */
-function readHeaderField(where: string, field: string, value: unknown, expected: string): string {
-	if (typeof value !== "string" || !value) throw new Error(`${where}: "${field}" must be ${expected}`);
+type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
+
+interface JsonObject {
+	[key: string]: JsonValue;
+}
+
+function isJsonObject(value: JsonValue): value is JsonObject {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: JsonValue | undefined): value is string {
+	return typeof value === "string" && value.length > 0;
+}
+
+function parseJson(where: string, text: string, subject?: "first line"): JsonValue {
+	try {
+		// SAFETY: JSON.parse without a reviver returns only values in the recursive JSON domain above.
+		return JSON.parse(text) as JsonValue;
+	} catch (cause) {
+		const prefix = subject ? `${subject} ` : "";
+		throw new Error(`${where}: ${prefix}is not JSON (${cause instanceof Error ? cause.message : cause})`);
+	}
+}
+
+function readHeaderField(where: string, parsed: JsonObject, field: string, expected: string): string {
+	const value = parsed[field];
+	if (!isNonEmptyString(value)) throw new Error(`${where}: "${field}" must be ${expected}`);
 	return value;
 }
 
 function parseTaskHeader(where: string, text: string): TaskHeader {
-	let parsed: Partial<TaskHeader> | null;
-	try {
-		parsed = JSON.parse(text) as Partial<TaskHeader> | null;
-	} catch (error) {
-		throw new Error(`${where}: is not JSON (${error instanceof Error ? error.message : error})`);
-	}
+	const parsed = parseJson(where, text);
+	if (!isJsonObject(parsed)) throw new Error(`${where}: "repository" must be an absolute path`);
 	return {
-		repository: readHeaderField(where, "repository", parsed?.repository, "an absolute path"),
-		base: readHeaderField(where, "base", parsed?.base, "a branch name"),
-		description: readHeaderField(where, "description", parsed?.description, "the task as it was asked"),
+		repository: readHeaderField(where, parsed, "repository", "an absolute path"),
+		base: readHeaderField(where, parsed, "base", "a branch name"),
+		description: readHeaderField(where, parsed, "description", "the task as it was asked"),
 	};
 }
 
 function parsePhaseHeader(where: string, text: string): PhaseHeader {
-	let parsed: Partial<PhaseHeader> | null;
-	try {
-		parsed = JSON.parse(text) as Partial<PhaseHeader> | null;
-	} catch (error) {
-		throw new Error(`${where}: first line is not JSON (${error instanceof Error ? error.message : error})`);
-	}
-	const status = parsed?.status;
+	const parsed = parseJson(where, text, "first line");
+	if (!isJsonObject(parsed)) throw new Error(`${where}: "status" must be "open" or "done"`);
+	const status = parsed.status;
 	if (status !== "open" && status !== "done") throw new Error(`${where}: "status" must be "open" or "done"`);
-	return { title: readHeaderField(where, "title", parsed?.title, "a short prose title"), status };
+	return { title: readHeaderField(where, parsed, "title", "a short prose title"), status };
 }
 
 export function serializePhase(header: PhaseHeader, body: string): string {
@@ -322,6 +344,6 @@ export function nextOpenPhase(task: Task): Phase | undefined {
 	return task.phases.find((phase) => phase.status === "open");
 }
 
-export function taskProgress(task: Task): { done: number; total: number } {
+export function taskProgress(task: Task): TaskProgress {
 	return { done: task.phases.filter((phase) => phase.status === "done").length, total: task.phases.length };
 }

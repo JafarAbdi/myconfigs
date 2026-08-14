@@ -170,6 +170,22 @@ test("malformed task JSON names the task file", () => {
 	});
 });
 
+test("a task header names its first invalid field", () => {
+	withRoot((root) => {
+		createTask(root, "joint-rail", HEADER);
+		const file = join(root, "joint-rail", "task.json");
+		for (const [text, field] of [
+			["[]", "repository"],
+			['{"repository":1}', "repository"],
+			['{"repository":"/repo","base":false}', "base"],
+			['{"repository":"/repo","base":"main"}', "description"],
+		]) {
+			writeFileSync(file, text);
+			assert.throws(() => readTask(root, "joint-rail"), new RegExp(`"${field}" must be`));
+		}
+	});
+});
+
 test("phases created through the model-facing path are numbered, ordered, and flippable", () => {
 	withRoot((root) => {
 		createTask(root, "joint-rail", HEADER);

@@ -25,13 +25,15 @@ import {
 	SessionManager,
 	type ExtensionCommandContext,
 	type ExtensionContext,
+	type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { completeSimple } from "@earendil-works/pi-ai";
-import { type AutocompleteItem, Key, matchesKey } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
+import { type AutocompleteItem, Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { Type, type Static } from "typebox";
+import { Check } from "typebox/value";
 import { loadAgent } from "../subagent/agents.ts";
 import { runAgent } from "../subagent/run-agent.ts";
-import { childSessionDir, classifyResult, type RunResult } from "../subagent/runtimes.ts";
+import { childSessionDir, classifyResult, type Inherited, type RunResult } from "../subagent/runtimes.ts";
 import {
 	addWorktree,
 	branchExists,
@@ -79,30 +81,33 @@ const WIDGET = "task";
 /** Structured identity for one persistent planning-stage session. */
 const STAGE_MARK = "task-stage";
 
-interface StageMarkDetails {
-	slug: string;
-	stage: Stage;
-	workspace: true;
-}
+const STAGE_MARK_SCHEMA = Type.Object({
+	slug: Type.String(),
+	stage: Type.Union([
+		Type.Literal("questions"),
+		Type.Literal("research"),
+		Type.Literal("design"),
+		Type.Literal("phases"),
+		Type.Literal("implement"),
+	]),
+	workspace: Type.Literal(true),
+}, { additionalProperties: false });
+
+type StageMarkDetails = Static<typeof STAGE_MARK_SCHEMA>;
 
 interface ActiveTaskContext {
 	task: TaskRef;
 	stage?: Stage;
 }
 
-function stageMark(entries: readonly unknown[]): StageMarkDetails | undefined {
+type NewSessionOptions = NonNullable<Parameters<ExtensionCommandContext["newSession"]>[0]>;
+
+function stageMark(entries: readonly SessionEntry[]): StageMarkDetails | undefined {
 	for (let index = entries.length - 1; index >= 0; index--) {
-		const entry = entries[index] as { type?: unknown; customType?: unknown; data?: unknown };
+		const entry = entries[index];
 		if (entry.type !== "custom" || entry.customType !== STAGE_MARK) continue;
-		const data = entry.data as Partial<StageMarkDetails> | undefined;
-		if (
-			!data ||
-			data.workspace !== true ||
-			typeof data.slug !== "string" ||
-			typeof data.stage !== "string" ||
-			!isStage(data.stage)
-		) return undefined;
-		return { slug: data.slug, stage: data.stage, workspace: true };
+		if (!Check(STAGE_MARK_SCHEMA, entry.data) || !isSlug(entry.data.slug)) return undefined;
+		return entry.data;
 	}
 	return undefined;
 }
@@ -111,7 +116,7 @@ function stageSessionName(slug: string, stage: Stage): string {
 	return `${slug} · ${stage}`;
 }
 
-/** pi truncates a widget at ten lines, so the live run shows this many steps and counts the rest. */
+/** Header, omission count, steps and status fit in at most nine physical rows. */
 const RUN_WIDGET_STEPS = 6;
 
 type RunState = "preparing" | "waiting" | "thinking" | "running" | "stopping";
@@ -120,7 +125,18 @@ type RunState = "preparing" | "waiting" | "thinking" | "running" | "stopping";
  * Planning keeps exploration tools, delegates only to research roles, and submits artifacts through
  * one path-free tool. Bash is governed by the planning brief, not by pretending to parse intent.
  */
-const PLANNING_TOOLS = ["read", "grep", "find", "ls", "bash", "delegate"];
+const PLANNING_TOOLS = [
+	"read",
+	"grep",
+	"find",
+	"ls",
+	"bash",
+	"web_search",
+	"fetch_content",
+	"delegate",
+];
+
+const DELEGATE_INPUT_SCHEMA = Type.Object({ agent: Type.String() });
 
 /** Naming a task is two words of work, so it runs on a small model rather than the session's own. */
 const SLUG_MODEL = { provider: "openai-codex", id: "gpt-5.6-luna" };
@@ -143,8 +159,8 @@ const SLUG_PROMPT =
 	"Name a software task from its description. Answer only by calling task_slug with two or three " +
 	"lower-case words joined by dashes, naming the change itself rather than the act of changing it.";
 
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+function errorMessage(cause: unknown): string {
+	return cause instanceof Error ? cause.message : String(cause);
 }
 
 /** `/task` arguments: a task name, then optionally a stage to redo. */
@@ -177,7 +193,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 	 */
 	const activeTaskContext = (
 		cwd: string,
-		entries: readonly unknown[] = [],
+		entries: readonly SessionEntry[] = [],
 	): ActiveTaskContext | undefined => {
 		const marked = stageMark(entries);
 		if (marked) {
@@ -190,7 +206,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		return task && drives(task, root) ? { task } : undefined;
 	};
 
-	const activeTask = (cwd: string, entries: readonly unknown[] = []): TaskRef | undefined =>
+	const activeTask = (cwd: string, entries: readonly SessionEntry[] = []): TaskRef | undefined =>
 		activeTaskContext(cwd, entries)?.task;
 
 	const sessionTaskContext = (ctx: ExtensionContext): ActiveTaskContext | undefined =>
@@ -216,9 +232,21 @@ export default function taskExtension(pi: ExtensionAPI): void {
 
 	// ── the widget: the open session and the task state on disk ──────────────────────────────────
 
+	type WidgetTheme = ExtensionContext["ui"]["theme"];
+
+	/** Render every logical widget line as exactly one terminal row, fitted again after a resize. */
+	const showWidgetLines = (
+		ctx: ExtensionContext,
+		lines: (theme: WidgetTheme) => string[],
+	): void => {
+		ctx.ui.setWidget(WIDGET, (_tui, theme) => ({
+			render: (width) => lines(theme).map((line) => truncateToWidth(line, width)),
+			invalidate() {},
+		}));
+	};
+
 	/** One compact rail; an existing worktree adds only the open phase. */
-	const widgetLines = (ctx: ExtensionContext, task: Task): string[] => {
-		const theme = ctx.ui.theme;
+	const widgetLines = (ctx: ExtensionContext, task: Task, theme: WidgetTheme): string[] => {
 		const mark = stageMark(ctx.sessionManager.getEntries());
 		const entered = mark?.slug === task.slug ? mark.stage : undefined;
 		const stages = taskRail(task, entered);
@@ -238,7 +266,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 	};
 
 	const showTask = (ctx: ExtensionContext, task: Task): void => {
-		ctx.ui.setWidget(WIDGET, widgetLines(ctx, task));
+		showWidgetLines(ctx, (theme) => widgetLines(ctx, task, theme));
 	};
 
 	/** The identity of this planning workspace, persisted in the session before it starts. */
@@ -264,8 +292,8 @@ export default function taskExtension(pi: ExtensionAPI): void {
 	};
 
 	/**
-	 * The run while it runs. pi caps a widget at ten lines, so the live view is the last few steps
-	 * and a count; the complete list goes into the report, which is a transcript entry and keeps.
+	 * The run while it runs. Every entry is fitted to one physical row, so the live view stays at
+	 * nine rows or fewer; the complete list goes into the report, which is a transcript entry and keeps.
 	 */
 	const showRun = (
 		ctx: ExtensionContext,
@@ -275,7 +303,6 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		state: RunState,
 		elapsedMs: number,
 	): void => {
-		const theme = ctx.ui.theme;
 		const steps = run?.steps ?? [];
 		const recent = steps.slice(-RUN_WIDGET_STEPS);
 		const skipped = steps.length - recent.length;
@@ -283,7 +310,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		const model = ctx.model ? `${ctx.model.id}/${ctx.thinkingLevel ?? "off"}` : "unknown model";
 		const elapsed = Math.floor(elapsedMs / 1000);
 		const counts = run ? ` · ${run.turns} turns · ${steps.length} steps` : "";
-		ctx.ui.setWidget(WIDGET, [
+		showWidgetLines(ctx, (theme) => [
 			`${theme.fg("accent", theme.bold("implement"))}` +
 			`${theme.fg("muted", ` · phase ${position}/${task.phases.length} · ${phase.name} · ${model}${counts}`)}` +
 			`${theme.fg("dim", ` · ${rawKeyHint(Key.escape, "stop")}`)}`,
@@ -330,8 +357,9 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		}
 
 		if (event.toolName === "delegate") {
-			const agent = event.input.agent;
-			if (typeof agent === "string" && RESEARCH_AGENTS.includes(agent)) return undefined;
+			if (Check(DELEGATE_INPUT_SCHEMA, event.input) && RESEARCH_AGENTS.includes(event.input.agent)) {
+				return undefined;
+			}
 			return {
 				block: true,
 				reason: `${task.slug} planning: delegate to ${RESEARCH_AGENTS.join(" or ")} only, ` +
@@ -382,11 +410,10 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		if (call?.type !== "toolCall") {
 			throw new Error(`${model.id} answered without calling ${SLUG_TOOL.name}`);
 		}
-		const slug = call.arguments.slug;
-		if (typeof slug !== "string" || !isSlug(slug)) {
-			throw new Error(`${model.id} answered ${JSON.stringify(slug)}, which is not a task name`);
+		if (!Check(SLUG_TOOL.parameters, call.arguments) || !isSlug(call.arguments.slug)) {
+			throw new Error(`${model.id} answered ${JSON.stringify(call.arguments.slug)}, which is not a task name`);
 		}
-		return slug;
+		return call.arguments.slug;
 	};
 
 	/**
@@ -524,6 +551,12 @@ export default function taskExtension(pi: ExtensionAPI): void {
 			getAgentDir(),
 		);
 		const childSessionId = randomUUID();
+		const inherited: Inherited = {
+			sessionDir: childSessionDirectory,
+			sessionId: childSessionId,
+		};
+		if (ctx.model) inherited.model = `${ctx.model.provider}/${ctx.model.id}`;
+		if (ctx.thinkingLevel) inherited.thinkingLevel = ctx.thinkingLevel;
 		try {
 			result = await runAgent({
 				// The operator closes the phase after reading the report; the child only changes code.
@@ -531,12 +564,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 				task: implementerBrief(task, phase),
 				resultTask: `${task.slug} ${phase.name}`,
 				cwd: worktree,
-				inherited: {
-					sessionDir: childSessionDirectory,
-					sessionId: childSessionId,
-					...(ctx.model ? { model: `${ctx.model.provider}/${ctx.model.id}` } : {}),
-					...(ctx.thinkingLevel ? { thinkingLevel: ctx.thinkingLevel } : {}),
-				},
+				inherited,
 				model: undefined,
 				signal: aborts.signal,
 				onStart: () => {
@@ -678,8 +706,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		const inheritedThinkingLevel = ctx.thinkingLevel;
 		// TODO(pi#5263): Restore these into Pi 0.84's live runtime once setters are session-only.
 		const mark: StageMarkDetails = { slug: task.slug, stage, workspace: true };
-		const result = await ctx.newSession({
-			...(parentSession ? { parentSession } : {}),
+		const options = {
 			setup: async (session) => {
 				if (inheritedModel) session.appendModelChange(inheritedModel.provider, inheritedModel.id);
 				if (inheritedThinkingLevel) session.appendThinkingLevelChange(inheritedThinkingLevel);
@@ -689,7 +716,10 @@ export default function taskExtension(pi: ExtensionAPI): void {
 			withSession: async (replacement) => {
 				await replacement.sendUserMessage(stageBrief(task, stage));
 			},
-		});
+		} satisfies NewSessionOptions;
+		const result = parentSession
+			? await ctx.newSession({ ...options, parentSession })
+			: await ctx.newSession(options);
 		if (result.cancelled) ctx.ui.notify(`${name}: new session cancelled`, "warning");
 	};
 

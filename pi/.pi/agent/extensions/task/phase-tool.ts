@@ -7,34 +7,38 @@
  * implementer receives the phase prose directly and is not granted this tool; the operator records
  * completion after reading its report.
  *
- * Rendering is deliberately one line. The point of a tool over a file edit is exposure, not screen.
+ * Rendering stays compact until the operator asks to see the persisted call-time detail.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext, keyHint } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type, type Static } from "typebox";
+import { Check } from "typebox/value";
 import { PHASE_TOOL } from "./task-tools.ts";
 import {
 	createPhase,
 	MAX_TITLE_LENGTH,
 	setPhaseStatus,
 	taskProgress,
-	type PhaseStatus,
 	type Task,
 } from "./tasks.ts";
 
 const MAX_BODY_LENGTH = 32_000;
 
+const PHASE_ACTION_SCHEMA = Type.Union([
+	Type.Literal("list"),
+	Type.Literal("show"),
+	Type.Literal("create"),
+	Type.Literal("set-status"),
+]);
+const PHASE_NAME_SCHEMA = Type.String({ minLength: 1 });
+const PHASE_STATUS_SCHEMA = Type.Union([Type.Literal("open"), Type.Literal("done")]);
+
 const PHASE_SCHEMA = Type.Object({
-	action: Type.Union([
-		Type.Literal("list"),
-		Type.Literal("show"),
-		Type.Literal("create"),
-		Type.Literal("set-status"),
-	]),
+	action: PHASE_ACTION_SCHEMA,
 	name: Type.Union([
 		// Created slugs are validated by createPhase; existing names include their numeric prefix.
-		Type.String({ minLength: 1 }),
+		PHASE_NAME_SCHEMA,
 		Type.Null(),
 	], {
 		description:
@@ -50,7 +54,7 @@ const PHASE_SCHEMA = Type.Object({
 			"it. Plain, concise Markdown; use the smallest diagram or diff only when clearer than prose. " +
 			"This is what the implementer reads. Create only, null otherwise.",
 	}),
-	status: Type.Union([Type.Literal("open"), Type.Literal("done"), Type.Null()], {
+	status: Type.Union([PHASE_STATUS_SCHEMA, Type.Null()], {
 		description: "set-status only, null otherwise.",
 	}),
 	// Every property is required and nullable rather than optional: strict JSON-schema sampling
@@ -60,15 +64,22 @@ const PHASE_SCHEMA = Type.Object({
 
 type PhaseToolParameters = Static<typeof PHASE_SCHEMA>;
 
-type PhaseToolDetails =
-	| { action: "list"; done: number; total: number }
-	| { action: "show"; name: string }
-	| { action: "create"; name: string }
-	| { action: "set-status"; name: string; status: PhaseStatus };
+const PHASE_DETAILS_SCHEMA = Type.Union([
+	Type.Object({
+		action: Type.Literal("list"),
+		done: Type.Integer({ minimum: 0 }),
+		total: Type.Integer({ minimum: 0 }),
+	}, { additionalProperties: false }),
+	Type.Object({ action: Type.Literal("show"), name: PHASE_NAME_SCHEMA }, { additionalProperties: false }),
+	Type.Object({ action: Type.Literal("create"), name: PHASE_NAME_SCHEMA }, { additionalProperties: false }),
+	Type.Object({
+		action: Type.Literal("set-status"),
+		name: PHASE_NAME_SCHEMA,
+		status: PHASE_STATUS_SCHEMA,
+	}, { additionalProperties: false }),
+]);
 
-function isDetails(value: unknown): value is PhaseToolDetails {
-	return typeof value === "object" && value !== null && "action" in value;
-}
+type PhaseToolDetails = Static<typeof PHASE_DETAILS_SCHEMA>;
 
 function summary(details: PhaseToolDetails): string {
 	if (details.action === "list") return `phase list · ${details.done}/${details.total} done`;
@@ -95,17 +106,31 @@ export function registerPhaseTool(pi: ExtensionAPI, dependencies: PhaseToolDepen
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 
 		renderCall(args, theme) {
-			const action = typeof args.action === "string" ? args.action : "…";
-			const name = typeof args.name === "string" ? ` ${args.name}` : "";
+			const action = Check(PHASE_ACTION_SCHEMA, args.action) ? args.action : "…";
+			const name = Check(PHASE_NAME_SCHEMA, args.name) ? ` ${args.name}` : "";
 			return new Text(theme.fg("toolTitle", theme.bold("phase")) + theme.fg("dim", ` ${action}${name}`), 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
-			if (!isDetails(result.details)) {
-				const first = result.content[0];
-				return new Text(theme.fg("error", first?.type === "text" ? first.text : "phase failed"), 0, 0);
+		renderResult(result, { expanded }, theme, context) {
+			const output = result.content.find((item) => item.type === "text")?.text ?? "phase failed";
+			if (context.isError || !Check(PHASE_DETAILS_SCHEMA, result.details)) {
+				return new Text(theme.fg("error", output), 0, 0);
 			}
-			return new Text(theme.fg("muted", summary(result.details)), 0, 0);
+
+			const { details } = result;
+			let detail = "";
+			if (details.action === "list" || details.action === "show") detail = output;
+			if (details.action === "create" && Check(PHASE_SCHEMA, context.args) && context.args.action === "create") {
+				const title = context.args.title ?? "";
+				const body = context.args.body ?? "";
+				detail = title + (body ? `\n\n${body}` : "");
+			}
+
+			let text = theme.fg("muted", summary(details));
+			if (!detail) return new Text(text, 0, 0);
+			if (!expanded) text += theme.fg("dim", ` (${keyHint("app.tools.expand", "to expand")})`);
+			else text += `\n${detail}`;
+			return new Text(text, 0, 0);
 		},
 
 		async execute(_toolCallId, parameters: PhaseToolParameters, _signal, _onUpdate, ctx) {
