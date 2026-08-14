@@ -87,21 +87,9 @@ function byteLength(value: string): number {
 	return Buffer.byteLength(value, "utf8");
 }
 
-function isReviewView(value: unknown): value is ReviewView {
-	return value === "staged" || value === "unstaged" || value === "untracked" || value === "overall";
-}
-
-function record(value: unknown, label: string): Record<string, unknown> {
-	if (value === null || typeof value !== "object" || Array.isArray(value))
-		throw new Error(`${label} must be an object`);
-	return value as Record<string, unknown>;
-}
-
-function exactResultKeys(value: Record<string, unknown>): void {
-	if (
-		Object.keys(value).length !== 2 ||
-		!Object.hasOwn(value, "view") || !Object.hasOwn(value, "paths")
-	) throw new Error("review intent response has invalid fields");
+interface ReviewIntentResultPayload {
+	view: ReviewView;
+	paths: string[] | null;
 }
 
 export function parseReviewIntentResult(
@@ -116,10 +104,18 @@ export function parseReviewIntentResult(
 	} catch {
 		throw new Error("review intent response is not valid JSON");
 	}
-	const result = record(decoded, "review intent response");
-	exactResultKeys(result);
-	if (!isReviewView(result.view))
-		throw new Error("review intent view must be staged, unstaged, untracked, or overall");
+	if (decoded === null || decoded === undefined || Array.isArray(decoded) || decoded.constructor !== Object)
+		throw new Error("review intent response must be an object");
+	// SAFETY: the key and field checks below validate this shape before any value is read.
+	const result = decoded as ReviewIntentResultPayload;
+	if (
+		Object.keys(result).length !== 2 ||
+		!Object.hasOwn(result, "view") || !Object.hasOwn(result, "paths")
+	) throw new Error("review intent response has invalid fields");
+	if (
+		result.view !== "staged" && result.view !== "unstaged" &&
+		result.view !== "untracked" && result.view !== "overall"
+	) throw new Error("review intent view must be staged, unstaged, untracked, or overall");
 	if (result.paths === null) return {
 		selection: { view: result.view, paths: [] },
 		resolvedPaths: [...inventory[result.view]],
@@ -133,7 +129,7 @@ export function parseReviewIntentResult(
 	const paths: string[] = [];
 	const seen = new Set<string>();
 	for (const path of result.paths) {
-		if (typeof path !== "string" || !path || byteLength(path) > MAX_PATH_BYTES)
+		if (path?.constructor !== String || !path || byteLength(path) > MAX_PATH_BYTES)
 			throw new Error(`review intent paths must contain non-empty strings of at most ${MAX_PATH_BYTES} bytes`);
 		if (!available.has(path)) throw new Error(`review intent selected an unchanged path: ${path}`);
 		if (!seen.has(path)) {

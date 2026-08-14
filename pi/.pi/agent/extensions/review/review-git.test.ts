@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -256,6 +256,12 @@ exec "$REVIEW_REAL_GIT" "$@"
 		rmSync(bin, { recursive: true, force: true });
 		rmSync(repository, { recursive: true, force: true });
 	}
+});
+
+test("Git transport uses AbortSignal and no timer APIs", () => {
+	const source = readFileSync(new URL("./review-git.ts", import.meta.url), "utf8");
+	assert.match(source, /signal\?\.throwIfAborted\(\)/u);
+	assert.doesNotMatch(source, /\b(?:setTimeout|setInterval|setImmediate|clearTimeout|clearInterval)\b/u);
 });
 
 test("bounded Git capture rejects oversized staged output", async () => {

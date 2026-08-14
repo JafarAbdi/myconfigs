@@ -2,15 +2,28 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { RunAgentOptions } from "../subagent/run-agent.ts";
 import type { RunResult } from "../subagent/runtimes.ts";
+import type { ReviewView } from "./review-git.ts";
 import {
 	buildReviewIntentPrompt,
 	parseReviewIntentResult,
 	registerReviewIntentResultTool,
 	REVIEW_INTENT_MODEL,
 	REVIEW_INTENT_RESULT_TOOL,
+	REVIEW_INTENT_SCHEMA,
 	runReviewIntent,
 	type ReviewPathInventory,
 } from "./review-intent.ts";
+
+interface RegisteredIntentTool {
+	name: string;
+	parameters: typeof REVIEW_INTENT_SCHEMA;
+	constrainedSampling: { strict: string };
+	execute(toolCallId: string, params: { view: ReviewView; paths: string[] | null }): Promise<{
+		content: unknown[];
+		details: unknown;
+		terminate: boolean;
+	}>;
+}
 
 const INVENTORY: ReviewPathInventory = {
 	staged: ["src/a.ts", "src/mixed.ts"],
@@ -156,9 +169,10 @@ test("runReviewIntent reports child failure without accepting output", async () 
 });
 
 test("registers one terminating structured result tool", async () => {
-	let tool: any;
+	let tool!: RegisteredIntentTool;
+	// SAFETY: registerReviewIntentResultTool only calls pi.registerTool; the fake below implements no other ExtensionAPI member.
 	registerReviewIntentResultTool({
-		registerTool(value: unknown) { tool = value; },
+		registerTool(value: RegisteredIntentTool) { tool = value; },
 	} as never);
 	assert.equal(tool.name, REVIEW_INTENT_RESULT_TOOL);
 	assert.deepEqual(Object.keys(tool.parameters.properties), ["view", "paths"]);

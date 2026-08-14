@@ -64,40 +64,51 @@ export interface RunAuditInput {
 
 const MAX_AUDIT_OUTPUT_BYTES = 1024 * 1024;
 
-function record(value: unknown, label: string): Record<string, unknown> {
-	if (value === null || typeof value !== "object" || Array.isArray(value))
-		throw new Error(`${label} must be an object`);
-	return value as Record<string, unknown>;
+interface AuditFindingPayload {
+	filePath: string;
+	side: ReviewSide;
+	line: number;
+	message: string;
 }
 
-function exactKeys(value: Record<string, unknown>, keys: readonly string[], label: string): void {
-	if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.hasOwn(value, key)))
-		throw new Error(`${label} has invalid fields`);
+interface AuditResponsePayload {
+	findings: unknown[];
 }
 
 function parseFindings(output: string, reviewer: AuditReviewer): AuditFinding[] {
 	if (Buffer.byteLength(output, "utf8") > MAX_AUDIT_OUTPUT_BYTES)
 		throw new Error(`audit response exceeds ${MAX_AUDIT_OUTPUT_BYTES} bytes`);
-	let value: unknown;
+	let decoded: unknown;
 	try {
-		value = JSON.parse(output);
+		decoded = JSON.parse(output);
 	} catch {
 		throw new Error("audit response is not valid JSON");
 	}
-	const response = record(value, "audit response");
-	exactKeys(response, ["findings"], "audit response");
+	if (decoded === null || decoded === undefined || Array.isArray(decoded) || decoded.constructor !== Object)
+		throw new Error("audit response must be an object");
+	// SAFETY: the key and field checks below validate this shape before any value is read.
+	const response = decoded as AuditResponsePayload;
+	if (Object.keys(response).length !== 1 || !Object.hasOwn(response, "findings"))
+		throw new Error("audit response has invalid fields");
 	if (!Array.isArray(response.findings) || response.findings.length > MAX_AUDIT_FINDINGS)
 		throw new Error(`audit findings must be an array with at most ${MAX_AUDIT_FINDINGS} items`);
 	const findings = response.findings.map((item): AuditFinding => {
-		const finding = record(item, "audit finding");
-		exactKeys(finding, ["filePath", "side", "line", "message"], "audit finding");
-		if (typeof finding.filePath !== "string")
+		if (item === null || item === undefined || Array.isArray(item) || item.constructor !== Object)
+			throw new Error("audit finding must be an object");
+		// SAFETY: the key and field checks below validate this shape before any value is read.
+		const finding = item as AuditFindingPayload;
+		if (
+			Object.keys(finding).length !== 4 ||
+			!Object.hasOwn(finding, "filePath") || !Object.hasOwn(finding, "side") ||
+			!Object.hasOwn(finding, "line") || !Object.hasOwn(finding, "message")
+		) throw new Error("audit finding has invalid fields");
+		if (finding.filePath?.constructor !== String)
 			throw new Error("audit finding filePath must be a string");
 		if (finding.side !== "additions" && finding.side !== "deletions")
 			throw new Error("audit finding side must be additions or deletions");
-		if (!Number.isSafeInteger(finding.line) || (finding.line as number) < 1)
+		if (!Number.isSafeInteger(finding.line) || finding.line < 1)
 			throw new Error("audit finding line must be a positive integer");
-		if (typeof finding.message !== "string")
+		if (finding.message?.constructor !== String)
 			throw new Error(`audit finding message must contain 1-${MAX_MESSAGE_LENGTH} characters`);
 		const messageLength = [...finding.message].length;
 		if (messageLength < 1 || messageLength > MAX_MESSAGE_LENGTH)
@@ -105,8 +116,8 @@ function parseFindings(output: string, reviewer: AuditReviewer): AuditFinding[] 
 		return {
 			category: reviewer.category,
 			filePath: finding.filePath,
-			side: finding.side as ReviewSide,
-			line: finding.line as number,
+			side: finding.side,
+			line: finding.line,
 			message: finding.message,
 		};
 	});
@@ -185,11 +196,9 @@ function nativeClaude(reviewer: AuditReviewer): NativeClaudeOptions | undefined 
 }
 
 function inherited(reviewer: AuditReviewer, sessionDir: string, sessionId: string): Inherited {
-	return {
-		sessionDir,
-		sessionId,
-		...(reviewer.thinking ? { thinkingLevel: reviewer.thinking } : {}),
-	};
+	const result: Inherited = { sessionDir, sessionId };
+	if (reviewer.thinking) result.thinkingLevel = reviewer.thinking;
+	return result;
 }
 
 export interface RunAuditDependencies {
@@ -198,10 +207,10 @@ export interface RunAuditDependencies {
 	sessionId?: () => string;
 }
 
-function reviewerFailure(reviewer: AuditReviewer, error: unknown): Error {
+function reviewerFailure(reviewer: AuditReviewer, cause: unknown): Error {
 	return new Error(
-		`${reviewer.name} reviewer failed: ${error instanceof Error ? error.message : String(error)}`,
-		{ cause: error },
+		`${reviewer.name} reviewer failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+		{ cause },
 	);
 }
 
