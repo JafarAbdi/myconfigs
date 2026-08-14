@@ -1,17 +1,21 @@
 # yo
 
-Yosh-style `yo` for Fish + WezTerm, powered by the Pi CLI.
+Yosh-style `yo` for Fish and WezTerm, backed directly by llama.cpp's
+OpenAI-compatible Chat Completions API.
 
 Credit: [Yosh](https://github.com/pizlonator/yosh) is the original LLM-enabled
-Bash/Readline shell. `yo` ports its core workflow to Fish: ask in natural
-language, get a command prefilled for review or a chat answer printed inline.
+Bash/Readline shell. `yo` asks in natural language, then either streams a short
+answer or prefills a Fish command for review.
 
-## Assumptions
+## Requirements
 
 - Fish shell
 - WezTerm with `$WEZTERM_PANE`
-- `$XDG_RUNTIME_DIR`
-- `pi`, `jq`, and `wezterm` in `PATH`
+- [`uv`](https://docs.astral.sh/uv/)
+- `llama-server` with `--jinja` and the `qwen38-instruct` alias
+
+The server URL, model, sampling parameters, prompt, and OpenAI tool schemas live
+in [`yo.py`](yo.py). The script has no Python package dependencies.
 
 ## Install
 
@@ -26,22 +30,12 @@ source ~/myconfigs/yo/yo.fish
 ```fish
 yo find files larger than 100MB
 yo why did that command fail?
-yo reset
+yo what does set -gx do?
 ```
 
-Behavior:
+Commands are prefilled but never executed automatically. Knowledge answers
+stream directly. The model can request up to 200 recent lines from the current
+WezTerm pane when a question depends on terminal context.
 
-- Commands are prefilled into Fish, never executed automatically.
-- Chat answers print directly.
-- Scrollback is only sent when the model requests it.
-- Pending multi-step tasks auto-continue after the next command finishes.
-- `yo reset` clears this pane's state and Pi session.
-- `PI_CODING_AGENT_DIR` is passed only to the spawned Pi process.
-
-Runtime files live in:
-
-```text
-$XDG_RUNTIME_DIR/yo-fish/
-```
-
-On failure, `yo` keeps the filtered Pi events and stderr under `$XDG_RUNTIME_DIR/yo-fish/`.
+Each invocation is independent: there are no sessions, runtime files, shell
+event hooks, or automatic multi-step continuations.
