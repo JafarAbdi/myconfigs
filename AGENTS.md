@@ -23,6 +23,7 @@ Before finishing an edit:
 - Model data so bad states can't be built — a closed set of variant shapes beats one wide record whose fields are only valid in certain combinations.
 - Handle every case explicitly; avoid catch-all defaults, so a new variant breaks the build or a test instead of slipping through.
 - Make the risky path the one you have to name: the safe/total operation is the default, the fallible or throwing variant is explicitly named.
+- Enforce boundaries with visibility and types, not convention — route access through one entry point and make bypassing it fail to compile, don't just discourage it.
 
 ## Subprocess discipline
 - Pass command arguments as a list and input over stdin, never as an assembled shell string.
@@ -31,6 +32,7 @@ Before finishing an edit:
 ## Simplicity
 - Simplest implementation that meets today's requirements — no speculative abstraction, config, or indirection.
 - Grow in working layers; never trade a working product for unfinished complexity.
+- Fix problems at the source — change the earliest stage that can address the root cause, not downstream symptoms; the more central the code, the more scrutiny a change needs.
 - No backward-compat layers, fallbacks, or migrations — this project has no released API, so delete obsolete paths.
 - Reuse existing dependencies and platform APIs before adding or reimplementing — check their docs first.
 - Brevity, and one way of doing things — prefer a single implementation file; refactor rather than accumulate.
