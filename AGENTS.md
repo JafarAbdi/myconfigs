@@ -19,6 +19,11 @@ Before finishing an edit:
 - Consume another tool's human-facing output verbatim; never parse it for control flow.
 - Never parse or classify command strings to decide what they do.
 
+## Make invalid states unrepresentable
+- Model data so bad states can't be built — a closed set of variant shapes beats one wide record whose fields are only valid in certain combinations.
+- Handle every case explicitly; avoid catch-all defaults, so a new variant breaks the build or a test instead of slipping through.
+- Make the risky path the one you have to name: the safe/total operation is the default, the fallible or throwing variant is explicitly named.
+
 ## Subprocess discipline
 - Pass command arguments as a list and input over stdin, never as an assembled shell string.
 - Never sleep, busy-wait, or poll to synchronize — in code or in tests. Block on the right synchronization primitive (or restructure) so it fires when the work is actually done.
@@ -29,5 +34,6 @@ Before finishing an edit:
 - No backward-compat layers, fallbacks, or migrations — this project has no released API, so delete obsolete paths.
 - Reuse existing dependencies and platform APIs before adding or reimplementing — check their docs first.
 - Brevity, and one way of doing things — prefer a single implementation file; refactor rather than accumulate.
+- Keep edits local — a change should stay near the code it affects, not fan out across the tree; keep definitions discoverable by name.
 - Keep components modular, with concerns separated.
 - Decide for the long term — no stopgaps meant to be replaced.
