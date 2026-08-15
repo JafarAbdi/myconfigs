@@ -10,7 +10,7 @@ import {
 	type ExtensionContext,
 	type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { Loader, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import {
@@ -49,6 +49,7 @@ import {
 import { taskStatus } from "./widget.ts";
 
 const WIDGET = "task";
+const ACTIVITY = "task-activity";
 const TASK_MARKER = "task-context";
 const MARKER_VERSION = 1;
 const TASK_MODEL = { provider: "openai-codex", id: "gpt-5.6-luna" };
@@ -140,6 +141,27 @@ function parsePlanArgument(argument: string): string {
 export default function taskExtension(pi: ExtensionAPI): void {
 	const tasksRoot = (): string => join(getAgentDir(), "tasks");
 
+	const showActivity = (ctx: ExtensionContext, message: string): void => {
+		ctx.ui.setWidget(ACTIVITY, (tui, theme) => {
+			const loader = new Loader(
+				tui,
+				(text) => theme.fg("accent", text),
+				(text) => theme.fg("text", text),
+				`task · ${message}`,
+			);
+			loader.start();
+			return {
+				render: (width) => loader.render(width),
+				invalidate: () => loader.invalidate(),
+				dispose: () => loader.stop(),
+			};
+		});
+	};
+
+	const clearActivity = (ctx: ExtensionContext): void => {
+		ctx.ui.setWidget(ACTIVITY, undefined);
+	};
+
 	const showTask = (ctx: ExtensionContext, task: Task): void => {
 		const status = taskStatus(task);
 		ctx.ui.setWidget(WIDGET, (_tui, theme) => ({
@@ -187,6 +209,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		clearActivity(ctx);
 		syncTaskTools(ctx);
 		const marker = sessionMarker(ctx);
 		if (marker) showTask(ctx, readTask(tasksRoot(), marker.slug));
@@ -215,6 +238,12 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		plan: string,
 		excludedSlug?: string,
 	): Promise<GeneratedTask> => {
+		showActivity(
+			ctx,
+			excludedSlug
+				? `${excludedSlug} is occupied · generating another task`
+				: "generating task slug and phases",
+		);
 		const found = ctx.modelRegistry.find(TASK_MODEL.provider, TASK_MODEL.id);
 		if (!found) {
 			throw new Error(`${TASK_MODEL.provider}/${TASK_MODEL.id} is unavailable; /task requires it`);
@@ -349,6 +378,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		});
 		if (!result.cancelled) return;
 		rmSync(file, { force: true });
+		clearActivity(ctx);
 		ctx.ui.notify(`${name}: session switch cancelled`, "warning");
 	};
 
@@ -357,6 +387,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		task: Task,
 		phase: Phase,
 	): Promise<void> => {
+		showActivity(ctx, `${task.slug} · opening ${phase.name}`);
 		const plan = readPlan(task);
 		const marker: TaskMarker = {
 			version: MARKER_VERSION,
@@ -378,6 +409,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 			await openPhase(ctx, task, phase);
 			return;
 		}
+		showActivity(ctx, `${task.slug} · opening completed worktree`);
 		await switchForegroundSession(ctx, task, `${task.slug} · complete`);
 	};
 
@@ -385,11 +417,14 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		ctx: ExtensionCommandContext,
 		argument: string,
 	): Promise<void> => {
+		showActivity(ctx, "reading plan");
 		const planPath = resolve(ctx.cwd, parsePlanArgument(argument));
 		const plan = readPlanFile(planPath);
+		showActivity(ctx, "checking repository HEAD");
 		const repository = repositoryRoot(ctx.cwd);
 		requireHead(repository);
 		const generated = await generateAvailableTask(ctx, repository, plan);
+		showActivity(ctx, `${generated.slug} · preparing task`);
 		const prepared = prepareTaskCreation(
 			tasksRoot(),
 			generated.slug,
@@ -400,8 +435,10 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		const worktree = worktreePath(prepared.task);
 		let added = false;
 		try {
+			showActivity(ctx, `${generated.slug} · creating worktree`);
 			addWorktree(repository, worktree, generated.slug);
 			added = true;
+			showActivity(ctx, `${generated.slug} · writing TASK.md`);
 			const task = commitTaskCreation(prepared);
 			const firstPhase = task.phases[0];
 			if (!firstPhase) throw new Error(`${task.slug}: generated task has no phases`);
@@ -441,6 +478,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 				if (argument.trim()) await createNewTask(ctx, argument);
 				else await openPicker(ctx);
 			} catch (cause) {
+				clearActivity(ctx);
 				ctx.ui.notify(errorMessage(cause), "error");
 			}
 		},
@@ -452,6 +490,7 @@ export default function taskExtension(pi: ExtensionAPI): void {
 			try {
 				if (argument.trim()) throw new Error(`/${ADVANCE_TASK_COMMAND} takes no arguments`);
 				await ctx.waitForIdle();
+				showActivity(ctx, "checking phase progress");
 				const marker = sessionMarker(ctx);
 				if (!marker) throw new Error("no completed task phase is attached to this session");
 				const task = readTask(tasksRoot(), marker.slug);
@@ -465,8 +504,10 @@ export default function taskExtension(pi: ExtensionAPI): void {
 				}
 				showTask(ctx, task);
 				syncTaskTools(ctx);
+				clearActivity(ctx);
 				ctx.ui.notify(`${task.slug} is complete`, "info");
 			} catch (cause) {
+				clearActivity(ctx);
 				ctx.ui.notify(errorMessage(cause), "error");
 			}
 		},
