@@ -1,359 +1,467 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-	artifactPath,
-	createPhase,
+	commitTaskCreation,
 	createTask,
-	currentStage,
+	discardTaskCreation,
+	finishPhase,
 	isSlug,
-	listPhases,
 	listTasks,
+	MAX_SLUG_LENGTH,
+	MAX_TITLE_LENGTH,
 	nextOpenPhase,
-	parsePhase,
-	phaseFileName,
-	isStage,
-	planPath,
-	questionsPath,
+	prepareTaskCreation,
+	readPlan,
 	readTask,
-	researchPath,
-	serializePhase,
-	setPhaseStatus,
-	stageComplete,
-	submitArtifact,
-	STAGES,
+	taskDir,
+	taskPath,
 	taskProgress,
-	type PhaseHeader,
-	type TaskHeader,
+	taskState,
+	worktreePath,
+	type Phase,
+	type PhaseInput,
+	type Task,
 } from "./tasks.ts";
 
-function withPhases(files: Record<string, string>, run: (directory: string) => void): void {
-	const directory = mkdtempSync(join(tmpdir(), "pi-task-test-"));
+const INPUTS: readonly PhaseInput[] = [
+	{ name: "runtime", title: "Runtime", body: "Build the runtime.\n\n- Verify startup." },
+	{ name: "tests", title: "Tests", body: "Cover the public behavior." },
+];
+
+interface Fixture {
+	base: string;
+	root: string;
+	plan: string;
+	repository: string;
+}
+
+interface TestState {
+	version: 1;
+	slug: string;
+	plan: string;
+	repository: string;
+	phases: Phase[];
+}
+
+function entry(path: string) {
+	return lstatSync(path, { throwIfNoEntry: false });
+}
+
+function withFixture(run: (fixture: Fixture) => void): void {
+	const base = mkdtempSync(join(tmpdir(), "pi-tasks-test-"));
+	const fixture = {
+		base,
+		root: join(base, "tasks"),
+		plan: join(base, "PLAN.md"),
+		repository: join(base, "repo"),
+	};
 	try {
-		mkdirSync(join(directory, "phases"), { recursive: true });
-		for (const [name, content] of Object.entries(files)) {
-			writeFileSync(join(directory, "phases", name), content);
+		mkdirSync(fixture.repository);
+		writeFileSync(fixture.plan, "# Approved plan\n\nShip it.\n");
+		run(fixture);
+	} finally {
+		rmSync(base, { recursive: true, force: true });
+	}
+}
+
+function stateOf(task: Task): TestState {
+	return {
+		version: task.version,
+		slug: task.slug,
+		plan: task.plan,
+		repository: task.repository,
+		phases: task.phases,
+	};
+}
+
+function renderMarkdown(state: TestState): string {
+	const checklist = state.phases
+		.map((phase) => `- [${phase.status === "done" ? "x" : " "}] ${phase.name} — ${phase.title}`)
+		.join("\n");
+	const sections = state.phases
+		.map((phase) => `## ${phase.name} — ${phase.title}\n\n${phase.body}`)
+		.join("\n\n");
+	return `# ${state.slug}\n\nPlan: ${state.plan}\n\n## Phases\n\n${checklist}\n\n${sections}\n`;
+}
+
+function document(state: TestState, markdown = renderMarkdown(state)): string {
+	return `---\n${JSON.stringify(state)}\n---\n${markdown}`;
+}
+
+function createFixtureTask(fixture: Fixture, slug = "joint-rail"): Task {
+	return createTask(fixture.root, slug, fixture.plan, fixture.repository, INPUTS);
+}
+
+function assertMissing(path: string): void {
+	assert.equal(entry(path), undefined, path);
+}
+
+test("slugs and public limits are strict", () => {
+	assert.equal(MAX_SLUG_LENGTH, 48);
+	assert.equal(MAX_TITLE_LENGTH, 72);
+	assert.equal(isSlug("a".repeat(MAX_SLUG_LENGTH)), true);
+	for (const value of [
+		"",
+		"Joint-Rail",
+		"joint rail",
+		"joint--rail",
+		"-joint",
+		"joint-",
+		"../joint",
+		"a/b",
+		"a".repeat(MAX_SLUG_LENGTH + 1),
+	]) {
+		assert.equal(isSlug(value), false, String(value));
+	}
+});
+
+test("creation writes one canonical TASK.md with a visible checklist", () => {
+	withFixture((fixture) => {
+		const task = createFixtureTask(fixture);
+		const expectedState = stateOf(task);
+		const expectedMarkdown = [
+			"# joint-rail",
+			"",
+			`Plan: ${fixture.plan}`,
+			"",
+			"## Phases",
+			"",
+			"- [ ] 01-runtime — Runtime",
+			"- [ ] 02-tests — Tests",
+			"",
+			"## 01-runtime — Runtime",
+			"",
+			"Build the runtime.",
+			"",
+			"- Verify startup.",
+			"",
+			"## 02-tests — Tests",
+			"",
+			"Cover the public behavior.",
+			"",
+		].join("\n");
+
+		assert.equal(task.directory, taskDir(fixture.root, "joint-rail"));
+		assert.equal(taskPath(task), join(task.directory, "TASK.md"));
+		assert.deepEqual(readdirSync(task.directory), ["TASK.md"]);
+		assert.equal(readFileSync(taskPath(task), "utf8"), document(expectedState, expectedMarkdown));
+		assert.deepEqual(readTask(fixture.root, task.slug), task);
+		assert.deepEqual(taskState(task), { kind: "implementation", phase: task.phases[0] });
+		assert.equal(nextOpenPhase(task)?.name, "01-runtime");
+		assert.deepEqual(taskProgress(task), { done: 0, total: 2 });
+	});
+});
+
+test("malformed structured front matter and noncanonical JSON fail loudly", () => {
+	withFixture((fixture) => {
+		const task = createFixtureTask(fixture);
+		const valid = stateOf(task);
+		const cases: readonly [string, RegExp][] = [
+			["not a task", /exact front matter delimiter/],
+			["---\nnot json\n---\n", /structured header: is not JSON/],
+			["---\n{}\nnot-close\n", /exact delimiter/],
+			[
+				`---\n ${JSON.stringify(valid)}\n---\n${renderMarkdown(valid)}`,
+				/not canonical JSON/,
+			],
+		];
+		for (const [content, expected] of cases) {
+			writeFileSync(taskPath(task), content);
+			assert.throws(() => readTask(fixture.root, task.slug), expected);
 		}
-		run(directory);
-	} finally {
-		rmSync(directory, { recursive: true, force: true });
-	}
-}
-
-function withRoot(run: (root: string) => void): void {
-	const root = mkdtempSync(join(tmpdir(), "pi-tasks-test-"));
-	try {
-		run(root);
-	} finally {
-		rmSync(root, { recursive: true, force: true });
-	}
-}
-
-const OPEN: PhaseHeader = { title: "lifecycle broker", status: "open" };
-const HEADER: TaskHeader = { repository: "/repo", base: "main", description: "make the rail joint" };
-
-test("a slug is exactly what is safe as a branch, a directory, and a key", () => {
-	assert.equal(isSlug("joint-rail"), true);
-	assert.equal(isSlug("phase-01"), true);
-	assert.equal(isSlug(""), false);
-	assert.equal(isSlug("Joint-Rail"), false);
-	assert.equal(isSlug("joint rail"), false);
-	assert.equal(isSlug("joint--rail"), false);
-	assert.equal(isSlug("-joint"), false);
-	assert.equal(isSlug("joint-"), false);
-	assert.equal(isSlug("../escape"), false);
-	assert.equal(isSlug("a/b"), false);
-	assert.equal(isSlug("x".repeat(49)), false);
-});
-
-test("a serialized phase round-trips its header and body verbatim", () => {
-	const body = "What this phase accomplishes.\n\n- `src/a.ts` around line 40: add the broker\n";
-	const phase = parsePhase("01-lifecycle-broker.md", serializePhase(OPEN, body));
-	assert.equal(phase.name, "01-lifecycle-broker");
-	assert.equal(phase.title, "lifecycle broker");
-	assert.equal(phase.status, "open");
-	assert.equal(phase.body, body);
-});
-
-test("a hand-written phase file is read the same as a generated one", () => {
-	const phase = parsePhase("02-robot.md", '{"title":"robot separation","status":"done"}\n\nBody text.\n');
-	assert.equal(phase.status, "done");
-	assert.equal(phase.body, "Body text.\n");
-});
-
-test("a header-only phase file has an empty body", () => {
-	assert.equal(parsePhase("01-x.md", '{"title":"x","status":"open"}').body, "");
-	assert.equal(parsePhase("01-x.md", '{"title":"x","status":"open"}\n').body, "");
-});
-
-test("a broken header fails loudly instead of being guessed at", () => {
-	assert.throws(() => parsePhase("01-x.md", "# not json\n\nbody"), /not JSON/);
-	assert.throws(() => parsePhase("01-x.md", '{"title":"x"}\n\nbody'), /must be/);
-	assert.throws(() => parsePhase("01-x.md", '{"title":"x","status":"working"}\n'), /must be/);
-	assert.throws(() => parsePhase("01-x.md", '["x","open"]\n'), /must be/);
-});
-
-test("phase order is the filename, not the write order", () => {
-	withPhases(
-		{
-			"03-joint-rail.md": serializePhase({ title: "joint rail", status: "open" }, "third"),
-			"01-lifecycle-broker.md": serializePhase(OPEN, "first"),
-			"02-robot.md": serializePhase({ title: "robot separation", status: "done" }, "second"),
-			"notes.txt": "ignored",
-		},
-		(directory) => {
-			assert.deepEqual(
-				listPhases(directory).map((phase) => phase.name),
-				["01-lifecycle-broker", "02-robot", "03-joint-rail"],
-			);
-		},
-	);
-});
-
-test("listing phases of a task that has none yet is empty, not an error", () => {
-	const directory = mkdtempSync(join(tmpdir(), "pi-task-test-"));
-	try {
-		assert.deepEqual(listPhases(directory), []);
-	} finally {
-		rmSync(directory, { recursive: true, force: true });
-	}
-});
-
-test("one broken phase file fails the whole read: progress must never be a guess", () => {
-	withPhases(
-		{ "01-a.md": serializePhase(OPEN, "a"), "02-b.md": "oops" },
-		(directory) => assert.throws(() => listPhases(directory), /02-b\.md/),
-	);
-});
-
-test("phase file names are numbered by position", () => {
-	assert.equal(phaseFileName(1, "lifecycle-broker"), "01-lifecycle-broker.md");
-	assert.equal(phaseFileName(12, "joint-rail"), "12-joint-rail.md");
-});
-
-test("a created task reads back as it was written", () => {
-	withRoot((root) => {
-		createTask(root, "joint-rail", HEADER);
-		const task = readTask(root, "joint-rail");
-		assert.deepEqual(task.header, HEADER);
-		assert.deepEqual(task.phases, []);
-		assert.equal(task.directory, join(root, "joint-rail"));
 	});
 });
 
-test("a fresh tasks root is created without weakening the slug claim", () => {
-	const parent = mkdtempSync(join(tmpdir(), "pi-tasks-parent-test-"));
-	const root = join(parent, "tasks");
-	try {
-		createTask(root, "joint-rail", HEADER);
-		assert.deepEqual(readTask(root, "joint-rail").header, HEADER);
-		assert.throws(() => createTask(root, "joint-rail", HEADER), /EEXIST/);
-	} finally {
-		rmSync(parent, { recursive: true, force: true });
-	}
-});
-
-test("a slug is claimed once: creating it twice fails rather than reusing a branch name", () => {
-	withRoot((root) => {
-		createTask(root, "joint-rail", HEADER);
-		assert.throws(() => createTask(root, "joint-rail", HEADER), /EEXIST/);
+test("persisted fields, phase ordering, and exact keys are validated", () => {
+	withFixture((fixture) => {
+		const task = createFixtureTask(fixture);
+		const valid = stateOf(task);
+		const [firstPhase, secondPhase] = valid.phases;
+		assert.ok(firstPhase);
+		assert.ok(secondPhase);
+		const extra = { ...valid, extra: true };
+		const cases: readonly [object, RegExp][] = [
+			[{ ...valid, version: 2 }, /"version" must equal 1/],
+			[{ ...valid, slug: "other" }, /does not match directory/],
+			[{ ...valid, plan: "relative.md" }, /"plan": must be an absolute path/],
+			[{ ...valid, repository: "/" }, /"repository": must identify.*basename/],
+			[{ ...valid, phases: [] }, /"phases" must contain at least one/],
+			[
+				{ ...valid, phases: [{ ...firstPhase, name: "02-runtime" }] },
+				/expected contiguous phase index 01/,
+			],
+			[
+				{
+					...valid,
+					phases: [firstPhase, { ...secondPhase, name: "02-runtime" }],
+				},
+				/duplicate unnumbered name runtime/,
+			],
+			[
+				{
+					...valid,
+					phases: [
+						{ ...firstPhase, status: "open" },
+						{ ...secondPhase, status: "done" },
+					],
+				},
+				/done cannot follow an open phase/,
+			],
+			[extra, /must contain exactly/],
+		];
+		for (const [state, expected] of cases) {
+			writeFileSync(taskPath(task), `---\n${JSON.stringify(state)}\n---\ninvalid projection`);
+			assert.throws(() => readTask(fixture.root, task.slug), expected);
+		}
 	});
 });
 
-test("malformed task JSON names the task file", () => {
-	withRoot((root) => {
-		createTask(root, "joint-rail", HEADER);
-		writeFileSync(join(root, "joint-rail", "task.json"), "{ nope\n");
-		assert.throws(() => readTask(root, "joint-rail"), /joint-rail\/task\.json: is not JSON/);
-	});
-});
-
-test("a task header names its first invalid field", () => {
-	withRoot((root) => {
-		createTask(root, "joint-rail", HEADER);
-		const file = join(root, "joint-rail", "task.json");
-		for (const [text, field] of [
-			["[]", "repository"],
-			['{"repository":1}', "repository"],
-			['{"repository":"/repo","base":false}', "base"],
-			['{"repository":"/repo","base":"main"}', "description"],
+test("Markdown is only an exact projection of structured state", () => {
+	withFixture((fixture) => {
+		const task = createFixtureTask(fixture);
+		const state = stateOf(task);
+		for (const markdown of [
+			renderMarkdown(state).replace("- [ ] 01-runtime", "- [x] 01-runtime"),
+			renderMarkdown(state).replace("Build the runtime.", "Edited prose."),
+			renderMarkdown(state).replace("# joint-rail", "# another-task"),
 		]) {
-			writeFileSync(file, text);
-			assert.throws(() => readTask(root, "joint-rail"), new RegExp(`"${field}" must be`));
+			writeFileSync(taskPath(task), document(state, markdown));
+			assert.throws(() => readTask(fixture.root, task.slug), /Markdown projection does not match/);
 		}
 	});
 });
 
-test("phases created through the model-facing path are numbered, ordered, and flippable", () => {
-	withRoot((root) => {
-		createTask(root, "joint-rail", HEADER);
-		createPhase(readTask(root, "joint-rail"), "lifecycle-broker", "lifecycle broker", "first");
-		createPhase(readTask(root, "joint-rail"), "robot-separation", "robot separation", "second");
-		const created = readTask(root, "joint-rail");
-		assert.deepEqual(created.phases.map((phase) => phase.file), [
-			"01-lifecycle-broker.md",
-			"02-robot-separation.md",
-		]);
-		assert.equal(nextOpenPhase(created)?.name, "01-lifecycle-broker");
-		assert.deepEqual(taskProgress(created), { done: 0, total: 2 });
-
-		setPhaseStatus(created, "01-lifecycle-broker", "done");
-		const advanced = readTask(root, "joint-rail");
-		assert.equal(nextOpenPhase(advanced)?.name, "02-robot-separation");
-		assert.deepEqual(taskProgress(advanced), { done: 1, total: 2 });
-
-		setPhaseStatus(advanced, "02-robot-separation", "done");
-		const finished = readTask(root, "joint-rail");
-		assert.equal(nextOpenPhase(finished), undefined);
-		assert.deepEqual(taskProgress(finished), { done: 2, total: 2 });
-	});
-});
-
-test("a maximum-length phase slug remains addressable after numbering", () => {
-	withRoot((root) => {
-		const task = createTask(root, "joint-rail", HEADER);
-		const phase = createPhase(task, "x".repeat(48), "long phase", "body");
-		assert.equal(phase.name, `01-${"x".repeat(48)}`);
-		assert.equal(setPhaseStatus(readTask(root, "joint-rail"), phase.name, "done").status, "done");
-	});
-});
-
-test("phase numbers come from the files, not the count", () => {
-	withRoot((root) => {
-		createTask(root, "joint-rail", HEADER);
-		for (const name of ["a", "b", "c"]) {
-			createPhase(readTask(root, "joint-rail"), name, name, "");
+test("all creation input is validated before the tasks root is created", () => {
+	withFixture((fixture) => {
+		const blankPlan = join(fixture.base, "blank.md");
+		writeFileSync(blankPlan, " \n");
+		const missingPlan = join(fixture.base, "missing.md");
+		const nonStringBody = { name: "runtime", title: "Runtime", body: "body" } satisfies PhaseInput;
+		const extraProperty = { name: "runtime", title: "Runtime", body: "body" } satisfies PhaseInput;
+		Reflect.set(nonStringBody, "body", 1);
+		Reflect.set(extraProperty, "extra", true);
+		const [firstInput, secondInput] = INPUTS;
+		assert.ok(firstInput);
+		assert.ok(secondInput);
+		const duplicate = [firstInput, { ...secondInput, name: firstInput.name }];
+		const calls: readonly [() => void, RegExp][] = [
+			[
+				() => createTask(join(fixture.base, "root-1"), "../bad", fixture.plan, fixture.repository, INPUTS),
+				/invalid task slug/,
+			],
+			[
+				() => createTask(join(fixture.base, "root-2"), "task", "relative", fixture.repository, INPUTS),
+				/"plan": must be an absolute path/,
+			],
+			[
+				() => createTask(join(fixture.base, "root-3"), "task", fixture.plan, "relative", INPUTS),
+				/"repository": must be an absolute path/,
+			],
+			[
+				() => createTask(join(fixture.base, "root-4"), "task", missingPlan, fixture.repository, INPUTS),
+				/file does not exist/,
+			],
+			[
+				() => createTask(join(fixture.base, "root-5"), "task", blankPlan, fixture.repository, INPUTS),
+				/plan: must be a nonblank string/,
+			],
+			[
+				() => createTask(join(fixture.base, "root-6"), "task", fixture.plan, fixture.repository, []),
+				/at least one phase/,
+			],
+			[
+				() => createTask(join(fixture.base, "root-7"), "task", fixture.plan, fixture.repository, [
+					{ name: "01-runtime", title: "Runtime", body: "body" },
+				]),
+				/must not include a numeric phase prefix/,
+			],
+			[
+				() => createTask(join(fixture.base, "root-8"), "task", fixture.plan, fixture.repository, duplicate),
+				/duplicate unnumbered name/,
+			],
+			[
+				() => createTask(join(fixture.base, "root-9"), "task", fixture.plan, fixture.repository, [
+					{ name: "runtime", title: "x".repeat(MAX_TITLE_LENGTH + 1), body: "body" },
+				]),
+				/at most 72 characters/,
+			],
+			[
+				() => createTask(join(fixture.base, "root-10"), "task", fixture.plan, fixture.repository, [
+					{ name: "runtime", title: "Runtime", body: " \n" },
+				]),
+				/\.body: must be a nonblank string/,
+			],
+			[
+				() => createTask(
+					join(fixture.base, "root-11"),
+					"task",
+					fixture.plan,
+					fixture.repository,
+					[nonStringBody],
+				),
+				/\.body: must be a nonblank string/,
+			],
+			[
+				() => createTask(
+					join(fixture.base, "root-12"),
+					"task",
+					fixture.plan,
+					fixture.repository,
+					[extraProperty],
+				),
+				/must contain exactly/,
+			],
+		];
+		for (const [index, [call, expected]] of calls.entries()) {
+			assert.throws(call, expected);
+			assertMissing(join(fixture.base, `root-${index + 1}`));
 		}
-		rmSync(join(root, "joint-rail", "phases", "02-b.md"));
-		createPhase(readTask(root, "joint-rail"), "d", "d", "");
-		assert.deepEqual(
-			readTask(root, "joint-rail").phases.map((phase) => phase.name),
-			["01-a", "03-c", "04-d"],
+	});
+});
+
+test("a prepared creation owns the slug claim until commit or discard", () => {
+	withFixture((fixture) => {
+		const winner = prepareTaskCreation(
+			fixture.root,
+			"joint-rail",
+			fixture.plan,
+			fixture.repository,
+			INPUTS,
 		);
-	});
-});
-
-test("a name another phase already uses is not a collision: the numbers keep them apart", () => {
-	withRoot((root) => {
-		createTask(root, "joint-rail", HEADER);
-		createPhase(readTask(root, "joint-rail"), "joint-rail", "joint rail", "");
-		createPhase(readTask(root, "joint-rail"), "rail", "rail", "");
-		assert.deepEqual(
-			readTask(root, "joint-rail").phases.map((phase) => phase.name),
-			["01-joint-rail", "02-rail"],
-		);
-	});
-});
-
-test("a phase name that is not a slug is refused: it becomes a file name", () => {
-	withRoot((root) => {
-		const task = createTask(root, "joint-rail", HEADER);
-		assert.throws(() => createPhase(task, "../escape", "escape", ""), /invalid phase name/);
-		assert.throws(() => createPhase(task, "Joint Rail", "joint rail", ""), /invalid phase name/);
-	});
-});
-
-test("an unknown phase names the ones that exist instead of failing blankly", () => {
-	withRoot((root) => {
-		createTask(root, "joint-rail", HEADER);
-		createPhase(readTask(root, "joint-rail"), "lifecycle-broker", "lifecycle broker", "first");
+		assertMissing(winner.task.directory);
+		assert.notEqual(entry(winner.stagedDirectory), undefined);
+		assert.deepEqual(readdirSync(winner.stagedDirectory), ["TASK.md"]);
 		assert.throws(
-			() => setPhaseStatus(readTask(root, "joint-rail"), "02-robot", "done"),
-			/01-lifecycle-broker/,
+			() => prepareTaskCreation(
+				fixture.root,
+				"joint-rail",
+				fixture.plan,
+				fixture.repository,
+				INPUTS,
+			),
+			/EEXIST/,
 		);
-	});
-});
+		assert.notEqual(entry(winner.stagedDirectory), undefined);
+		assert.deepEqual(commitTaskCreation(winner), winner.task);
+		assertMissing(winner.stagedDirectory);
 
-test("one broken task costs only itself", () => {
-	withRoot((root) => {
-		createTask(root, "joint-rail", HEADER);
-		mkdirSync(join(root, "broken"));
-		writeFileSync(join(root, "broken", "task.json"), "{}");
-		const catalog = listTasks(root);
-		assert.deepEqual(catalog.tasks.map((task) => task.slug), ["joint-rail"]);
-		assert.equal(catalog.broken.length, 1);
-		assert.match(catalog.broken[0]!, /^broken: /);
-	});
-});
-
-test("stage submissions choose their own fixed path and replace revisions", () => {
-	withRoot((root) => {
-		const task = createTask(root, "joint-rail", HEADER);
-		for (const [stage, path] of [
-			["questions", questionsPath],
-			["research", researchPath],
-			["design", planPath],
-		] as const) {
-			submitArtifact(task, stage, "first version");
-			submitArtifact(task, stage, "revised version\n");
-			assert.equal(artifactPath(task, stage), path(task));
-			assert.equal(readFileSync(path(task), "utf8"), "revised version\n");
-		}
-		assert.throws(() => submitArtifact(task, "phases", "not phases"), /phase tool/);
-		assert.throws(() => submitArtifact(task, "questions", "   "), /must not be blank/);
-	});
-});
-
-test("stage progress and completion share the artifacts on disk", () => {
-	withRoot((root) => {
-		// The model's artifacts live under notes/; task.json and phases/ are the extension's.
-		const write = (relative: string, text: string) =>
-			writeFileSync(join(root, "joint-rail", "notes", relative), text);
-		const state = () => readTask(root, "joint-rail");
-		const complete = () => {
-			const task = state();
-			return STAGES.filter((stage) => stageComplete(task, stage));
-		};
-
-		createTask(root, "joint-rail", HEADER);
-		assert.equal(currentStage(state()), "questions");
-		assert.deepEqual(complete(), []);
-
-		write("questions.md", "1. trace the flow\n");
-		assert.equal(currentStage(state()), "research");
-		assert.deepEqual(complete(), ["questions"]);
-
-		write("research.md", "Rails persist before ack.\n");
-		assert.equal(currentStage(state()), "design");
-
-		write("plan.md", "# Problem\n");
-		assert.equal(currentStage(state()), "phases");
-
-		createPhase(state(), "lifecycle-broker", "lifecycle broker", "first");
-		assert.equal(currentStage(state()), "implement");
-		assert.deepEqual(complete(), ["questions", "research", "design", "phases"]);
-
-		// Redoing a stage rewrites its artifact; nothing downstream is deleted, so the stage stays.
-		write("plan.md", "# Problem\n\nRewritten.\n");
-		assert.equal(currentStage(state()), "implement");
-
-		setPhaseStatus(state(), "01-lifecycle-broker", "done");
-		assert.equal(currentStage(state()), "implement");
-		assert.deepEqual(complete(), STAGES);
-	});
-});
-
-test("stage names round-trip the argument the operator types", () => {
-	for (const stage of STAGES) assert.equal(isStage(stage), true);
-	assert.equal(isStage("planning"), false);
-	assert.equal(isStage(""), false);
-});
-
-test("a status flip preserves the body exactly", () => {
-	withPhases({ "01-a.md": serializePhase(OPEN, "line one\n\n  indented\n") }, (directory) => {
-		const before = listPhases(directory)[0]!;
-		writeFileSync(
-			join(directory, "phases", before.file),
-			serializePhase({ title: before.title, status: "done" }, before.body),
+		const corrupted = prepareTaskCreation(
+			fixture.root,
+			"corrupted",
+			fixture.plan,
+			fixture.repository,
+			INPUTS,
 		);
-		const after = listPhases(directory)[0]!;
-		assert.equal(after.status, "done");
-		assert.equal(after.body, before.body);
-		assert.equal(
-			readFileSync(join(directory, "phases", after.file), "utf-8").split("\n")[0],
-			'{"title":"lifecycle broker","status":"done"}',
+		writeFileSync(join(corrupted.stagedDirectory, "TASK.md"), "broken");
+		assert.throws(() => commitTaskCreation(corrupted), /front matter delimiter/);
+		assertMissing(corrupted.task.directory);
+		discardTaskCreation(corrupted);
+
+		const discarded = prepareTaskCreation(
+			fixture.root,
+			"discarded",
+			fixture.plan,
+			fixture.repository,
+			INPUTS,
+		);
+		discardTaskCreation(discarded);
+		assertMissing(discarded.stagedDirectory);
+		assertMissing(discarded.task.directory);
+		assert.throws(() => createFixtureTask(fixture), /already exists/);
+	});
+});
+
+test("the task catalog keeps valid tasks and surfaces each broken entry", () => {
+	withFixture((fixture) => {
+		createFixtureTask(fixture, "z-task");
+		createFixtureTask(fixture, "a-task");
+		mkdirSync(join(fixture.root, "broken"));
+		writeFileSync(join(fixture.root, "broken", "TASK.md"), "not structured");
+		writeFileSync(join(fixture.root, "plain-file"), "not a directory");
+		mkdirSync(join(fixture.root, ".a-task.claim"));
+
+		const catalog = listTasks(fixture.root);
+		assert.deepEqual(catalog.tasks.map((task) => task.slug), ["a-task", "z-task"]);
+		assert.equal(catalog.broken.length, 2);
+		const [brokenTask, plainFile] = catalog.broken;
+		assert.ok(brokenTask);
+		assert.ok(plainFile);
+		assert.match(brokenTask, /^broken: .*TASK\.md/);
+		assert.match(plainFile, /^plain-file: .*must be a directory/);
+	});
+	withFixture((fixture) => {
+		assert.deepEqual(listTasks(fixture.root), { tasks: [], broken: [] });
+	});
+});
+
+test("phases finish in order and rewrite the canonical checklist atomically", () => {
+	withFixture((fixture) => {
+		const task = createFixtureTask(fixture);
+		const before = readFileSync(taskPath(task), "utf8");
+		assert.throws(() => finishPhase(task, "02-tests"), /out of order/);
+		assert.throws(() => finishPhase(task, "99-missing"), /unknown phase/);
+		assert.equal(readFileSync(taskPath(task), "utf8"), before);
+
+		const first = finishPhase(task, "01-runtime");
+		assert.equal(first.status, "done");
+		const advanced = readTask(fixture.root, task.slug);
+		assert.equal(nextOpenPhase(advanced)?.name, "02-tests");
+		assert.deepEqual(taskProgress(advanced), { done: 1, total: 2 });
+		const afterFirst = readFileSync(taskPath(task), "utf8");
+		assert.match(afterFirst, /- \[x\] 01-runtime — Runtime/);
+		assert.match(afterFirst, /- \[ \] 02-tests — Tests/);
+		assert.deepEqual(readdirSync(task.directory), ["TASK.md"]);
+		assert.throws(() => finishPhase(task, "01-runtime"), /already done/);
+
+		finishPhase(task, "02-tests");
+		const complete = readTask(fixture.root, task.slug);
+		assert.deepEqual(taskState(complete), { kind: "complete" });
+		assert.deepEqual(taskProgress(complete), { done: 2, total: 2 });
+		assert.match(readFileSync(taskPath(task), "utf8"), /- \[x\] 02-tests — Tests/);
+		assert.throws(() => finishPhase(task, "02-tests"), /already done/);
+	});
+});
+
+test("readPlan always reads the current regular nonblank source plan", () => {
+	withFixture((fixture) => {
+		const task = createFixtureTask(fixture);
+		assert.equal(readPlan(task), "# Approved plan\n\nShip it.\n");
+		writeFileSync(fixture.plan, "# Revised live plan\n");
+		assert.equal(readPlan(task), "# Revised live plan\n");
+		assert.equal(readTask(fixture.root, task.slug).plan, fixture.plan);
+
+		writeFileSync(fixture.plan, " \n");
+		assert.throws(() => readPlan(task), /plan: must be a nonblank string/);
+		rmSync(fixture.plan);
+		mkdirSync(fixture.plan);
+		assert.throws(() => readPlan(task), /must be a regular file/);
+		rmSync(fixture.plan, { recursive: true });
+		assert.throws(() => readPlan(task), /file does not exist/);
+	});
+});
+
+test("worktreePath is the repository sibling derived from basename and slug", () => {
+	withFixture((fixture) => {
+		const task = createFixtureTask(fixture);
+		assert.equal(worktreePath(task), join(fixture.base, "repo-joint-rail"));
+		assert.throws(
+			() => worktreePath({ repository: "relative/repo", slug: task.slug }),
+			/must be an absolute path/,
+		);
+		assert.throws(
+			() => worktreePath({ repository: fixture.repository, slug: "../bad" }),
+			/invalid task slug/,
 		);
 	});
 });

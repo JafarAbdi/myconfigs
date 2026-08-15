@@ -3,78 +3,34 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createPhase, createTask, readTask, setPhaseStatus, type TaskHeader } from "./tasks.ts";
-import { taskRail } from "./widget.ts";
+import { createTask, finishPhase, readTask } from "./tasks.ts";
+import { taskStatus } from "./widget.ts";
 
-const HEADER: TaskHeader = { repository: "/repo", base: "main", description: "make the rail joint" };
-
-function withTask(run: (root: string) => void): void {
-	const root = mkdtempSync(join(tmpdir(), "pi-task-widget-test-"));
+test("status follows checklist progress", () => {
+	const base = mkdtempSync(join(tmpdir(), "pi-task-widget-test-"));
+	const root = join(base, "tasks");
+	const plan = join(base, "plan.md");
+	const repository = join(base, "repo");
 	try {
-		createTask(root, "joint-rail", HEADER);
-		const notes = join(root, "joint-rail", "notes");
-		mkdirSync(notes, { recursive: true });
-		writeFileSync(join(notes, "questions.md"), "questions\n");
-		writeFileSync(join(notes, "research.md"), "research\n");
-		writeFileSync(join(notes, "plan.md"), "plan\n");
-		createPhase(readTask(root, "joint-rail"), "broker", "broker", "body");
-		run(root);
+		mkdirSync(repository);
+		writeFileSync(plan, "plan");
+		const task = createTask(root, "joint-rail", plan, repository, [
+			{ name: "first", title: "First", body: "First phase." },
+			{ name: "second", title: "Second", body: "Second phase." },
+		]);
+		assert.deepEqual(taskStatus(task), {
+			text: "joint-rail · phase 1/2 · 01-first",
+			tone: "active",
+		});
+
+		finishPhase(task, "01-first");
+		assert.equal(taskStatus(readTask(root, task.slug)).text, "joint-rail · phase 2/2 · 02-second");
+		finishPhase(task, "02-second");
+		assert.deepEqual(taskStatus(readTask(root, task.slug)), {
+			text: "joint-rail · complete · 2/2 phases",
+			tone: "complete",
+		});
 	} finally {
-		rmSync(root, { recursive: true, force: true });
+		rmSync(base, { recursive: true, force: true });
 	}
-}
-
-function states(root: string, entered: Parameters<typeof taskRail>[1]): string[] {
-	return taskRail(readTask(root, "joint-rail"), entered)
-		.map(({ name, state }) => `${name}:${state}`);
-}
-
-test("a reopened completed stage owns the arrow without hiding later artifacts", () => {
-	withTask((root) => {
-		assert.deepEqual(states(root, "design"), [
-			"questions:complete",
-			"research:complete",
-			"design:current",
-			"phases:complete",
-			"implement:incomplete",
-		]);
-	});
-});
-
-test("starting implementation does not move the arrow from the open planning session", () => {
-	withTask((root) => {
-		assert.deepEqual(states(root, "phases"), [
-			"questions:complete",
-			"research:complete",
-			"design:complete",
-			"phases:current",
-			"implement:incomplete",
-		]);
-	});
-});
-
-test("finishing the final phase leaves the arrow on the open session", () => {
-	withTask((root) => {
-		setPhaseStatus(readTask(root, "joint-rail"), "01-broker", "done");
-		assert.deepEqual(states(root, "phases"), [
-			"questions:complete",
-			"research:complete",
-			"design:complete",
-			"phases:current",
-			"implement:complete",
-		]);
-	});
-});
-
-test("an implementation workspace keeps its arrow after every phase is done", () => {
-	withTask((root) => {
-		setPhaseStatus(readTask(root, "joint-rail"), "01-broker", "done");
-		assert.deepEqual(states(root, undefined), [
-			"questions:complete",
-			"research:complete",
-			"design:complete",
-			"phases:complete",
-			"implement:current",
-		]);
-	});
 });

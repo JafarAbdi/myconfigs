@@ -1,17 +1,23 @@
-import { currentStage, stageComplete, STAGES, type Stage, type Task } from "./tasks.ts";
+import { taskProgress, taskState, type Task } from "./tasks.ts";
 
-export type RailState = "complete" | "current" | "incomplete";
+export type TaskStatusTone = "active" | "complete";
 
-export interface RailStage {
-	name: Stage;
-	state: RailState;
+export interface TaskStatus {
+	text: string;
+	tone: TaskStatusTone;
 }
 
-/** The arrow names the open session; the other stages report their artifacts from disk. */
-export function taskRail(task: Task, enteredStage: Stage | undefined): RailStage[] {
-	const active = enteredStage ?? currentStage(task);
-	return STAGES.map((name) => ({
-		name,
-		state: name === active ? "current" : stageComplete(task, name) ? "complete" : "incomplete",
-	}));
+export function taskStatus(task: Task): TaskStatus {
+	const progress = taskProgress(task);
+	const state = taskState(task);
+	if (state.kind === "complete") {
+		return {
+			text: `${task.slug} · complete · ${progress.done}/${progress.total} phases`,
+			tone: "complete",
+		};
+	}
+	return {
+		text: `${task.slug} · phase ${progress.done + 1}/${progress.total} · ${state.phase.name}`,
+		tone: "active",
+	};
 }
