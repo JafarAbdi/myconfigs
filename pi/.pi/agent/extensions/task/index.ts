@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { linkSync, lstatSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { completeSimple } from "@earendil-works/pi-ai";
 import {
 	getAgentDir,
@@ -17,8 +17,11 @@ import {
 	addWorktree,
 	branchExists,
 	discardWorktree,
+	removeWorktree,
 	repositoryRoot,
 	requireHead,
+	worktreeChanges,
+	type WorktreeChanges,
 } from "./git.ts";
 import { pickTask } from "./picker.ts";
 import { implementationBrief, taskGenerationPrompt } from "./prompts.ts";
@@ -34,6 +37,7 @@ import {
 	readPlan,
 	readPlanFile,
 	readTask,
+	removeTask,
 	taskDir,
 	taskState,
 	worktreePath,
@@ -41,7 +45,6 @@ import {
 	type Task,
 } from "./tasks.ts";
 import {
-	ADVANCE_TASK_COMMAND,
 	FINISH_PHASE_TOOL,
 	registerTaskTools,
 	taskTools,
@@ -98,6 +101,9 @@ const FINISH_PHASE_DETAILS_SCHEMA = Type.Object({
 
 type TaskMarker = Static<typeof TASK_MARKER_SCHEMA>;
 type GeneratedTask = Static<typeof DEFINE_TASK_TOOL.parameters>;
+type TaskWorktree =
+	| { kind: "absent"; path: string }
+	| { kind: "present"; path: string; changes: WorktreeChanges };
 
 function errorMessage(cause: unknown): string {
 	return cause instanceof Error ? cause.message : String(cause);
@@ -124,6 +130,11 @@ function readTaskMarker(entries: readonly SessionEntry[]): TaskMarker | undefine
 
 function sessionMarker(ctx: ExtensionContext): TaskMarker | undefined {
 	return readTaskMarker(ctx.sessionManager.getBranch());
+}
+
+function pathContains(parent: string, candidate: string): boolean {
+	const path = relative(resolve(parent), resolve(candidate));
+	return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
 function parsePlanArgument(argument: string): string {
@@ -459,53 +470,110 @@ export default function taskExtension(pi: ExtensionAPI): void {
 		}
 	};
 
-	const openPicker = async (ctx: ExtensionCommandContext): Promise<void> => {
-		const catalog = listTasks(tasksRoot());
-		if (catalog.broken.length > 0) {
-			ctx.ui.notify(`Unreadable tasks:\n${catalog.broken.join("\n")}`, "warning");
+	const inspectTaskWorktree = (task: Task): TaskWorktree => {
+		const path = worktreePath(task);
+		const stats = entry(path);
+		if (stats === undefined) return { kind: "absent", path };
+		if (!stats.isDirectory()) throw new Error(`${task.slug}: worktree ${path} must be a directory`);
+		return {
+			kind: "present",
+			path,
+			changes: worktreeChanges(task.repository, path, task.slug),
+		};
+	};
+
+	const sameWorktree = (left: TaskWorktree, right: TaskWorktree): boolean => {
+		if (left.kind !== right.kind || left.path !== right.path) return false;
+		if (left.kind === "absent" || right.kind === "absent") return true;
+		return left.changes.modified === right.changes.modified &&
+			left.changes.untracked === right.changes.untracked &&
+			left.changes.hasGitlinks === right.changes.hasGitlinks;
+	};
+
+	const deleteTask = async (ctx: ExtensionCommandContext, selected: Task): Promise<void> => {
+		const marker = sessionMarker(ctx);
+		const worktree = inspectTaskWorktree(selected);
+		if (marker?.slug === selected.slug || pathContains(worktree.path, ctx.cwd)) {
+			throw new Error(`${selected.slug}: switch sessions before deleting this active task`);
 		}
-		const selected = await pickTask(ctx, catalog.tasks);
-		if (selected) await openTask(ctx, selected);
+		const body = [
+			"Removes:",
+			`  task state  ${selected.directory}`,
+			...(worktree.kind === "present" ? [`  worktree    ${worktree.path}`] : []),
+		];
+		if (
+			worktree.kind === "present" &&
+			(worktree.changes.modified > 0 || worktree.changes.untracked > 0)
+		) {
+			body.push(
+				"",
+				"Discards:",
+				`  ${worktree.changes.modified} modified, ${worktree.changes.untracked} untracked`,
+			);
+		}
+		if (!await ctx.ui.confirm(`Delete task ${selected.slug}?`, body.join("\n"))) return;
+
+		const current = readTask(tasksRoot(), selected.slug);
+		if (current.repository !== selected.repository || current.directory !== selected.directory) {
+			throw new Error(`${selected.slug}: task changed while deletion was being confirmed`);
+		}
+		const confirmedWorktree = inspectTaskWorktree(current);
+		if (!sameWorktree(worktree, confirmedWorktree)) {
+			throw new Error(`${selected.slug}: worktree changed while deletion was being confirmed`);
+		}
+		if (confirmedWorktree.kind === "present") {
+			const force = confirmedWorktree.changes.modified > 0 ||
+				confirmedWorktree.changes.untracked > 0 ||
+				confirmedWorktree.changes.hasGitlinks;
+			removeWorktree(current.repository, confirmedWorktree.path, force);
+		}
+		removeTask(tasksRoot(), current.slug);
+		ctx.ui.notify(`Deleted task ${current.slug}`, "info");
+	};
+
+	const openPicker = async (ctx: ExtensionCommandContext): Promise<void> => {
+		let reportBrokenTasks = true;
+		for (;;) {
+			const catalog = listTasks(tasksRoot());
+			if (reportBrokenTasks && catalog.broken.length > 0) {
+				ctx.ui.notify(`Unreadable tasks:\n${catalog.broken.join("\n")}`, "warning");
+			}
+			reportBrokenTasks = false;
+			const choice = await pickTask(ctx, catalog.tasks);
+			if (!choice) return;
+			const selected = readTask(tasksRoot(), choice.slug);
+			if (choice.kind === "open") {
+				await openTask(ctx, selected);
+				return;
+			}
+			await deleteTask(ctx, selected);
+		}
+	};
+
+	const advanceFinishedPhase = async (ctx: ExtensionCommandContext): Promise<boolean> => {
+		const marker = sessionMarker(ctx);
+		if (!marker) return false;
+		const task = readTask(tasksRoot(), marker.slug);
+		const phase = task.phases.find((candidate) => candidate.name === marker.phase);
+		if (!phase) throw new Error(`${task.slug}: unknown session phase ${marker.phase}`);
+		if (phase.status !== "done") return false;
+		showActivity(ctx, "checking phase progress");
+		await openTask(ctx, task);
+		return true;
 	};
 
 	pi.registerCommand("task", {
-		description: "Create a task from a plan file, or pick an existing task",
+		description: "Create, continue, or open a task",
 		argumentHint: "[plan-file]",
 		handler: async (argument, ctx) => {
 			try {
 				if (ctx.mode !== "tui") throw new Error("/task requires the interactive TUI");
 				await ctx.waitForIdle();
-				if (argument.trim()) await createNewTask(ctx, argument);
-				else await openPicker(ctx);
-			} catch (cause) {
-				clearActivity(ctx);
-				ctx.ui.notify(errorMessage(cause), "error");
-			}
-		},
-	});
-
-	pi.registerCommand(ADVANCE_TASK_COMMAND, {
-		description: "Continue after finish_phase completes the current task phase",
-		handler: async (argument, ctx) => {
-			try {
-				if (argument.trim()) throw new Error(`/${ADVANCE_TASK_COMMAND} takes no arguments`);
-				await ctx.waitForIdle();
-				showActivity(ctx, "checking phase progress");
-				const marker = sessionMarker(ctx);
-				if (!marker) throw new Error("no completed task phase is attached to this session");
-				const task = readTask(tasksRoot(), marker.slug);
-				const phase = task.phases.find((candidate) => candidate.name === marker.phase);
-				if (!phase) throw new Error(`${task.slug}: unknown session phase ${marker.phase}`);
-				if (phase.status !== "done") throw new Error(`${phase.name} is not complete`);
-				const next = nextOpenPhase(task);
-				if (next) {
-					await openPhase(ctx, task, next);
+				if (argument.trim()) {
+					await createNewTask(ctx, argument);
 					return;
 				}
-				showTask(ctx, task);
-				syncTaskTools(ctx);
-				clearActivity(ctx);
-				ctx.ui.notify(`${task.slug} is complete`, "info");
+				if (!await advanceFinishedPhase(ctx)) await openPicker(ctx);
 			} catch (cause) {
 				clearActivity(ctx);
 				ctx.ui.notify(errorMessage(cause), "error");

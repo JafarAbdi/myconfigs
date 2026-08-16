@@ -28,6 +28,7 @@ ${phase.body}
 
 Work in the current worktree. Inspect repository instructions and relevant code before editing. Keep
 changes within this phase and run its relevant verification. The session is visible and the user may
-steer it. When the phase is fully implemented and verified, call finish_phase as the final tool call;
-do not call it alongside other tools.`;
+steer it. After implementation and verification, summarize the result and wait for the user to
+review it. Address reported issues and wait again. Only after the user explicitly accepts the phase
+and asks to continue, call finish_phase alone as the final tool call.`;
 }

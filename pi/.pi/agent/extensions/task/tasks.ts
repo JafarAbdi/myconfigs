@@ -337,6 +337,11 @@ export function readTask(root: string, slug: string): Task {
 	return readTaskDirectory(taskDir(root, slug), slug);
 }
 
+export function removeTask(root: string, slug: string): void {
+	const task = readTask(root, slug);
+	rmSync(task.directory, { recursive: true });
+}
+
 export function readPlanFile(plan: string): string {
 	const path = validateAbsolutePath('"plan"', plan);
 	requireRegularFile(path, path);

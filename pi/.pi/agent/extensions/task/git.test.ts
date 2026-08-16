@@ -15,8 +15,10 @@ import {
 	addWorktree,
 	branchExists,
 	discardWorktree,
+	removeWorktree,
 	repositoryRoot,
 	requireHead,
+	worktreeChanges,
 } from "./git.ts";
 
 function entry(path: string) {
@@ -74,5 +76,79 @@ test("worktree creation forks HEAD and rollback removes only the new branch and 
 		assert.equal(entry(worktree), undefined);
 		assert.equal(branchExists(repository, "task-branch"), false);
 		assert.equal(branchExists(repository, "main"), true);
+	});
+});
+
+test("task deletion reports discarded work and keeps its branch", () => {
+	withRepository((repository, parent) => {
+		const worktree = join(parent, "repo-task-branch");
+		addWorktree(repository, worktree, "task-branch");
+		assert.deepEqual(worktreeChanges(repository, worktree, "task-branch"), {
+			modified: 0,
+			untracked: 0,
+			hasGitlinks: false,
+		});
+		assert.throws(
+			() => worktreeChanges(repository, worktree, "main"),
+			/expected branch main, found task-branch/,
+		);
+
+		writeFileSync(join(worktree, "README.md"), "changed\n");
+		writeFileSync(join(worktree, "new.txt"), "untracked\n");
+		assert.deepEqual(worktreeChanges(repository, worktree, "task-branch"), {
+			modified: 1,
+			untracked: 1,
+			hasGitlinks: false,
+		});
+		assert.throws(
+			() => removeWorktree(repository, worktree, false),
+			/contains modified or untracked files/,
+		);
+		assert.notEqual(entry(worktree), undefined);
+
+		removeWorktree(repository, worktree, true);
+		assert.equal(entry(worktree), undefined);
+		assert.equal(branchExists(repository, "task-branch"), true);
+	});
+});
+
+test("clean worktrees containing submodules request forced removal", () => {
+	withRepository((repository, parent) => {
+		const submodule = join(parent, "submodule");
+		mkdirSync(submodule);
+		for (const args of [
+			["init", "-q", "-b", "main"],
+			["config", "user.email", "test@example.com"],
+			["config", "user.name", "Test"],
+		] as const) {
+			execFileSync("git", args, { cwd: submodule });
+		}
+		writeFileSync(join(submodule, "file.txt"), "submodule\n");
+		execFileSync("git", ["add", "file.txt"], { cwd: submodule });
+		execFileSync("git", ["commit", "-qm", "initial"], { cwd: submodule });
+		execFileSync(
+			"git",
+			["-c", "protocol.file.allow=always", "submodule", "add", "-q", submodule, "module"],
+			{ cwd: repository },
+		);
+		execFileSync("git", ["commit", "-qam", "add submodule"], { cwd: repository });
+
+		const worktree = join(parent, "repo-task-branch");
+		addWorktree(repository, worktree, "task-branch");
+		execFileSync(
+			"git",
+			["-c", "protocol.file.allow=always", "submodule", "update", "--init", "-q"],
+			{ cwd: worktree },
+		);
+		const changes = worktreeChanges(repository, worktree, "task-branch");
+		assert.deepEqual(changes, { modified: 0, untracked: 0, hasGitlinks: true });
+		assert.throws(
+			() => removeWorktree(repository, worktree, false),
+			/working trees containing submodules cannot be moved or removed/,
+		);
+
+		removeWorktree(repository, worktree, changes.hasGitlinks);
+		assert.equal(entry(worktree), undefined);
+		assert.equal(branchExists(repository, "task-branch"), true);
 	});
 });

@@ -7,7 +7,6 @@ import { Type } from "typebox";
 import { finishPhase, taskPath, type Phase, type Task } from "./tasks.ts";
 
 export const FINISH_PHASE_TOOL = "finish_phase";
-export const ADVANCE_TASK_COMMAND = "task-next";
 
 interface TaskToolDependencies {
 	resolveImplementation(ctx: ExtensionContext): { task: Task; phase: Phase };
@@ -23,11 +22,11 @@ export function registerTaskTools(pi: ExtensionAPI, dependencies: TaskToolDepend
 		name: FINISH_PHASE_TOOL,
 		label: "Finish Phase",
 		description:
-			"Mark the current implementation phase complete and automatically open the next phase " +
-			"in a fresh foreground session.",
-		promptSnippet: "Finish the current task phase after implementation and verification",
+			"Mark the current implementation phase complete after the user accepts it, then " +
+			"automatically open the next phase in a fresh foreground session.",
+		promptSnippet: "Finish the current task phase after explicit user acceptance",
 		promptGuidelines: [
-			"Call finish_phase only after the current phase is implemented and verified, and call it alone as the final tool.",
+			"Call finish_phase only after the current phase is implemented and verified and the user explicitly accepts it; call it alone as the final tool.",
 		],
 		parameters: Type.Object({}, { additionalProperties: false }),
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
@@ -35,7 +34,7 @@ export function registerTaskTools(pi: ExtensionAPI, dependencies: TaskToolDepend
 			const { task, phase } = dependencies.resolveImplementation(ctx);
 			const file = taskPath(task);
 			await withFileMutationQueue(file, async () => finishPhase(task, phase.name));
-			pi.sendUserMessage(`/${ADVANCE_TASK_COMMAND}`, {
+			pi.sendUserMessage("/task", {
 				deliverAs: "followUp",
 				expandPromptTemplates: true,
 			});

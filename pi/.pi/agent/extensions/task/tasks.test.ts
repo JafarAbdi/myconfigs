@@ -24,6 +24,7 @@ import {
 	prepareTaskCreation,
 	readPlan,
 	readTask,
+	removeTask,
 	taskDir,
 	taskPath,
 	taskProgress,
@@ -430,6 +431,17 @@ test("phases finish in order and rewrite the canonical checklist atomically", ()
 		assert.deepEqual(taskProgress(complete), { done: 2, total: 2 });
 		assert.match(readFileSync(taskPath(task), "utf8"), /- \[x\] 02-tests — Tests/);
 		assert.throws(() => finishPhase(task, "02-tests"), /already done/);
+	});
+});
+
+test("removing a task deletes only its validated task directory", () => {
+	withFixture((fixture) => {
+		const task = createFixtureTask(fixture);
+		removeTask(fixture.root, task.slug);
+		assertMissing(task.directory);
+		assert.notEqual(entry(fixture.plan), undefined);
+		assert.notEqual(entry(fixture.repository), undefined);
+		assert.throws(() => removeTask(fixture.root, task.slug), /directory does not exist/);
 	});
 });
 
