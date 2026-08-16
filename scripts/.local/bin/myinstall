@@ -885,6 +885,23 @@ EOF
        chmod +x ~/.local/bin/mc
        ;;
 
+    age)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github FiloSottile/age "age-.*-linux-${arch_name}\.tar\.gz\""
+        tar xzf age-*-linux-${arch_name}.tar.gz --strip-components=1
+        install -m755 age age-keygen ~/.local/bin/
+        popd || exit 1
+        ;;
+
+    sops)
+        TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
+        pushd "$TMP_DIR" || exit 1
+        install_from_github getsops/sops "sops-.*\.linux\.${arch_name}\""
+        install -m755 sops-*.linux."${arch_name}" ~/.local/bin/sops
+        popd || exit 1
+        ;;
+
     remote)
         if [ $# -lt 3 ]; then
             error "remote requires HOST and COMMAND. Usage: $0 remote <host> <command> [args...]"
@@ -931,7 +948,7 @@ EOF
 
     pixi-devtools)
         info "Installing dev tools..."
-        pixi global install cmake ninja taplo stylua actionlint mergiraf luarocks platformio just prek # podman. Requires sudo apt install uidmap passt
+        pixi global install cmake ninja taplo stylua actionlint mergiraf luarocks platformio just prek
         ~/.pixi/bin/just --completions fish > ~/.config/fish/completions/justfile.fish
         ;;
 
