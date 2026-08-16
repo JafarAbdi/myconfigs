@@ -20,9 +20,10 @@
  * mode exits 0 on a failed run, and claude exits 0 with empty stderr even for an unknown model.
  */
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+	type AgentToolResult,
 	type ExtensionAPI,
 	getAgentDir,
 	getMarkdownTheme,
@@ -39,8 +40,8 @@ import {
 	classifyResult,
 	delegateModelNames,
 	type Inherited,
-	isRecord,
-	isRunResult,
+	isJsonObject,
+	type JsonValue,
 	modelLabel,
 	preview,
 	type RunResult,
@@ -52,17 +53,29 @@ const TASK_PREVIEW_MAX = 60;
 /**
  * The pi models this user actually runs — `enabledModels` from settings, the same list pi's own
  * model picker cycles. Offering the whole catalogue instead would be hundreds of names the parent
- * has no auth for, in a tool description it pays for every turn. Missing or malformed settings
- * leave only the claude names, which is a shorter menu rather than a broken tool.
+ * has no auth for, in a tool description it pays for every turn. A missing settings file has no Pi
+ * choices; a malformed present file is a startup error rather than a silently incomplete menu.
  */
+function isString(value: JsonValue): value is string {
+	return typeof value === "string";
+}
+
 function enabledModels(): string[] {
+	const path = join(AGENT_DIR, "settings.json");
+	if (!existsSync(path)) return [];
+	let settings: JsonValue;
 	try {
-		const settings: unknown = JSON.parse(readFileSync(join(AGENT_DIR, "settings.json"), "utf-8"));
-		const enabled = isRecord(settings) ? settings.enabledModels : undefined;
-		return Array.isArray(enabled) ? enabled.filter((name): name is string => typeof name === "string") : [];
-	} catch {
-		return [];
+		settings = JSON.parse(readFileSync(path, "utf-8"));
+	} catch (error) {
+		throw new Error(`invalid ${path}: ${error instanceof Error ? error.message : String(error)}`);
 	}
+	if (!isJsonObject(settings)) throw new Error(`invalid ${path}: expected a JSON object`);
+	const enabled = settings.enabledModels;
+	if (enabled === undefined) return [];
+	if (!Array.isArray(enabled) || !enabled.every(isString)) {
+		throw new Error(`invalid ${path}: enabledModels must be a string array`);
+	}
+	return enabled;
 }
 
 function formatTokens(count: number): string {
@@ -153,15 +166,11 @@ function continuationBreadcrumb(runId: string): string {
 }
 
 function renderDelegateResult(
-	result: { content: Array<{ type: string; text?: string }>; details: unknown },
+	result: AgentToolResult<RunResult>,
 	{ expanded, isPartial }: { expanded: boolean; isPartial: boolean },
 	theme: Theme,
 ): Component {
 	const details = result.details;
-	if (!isRunResult(details)) {
-		const first = result.content[0];
-		return new Text(first?.type === "text" ? first.text ?? "(no output)" : "(no output)", 0, 0);
-	}
 	const outcome = classifyResult(details);
 	const header = new Text(resultHeader(details, isPartial, theme), 0, 0);
 	if (!expanded) return header;
@@ -202,6 +211,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 	).join("; ") || "none";
 	const piModels = enabledModels();
 	let inheritedAppendSystemPrompt: string | undefined;
+	const failedDelegateCalls = new Set<string>();
 
 	// Said where it will be read. A skipped agent is silent otherwise: the roster simply comes up
 	// one short, and nothing connects that to the file you just edited.
@@ -220,13 +230,36 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 	// Returning preserves rich details and nested usage; this delegate-only hook supplies the
 	// error bit that custom-tool return values cannot set themselves.
 	pi.on("tool_result", (event) => {
-		if (event.toolName !== "delegate" || !isRunResult(event.details)) return;
-		if (classifyResult(event.details).kind !== "success") return { isError: true };
+		if (event.toolName !== "delegate") return;
+		if (failedDelegateCalls.delete(event.toolCallId)) return { isError: true };
 	});
 
 	const registerDelegate = (includeNativeClaude: boolean): void => {
 		const offeredModels = delegateModelNames(piModels, includeNativeClaude);
-		pi.registerTool({
+		const parameters = Type.Object({
+			agent: Type.Optional(Type.String({
+				description: `Fresh run role; one of: ${catalog.map((agent) => agent.name).join(", ")}`,
+			})),
+			runId: Type.Optional(Type.String({
+				description: "Exact prior continuable run; cannot be combined with agent or model.",
+				minLength: 1,
+			})),
+			task: Type.String({
+				description: "The complete brief; the child does not see the parent conversation.",
+				minLength: 1,
+			}),
+			model: Type.Optional(
+				Type.Union(
+					offeredModels.map((name) => Type.Literal(name)),
+					{
+						description: includeNativeClaude
+							? "Run on this model. Bare claude-* names use the local claude CLI; provider-qualified names use Pi. Omit to use the current Pi model."
+							: "Run on this Pi model. Omit to use the current Pi model.",
+					},
+				),
+			),
+		});
+		pi.registerTool<typeof parameters, RunResult>({
 			name: "delegate",
 			label: "Delegate",
 			description:
@@ -236,29 +269,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				(includeNativeClaude ? `; enabled Pi and native local Claude models are available. ` : `; enabled Pi models are available. `) +
 				`Agents: ${roster}`,
 			promptSnippet: "Delegate or continue one agent task in its own process",
-			parameters: Type.Object({
-				agent: Type.Optional(Type.String({
-					description: `Fresh run role; one of: ${catalog.map((agent) => agent.name).join(", ")}`,
-				})),
-				runId: Type.Optional(Type.String({
-					description: "Exact prior continuable run; cannot be combined with agent or model.",
-					minLength: 1,
-				})),
-				task: Type.String({
-					description: "The complete brief; the child does not see the parent conversation.",
-					minLength: 1,
-				}),
-				model: Type.Optional(
-					Type.Union(
-						offeredModels.map((name) => Type.Literal(name)),
-						{
-							description: includeNativeClaude
-								? "Run on this model. Bare claude-* names use the local claude CLI; provider-qualified names use Pi. Omit to use the current Pi model."
-								: "Run on this Pi model. Omit to use the current Pi model.",
-						},
-					),
-				),
-			}),
+			parameters,
 
 			renderCall(args, theme) {
 				const label = args.runId
@@ -272,7 +283,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 			// report all live: renderCall never receives `expanded`, so nothing collapsible can go there.
 			renderResult: renderDelegateResult,
 
-			async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const { agents } = loadAgents();
 				let agent: Agent;
 				let model: string | undefined;
@@ -345,12 +356,13 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 				}
 				const outcome = classifyResult(result);
 				if (outcome.kind !== "success") {
+					failedDelegateCalls.add(toolCallId);
 					const continuation = runId && agent.continuable
 						? `${continuationBreadcrumb(runId)}\n\n`
 						: "";
 					return {
 						content: [{
-							type: "text" as const,
+							type: "text",
 							text: `${continuation}${outcome.message ?? `${agent.name} failed.`}`,
 						}],
 						details: result,
@@ -364,7 +376,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					result.output,
 				].filter(Boolean).join("\n\n");
 				return {
-					content: [{ type: "text" as const, text: report }],
+					content: [{ type: "text", text: report }],
 					details: result,
 					usage: result.usage,
 				};

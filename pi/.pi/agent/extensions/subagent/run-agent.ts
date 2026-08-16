@@ -7,14 +7,17 @@ import { createInterface } from "node:readline";
 import { finished } from "node:stream/promises";
 import {
 	childEnvironment,
+	consumeChildEvent,
 	createActivityTracker,
 	emptyUsage,
-	isRecord,
 	type Agent,
+	type ChildEvent,
 	type Inherited,
+	type JsonValue,
 	type NativeClaudeOptions,
 	type RunResult,
 	selectRuntime,
+	stringifyJson,
 } from "./runtimes.ts";
 
 /** Children still running. The abort signal covers a cancelled call; this covers a dead session. */
@@ -106,7 +109,6 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 		agent: agent.name,
 		task: resultTask ?? task,
 		runId: inherited.sessionId,
-		...(trace ? { traceId: trace.id } : {}),
 		output: "",
 		model: model ?? inherited.model,
 		steps: [],
@@ -114,6 +116,7 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 		usage: emptyUsage(),
 		durationMs: 0,
 	};
+	if (trace) result.traceId = trace.id;
 
 	return new Promise((resolve, reject) => {
 		const child = spawn(invocation.command, invocation.args, {
@@ -150,41 +153,45 @@ export function runAgent(options: RunAgentOptions): Promise<RunResult> {
 		};
 		const consume = (line: string) => {
 			if (protocolError || !line.trim()) return;
-			let event: unknown;
+			let raw: JsonValue;
 			try {
-				event = JSON.parse(line);
+				raw = JSON.parse(line);
 			} catch {
-				return; // A non-JSON line is diagnostic noise, not a protocol failure.
-			}
-			if (!isRecord(event)) return;
-			if (
-				resultTool !== undefined && structuredResults > 0 && event.type === "message_end" &&
-				isRecord(event.message) && event.message.role === "assistant"
-			) {
-				failProtocol(`child continued after ${resultTool}`);
+				failProtocol("stdout line is not JSON");
 				return;
 			}
-			let structuredOutput: string | undefined;
-			if (
-				resultTool !== undefined && event.type === "tool_execution_end" &&
-				event.toolName === resultTool && event.isError === false && isRecord(event.result)
-			) structuredOutput = JSON.stringify(event.result.details);
-			else if (
-				expectsNativeResult && event.type === "result" && Object.hasOwn(event, "structured_output")
-			) structuredOutput = JSON.stringify(event.structured_output);
-			if (structuredOutput !== undefined) {
-				structuredResults += 1;
-				if (structuredResults > 1) {
-					failProtocol(`child returned ${structuredResultLabel} more than once`);
+			let events: ChildEvent[];
+			try {
+				events = runtime.decode(raw);
+			} catch (error) {
+				failProtocol(error instanceof Error ? error.message : String(error));
+				return;
+			}
+			let changed = false;
+			for (const event of events) {
+				if (resultTool !== undefined && structuredResults > 0 && event.kind === "pi-message") {
+					failProtocol(`child continued after ${resultTool}`);
 					return;
 				}
-				result.output = structuredOutput;
+				let structuredOutput: string | undefined;
+				if (
+					resultTool !== undefined && event.kind === "tool-end" &&
+					event.tool === resultTool && !event.failed && event.details.kind === "present"
+				) structuredOutput = stringifyJson(event.details.value);
+				else if (
+					expectsNativeResult && event.kind === "claude-result" && event.output.kind === "present"
+				) structuredOutput = stringifyJson(event.output.value);
+				if (structuredOutput !== undefined) {
+					structuredResults += 1;
+					if (structuredResults > 1) {
+						failProtocol(`child returned ${structuredResultLabel} more than once`);
+						return;
+					}
+					result.output = structuredOutput;
+				}
+				if (consumeChildEvent(event, result, activity)) changed = true;
+				if (resultTool !== undefined && event.kind === "pi-message") result.output = "";
 			}
-			const changed = runtime.consume(event, result, activity);
-			if (
-				resultTool !== undefined && event.type === "message_end" &&
-				isRecord(event.message) && event.message.role === "assistant"
-			) result.output = "";
 			if (changed) onProgress?.(snapshot(result, startedAtMs));
 		};
 

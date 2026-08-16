@@ -1,19 +1,66 @@
 /**
- * Runtimes — the two child CLIs `delegate` can spawn, and everything pure enough to test.
- *
- * `index.ts` imports pi's packages for their values; this module deliberately imports only types
- * from them, so `node --test runtimes.test.ts` can load it. Type imports are erased, value imports
- * are not: `rpi/questions.test.ts` fails today for exactly that reason. Hence the shared `Agent`
- * and `RunResult` types live here and `index.ts` imports them from this file, never the reverse.
- *
- * A runtime owns two things: the argv (plus stdin) that starts a child, and how that child's JSONL
- * folds into a `RunResult`. Everything downstream — classification, rendering, teardown — sees one
- * normalized shape and never learns which CLI produced it.
+ * The two child CLIs `delegate` can spawn, their JSONL decoders, and normalized run state.
+ * Runtime-specific wire shapes stop here; process management and rendering consume `ChildEvent`.
+ * This module imports Pi packages only as types so its tests run directly with `node --test`.
  */
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import { DELEGATE_CHILD_ENV, SSH_DESCRIPTOR_ENV } from "../ssh/descriptor.ts";
+
+export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
+
+export interface JsonObject {
+	[key: string]: JsonValue;
+}
+
+export type FrontmatterValue =
+	| string
+	| number
+	| boolean
+	| null
+	| FrontmatterValue[]
+	| FrontmatterObject;
+
+export interface FrontmatterObject {
+	[key: string]: FrontmatterValue;
+}
+
+function isString(value: JsonValue | FrontmatterValue | undefined): value is string {
+	return typeof value === "string";
+}
+
+function isNumber(value: JsonValue | undefined): value is number {
+	return typeof value === "number";
+}
+
+function isBoolean(value: JsonValue | FrontmatterValue | undefined): value is boolean {
+	return typeof value === "boolean";
+}
+
+function isStringOrNumber(value: JsonValue | undefined): value is string | number {
+	return typeof value === "string" || typeof value === "number";
+}
+
+export function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function isFrontmatterObject(
+	value: FrontmatterValue | undefined,
+): value is FrontmatterObject {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isJsonArray(value: JsonValue | undefined): value is JsonValue[] {
+	return Array.isArray(value);
+}
+
+function isFrontmatterArray(
+	value: FrontmatterValue | undefined,
+): value is FrontmatterValue[] {
+	return Array.isArray(value);
+}
 
 export interface Agent {
 	name: string;
@@ -27,29 +74,39 @@ export interface Agent {
 
 export function agentFromFrontmatter(
 	name: string,
-	frontmatter: Record<string, unknown>,
+	frontmatter: FrontmatterObject,
 	systemPrompt: string,
 ): Agent {
-	if (!("tools" in frontmatter)) throw new Error("must declare tools");
+	const description = frontmatter.description;
+	if (description === undefined) throw new Error("missing a description");
+	if (!isString(description) || !description) throw new Error("description must be a non-empty string");
+
 	const rawTools = frontmatter.tools;
-	if (typeof rawTools !== "string" && !Array.isArray(rawTools)) {
+	if (rawTools === undefined) throw new Error("must declare tools");
+	if (!isString(rawTools) && !isFrontmatterArray(rawTools)) {
 		throw new Error("tools must be a string or string array");
 	}
-	if (Array.isArray(rawTools) && !rawTools.every((tool) => typeof tool === "string")) {
+	if (isFrontmatterArray(rawTools) && !rawTools.every(isString)) {
 		throw new Error("tools must be a string or string array");
 	}
-	const parts = typeof rawTools === "string" ? rawTools.split(",") : rawTools;
+	const parts = isString(rawTools) ? rawTools.split(",") : rawTools;
 	const tools = parts.map((tool) => tool.trim()).filter(Boolean);
-	if (typeof frontmatter.description !== "string" || !frontmatter.description) {
-		throw new Error("missing a description");
-	}
 	if (!tools.length && (!Array.isArray(rawTools) || rawTools.length > 0)) throw new Error("must declare tools");
+
+	const rawSkills = frontmatter.skills;
+	if (rawSkills !== undefined && rawSkills !== "all" && rawSkills !== "none") {
+		throw new Error('skills must be "all" or "none"');
+	}
+	const rawContinuable = frontmatter.continuable;
+	if (rawContinuable !== undefined && !isBoolean(rawContinuable)) {
+		throw new Error("continuable must be a boolean");
+	}
 	return {
 		name,
-		description: frontmatter.description,
+		description,
 		tools,
-		skills: frontmatter.skills === "none" ? "none" : "all",
-		continuable: frontmatter.continuable === true,
+		skills: rawSkills ?? "all",
+		continuable: rawContinuable ?? false,
 		systemPrompt,
 	};
 }
@@ -95,26 +152,17 @@ export interface Step {
 
 export const RESULT_TOOL_ENV = "PI_SUBAGENT_RESULT_TOOL";
 
-/**
- * Tool details are presentation summaries, not retained arguments: a pasted heredoc is represented
- * by a short preview, then fitted to the actual terminal width by the renderer.
- */
+/** Tool details are short presentation summaries, not retained argument payloads. */
 const DETAIL_STORED_MAX = 2000;
 
-/**
- * The one argument worth showing, ordered by how specifically it identifies the call. `pattern`
- * outranks `path` because grep and find take both, and the pattern is the question — the path is
- * usually just the cwd. pi and claude agree on these names (`command`, `path`, `pattern`, `glob`;
- * claude spells read's path `file_path`), so one list serves both. Anything unrecognised shows
- * nothing rather than a blob of JSON.
- */
+/** Ordered by how specifically each field identifies a tool call. */
 const DETAIL_KEYS = ["command", "pattern", "file_path", "path", "glob", "url", "query", "description"];
 
-export function stepDetail(input: unknown): string | undefined {
-	if (!isRecord(input)) return undefined;
+export function stepDetail(input: JsonValue | undefined): string | undefined {
+	if (!isJsonObject(input)) return undefined;
 	for (const key of DETAIL_KEYS) {
 		const value = input[key];
-		if (typeof value === "string" && value.trim()) return preview(value, DETAIL_STORED_MAX);
+		if (isString(value) && value.trim()) return preview(value, DETAIL_STORED_MAX);
 	}
 	return undefined;
 }
@@ -152,10 +200,8 @@ export interface Invocation {
 }
 
 /**
- * Live tool calls, keyed by id. `undefined` means the event carried no id: starting one records a
- * single unidentified tool, ending one clears everything. Only pi takes that path — claude always
- * identifies its calls, and guessing on its behalf would let one finished tool wipe a running
- * sibling off the progress line.
+ * Live calls keyed by id. Pi fixtures may omit ids, so an unidentified end clears all Pi activity;
+ * Claude calls are always identified and therefore preserve concurrently running siblings.
  */
 export interface ActivityTracker {
 	start(id: string | undefined, tool: string, detail?: string): void;
@@ -165,14 +211,8 @@ export interface ActivityTracker {
 	idle(): void;
 }
 
-/**
- * The progress line and the step log, which are the same information at two depths: what is running
- * now, and everything that ran. Both are written onto `result`, so a snapshot of it renders without
- * consulting anything else.
- */
 export function createActivityTracker(result: RunResult): ActivityTracker {
-	// Live calls point at their entry in `result.steps`, so finishing one marks the step that started
-	// it rather than appending a second line for the same call.
+	// Entries point into `result.steps`, so completion updates the step that originally started.
 	const live = new Map<string, Step>();
 	let unidentified: Step | undefined;
 	let isThinking = false;
@@ -187,9 +227,13 @@ export function createActivityTracker(result: RunResult): ActivityTracker {
 			};
 			return;
 		}
-		result.activity = isThinking
-			? { kind: "thinking", ...(thinkingTokens === undefined ? {} : { tokens: thinkingTokens }) }
-			: undefined;
+		if (!isThinking) {
+			result.activity = undefined;
+			return;
+		}
+		const next: RunActivity = { kind: "thinking" };
+		if (thinkingTokens !== undefined) next.tokens = thinkingTokens;
+		result.activity = next;
 	};
 
 	return {
@@ -219,8 +263,6 @@ export function createActivityTracker(result: RunResult): ActivityTracker {
 				if (step) finish(step);
 				live.delete(id);
 			} else {
-				// pi omits the id on some events; ending without one ends everything, which is only
-				// correct because pi never runs two of these concurrently.
 				for (const step of live.values()) finish(step);
 				live.clear();
 				if (unidentified) finish(unidentified);
@@ -237,6 +279,39 @@ function suppliedSystemPrompt(agent: Agent, inherited: Inherited): string {
 		.join("\n\n");
 }
 
+export type JsonPayload =
+	| { kind: "absent" }
+	| { kind: "present"; value: JsonValue };
+
+export type ChildEvent =
+	| { kind: "ignored" }
+	| { kind: "observed" }
+	| { kind: "thinking"; tokens?: number }
+	| { kind: "idle" }
+	| { kind: "tool-start"; id?: string; tool: string; detail?: string }
+	| { kind: "tool-end"; id?: string; tool?: string; failed: boolean; details: JsonPayload }
+	| { kind: "assistant-text"; text: string }
+	| {
+		kind: "pi-message";
+		text: string;
+		provider?: string;
+		model?: string;
+		stopReason?: string;
+		errorMessage?: string;
+		usage?: Usage;
+	}
+	| { kind: "claude-init"; model: string }
+	| {
+		kind: "claude-result";
+		turns?: number;
+		output: JsonPayload;
+		text: string;
+		usage: Usage;
+		stopReason: "stop" | "length" | "error";
+		errorMessage?: string;
+	};
+
+/** A runtime owns child invocation and decoding; all later code sees only `ChildEvent`. */
 export interface Runtime {
 	name: "pi" | "claude";
 	invoke(
@@ -246,26 +321,23 @@ export interface Runtime {
 		model?: string,
 		nativeClaude?: NativeClaudeOptions,
 	): Invocation;
-	/**
-	 * True when the event changed something worth redrawing. Both CLIs interleave bookkeeping the
-	 * parent has no use for — claude alone emits a `thinking_tokens` line every few hundred
-	 * milliseconds — and repainting the tool card for each of those is work nobody sees.
-	 */
-	consume(
-		event: Record<string, unknown>,
-		result: RunResult,
-		activity: ActivityTracker,
-	): boolean;
+	decode(value: JsonValue): ChildEvent[];
 }
 
 /**
- * Exact model names, no aliases. `opus`/`sonnet`/`haiku` all work on the CLI, but an alias is a
- * name that means something else, and one of them is a trap: `opusplan` runs as `claude-sonnet-5`
- * under `-p`, being a plan-mode alias, and a headless subagent never plans. Excluding aliases
- * removes that whole class of surprise instead of special-casing one member of it.
+ * Exact model names only. Claude aliases can select a different family under `-p`, so accepting an
+ * alias would make the requested runtime ambiguous.
  */
-const CLAUDE_MODELS = new Set(["claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-haiku-4-5-20251001", "claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6", "claude-opus-4-6"]);
-/** The same list as a value the `delegate` schema can enumerate: how the model learns these names. */
+const CLAUDE_MODELS = new Set([
+	"claude-opus-5",
+	"claude-sonnet-5",
+	"claude-fable-5",
+	"claude-haiku-4-5-20251001",
+	"claude-opus-4-8",
+	"claude-opus-4-7",
+	"claude-sonnet-4-6",
+	"claude-opus-4-6",
+]);
 export const CLAUDE_MODEL_NAMES = [...CLAUDE_MODELS].sort();
 
 export function delegateModelNames(piModels: string[], includeNativeClaude: boolean): string[] {
@@ -278,30 +350,26 @@ export function childEnvironment(
 	resultTool?: string,
 ): NodeJS.ProcessEnv {
 	if (runtime !== "pi" || (!env[SSH_DESCRIPTOR_ENV] && resultTool === undefined)) return env;
-	return {
-		...env,
-		...(env[SSH_DESCRIPTOR_ENV] ? { [DELEGATE_CHILD_ENV]: "1" } : {}),
-		...(resultTool !== undefined ? { [RESULT_TOOL_ENV]: resultTool } : {}),
-	};
+	const childEnv = { ...env };
+	if (env[SSH_DESCRIPTOR_ENV]) childEnv[DELEGATE_CHILD_ENV] = "1";
+	if (resultTool !== undefined) childEnv[RESULT_TOOL_ENV] = resultTool;
+	return childEnv;
 }
 
-/**
- * The one capability rule left. Depth is always exactly one: a child that could delegate would make
- * the fan-out unbounded, and nothing in the parent is watching a grandchild's spend.
- */
+/** Delegation depth is exactly one; grandchildren would create unbounded fan-out and spend. */
 const NEVER_IN_CHILD = ["delegate"];
-const CLAUDE_TOOLS: Record<string, string> = {
-	read: "Read",
-	grep: "Grep",
-	find: "Glob",
-	ls: "Glob",
-	bash: "Bash",
-	host_bash: "Bash",
-	edit: "Edit",
-	write: "Write",
-	web_search: "WebSearch",
-	fetch_content: "WebFetch",
-};
+const CLAUDE_TOOLS = new Map<string, string>([
+	["read", "Read"],
+	["grep", "Grep"],
+	["find", "Glob"],
+	["ls", "Glob"],
+	["bash", "Bash"],
+	["host_bash", "Bash"],
+	["edit", "Edit"],
+	["write", "Write"],
+	["web_search", "WebSearch"],
+	["fetch_content", "WebFetch"],
+]);
 
 const COUNT_KEYS = ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const;
 const COST_KEYS = ["input", "output", "cacheRead", "cacheWrite", "total"] as const;
@@ -317,65 +385,459 @@ export function emptyUsage(): Usage {
 	};
 }
 
-function addUsage(total: Usage, next: Partial<Usage>): void {
-	for (const key of COUNT_KEYS) total[key] += next[key] ?? 0;
-	for (const key of COST_KEYS) total.cost[key] += next.cost?.[key] ?? 0;
+function addUsage(total: Usage, next: Usage): void {
+	for (const key of COUNT_KEYS) total[key] += next[key];
+	for (const key of COST_KEYS) total.cost[key] += next.cost[key];
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
+function requiredStringField(object: JsonObject, field: string, context: string) {
+	const value = object[field];
+	if (!isString(value)) throw new Error(`${context}.${field} must be a string`);
+	return value;
 }
 
-function isUsage(value: unknown): value is Usage {
-	if (!isRecord(value) || !isRecord(value.cost)) return false;
-	const cost = value.cost;
-	return (
-		COUNT_KEYS.every((key) => typeof value[key] === "number") && COST_KEYS.every((key) => typeof cost[key] === "number")
-	);
+function optionalStringField(object: JsonObject, field: string, context: string) {
+	const value = object[field];
+	if (value === undefined) return undefined;
+	if (!isString(value)) throw new Error(`${context}.${field} must be a string`);
+	return value;
 }
 
-function isRunActivity(value: unknown): value is RunActivity {
-	if (!isRecord(value)) return false;
-	if (value.kind === "tools") return typeof value.label === "string";
-	return value.kind === "thinking" && (value.tokens === undefined || typeof value.tokens === "number");
+function optionalNumberField(object: JsonObject, field: string, context: string) {
+	const value = object[field];
+	if (value === undefined) return undefined;
+	if (!isNumber(value)) throw new Error(`${context}.${field} must be a number`);
+	return value;
 }
 
-export function isRunResult(value: unknown): value is RunResult {
-	if (!isRecord(value)) return false;
-	const optionalStrings = [
-		"stopReason",
-		"errorMessage",
-		"provider",
-		"model",
-		"termination",
-	];
-	return (
-		typeof value.agent === "string" &&
-		typeof value.task === "string" &&
-		typeof value.output === "string" &&
-		typeof value.turns === "number" &&
-		typeof value.durationMs === "number" &&
-		Array.isArray(value.steps) &&
-		(value.runId === undefined || typeof value.runId === "string") &&
-		(value.traceId === undefined || typeof value.traceId === "string") &&
-		(value.activity === undefined || isRunActivity(value.activity)) &&
-		isUsage(value.usage) &&
-		optionalStrings.every((key) => value[key] === undefined || typeof value[key] === "string") &&
-		(value.termination === undefined || value.termination === "cancelled")
-	);
+function optionalBooleanField(object: JsonObject, field: string, context: string) {
+	const value = object[field];
+	if (value === undefined) return undefined;
+	if (!isBoolean(value)) throw new Error(`${context}.${field} must be a boolean`);
+	return value;
 }
 
-function assistantText(content: unknown): string {
-	if (!Array.isArray(content)) return "";
-	return content
-		.filter((part): part is { type: "text"; text: string } => isRecord(part) && part.type === "text")
-		.map((part) => part.text)
-		.join("\n");
+function requiredObjectField(object: JsonObject, field: string, context: string) {
+	const value = object[field];
+	if (!isJsonObject(value)) throw new Error(`${context}.${field} must be an object`);
+	return value;
+}
+
+function optionalObjectField(object: JsonObject, field: string, context: string) {
+	const value = object[field];
+	if (value === undefined) return undefined;
+	if (!isJsonObject(value)) throw new Error(`${context}.${field} must be an object`);
+	return value;
+}
+
+function requiredArrayField(object: JsonObject, field: string, context: string) {
+	const value = object[field];
+	if (!isJsonArray(value)) throw new Error(`${context}.${field} must be an array`);
+	return value;
+}
+
+function optionalArrayField(object: JsonObject, field: string, context: string) {
+	const value = object[field];
+	if (value === undefined) return undefined;
+	if (!isJsonArray(value)) throw new Error(`${context}.${field} must be an array`);
+	return value;
+}
+
+function decodeUsage(value: JsonValue, context: string): Usage {
+	if (!isJsonObject(value)) throw new Error(`${context} must be an object`);
+	const cost = requiredObjectField(value, "cost", context);
+	const usage = emptyUsage();
+	for (const key of COUNT_KEYS) {
+		const count = value[key];
+		if (!isNumber(count)) throw new Error(`${context}.${key} must be a number`);
+		usage[key] = count;
+	}
+	for (const key of COST_KEYS) {
+		const amount = cost[key];
+		if (!isNumber(amount)) throw new Error(`${context}.cost.${key} must be a number`);
+		usage.cost[key] = amount;
+	}
+	return usage;
+}
+
+function decodeTextContent(content: JsonValue[], context: string, ignoredTypes: Set<string>) {
+	const text: string[] = [];
+	for (const [index, value] of content.entries()) {
+		if (!isJsonObject(value)) throw new Error(`${context}[${index}] must be an object`);
+		const blockContext = `${context}[${index}]`;
+		const type = requiredStringField(value, "type", blockContext);
+		if (type === "text") {
+			text.push(requiredStringField(value, "text", blockContext));
+			continue;
+		}
+		if (ignoredTypes.has(type)) continue;
+		throw new Error(`unknown ${blockContext}.type ${JSON.stringify(type)}`);
+	}
+	return text.join("\n");
 }
 
 export function preview(text: string, max: number): string {
 	const flat = text.replace(/\s+/g, " ").trim();
 	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+const PI_CONTENT_IGNORED = new Set(["thinking", "toolCall"]);
+const CLAUDE_CONTENT_IGNORED = new Set([
+	"thinking",
+	"redacted_thinking",
+	"server_tool_use",
+	"advisor_tool_result",
+	"web_search_tool_result",
+	"mcp_tool_use",
+	"mcp_tool_result",
+	"image",
+]);
+
+function decodePiMessage(event: JsonObject): ChildEvent[] {
+	const message = requiredObjectField(event, "message", "pi message_end");
+	const role = requiredStringField(message, "role", "pi message_end.message");
+	if (["user", "toolResult", "bashExecution", "custom"].includes(role)) return [{ kind: "ignored" }];
+	if (["branchSummary", "compactionSummary"].includes(role)) return [{ kind: "ignored" }];
+	if (role !== "assistant") throw new Error(`unknown pi message role ${JSON.stringify(role)}`);
+	const content = requiredArrayField(message, "content", "pi message_end.message");
+	const usageValue = message.usage;
+	const normalized: ChildEvent = {
+		kind: "pi-message",
+		text: decodeTextContent(content, "pi message_end.message.content", PI_CONTENT_IGNORED),
+		provider: optionalStringField(message, "provider", "pi message_end.message"),
+		model: optionalStringField(message, "model", "pi message_end.message"),
+		stopReason: optionalStringField(message, "stopReason", "pi message_end.message"),
+		errorMessage: optionalStringField(message, "errorMessage", "pi message_end.message"),
+	};
+	if (usageValue !== undefined) normalized.usage = decodeUsage(usageValue, "pi message_end.message.usage");
+	return [normalized];
+}
+
+function decodePiToolEnd(event: JsonObject): ChildEvent[] {
+	const result = optionalObjectField(event, "result", "pi tool_execution_end");
+	let details: JsonPayload = { kind: "absent" };
+	if (result && Object.hasOwn(result, "details")) details = { kind: "present", value: result.details };
+	const normalized: ChildEvent = {
+		kind: "tool-end",
+		id: optionalStringField(event, "toolCallId", "pi tool_execution_end"),
+		tool: optionalStringField(event, "toolName", "pi tool_execution_end"),
+		failed: optionalBooleanField(event, "isError", "pi tool_execution_end") ?? false,
+		details,
+	};
+	return [normalized];
+}
+
+function decodePi(value: JsonValue): ChildEvent[] {
+	if (!isJsonObject(value)) throw new Error("pi event must be an object");
+	const type = requiredStringField(value, "type", "pi event");
+	switch (type) {
+		case "message_update": {
+			const update = requiredObjectField(value, "assistantMessageEvent", "pi message_update");
+			const updateType = requiredStringField(update, "type", "pi message_update.assistantMessageEvent");
+			switch (updateType) {
+				case "thinking_delta":
+					return [{ kind: "thinking" }];
+				case "thinking_end":
+					return [{ kind: "idle" }];
+				case "start":
+				case "text_start":
+				case "text_delta":
+				case "text_end":
+				case "thinking_start":
+				case "toolcall_start":
+				case "toolcall_delta":
+				case "toolcall_end":
+				case "done":
+				case "error":
+					return [{ kind: "ignored" }];
+				default:
+					throw new Error(`unknown pi assistant message event type ${JSON.stringify(updateType)}`);
+			}
+		}
+		case "tool_execution_start":
+			return [{
+				kind: "tool-start",
+				id: optionalStringField(value, "toolCallId", "pi tool_execution_start"),
+				tool: requiredStringField(value, "toolName", "pi tool_execution_start"),
+				detail: stepDetail(optionalObjectField(value, "args", "pi tool_execution_start")),
+			}];
+		case "tool_execution_end":
+			return decodePiToolEnd(value);
+		case "message_end":
+			return decodePiMessage(value);
+		case "agent_start":
+		case "agent_end":
+		case "agent_settled":
+		case "turn_start":
+		case "turn_end":
+		case "message_start":
+		case "tool_execution_update":
+		case "queue_update":
+		case "compaction_start":
+		case "compaction_end":
+		case "entry_appended":
+		case "session_info_changed":
+		case "thinking_level_changed":
+		case "auto_retry_start":
+		case "auto_retry_end":
+		case "summarization_retry_scheduled":
+		case "summarization_retry_attempt_start":
+		case "summarization_retry_finished":
+		case "bash_execution_update":
+			return [{ kind: "ignored" }];
+		default:
+			throw new Error(`unknown pi event type ${JSON.stringify(type)}`);
+	}
+}
+
+function decodeClaudeMessage(event: JsonObject, eventType: "assistant" | "user"): ChildEvent[] {
+	const message = requiredObjectField(event, "message", `claude ${eventType}`);
+	const role = requiredStringField(message, "role", `claude ${eventType}.message`);
+	if (role !== eventType) throw new Error(`claude ${eventType}.message.role must be ${JSON.stringify(eventType)}`);
+	const rawContent = message.content;
+	if (eventType === "user" && isString(rawContent)) return [{ kind: "observed" }];
+	if (!isJsonArray(rawContent)) throw new Error(`claude ${eventType}.message.content must be an array`);
+	const content = rawContent;
+	const events: ChildEvent[] = [];
+	const text: string[] = [];
+	for (const [index, rawBlock] of content.entries()) {
+		const context = `claude ${eventType}.message.content[${index}]`;
+		if (!isJsonObject(rawBlock)) throw new Error(`${context} must be an object`);
+		const blockType = requiredStringField(rawBlock, "type", context);
+		switch (blockType) {
+			case "text":
+				text.push(requiredStringField(rawBlock, "text", context));
+				break;
+			case "tool_use":
+				events.push({
+					kind: "tool-start",
+					id: requiredStringField(rawBlock, "id", context),
+					tool: requiredStringField(rawBlock, "name", context),
+					detail: stepDetail(optionalObjectField(rawBlock, "input", context)),
+				});
+				break;
+			case "tool_result":
+				events.push({
+					kind: "tool-end",
+					id: requiredStringField(rawBlock, "tool_use_id", context),
+					failed: optionalBooleanField(rawBlock, "is_error", context) ?? false,
+					details: { kind: "absent" },
+				});
+				break;
+			default:
+				if (!CLAUDE_CONTENT_IGNORED.has(blockType)) {
+					throw new Error(`unknown ${context}.type ${JSON.stringify(blockType)}`);
+				}
+		}
+	}
+	if (eventType === "assistant") events.unshift({ kind: "assistant-text", text: text.join("\n") });
+	else events.unshift({ kind: "observed" });
+	return events;
+}
+
+/** `modelUsage` is the run total; the envelope's `usage` is only the final turn. */
+function decodeClaudeUsage(event: JsonObject): Usage {
+	const usage = emptyUsage();
+	const perModel = optionalObjectField(event, "modelUsage", "claude result");
+	if (perModel) {
+		for (const [model, rawEntry] of Object.entries(perModel)) {
+			if (!isJsonObject(rawEntry)) throw new Error(`claude result.modelUsage.${model} must be an object`);
+			const context = `claude result.modelUsage.${model}`;
+			const next = emptyUsage();
+			next.input = optionalNumberField(rawEntry, "inputTokens", context) ?? 0;
+			next.output = optionalNumberField(rawEntry, "outputTokens", context) ?? 0;
+			next.cacheRead = optionalNumberField(rawEntry, "cacheReadInputTokens", context) ?? 0;
+			next.cacheWrite = optionalNumberField(rawEntry, "cacheCreationInputTokens", context) ?? 0;
+			next.totalTokens = next.input + next.output + next.cacheRead + next.cacheWrite;
+			addUsage(usage, next);
+		}
+	}
+	usage.totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+	usage.cost.total = optionalNumberField(event, "total_cost_usd", "claude result") ?? 0;
+	return usage;
+}
+
+interface ClaudeDenials {
+	count: number;
+	tools: string[];
+}
+
+function decodeClaudeDenials(event: JsonObject): ClaudeDenials {
+	const rawDenials = optionalArrayField(event, "permission_denials", "claude result") ?? [];
+	const tools: string[] = [];
+	for (const [index, rawDenial] of rawDenials.entries()) {
+		const context = `claude result.permission_denials[${index}]`;
+		if (!isJsonObject(rawDenial)) throw new Error(`${context} must be an object`);
+		const tool = optionalStringField(rawDenial, "tool_name", context);
+		if (tool) tools.push(tool);
+	}
+	return { count: rawDenials.length, tools };
+}
+
+/** Claude can exit zero with an in-band failure, so preserve every structured diagnosis. */
+function claudeFailure(event: JsonObject, subtype: string, result: string, denials: ClaudeDenials): string {
+	const parts: string[] = [];
+	if (denials.tools.length) {
+		parts.push(`denied ${[...new Set(denials.tools)].join(", ")} — the run reported success anyway`);
+	}
+	if (subtype !== "success") parts.push(subtype);
+	const terminalReason = optionalStringField(event, "terminal_reason", "claude result");
+	if (terminalReason) parts.push(terminalReason);
+	const apiStatus = event.api_error_status;
+	if (apiStatus !== undefined && apiStatus !== null) {
+		if (!isStringOrNumber(apiStatus)) throw new Error("claude result.api_error_status must be a string or number");
+		parts.push(`api status ${String(apiStatus)}`);
+	}
+	if (result.trim()) parts.push(result.trim());
+	return parts.join("; ") || "claude reported a failure with no detail";
+}
+
+function decodeClaudeResult(event: JsonObject): ChildEvent[] {
+	const subtype = requiredStringField(event, "subtype", "claude result");
+	const result = subtype === "success"
+		? requiredStringField(event, "result", "claude result")
+		: optionalStringField(event, "result", "claude result") ?? "";
+	const isError = optionalBooleanField(event, "is_error", "claude result") ?? false;
+	const stopReason = optionalStringField(event, "stop_reason", "claude result");
+	const denials = decodeClaudeDenials(event);
+	let output: JsonPayload = { kind: "absent" };
+	if (Object.hasOwn(event, "structured_output")) output = { kind: "present", value: event.structured_output };
+	let normalizedStopReason: "stop" | "length" | "error";
+	let errorMessage: string | undefined;
+	// Denial wins over truncation, and truncation wins over apparent success.
+	if (isError || subtype !== "success" || denials.count) {
+		normalizedStopReason = "error";
+		errorMessage = claudeFailure(event, subtype, result, denials);
+	} else if (stopReason === "max_tokens") {
+		normalizedStopReason = "length";
+	} else {
+		normalizedStopReason = "stop";
+	}
+	return [{
+		kind: "claude-result",
+		turns: optionalNumberField(event, "num_turns", "claude result"),
+		output,
+		text: result,
+		usage: decodeClaudeUsage(event),
+		stopReason: normalizedStopReason,
+		errorMessage,
+	}];
+}
+
+function decodeClaude(value: JsonValue): ChildEvent[] {
+	if (!isJsonObject(value)) throw new Error("claude event must be an object");
+	const type = requiredStringField(value, "type", "claude event");
+	switch (type) {
+		case "system": {
+			const subtype = requiredStringField(value, "subtype", "claude system");
+			switch (subtype) {
+				case "init":
+					return [{ kind: "claude-init", model: requiredStringField(value, "model", "claude system init") }];
+				case "thinking_tokens": {
+					const tokens = value.estimated_tokens;
+					if (!isNumber(tokens)) throw new Error("claude system thinking_tokens.estimated_tokens must be a number");
+					return [{ kind: "thinking", tokens }];
+				}
+				case "api_retry":
+				case "model_refusal_fallback":
+				case "model_refusal_no_fallback":
+				case "memory_recall":
+				case "compact_boundary":
+				case "permission_denied":
+				case "model_fallback":
+				case "model_consent_fallback":
+				case "status":
+				case "task_started":
+				case "task_progress":
+				case "task_updated":
+				case "task_notification":
+				case "background_tasks_changed":
+				case "feedback_draft_queued":
+				case "task_summary":
+				case "session_state_changed":
+				case "post_turn_summary":
+				case "hook_started":
+				case "hook_progress":
+				case "hook_response":
+				case "commands_changed":
+				case "elicitation_complete":
+				case "files_persisted":
+				case "mirror_error":
+				case "code_change_published":
+				case "vcs_state_changed":
+					return [{ kind: "ignored" }];
+				default:
+					throw new Error(`unknown claude system subtype ${JSON.stringify(subtype)}`);
+			}
+		}
+		case "assistant":
+		case "user":
+			return decodeClaudeMessage(value, type);
+		case "result":
+			return decodeClaudeResult(value);
+		case "rate_limit_event":
+		case "stream_event":
+		case "tool_progress":
+		case "tool_use_summary":
+		case "auth_status":
+		case "prompt_suggestion":
+		case "files_persisted":
+		case "conversation_reset":
+		case "command_lifecycle":
+			return [{ kind: "ignored" }];
+		default:
+			throw new Error(`unknown claude event type ${JSON.stringify(type)}`);
+	}
+}
+
+export function stringifyJson(value: JsonValue): string {
+	const serialized = JSON.stringify(value);
+	if (serialized === undefined) throw new Error("JSON value could not be serialized");
+	return serialized;
+}
+
+export function consumeChildEvent(event: ChildEvent, result: RunResult, activity: ActivityTracker): boolean {
+	switch (event.kind) {
+		case "ignored":
+			return false;
+		case "observed":
+			return true;
+		case "thinking":
+			activity.think(event.tokens);
+			return true;
+		case "idle":
+			activity.idle();
+			return true;
+		case "tool-start":
+			activity.start(event.id, event.tool, event.detail);
+			return true;
+		case "tool-end":
+			activity.end(event.id, event.failed);
+			return true;
+		case "assistant-text":
+			if (event.text.trim()) result.output = event.text;
+			return true;
+		case "pi-message":
+			activity.idle();
+			result.turns += 1;
+			if (event.provider !== undefined) result.provider = event.provider;
+			if (event.model !== undefined) result.model = event.model;
+			result.stopReason = event.stopReason;
+			result.errorMessage = event.errorMessage;
+			if (event.usage) addUsage(result.usage, event.usage);
+			result.output = event.text;
+			return true;
+		case "claude-init":
+			result.model = event.model;
+			return true;
+		case "claude-result":
+			if (event.turns !== undefined) result.turns = event.turns;
+			result.output = event.output.kind === "present" ? stringifyJson(event.output.value) : event.text;
+			result.usage = event.usage;
+			result.stopReason = event.stopReason;
+			result.errorMessage = event.errorMessage;
+			return true;
+	}
 }
 
 export type OutcomeKind = "success" | "cancelled" | "aborted" | "model-error" | "invalid-response" | "length";
@@ -404,11 +866,7 @@ export function classifyResult(result: RunResult): ResultOutcome {
 	const suffix = detail ? `: ${detail}` : ".";
 
 	if (result.termination === "cancelled") {
-		return {
-			kind: "cancelled",
-			label: "cancelled",
-			message: `${result.agent} was cancelled.`,
-		};
+		return { kind: "cancelled", label: "cancelled", message: `${result.agent} was cancelled.` };
 	}
 	if (result.stopReason === "length") {
 		return {
@@ -442,27 +900,16 @@ export function classifyResult(result: RunResult): ResultOutcome {
 	return { kind: "success", label: "completed" };
 }
 
-/**
- * The claude tool allowlist for an agent: pi's vocabulary in, claude's out — so switching an agent
- * between runtimes never means rewriting its `tools:`, and one reviewer prompt runs on either
- * family.
- *
- * The list is passed through, not edited: what `tools:` says is what the agent gets, a shell
- * included. Anything that filtered it here would let a file state one capability while the child
- * holds another.
- */
+/** Translate the exact Pi capability list to Claude names, failing on an unmapped grant. */
 export function claudeTools(agent: Agent): string[] {
 	const allowed = new Set<string>();
 	for (const tool of agent.tools) {
 		if (NEVER_IN_CHILD.includes(tool)) continue;
-		const mapped = CLAUDE_TOOLS[tool];
+		const mapped = CLAUDE_TOOLS.get(tool);
 		if (!mapped) throw new Error(`tool ${tool} has no claude equivalent`);
 		allowed.add(mapped);
 	}
-	// `skills: all` must grant Skill explicitly: the allowlist fences it like any other tool.
 	if (agent.skills === "all") allowed.add("Skill");
-	// `find` and `ls` both map to Glob, so dedupe is load-bearing, not tidiness. Sorted for a
-	// stable command line.
 	return [...allowed].sort();
 }
 
@@ -470,18 +917,15 @@ const claudeRuntime: Runtime = {
 	name: "claude",
 
 	invoke(agent, task, inherited, model, nativeClaude) {
-		// Repeating `--append-system-prompt` silently drops all but the last, so the inherited text
-		// and the agent body travel as one argument.
+		// Claude keeps only the final repeated system-prompt flag, so inherited and role text travel
+		// together as one argument.
 		const systemPrompt = suppliedSystemPrompt(agent, inherited);
 		const tools = claudeTools(agent).join(",");
 		const args = [
 			"-p",
-			// stream-json refuses to run without it, rather than falling back.
 			"--verbose",
 			"--output-format",
 			"stream-json",
-			// No `--mcp-config` alongside it, so the child loads zero MCP servers: nothing outside
-			// the allowlist, and nothing to orphan when the child is killed.
 			"--strict-mcp-config",
 			"--append-system-prompt",
 			systemPrompt,
@@ -489,127 +933,27 @@ const claudeRuntime: Runtime = {
 		if (inherited.sessionId) {
 			args.push(inherited.resume ? "--resume" : "--session-id", inherited.sessionId);
 		} else {
-			// One-shot roles do not leave sessions that this extension will never resume.
 			args.push("--no-session-persistence");
 		}
-		// Always set in normal use: naming a native claude model selects this runtime.
 		if (model) args.push("--model", model);
-		// Slash commands may still make skills available unless both fences are set.
 		if (agent.skills === "none") args.push("--safe-mode", "--disable-slash-commands");
 		if (nativeClaude?.effort) args.push("--effort", nativeClaude.effort);
 		if (nativeClaude?.jsonSchema) args.push("--json-schema", JSON.stringify(nativeClaude.jsonSchema));
-		// Pinned, or `~/.claude/settings.json` decides whether a subagent's tools run at all.
+		// Availability and permission are separate grants; pin both to the agent capability.
 		args.push("--permission-mode", "acceptEdits");
-		// Availability and permission are separate grants: without this a tool is offered and then
-		// denied mid-run, and the run still reports success. So the agent file grants outright —
-		// `bash` in a file is a pre-approved shell.
 		args.push("--allowed-tools", tools);
-		// An exact allowlist, extension- and MCP-contributed tools included. Empty is legal: claude
-		// reads `--tools ""` as "no tools at all".
 		args.push("--tools", tools);
-		// On stdin, because `--tools` and `--allowed-tools` are variadic and swallow a trailing
-		// positional prompt. Prefixed like pi's so both families read an identical brief.
+		// Stdin avoids variadic tool flags swallowing the positional prompt.
 		return { command: "claude", args, input: `Task: ${task}` };
 	},
 
-	consume(event, result, activity) {
-		if (event.type === "system") {
-			if (event.subtype === "thinking_tokens" && typeof event.estimated_tokens === "number") {
-				activity.think(event.estimated_tokens);
-				return true;
-			}
-			if (event.subtype !== "init" || typeof event.model !== "string") return false;
-			result.model = event.model;
-			return true;
-		}
-		if (event.type === "assistant" || event.type === "user") {
-			const message = event.message;
-			if (!isRecord(message)) return false;
-			for (const block of Array.isArray(message.content) ? message.content : []) {
-				if (!isRecord(block)) continue;
-				if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
-					activity.start(block.id, block.name, stepDetail(block.input));
-				} else if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
-					activity.end(block.tool_use_id, block.is_error === true);
-				}
-			}
-			// Kept as it arrives, so a child killed before its final envelope still shows the last
-			// thing it said rather than nothing at all.
-			if (event.type === "assistant") {
-				const text = assistantText(message.content);
-				if (text.trim()) result.output = text;
-			}
-			return true;
-		}
-		if (event.type !== "result") return false;
-		if (typeof event.num_turns === "number") result.turns = event.num_turns;
-		if (Object.hasOwn(event, "structured_output")) {
-			result.output = JSON.stringify(event.structured_output) ?? "";
-		} else if (typeof event.result === "string") {
-			result.output = event.result;
-		}
-		result.usage = claudeUsage(event);
-		const denials = Array.isArray(event.permission_denials) ? event.permission_denials : [];
-		// Worst news first, and the order is load-bearing. Hitting the output limit is not an error,
-		// so a truncated run arrives here as a plain success — test success first and it is swallowed
-		// as a finished answer, leaving `length` reachable only when the run also failed.
-		if (event.is_error === true || event.subtype !== "success" || denials.length) {
-			result.stopReason = "error";
-			result.errorMessage = claudeFailure(event, denials);
-		} else if (event.stop_reason === "max_tokens") {
-			result.stopReason = "length";
-		} else {
-			result.stopReason = "stop";
-		}
-		return true;
-	},
+	decode: decodeClaude,
 };
-
-/**
- * `modelUsage` is the run total; the envelope's own `usage` counts the final turn only. Assigned,
- * never accumulated: there is one of these per run.
- */
-function claudeUsage(event: Record<string, unknown>): Usage {
-	const usage = emptyUsage();
-	const perModel = isRecord(event.modelUsage) ? Object.values(event.modelUsage) : [];
-	for (const entry of perModel) {
-		if (!isRecord(entry)) continue;
-		addUsage(usage, {
-			input: typeof entry.inputTokens === "number" ? entry.inputTokens : 0,
-			output: typeof entry.outputTokens === "number" ? entry.outputTokens : 0,
-			cacheRead: typeof entry.cacheReadInputTokens === "number" ? entry.cacheReadInputTokens : 0,
-			cacheWrite: typeof entry.cacheCreationInputTokens === "number" ? entry.cacheCreationInputTokens : 0,
-		});
-	}
-	usage.totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-	// Only the total is reported; claude gives no per-component costs to split it into.
-	if (typeof event.total_cost_usd === "number") usage.cost.total = event.total_cost_usd;
-	return usage;
-}
-
-/**
- * A bad `--model` exits 0 with empty stderr and `subtype: "success"` — the whole diagnosis is
- * in-band, so everything the envelope knows goes into the message.
- */
-function claudeFailure(event: Record<string, unknown>, denials: unknown[]): string {
-	const parts: string[] = [];
-	const denied = denials
-		.map((denial) => (isRecord(denial) && typeof denial.tool_name === "string" ? denial.tool_name : undefined))
-		.filter((name): name is string => Boolean(name));
-	if (denied.length) parts.push(`denied ${[...new Set(denied)].join(", ")} — the run reported success anyway`);
-	if (typeof event.subtype === "string" && event.subtype !== "success") parts.push(event.subtype);
-	if (typeof event.terminal_reason === "string") parts.push(event.terminal_reason);
-	if (event.api_error_status != null) parts.push(`api status ${String(event.api_error_status)}`);
-	if (typeof event.result === "string" && event.result.trim()) parts.push(event.result.trim());
-	return parts.join("; ") || "claude reported a failure with no detail";
-}
 
 const piRuntime: Runtime = {
 	name: "pi",
 
 	invoke(agent, task, inherited, requestedModel) {
-		// Prompts are literal arguments: pi reads one as a file only when the string names an existing
-		// path. Agent bodies are multi-line, so they cannot accidentally name a file.
 		const args = ["--mode", "json", "-p"];
 		if (inherited.sessionDir) args.push("--session-dir", inherited.sessionDir);
 		if (inherited.sessionId) {
@@ -619,56 +963,18 @@ const piRuntime: Runtime = {
 			args.push("--append-system-prompt", inherited.appendSystemPrompt);
 		}
 		args.push("--append-system-prompt", agent.systemPrompt);
-		// No `--exclude-tools` beside this: pi's `isAllowedTool` (core/agent-session.js) applies the
-		// allowlist to extension- and SDK-registered tools alike, so a deny list could only restate
-		// it and then drift from it. `delegate` is excluded by not being granted.
 		const tools = agent.tools.filter((tool) => !NEVER_IN_CHILD.includes(tool));
-		// Explicit both ways: without `--tools` the child would fall back to pi's default active set
-		// (read, bash, edit, write) — a file that grants nothing must get nothing, not the default.
+		// Omission would activate Pi's default tools, so an empty capability needs `--no-tools`.
 		args.push(...(tools.length ? ["--tools", tools.join(",")] : ["--no-tools"]));
-		// Omitting a delegate model follows this session rather than settings.json. An explicit
-		// provider-qualified model overrides it while remaining in pi's runtime.
 		const model = requestedModel ?? inherited.model;
 		if (model) args.push("--model", model);
 		if (inherited.thinkingLevel) args.push("--thinking", inherited.thinkingLevel);
 		if (agent.skills === "none") args.push("--no-skills");
-		// Stdin avoids the operating system's per-argument size limit. Review tasks can contain the
-		// complete staged patch, while ordinary delegated tasks use the same unambiguous path.
+		// Stdin avoids the operating system argument-size limit for review tasks containing patches.
 		return { ...piInvocation(args), input: `Task: ${task}` };
 	},
 
-	consume(event, result, activity) {
-		if (event.type === "message_update" && isRecord(event.assistantMessageEvent)) {
-			if (event.assistantMessageEvent.type === "thinking_delta") activity.think();
-			else if (event.assistantMessageEvent.type === "thinking_end") activity.idle();
-			else return false;
-			return true;
-		}
-		if (event.type === "tool_execution_start" && typeof event.toolName === "string") {
-			activity.start(
-				typeof event.toolCallId === "string" ? event.toolCallId : undefined,
-				event.toolName,
-				stepDetail(event.args),
-			);
-			return true;
-		}
-		if (event.type === "tool_execution_end") {
-			activity.end(typeof event.toolCallId === "string" ? event.toolCallId : undefined, event.isError === true);
-			return true;
-		}
-		if (event.type !== "message_end" || !isRecord(event.message)) return false;
-		if (event.message.role !== "assistant") return false;
-		activity.idle();
-		const message = event.message;
-		result.turns += 1;
-		if (typeof message.provider === "string") result.provider = message.provider;
-		if (typeof message.model === "string") result.model = message.model;
-		result.stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
-		result.errorMessage = typeof message.errorMessage === "string" ? message.errorMessage : undefined;
-		if (isRecord(message.usage)) addUsage(result.usage, message.usage as Partial<Usage>);
-		result.output = assistantText(message.content);
-		return true;
-	},
+	decode: decodePi,
 };
 
 export function piInvocation(args: string[]): Invocation {
@@ -680,13 +986,8 @@ export function piInvocation(args: string[]): Invocation {
 }
 
 /**
- * The model name *is* the runtime: there is no `runtime:` key to keep in sync with it, and pi
- * models carry a provider prefix, so the two namespaces cannot collide.
- *
- * Throws on a bare `claude-*` name this list does not know — a typo like `claude-opus5`, or a model
- * that shipped after this list was written. Both would otherwise be handed quietly to pi, which is
- * the one outcome worth preventing: an agent whose roster entry says claude, reviewing its own
- * family. Running claude *through* pi is spelled `anthropic/claude-opus-5` and never reaches here.
+ * The model name selects the runtime. Reject unknown bare Claude names instead of quietly routing
+ * a typo through Pi; provider-qualified Claude models intentionally remain Pi models.
  */
 export function selectRuntime(model: string | undefined): Runtime {
 	if (!model) return piRuntime;

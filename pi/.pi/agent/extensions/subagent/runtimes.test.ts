@@ -10,10 +10,11 @@ import {
 	childSessionDir,
 	claudeTools,
 	classifyResult,
+	consumeChildEvent,
 	delegateModelNames,
 	emptyUsage,
 	CLAUDE_MODEL_NAMES,
-	isRunResult,
+	type JsonValue,
 	modelLabel,
 	RESULT_TOOL_ENV,
 	type RunResult,
@@ -47,10 +48,23 @@ function result(overrides: Partial<RunResult> = {}): RunResult {
 	};
 }
 
-function runClaude(events: Record<string, unknown>[], into = result()): { result: RunResult } {
+function consumeRaw(
+	runtime: ReturnType<typeof selectRuntime>,
+	event: JsonValue,
+	into: RunResult,
+	activity: ActivityTracker,
+) {
+	let changed = false;
+	for (const normalized of runtime.decode(event)) {
+		if (consumeChildEvent(normalized, into, activity)) changed = true;
+	}
+	return changed;
+}
+
+function runClaude(events: JsonValue[], into = result()) {
 	const runtime = selectRuntime("claude-opus-5");
 	const activity = createActivityTracker(into);
-	for (const event of events) runtime.consume(event, into, activity);
+	for (const event of events) consumeRaw(runtime, event, into, activity);
 	return { result: into };
 }
 
@@ -61,12 +75,6 @@ function steps(result: RunResult): string[] {
 			`${!step.outcome ? "⋯" : step.outcome === "failed" ? "✗" : "✓"} ${step.tool}${step.detail ? ` ${step.detail}` : ""}`,
 	);
 }
-
-test("run results accept structured activity, not presentation strings", () => {
-	assert.equal(isRunResult(result({ activity: { kind: "thinking", tokens: 50 } })), true);
-	assert.equal(isRunResult(result({ activity: { kind: "tools", label: "read(a.ts)" } })), true);
-	assert.equal(isRunResult({ ...result(), activity: "thinking" }), false);
-});
 
 test("agent frontmatter reads only role and capability fields", () => {
 	assert.deepEqual(
@@ -94,15 +102,10 @@ test("agent frontmatter reads only role and capability fields", () => {
 	);
 });
 
-test("continuability is enabled only by literal frontmatter true", () => {
-	for (const continuable of [undefined, false, "true", 1]) {
-		const parsed = agentFromFrontmatter(
-			"writer",
-			{ description: "writes", tools: "read", continuable },
-			"Write it.",
-		);
-		assert.equal(parsed.continuable, false);
-	}
+test("missing optional frontmatter uses explicit defaults", () => {
+	const parsed = agentFromFrontmatter("writer", { description: "writes", tools: "read" }, "Write it.");
+	assert.equal(parsed.skills, "all");
+	assert.equal(parsed.continuable, false);
 	assert.equal(
 		agentFromFrontmatter(
 			"reviewer",
@@ -111,6 +114,35 @@ test("continuability is enabled only by literal frontmatter true", () => {
 		).continuable,
 		true,
 	);
+});
+
+test("malformed present frontmatter fields fail with field-specific errors", () => {
+	assert.throws(
+		() => agentFromFrontmatter("missing", { tools: "read" }, "No."),
+		/missing a description/,
+	);
+	for (const description of [null, false, 3, [], {}]) {
+		assert.throws(
+			() => agentFromFrontmatter("malformed", { description, tools: "read" }, "No."),
+			/description must be a non-empty string/,
+		);
+	}
+	assert.throws(
+		() => agentFromFrontmatter("malformed", { description: "", tools: "read" }, "No."),
+		/description must be a non-empty string/,
+	);
+	for (const skills of [null, false, "some", [], {}]) {
+		assert.throws(
+			() => agentFromFrontmatter("malformed", { description: "bad skills", tools: "read", skills }, "No."),
+			/skills must be "all" or "none"/,
+		);
+	}
+	for (const continuable of [null, "true", 1, [], {}]) {
+		assert.throws(
+			() => agentFromFrontmatter("malformed", { description: "bad continuable", tools: "read", continuable }, "No."),
+			/continuable must be a boolean/,
+		);
+	}
 });
 
 test("agent frontmatter accepts an explicit empty tool array only", () => {
@@ -368,7 +400,7 @@ test("runtime argv is independent of configured agent names", () => {
 	const reviewer = agent({ name: "reviewer", tools: ["read", "grep"] });
 	const inherited = { appendSystemPrompt: "Shared instructions." };
 
-	for (const model of [undefined, "claude-opus-5"] as const) {
+	for (const model of [undefined, "claude-opus-5"]) {
 		const runtime = selectRuntime(model);
 		const writerInvocation = runtime.invoke(writer, "inspect", inherited, model);
 		const reviewerInvocation = runtime.invoke(reviewer, "inspect", inherited, model);
@@ -379,8 +411,8 @@ test("runtime argv is independent of configured agent names", () => {
 test("both runtimes retain ordinary agent text", () => {
 	const markdown = "## Result\n\nOrdinary **Markdown**.";
 	for (const name of ["writer", "reviewer"]) {
-		const piRun = result({ agent: name });
-		selectRuntime(undefined).consume({
+		const piRun = result({ agent: name, model: "inherited-model" });
+		consumeRaw(selectRuntime(undefined), {
 			type: "message_end",
 			message: {
 				role: "assistant",
@@ -389,6 +421,7 @@ test("both runtimes retain ordinary agent text", () => {
 			},
 		}, piRun, createActivityTracker(piRun));
 		assert.equal(piRun.output, markdown);
+		assert.equal(piRun.model, "inherited-model");
 		assert.equal(classifyResult(piRun).kind, "success");
 
 		const claudeRun = runClaude([{
@@ -455,14 +488,14 @@ test("pi accumulates usage per message, where claude assigns a run total once", 
 		},
 	});
 
-	runtime.consume({ type: "tool_execution_start", toolName: "read", toolCallId: "1", args: { path: "a.ts" } }, run, activity);
+	consumeRaw(runtime, { type: "tool_execution_start", toolName: "read", toolCallId: "1", args: { path: "a.ts" } }, run, activity);
 	assert.deepEqual(run.activity, { kind: "tools", label: "read(a.ts)" });
-	runtime.consume({ type: "tool_execution_end", toolCallId: "1" }, run, activity);
+	consumeRaw(runtime, { type: "tool_execution_end", toolCallId: "1" }, run, activity);
 	assert.equal(run.activity, undefined);
 	assert.deepEqual(steps(run), ["✓ read a.ts"]);
 
-	runtime.consume(turn(10, 0.01), run, activity);
-	runtime.consume(turn(30, 0.02), run, activity);
+	consumeRaw(runtime, turn(10, 0.01), run, activity);
+	consumeRaw(runtime, turn(30, 0.02), run, activity);
 	assert.equal(run.turns, 2);
 	assert.equal(run.usage.input, 40);
 	assert.equal(run.usage.output, 10);
@@ -477,9 +510,9 @@ test("a pi tool event with no id still clears the line, because pi omits ids", (
 	const runtime = selectRuntime(undefined);
 	const run = result();
 	const activity = createActivityTracker(run);
-	runtime.consume({ type: "tool_execution_start", toolName: "bash" }, run, activity);
+	consumeRaw(runtime, { type: "tool_execution_start", toolName: "bash" }, run, activity);
 	assert.deepEqual(run.activity, { kind: "tools", label: "bash" });
-	runtime.consume({ type: "tool_execution_end" }, run, activity);
+	consumeRaw(runtime, { type: "tool_execution_end" }, run, activity);
 	assert.equal(run.activity, undefined);
 	assert.deepEqual(steps(run), ["✓ bash"]);
 });
@@ -649,7 +682,8 @@ test("both lanes report the same call the same way", () => {
 		start: (_id, tool, detail) => seen.push(`start ${tool} ${detail}`),
 		end: (_id, failed) => seen.push(`end ${failed}`),
 	};
-	selectRuntime("claude-opus-5").consume(
+	consumeRaw(
+		selectRuntime("claude-opus-5"),
 		{
 			type: "assistant",
 			message: { role: "assistant", content: [{ type: "tool_use", id: "a", name: "Bash", input: { command: "ls -la" } }] },
@@ -657,39 +691,36 @@ test("both lanes report the same call the same way", () => {
 		result(),
 		activity,
 	);
-	selectRuntime(undefined).consume(
+	consumeRaw(
+		selectRuntime(undefined),
 		{ type: "tool_execution_start", toolCallId: "a", toolName: "bash", args: { command: "ls -la" } },
 		result(),
 		activity,
 	);
 	assert.deepEqual(seen, ["start Bash ls -la", "start bash ls -la"]);
 
-	selectRuntime("claude-opus-5").consume(
+	consumeRaw(
+		selectRuntime("claude-opus-5"),
 		{ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "a", is_error: true }] } },
 		result(),
 		activity,
 	);
-	selectRuntime(undefined).consume({ type: "tool_execution_end", toolCallId: "a", isError: true }, result(), activity);
+	consumeRaw(selectRuntime(undefined), { type: "tool_execution_end", toolCallId: "a", isError: true }, result(), activity);
 	assert.deepEqual(seen.slice(-2), ["end true", "end true"]);
 });
 
-test("tool activity tracks by id, and an unidentified result ends nothing", () => {
+test("tool activity tracks concurrent Claude calls by id", () => {
 	const runtime = selectRuntime("claude-opus-5");
 	const run = result();
 	const activity = createActivityTracker(run);
-	const message = (role: string, content: unknown[]) => ({ type: role, message: { role, content } });
+	const message = (role: "assistant" | "user", content: JsonValue[]) => ({ type: role, message: { role, content } });
 
-	runtime.consume(message("assistant", [{ type: "tool_use", id: "a", name: "Read" }]), run, activity);
-	runtime.consume(message("assistant", [{ type: "tool_use", id: "b", name: "Grep" }]), run, activity);
+	consumeRaw(runtime, message("assistant", [{ type: "tool_use", id: "a", name: "Read" }]), run, activity);
+	consumeRaw(runtime, message("assistant", [{ type: "tool_use", id: "b", name: "Grep" }]), run, activity);
 	assert.deepEqual(run.activity, { kind: "tools", label: "Read, Grep" });
 
-	// A block with no id must not clear the pair: that would drop a running sibling off the line.
-	runtime.consume(message("user", [{ type: "tool_result" }]), run, activity);
-	assert.deepEqual(run.activity, { kind: "tools", label: "Read, Grep" });
-
-	runtime.consume(message("user", [{ type: "tool_result", tool_use_id: "a" }]), run, activity);
+	consumeRaw(runtime, message("user", [{ type: "tool_result", tool_use_id: "a" }]), run, activity);
 	assert.deepEqual(run.activity, { kind: "tools", label: "Grep" });
-	// The finished one is marked; the one still running keeps its ⋯ even after the run ends.
 	assert.deepEqual(steps(run), ["✓ Read", "⋯ Grep"]);
 });
 
@@ -697,12 +728,12 @@ test("Pi thinking deltas show thinking until the stream ends", () => {
 	const run = result({ agent: "implementer" });
 	const activity = createActivityTracker(run);
 	const runtime = selectRuntime(undefined);
-	assert.equal(runtime.consume({
+	assert.equal(consumeRaw(runtime, {
 		type: "message_update",
 		assistantMessageEvent: { type: "thinking_delta", delta: "hmm" },
 	}, run, activity), true);
 	assert.deepEqual(run.activity, { kind: "thinking" });
-	assert.equal(runtime.consume({
+	assert.equal(consumeRaw(runtime, {
 		type: "message_update",
 		assistantMessageEvent: { type: "thinking_end" },
 	}, run, activity), true);
@@ -717,28 +748,67 @@ test("a think before any tool still shows on the line", () => {
 	assert.equal(activityLabel(run.activity), "thinking 50");
 
 	// A running tool replaces it.
-	const message = (role: string, content: unknown[]) => ({ type: role, message: { role, content } });
+	const message = (role: "assistant" | "user", content: JsonValue[]) => ({ type: role, message: { role, content } });
 	const runtime = selectRuntime("claude-opus-5");
 	const activity = createActivityTracker(run);
-	runtime.consume(message("assistant", [{ type: "tool_use", id: "a", name: "Bash", input: { command: "ls" } }]), run, activity);
+	consumeRaw(runtime, message("assistant", [{ type: "tool_use", id: "a", name: "Bash", input: { command: "ls" } }]), run, activity);
 	assert.deepEqual(run.activity, { kind: "tools", label: "Bash(ls)" });
-	runtime.consume(message("user", [{ type: "tool_result", tool_use_id: "a" }]), run, activity);
+	consumeRaw(runtime, message("user", [{ type: "tool_result", tool_use_id: "a" }]), run, activity);
 	assert.equal(run.activity, undefined);
+});
+
+test("malformed known child records are rejected by their runtime decoder", () => {
+	const pi = selectRuntime(undefined);
+	assert.throws(
+		() => pi.decode({ type: "tool_execution_start", toolName: 4 }),
+		/pi tool_execution_start\.toolName must be a string/,
+	);
+	assert.throws(
+		() => pi.decode({ type: "message_end", message: { role: "assistant", content: "done" } }),
+		/pi message_end\.message\.content must be an array/,
+	);
+
+	const claude = selectRuntime("claude-opus-5");
+	assert.throws(() => claude.decode({ type: "assistant" }), /claude assistant\.message must be an object/);
+	assert.throws(
+		() => claude.decode({ type: "result", subtype: "success", result: 4 }),
+		/claude result\.result must be a string/,
+	);
+	assert.throws(
+		() => claude.decode({
+			type: "user",
+			message: { role: "user", content: [{ type: "tool_result" }] },
+		}),
+		/tool_use_id must be a string/,
+	);
+});
+
+test("unrecognized child event tags are rejected", () => {
+	assert.throws(() => selectRuntime(undefined).decode({ type: "future_pi_event" }), /unknown pi event type/);
+	assert.throws(
+		() => selectRuntime("claude-opus-5").decode({ type: "future_claude_event" }),
+		/unknown claude event type/,
+	);
 });
 
 test("bookkeeping events do not ask for a redraw", () => {
 	const runtime = selectRuntime("claude-opus-5");
 	const run = result();
 	const activity = createActivityTracker(run);
-	const consume = (event: Record<string, unknown>) => runtime.consume(event, run, activity);
+	const consume = (event: JsonValue) => consumeRaw(runtime, event, run, activity);
 
 	assert.equal(consume({ type: "rate_limit_event" }), false);
-	assert.equal(consume({ type: "assistant" }), false);
+	assert.equal(consume({ type: "system", subtype: "permission_denied" }), false);
+	assert.equal(consume({
+		type: "assistant",
+		message: { role: "assistant", content: [{ type: "advisor_tool_result" }] },
+	}), true);
 	// Thinking tokens are the exception: during a long think they are the only thing moving.
 	assert.equal(consume({ type: "system", subtype: "thinking_tokens", estimated_tokens: 40 }), true);
 	assert.deepEqual(run.activity, { kind: "thinking", tokens: 40 });
 
 	assert.equal(consume({ type: "system", subtype: "init", model: "claude-opus-5" }), true);
+	assert.equal(consume({ type: "user", message: { role: "user", content: "Task: inspect" } }), true);
 	assert.equal(consume({ type: "assistant", message: { role: "assistant", content: [] } }), true);
 	assert.equal(consume({ type: "result", subtype: "success", result: "done" }), true);
 });

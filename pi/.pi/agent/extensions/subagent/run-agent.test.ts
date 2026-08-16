@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { test } from "node:test";
 import { runAgent } from "./run-agent.ts";
-import { RESULT_TOOL_ENV, type Agent } from "./runtimes.ts";
+import { isJsonObject, type JsonValue, RESULT_TOOL_ENV, type Agent } from "./runtimes.ts";
 
 const CLAUDE_MODEL = "claude-sonnet-5";
 const AGENT: Agent = {
@@ -28,6 +28,20 @@ function installPi(directory: string, body: string): string {
 	writeFileSync(command, `#!/usr/bin/env node\n${body}`);
 	chmodSync(command, 0o755);
 	return command;
+}
+
+function isString(value: JsonValue): value is string {
+	return typeof value === "string";
+}
+
+function isStringArray(value: JsonValue | undefined): value is string[] {
+	return Array.isArray(value) && value.every(isString);
+}
+
+function parseJsonObject(text: string) {
+	const value: JsonValue = JSON.parse(text);
+	assert.ok(isJsonObject(value));
+	return value;
 }
 
 function tracePath(sessionDir: string, traceId: string): string {
@@ -74,8 +88,9 @@ process.stdout.write(JSON.stringify({
 			model: undefined,
 			resultTool: "finish",
 		});
-		const output = JSON.parse(result.output) as { marker: string; argv: string[] };
+		const output = parseJsonObject(result.output);
 		assert.equal(output.marker, "finish");
+		assert.ok(isStringArray(output.argv));
 		assert.equal(output.argv[output.argv.indexOf("--tools") + 1], "read,finish");
 		assert.equal(result.stopReason, "stop");
 		assert.notEqual(result.output, "untrusted prose");
@@ -161,6 +176,69 @@ test("Pi preserves complete stderr when it is the only failure detail", async ()
 	} finally {
 		process.argv[1] = previousScript;
 		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("non-empty non-JSON stdout is an invalid child protocol with full run details", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "subagent-run-agent-non-json-"));
+	const script = installPi(directory, `process.stdout.write("diagnostic noise\\n");`);
+	const previousScript = process.argv[1];
+	process.argv[1] = script;
+	try {
+		const result = await runAgent({
+			agent: AGENT,
+			task: "inspect protocol",
+			cwd: directory,
+			inherited: {},
+			model: undefined,
+		});
+		assert.equal(result.agent, "reviewer");
+		assert.equal(result.task, "inspect protocol");
+		assert.equal(result.output, "");
+		assert.equal(result.stopReason, "error");
+		assert.equal(result.errorMessage, "invalid child protocol: stdout line is not JSON");
+		assert.deepEqual(result.steps, []);
+		assert.equal(result.usage.totalTokens, 0);
+		assert.ok(result.durationMs >= 0);
+	} finally {
+		process.argv[1] = previousScript;
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("malformed and unknown Pi events become invalid child protocol failures", async () => {
+	const cases = [
+		{
+			name: "malformed",
+			event: { type: "tool_execution_start", toolName: 4 },
+			error: "invalid child protocol: pi tool_execution_start.toolName must be a string",
+		},
+		{
+			name: "unknown",
+			event: { type: "future_pi_event" },
+			error: 'invalid child protocol: unknown pi event type "future_pi_event"',
+		},
+	];
+	for (const scenario of cases) {
+		const directory = mkdtempSync(join(tmpdir(), `subagent-run-agent-${scenario.name}-`));
+		const line = `${JSON.stringify(scenario.event)}\n`;
+		const script = installPi(directory, `process.stdout.write(${JSON.stringify(line)});`);
+		const previousScript = process.argv[1];
+		process.argv[1] = script;
+		try {
+			const result = await runAgent({
+				agent: AGENT,
+				task: "inspect",
+				cwd: directory,
+				inherited: {},
+				model: undefined,
+			});
+			assert.equal(result.stopReason, "error");
+			assert.equal(result.errorMessage, scenario.error);
+		} finally {
+			process.argv[1] = previousScript;
+			rmSync(directory, { recursive: true, force: true });
+		}
 	}
 });
 
@@ -316,11 +394,12 @@ process.stdin.on("end", () => {
 		assert.equal(result.output, JSON.stringify({ verdict: "PASS" }));
 		assert.ok(result.traceId);
 		const trace = tracePath(sessionDir, result.traceId);
-		const request = JSON.parse(readFileSync(join(trace, "request.json"), "utf8"));
+		const request = parseJsonObject(readFileSync(join(trace, "request.json"), "utf8"));
 		assert.equal(request.traceId, result.traceId);
 		assert.equal(request.cwd, directory);
 		assert.equal(request.command, "claude");
 		assert.equal(request.input, "Task: inspect");
+		assert.ok(isStringArray(request.args));
 		assert.equal(request.args[request.args.indexOf("--effort") + 1], "high");
 		assert.equal(
 			request.args[request.args.indexOf("--json-schema") + 1],
