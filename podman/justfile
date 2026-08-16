@@ -61,14 +61,12 @@ install version=VERSION prefix=PREFIX:
     runc = ["$root/bin/runc"]
     EOF
 
-    # Isolated storage (its own graphroot) so it never collides with another podman on the user.
+    # Isolated storage (own graphroot). No mount_program: podman uses native rootless overlay where
+    # the kernel allows, else falls back to the bundled fuse-overlayfs (on PATH).
     cat > "$conf/storage.conf" <<EOF
     [storage]
     driver = "overlay"
     graphroot = "$data/storage"
-
-    [storage.options.overlay]
-    mount_program = "$root/bin/fuse-overlayfs"
     EOF
 
     # Entry point: isolation via env; the real binary is $root/bin/podman.

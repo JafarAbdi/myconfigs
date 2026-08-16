@@ -3,9 +3,20 @@
 Builds a **static, musl-linked, rootless `podman` and its full runtime stack** in a container and
 drops a portable tarball in `./out`. podman isn't a single binary — it shells out to an OCI runtime
 (crun/runc), conmon, netavark, aardvark-dns, pasta and fuse-overlayfs. All are built static and
-bundled, so the tarball runs on any x86_64 / arm64 Linux with nothing else installed.
+bundled, so the binaries run on any x86_64 / arm64 Linux with no library dependencies.
 
 The build host needs only `docker` (or `podman`) with BuildKit — no toolchains.
+
+## Host requirements (rootless)
+
+Rootless podman needs two things the tarball can't ship (both root-only): the setuid
+`newuidmap`/`newgidmap` helpers, and sub-UID/GID ranges for your user.
+
+```sh
+sudo apt install --no-install-recommends uidmap   # Fedora: shadow-utils · Alpine: shadow-uidmap
+grep "$USER" /etc/subuid /etc/subgid              # each needs a line: <user>:100000:65536
+sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$USER"   # if missing
+```
 
 ## Use
 
