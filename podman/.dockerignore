@@ -1,0 +1,2 @@
+# The build clones all sources itself and COPYs nothing from context — send none of it.
+*

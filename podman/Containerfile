@@ -1,0 +1,164 @@
+# syntax=docker/dockerfile:1
+#
+# Static musl rootless podman + full runtime stack -> portable tarball. No systemd (a no-systemd
+# podman already defaults to cgroupfs + file logging). Adapted from mgoltzsche/podman-static
+# (Apache-2.0 @ a14f4b3), updated for podman 6.x.
+
+FROM golang:1.25-alpine3.22 AS gobase
+# fail loud if the image Go < go.mod's floor, don't silently download a toolchain.
+ENV GOTOOLCHAIN=local
+RUN apk add --update --no-cache git make gcc pkgconf musl-dev \
+    btrfs-progs btrfs-progs-dev libassuan-dev lvm2-dev device-mapper \
+    glib-static libc-dev gpgme-dev protobuf-dev protobuf-c-dev \
+    libseccomp-dev libseccomp-static libselinux-dev ostree-dev openssl iptables bash
+
+FROM rust:1.91-alpine3.22 AS rustbase
+RUN apk add --update --no-cache git make musl-dev
+
+# --- runtimes & helpers (all fan out in parallel) ----------------------------------------
+
+FROM gobase AS runc
+ARG RUNC_VERSION=v1.4.3
+RUN git clone -c advice.detachedHead=false --depth=1 --branch ${RUNC_VERSION} https://github.com/opencontainers/runc src/github.com/opencontainers/runc
+WORKDIR /go/src/github.com/opencontainers/runc
+RUN --mount=type=cache,id=podman-go-build,target=/root/.cache/go-build \
+    --mount=type=cache,id=podman-go-mod,target=/go/pkg/mod \
+    make static EXTRA_LDFLAGS="-s -w" && make install && runc --version
+
+FROM gobase AS podman
+ARG PODMAN_VERSION=v6.1.0
+ARG PODMAN_REPO=https://github.com/podman-container-tools/podman
+ARG PODMAN_BUILDTAGS='seccomp selinux apparmor exclude_graphdriver_devicemapper containers_image_openpgp'
+RUN git clone -c advice.detachedHead=false --depth=1 --branch ${PODMAN_VERSION} ${PODMAN_REPO} src/podman
+WORKDIR /go/src/podman
+RUN --mount=type=cache,id=podman-go-build,target=/root/.cache/go-build \
+    --mount=type=cache,id=podman-go-mod,target=/go/pkg/mod \
+    make bin/podman CGO_ENABLED=1 LDFLAGS_PODMAN="-s -w -extldflags '-static'" BUILDTAGS="${PODMAN_BUILDTAGS}" \
+ && install -Dm755 bin/podman /usr/local/bin/podman \
+ && test "$(/usr/local/bin/podman --version)" = "podman version ${PODMAN_VERSION#v}"
+# quadlet & rootlessport: CGO off = static by definition. quadlet's _binDir -> podman's dir.
+RUN --mount=type=cache,id=podman-go-build,target=/root/.cache/go-build \
+    --mount=type=cache,id=podman-go-mod,target=/go/pkg/mod \
+    CGO_ENABLED=0 make bin/quadlet BUILDTAGS="${PODMAN_BUILDTAGS}" \
+      LDFLAGS_PODMAN="-s -w -X go.podman.io/podman/v6/pkg/systemd/quadlet._binDir=/usr/local/bin" \
+ && install -Dm755 bin/quadlet /usr/local/libexec/podman/quadlet
+RUN --mount=type=cache,id=podman-go-build,target=/root/.cache/go-build \
+    --mount=type=cache,id=podman-go-mod,target=/go/pkg/mod \
+    CGO_ENABLED=0 make bin/rootlessport \
+ && install -Dm755 bin/rootlessport /usr/local/lib/podman/rootlessport
+RUN install -Dm644 -t /comp/bash-completion/completions/ completions/bash/podman \
+ && install -Dm644 -t /comp/zsh/site-functions/ completions/zsh/_podman \
+ && install -Dm644 -t /comp/fish/vendor_completions.d/ completions/fish/podman.fish
+
+FROM gobase AS conmon
+ARG CONMON_VERSION=v2.2.1
+RUN apk add --update --no-cache pcre2-static
+RUN git clone -c advice.detachedHead=false --depth=1 --branch ${CONMON_VERSION} https://github.com/containers/conmon.git /conmon
+WORKDIR /conmon
+RUN make git-vars bin/conmon PKG_CONFIG='pkg-config --static' CFLAGS='-std=c99 -Os -Wall -Wextra -Werror -static' LDFLAGS='-s -w -static' \
+ && bin/conmon --help >/dev/null
+
+FROM rustbase AS netavark
+RUN apk add --update --no-cache protoc
+ARG NETAVARK_VERSION=v2.1.0
+RUN git clone -c advice.detachedHead=false --depth=1 --branch ${NETAVARK_VERSION} https://github.com/containers/netavark
+WORKDIR /netavark
+ENV RUSTFLAGS='-C link-arg=-s'
+# Per-stage cargo cache: netavark+aardvark run in parallel, a shared one races/corrupts.
+# target/ is a cache mount (invisible to COPY --from), so cp the binary out in the RUN.
+RUN --mount=type=cache,id=netavark-cargo,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=netavark-target,target=/netavark/target \
+    cargo build --release && cp target/release/netavark /netavark-bin
+
+FROM rustbase AS aardvark-dns
+# Commit pin, not a tag: v2.1.0 (netavark's matched tag) can't build static-musl — its main() calls
+# libc::close_range, absent from musl's libc crate. This commit = v2.1.0 + the musl fix (cfg-gated
+# raw syscall, merged #731 after the tag).
+# TODO(aardvark): swap for the first release > v2.1.0 with the fix. gh release list -R containers/aardvark-dns
+ARG AARDVARKDNS_REF=2d364ebce0cd31d06cb110c2af667009a56e30d8
+RUN git clone -c advice.detachedHead=false https://github.com/containers/aardvark-dns \
+ && git -C aardvark-dns checkout -q ${AARDVARKDNS_REF}
+WORKDIR /aardvark-dns
+ENV RUSTFLAGS='-C link-arg=-s'
+RUN --mount=type=cache,id=aardvark-cargo,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=aardvark-target,target=/aardvark-dns/target \
+    cargo build --release && cp target/release/aardvark-dns /aardvark-bin
+
+FROM gobase AS passt
+RUN apk add --update --no-cache autoconf automake meson ninja linux-headers libcap-static libcap-dev clang llvm coreutils
+ARG PASST_VERSION=2026_06_11.a9c61ff
+RUN git clone -c advice.detachedHead=false --depth=1 --branch ${PASST_VERSION} git://passt.top/passt /passt
+WORKDIR /passt
+RUN make static && mkdir bin && cp pasta bin/ && { [ ! -f pasta.avx2 ] || cp pasta.avx2 bin/; }
+
+FROM gobase AS fuse-overlayfs
+RUN apk add --update --no-cache autoconf automake meson ninja clang g++ eudev-dev fuse3-dev
+ARG LIBFUSE_VERSION=fuse-3.18.2
+RUN git clone -c advice.detachedHead=false --depth=1 --branch ${LIBFUSE_VERSION} https://github.com/libfuse/libfuse /libfuse
+WORKDIR /libfuse/build
+RUN LDFLAGS="-lpthread -s -w -static" meson --prefix /usr -D default_library=static -D examples=false .. \
+ && ninja && touch /dev/fuse && ninja install
+ARG FUSEOVERLAYFS_VERSION=v1.16
+RUN git clone -c advice.detachedHead=false --depth=1 --branch ${FUSEOVERLAYFS_VERSION} https://github.com/containers/fuse-overlayfs /fuse-overlayfs
+WORKDIR /fuse-overlayfs
+RUN sh autogen.sh && LIBS="-ldl" LDFLAGS="-s -w -static" ./configure --prefix /usr && make && make install \
+ && fuse-overlayfs --help >/dev/null
+
+FROM gobase AS catatonit
+RUN apk add --update --no-cache autoconf automake libtool
+ARG CATATONIT_VERSION=v0.2.1
+RUN git clone -c advice.detachedHead=false --branch ${CATATONIT_VERSION} https://github.com/openSUSE/catatonit.git /catatonit
+WORKDIR /catatonit
+RUN ./autogen.sh && ./configure LDFLAGS="-static" --prefix=/ --bindir=/bin && make && ./catatonit --version
+
+FROM gobase AS crun
+RUN apk add --update --no-cache autoconf automake argp-standalone libtool libcap-dev libcap-static json-c-dev
+ARG CRUN_VERSION=1.28
+RUN git clone -c advice.detachedHead=false --depth=1 --branch ${CRUN_VERSION} https://github.com/containers/crun src/crun
+WORKDIR /go/src/crun
+RUN ./autogen.sh && ./configure --disable-systemd --enable-embedded-yajl \
+ && make LDFLAGS='-static-libgcc -all-static' EXTRA_LDFLAGS='-s -w' && make install && crun --version
+
+# --- assemble the stack under /usr/local + /etc/containers -------------------------------
+
+FROM alpine:3.22 AS assemble
+COPY --from=conmon         /conmon/bin/conmon                 /usr/local/lib/podman/conmon
+COPY --from=podman         /usr/local/lib/podman/rootlessport /usr/local/lib/podman/rootlessport
+COPY --from=podman         /usr/local/bin/podman             /usr/local/bin/podman
+COPY --from=podman         /usr/local/libexec/podman/quadlet /usr/local/libexec/podman/quadlet
+COPY --from=podman         /comp                             /usr/local/share
+COPY --from=passt          /passt/bin/                       /usr/local/bin/
+COPY --from=netavark       /netavark-bin                     /usr/local/lib/podman/netavark
+COPY --from=aardvark-dns   /aardvark-bin                     /usr/local/lib/podman/aardvark-dns
+COPY --from=catatonit      /catatonit/catatonit              /usr/local/lib/podman/catatonit
+COPY --from=fuse-overlayfs /usr/bin/fuse-overlayfs           /usr/local/bin/fuse-overlayfs
+COPY --from=fuse-overlayfs /usr/bin/fusermount3              /usr/local/bin/fusermount3
+COPY --from=crun           /usr/local/bin/crun               /usr/local/bin/crun
+COPY --from=runc           /usr/local/sbin/runc              /usr/local/bin/runc
+# The only configs podman can't default: trust policy (pulls need it) + a search registry.
+RUN mkdir -p /etc/containers \
+ && printf '%s\n' '{"default":[{"type":"insecureAcceptAnything"}]}' > /etc/containers/policy.json \
+ && printf '%s\n' 'unqualified-search-registries = ["docker.io"]' > /etc/containers/registries.conf
+
+# --- verify every shipped binary is portable-static, then tar it -------------------------
+
+FROM alpine:3.22 AS verify
+RUN apk add --no-cache binutils
+COPY --from=assemble /usr/local /out/usr/local
+COPY --from=assemble /etc/containers /out/etc/containers
+# Portable-static gate: no DT_NEEDED and no PT_INTERP -> runs on any glibc/musl host.
+RUN set -eu; for f in /out/usr/local/bin/* /out/usr/local/lib/podman/* /out/usr/local/libexec/podman/*; do \
+      [ -f "$f" ] || continue; \
+      needed="$(readelf -d "$f" 2>/dev/null | grep NEEDED || true)"; \
+      interp="$(readelf -l "$f" 2>/dev/null | grep -i 'program interpreter' || true)"; \
+      [ -z "$needed$interp" ] && echo "static OK  $f" \
+        || { echo "NOT PORTABLE $f"; echo "$needed"; echo "$interp"; exit 1; }; \
+    done
+
+FROM verify AS package
+ARG PODMAN_VERSION=v6.1.0
+ARG TARGETARCH
+RUN tar czf "/podman-static-${PODMAN_VERSION}-linux-${TARGETARCH}.tar.gz" -C /out usr etc
+
+FROM scratch AS export
+COPY --from=package /podman-static-*.tar.gz /
