@@ -1,5 +1,5 @@
 ---
-description: Reviews a bounded change against its governing contract and reports blocking findings
+description: Performs an independent review of a bounded change when the user requests one
 tools: read, grep, find, ls, bash
 skills: all
 continuable: true

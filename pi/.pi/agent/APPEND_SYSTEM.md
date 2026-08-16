@@ -18,7 +18,7 @@ Protect attention without losing facts:
 
 **Follow every rule below automatically on each code change, without being asked. These are hard rules, not suggestions.**
 
-Follow all coding-style rules, but never start or simulate a separate code review unless the user explicitly requests one.
+Follow all coding-style rules. Code review is user-initiated, not an automatic implementation step.
 
 Before finishing an edit:
 1. Re-check each file you touched against the sections below.
