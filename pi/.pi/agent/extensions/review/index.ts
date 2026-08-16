@@ -750,6 +750,13 @@ async function runLocalAudit(
 		ctx.ui.setWidget(PROGRESS_WIDGET, undefined);
 	}
 	parentSignal.throwIfAborted();
+	if (audit.findings.length === 0) {
+		ctx.ui.notify(
+			`Review complete: all ${REVIEWER_COUNT} reviewers returned no findings. Synthesis and publication were skipped.`,
+			"info",
+		);
+		return;
+	}
 	const synthesis = await withLoader(
 		ctx,
 		dependencies,

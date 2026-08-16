@@ -663,6 +663,37 @@ test("a new audit keeps exact capture, ordered publication, one Wiff open, then 
 	);
 });
 
+test("an audit with no findings skips synthesis and all Wiff work", async () => {
+	const double = wiffDouble({ present: true });
+	const harness = context();
+	let reads = 0;
+	let syntheses = 0;
+	let submissions = 0;
+	const controller = createReviewController(dependencies({
+		...double.deps,
+		async readPatch() { reads += 1; return patch(); },
+		async runReviewSynthesis() { syntheses += 1; return []; },
+	}));
+	await controller.run("audit", harness.ctx, () => { submissions += 1; });
+	assert.equal(reads, 1);
+	assert.equal(syntheses, 0);
+	assert.equal(submissions, 0);
+	assert.deepEqual(double.calls, []);
+	assert.deepEqual(double.published, []);
+	assert.deepEqual(harness.components.map((component) => component.render(80)[0]), [
+		"Luna is resolving review scope…",
+	]);
+	assert.deepEqual(harness.notifications.at(-1), {
+		message: "Review complete: all 4 reviewers returned no findings. Synthesis and publication were skipped.",
+		type: "info",
+	});
+	assert.equal(
+		harness.notifications.some(({ message }) => message.startsWith("Review published")),
+		false,
+	);
+	assert.equal(harness.terminalListeners, 0);
+});
+
 test("a repeated audit compares only current open top-level comments and publishes the stub selection", async () => {
 	const open = wiffComment();
 	const state = wiffState({
@@ -713,6 +744,7 @@ test("audit refuses a non-stdin private review before refresh or publication", a
 	await assert.rejects(
 		createReviewController(dependencies({
 			...double.deps,
+			async runAudit() { return { findings: [finding()] }; },
 			async runReviewSynthesis() { syntheses += 1; return []; },
 		})).run("audit", context().ctx),
 		/source "forge github", not stdin.*\/review remove/u,
@@ -836,6 +868,7 @@ test("registered fix arms its exact turn and tool while discuss and audit discus
 	const extension = extensionHarness();
 	registerReview(extension.pi, dependencies({
 		...double.deps,
+		async runAudit() { return { findings: [finding()] }; },
 		async readWiffState(options) {
 			double.calls.push({ name: "state", options });
 			return resolved ? resolvedState : state;
@@ -1091,6 +1124,7 @@ test("post-synthesis freshness failure leaves private Wiff state untouched", asy
 	await assert.rejects(
 		createReviewController(dependencies({
 			async readPatch() { return reads++ === 0 ? patch("first") : patch("second"); },
+			async runAudit() { return { findings: [finding()] }; },
 			...double.deps,
 			async runReviewSynthesis(input) {
 				synthesized = true;
