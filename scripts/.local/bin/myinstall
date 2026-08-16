@@ -461,13 +461,14 @@ case "${1:-}" in
         ;;
 
     pixi)
-      mkdir -p ~/.local/bin || true
-      [[ ! $(command -v pixi) ]] && curl -fsSL https://pixi.sh/install.sh | bash
-      if command -v fish >/dev/null 2>&1; then
-	      mkdir -p ~/.config/fish/completions
-        ~/.pixi/bin/pixi completion --shell fish > ~/.config/fish/completions/pixi.fish
-      fi
-      ;;
+        if [[ ! -x "$HOME/.pixi/bin/pixi" ]]; then
+            curl -fsSL https://pixi.sh/install.sh | bash
+        fi
+        if command -v fish >/dev/null 2>&1; then
+            mkdir -p "$HOME/.config/fish/completions"
+            "$HOME/.pixi/bin/pixi" completion --shell fish > "$HOME/.config/fish/completions/pixi.fish"
+        fi
+        ;;
 
     mujoco)
         TMP_DIR=$(mktemp -d -p /tmp install-XXXXXX)
