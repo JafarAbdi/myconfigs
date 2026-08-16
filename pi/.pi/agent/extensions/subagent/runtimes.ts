@@ -565,6 +565,13 @@ function decodePi(value: JsonValue): ChildEvent[] {
 			return decodePiToolEnd(value);
 		case "message_end":
 			return decodePiMessage(value);
+		case "session":
+			requiredStringField(value, "id", "pi session");
+			requiredStringField(value, "timestamp", "pi session");
+			requiredStringField(value, "cwd", "pi session");
+			optionalNumberField(value, "version", "pi session");
+			optionalStringField(value, "parentSession", "pi session");
+			return [{ kind: "ignored" }];
 		case "agent_start":
 		case "agent_end":
 		case "agent_settled":

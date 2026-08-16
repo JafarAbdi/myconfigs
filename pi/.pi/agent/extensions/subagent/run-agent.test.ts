@@ -61,6 +61,13 @@ test("Pi result tools receive their marker and declared capability, then capture
 	const directory = mkdtempSync(join(tmpdir(), "subagent-run-agent-result-"));
 	const script = installPi(directory, `
 process.stdout.write(JSON.stringify({
+	type: "session",
+	version: 3,
+	id: "child-session",
+	timestamp: "2026-08-16T19:09:29.527Z",
+	cwd: process.cwd(),
+}) + "\\n");
+process.stdout.write(JSON.stringify({
 	type: "message_end",
 	message: { role: "assistant", stopReason: "toolUse", content: [{ type: "text", text: "untrusted prose" }] },
 }) + "\\n");

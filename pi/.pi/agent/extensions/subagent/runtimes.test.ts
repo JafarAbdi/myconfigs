@@ -767,6 +767,10 @@ test("malformed known child records are rejected by their runtime decoder", () =
 		() => pi.decode({ type: "message_end", message: { role: "assistant", content: "done" } }),
 		/pi message_end\.message\.content must be an array/,
 	);
+	assert.throws(
+		() => pi.decode({ type: "session", version: 3, id: "child", timestamp: "now" }),
+		/pi session\.cwd must be a string/,
+	);
 
 	const claude = selectRuntime("claude-opus-5");
 	assert.throws(() => claude.decode({ type: "assistant" }), /claude assistant\.message must be an object/);
@@ -797,6 +801,13 @@ test("bookkeeping events do not ask for a redraw", () => {
 	const activity = createActivityTracker(run);
 	const consume = (event: JsonValue) => consumeRaw(runtime, event, run, activity);
 
+	assert.equal(consumeRaw(selectRuntime(undefined), {
+		type: "session",
+		version: 3,
+		id: "child",
+		timestamp: "2026-08-16T19:09:29.527Z",
+		cwd: "/repository",
+	}, run, activity), false);
 	assert.equal(consume({ type: "rate_limit_event" }), false);
 	assert.equal(consume({ type: "system", subtype: "permission_denied" }), false);
 	assert.equal(consume({
