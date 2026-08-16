@@ -18,6 +18,18 @@ grep "$USER" /etc/subuid /etc/subgid              # each needs a line: <user>:10
 sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$USER"   # if missing
 ```
 
+## GPU (rootless, optional)
+
+`--device nvidia.com/gpu=all` is a CDI *name*, not a device path — podman resolves it from specs in
+`/etc/cdi`, which the tarball can't ship. Generate it once with the NVIDIA Container Toolkit
+(`nvidia-ctk`), and again after any driver update:
+
+```sh
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+nvidia-ctk cdi list   # lists nvidia.com/gpu=all on success
+podman run --rm --device nvidia.com/gpu=all nvidia/cuda:11.0.3-base-ubuntu20.04 nvidia-smi
+```
+
 ## Use
 
 ```sh
