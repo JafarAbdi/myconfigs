@@ -1,9 +1,9 @@
 # podman-static
 
 Builds a **static, musl-linked, rootless `podman` and its full runtime stack** in a container and
-drops a portable tarball in `./out`. podman isn't a single binary — it shells out to an OCI runtime
-(crun/runc), conmon, netavark, aardvark-dns, pasta and fuse-overlayfs. All are built static and
-bundled, so the binaries run on any x86_64 / arm64 Linux with no library dependencies.
+drops a portable tarball in `./out`. Podman isn't a single binary — it shells out to an OCI
+runtime (crun/runc), conmon, netavark, aardvark-dns, pasta and fuse-overlayfs. All are built static
+and run on any x86_64 / arm64 Linux with no library dependencies.
 
 The build host needs only `docker` (or `podman`) with BuildKit — no toolchains.
 
@@ -20,8 +20,8 @@ sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$USER"   #
 
 ## GPU (rootless, optional)
 
-`--device nvidia.com/gpu=all` is a CDI *name*, not a device path — podman resolves it from specs in
-`/etc/cdi`, which the tarball can't ship. Generate it once with the NVIDIA Container Toolkit
+`--device nvidia.com/gpu=all` is a CDI *name*, not a device path — Podman resolves it from specs
+in `/etc/cdi`, which the tarball can't ship. Generate it once with the NVIDIA Container Toolkit
 (`nvidia-ctk`), and again after any driver update:
 
 ```sh
@@ -35,8 +35,8 @@ podman run --rm --device nvidia.com/gpu=all nvidia/cuda:11.0.3-base-ubuntu20.04 
 ```sh
 just build            # -> out/podman-static-<version>-linux-<arch>.tar.gz
 just build v6.1.0     # a specific podman version
-just install          # extract to ~/.local/lib/podman-static, wrap ~/.local/bin/podman
-just uninstall        # remove wrapper, prefix, storage
+just install          # extract to ~/.local, write ~/.config/containers, wrap podman, register generator
+just uninstall        # remove wrapper, configs, generator, prefix, storage
 
 ENGINE=podman just build          # build with rootless podman instead of docker
 PLATFORM=linux/arm64 just build   # cross-build (needs qemu binfmt)
@@ -45,13 +45,32 @@ PLATFORM=linux/arm64 just build   # cross-build (needs qemu binfmt)
 The tarball is self-contained: extract it anywhere (e.g. `/usr/local` system-wide) and podman finds
 its helpers by default.
 
+## Systemd health timers
+
+Upstream's `systemd` tag couples pure-Go health timers to dynamic journald
+support. The pinned patch adds a `systemd_health` tag that exposes only the
+timer code, keeping the binaries fully static. It carries no config forwarding:
+config lives in the standard XDG path (below), so transient health-check
+services find it on their own. `git apply --check` makes drift fail.
+
 ## What `install` does
 
-`~/.local/bin/podman` is a small wrapper that points `CONTAINERS_CONF` / `STORAGE_CONF` /
-`REGISTRIES_CONF` at the install prefix, so it's fully isolated from any other podman — its own
-storage graph, its own config, nothing in `~/.config/containers/` rewritten. The sole exception is
-`policy.json` (image pulls require it, no env override), written there only if absent. If `uv` is
-present, `podman-compose` is also installed as an isolated tool.
+Config goes in the standard rootless location, `~/.config/containers/`, so every podman call —
+including the transient systemd health-check services — discovers it with no `CONTAINERS_*` env:
+
+- `containers.conf` — absolute paths to the relocated conmon, runtimes, and helpers (incl. pasta).
+- `storage.conf` — the isolated graphroot. No `mount_program`: podman keeps its default
+  native-or-fuse decision and falls back to the bundled fuse-overlayfs where the kernel requires it.
+- `policy.json` — written only if absent (image pulls require it; shared, never rewritten).
+
+`~/.local/bin/podman` is a thin wrapper whose only job is putting the bundle's `bin` on `PATH` so
+podman can find fuse-overlayfs. It sets no `CONTAINERS_*` variables.
+
+`install` also registers the rootless Quadlet generator (systemd has no HOME-local generator dir in
+its default search path): it links the bundled generator into
+`~/.local/lib/systemd/user-generators/` and writes a `~/.config/systemd/user.conf.d/` drop-in that
+points the user manager at it, then reloads the manager. If `uv` is present, `podman-compose` is
+installed as an isolated tool.
 
 ## Bundled versions
 
@@ -62,10 +81,9 @@ build static-musl; the `Containerfile` explains why.)
 
 ## Bumping the podman version
 
-netavark and aardvark-dns are coupled to podman's **major** version (podman 6.x needs 2.x). A bare
-`podman run` won't reveal a mismatch — rootless uses pasta — but `podman network create` / compose
-does, failing with `netavark: unrecognized subcommand`. When you change `PODMAN_VERSION`, re-pin the
-helpers to releases dated near it, then smoke-test both paths:
+netavark and aardvark-dns are coupled to Podman's **major** version (Podman 6.x needs 2.x). A bare
+`podman run` won't reveal a mismatch because rootless uses pasta. Test `podman network create` too.
+When changing `PODMAN_VERSION`, re-pin helpers near its release, then smoke-test both paths:
 
 ```sh
 podman network create t && podman network rm t     # netavark

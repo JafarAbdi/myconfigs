@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 #
-# Static musl rootless podman + full runtime stack -> portable tarball. No systemd (a no-systemd
-# podman already defaults to cgroupfs + file logging). Adapted from mgoltzsche/podman-static
-# (Apache-2.0 @ a14f4b3), updated for podman 6.x.
+# Static musl rootless podman + full runtime stack -> portable tarball. No libsystemd; the
+# health-only patch retains systemd timers while Podman uses cgroupfs and file logging. Adapted
+# from mgoltzsche/podman-static (Apache-2.0 @ a14f4b3), updated for podman 6.x.
 
 FROM golang:1.25-alpine3.22 AS gobase
 # fail loud if the image Go < go.mod's floor, don't silently download a toolchain.
@@ -28,9 +28,13 @@ RUN --mount=type=cache,id=podman-go-build,target=/root/.cache/go-build \
 FROM gobase AS podman
 ARG PODMAN_VERSION=v6.1.0
 ARG PODMAN_REPO=https://github.com/podman-container-tools/podman
-ARG PODMAN_BUILDTAGS='seccomp selinux apparmor exclude_graphdriver_devicemapper containers_image_openpgp'
+ARG PODMAN_BUILDTAGS='seccomp selinux apparmor exclude_graphdriver_devicemapper \
+    containers_image_openpgp systemd_health'
 RUN git clone -c advice.detachedHead=false --depth=1 --branch ${PODMAN_VERSION} ${PODMAN_REPO} src/podman
 WORKDIR /go/src/podman
+COPY podman-systemd-health.patch /tmp/podman-systemd-health.patch
+RUN git apply --check /tmp/podman-systemd-health.patch \
+ && git apply /tmp/podman-systemd-health.patch
 RUN --mount=type=cache,id=podman-go-build,target=/root/.cache/go-build \
     --mount=type=cache,id=podman-go-mod,target=/go/pkg/mod \
     make bin/podman CGO_ENABLED=1 LDFLAGS_PODMAN="-s -w -extldflags '-static'" BUILDTAGS="${PODMAN_BUILDTAGS}" \

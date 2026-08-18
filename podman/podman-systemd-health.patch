@@ -1,0 +1,16 @@
+diff --git a/libpod/healthcheck_linux.go b/libpod/healthcheck_linux.go
+--- a/libpod/healthcheck_linux.go
++++ b/libpod/healthcheck_linux.go
+@@ -1,3 +1,3 @@
+-//go:build !remote && systemd
++//go:build !remote && (systemd || systemd_health)
+ 
+ package libpod
+diff --git a/libpod/healthcheck_nosystemd_linux.go b/libpod/healthcheck_nosystemd_linux.go
+--- a/libpod/healthcheck_nosystemd_linux.go
++++ b/libpod/healthcheck_nosystemd_linux.go
+@@ -1,3 +1,3 @@
+-//go:build !remote && !systemd
++//go:build !remote && !systemd && !systemd_health
+ 
+ package libpod

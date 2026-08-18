@@ -1,2 +1,3 @@
-# The build clones all sources itself and COPYs nothing from context — send none of it.
+# The build clones upstream sources; send only pinned local patches.
 *
+!podman-systemd-health.patch
