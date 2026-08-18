@@ -204,26 +204,39 @@ function claudeEffort(level: string | undefined): string | undefined {
 }
 
 /**
- * claude's result envelope carries both the run total (`modelUsage`, summed over every internal turn)
- * and the final turn (top-level `usage`, snake_case). As pi's main provider we report the **final
- * turn**: pi derives "context used" from `usage.totalTokens` to drive the indicator and
- * compaction/overflow, and the final turn ≈ claude's real current context fill, whereas the run total
- * would over-report by a multiple and trigger spurious compaction. Cost is the whole run's cost.
+ * "Context used" for pi's indicator/compaction must be the size of the LAST internal request claude
+ * made — its full prompt — NOT a sum over the turn's internal agentic loop. claude's `result` envelope
+ * only offers rolled-up counts: its top-level `cache_read_input_tokens`/`cache_creation_input_tokens`
+ * are the run total (bit-identical to `modelUsage`), so summing them counts the same cached prefix once
+ * per internal step and over-reports context by a factor that grows with the number of tool calls. We
+ * instead track the newest request's own usage from the partial stream (see handleStreamEvent).
  *
- * Returns undefined when the envelope has no top-level `usage` object, so the caller falls back to
- * the run total (`event.usage`) rather than reporting zero. Absent counters within a present `usage`
- * read as 0; a counter present with a non-numeric value is a wire-format break and throws.
+ * `message_start.usage` carries a request's prompt partition: input + cache_read + cache_creation are
+ * disjoint and sum to that request's prompt — the context claude sent for that step. `output` is a stub
+ * there and is filled from the matching `message_delta`. Keeping only the newest request leaves the
+ * final one ≈ claude's true current context fill. Absent counters read as 0; a present non-numeric
+ * counter is a wire-format break and throws.
  */
-function finalTurnUsage(raw: JsonObject): Usage | undefined {
-	const turn = optionalObjectField(raw, "usage", "claude result");
-	if (!turn) return undefined;
-	const usage = emptyUsage();
-	const context = "claude result.usage";
-	usage.input = optionalNumberField(turn, "input_tokens", context) ?? 0;
-	usage.output = optionalNumberField(turn, "output_tokens", context) ?? 0;
-	usage.cacheRead = optionalNumberField(turn, "cache_read_input_tokens", context) ?? 0;
-	usage.cacheWrite = optionalNumberField(turn, "cache_creation_input_tokens", context) ?? 0;
-	usage.totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+function requestUsageFromStart(usage: JsonObject): Usage {
+	const u = emptyUsage();
+	const context = "claude message_start.usage";
+	u.input = optionalNumberField(usage, "input_tokens", context) ?? 0;
+	u.cacheRead = optionalNumberField(usage, "cache_read_input_tokens", context) ?? 0;
+	u.cacheWrite = optionalNumberField(usage, "cache_creation_input_tokens", context) ?? 0;
+	u.totalTokens = u.input + u.cacheRead + u.cacheWrite;
+	return u;
+}
+
+/**
+ * The usage handed to pi at turn end: token counts from the final internal request (`requestUsage`,
+ * the real current context — see requestUsageFromStart), cost from the whole run (`total_cost_usd`).
+ * Returns undefined when no partial frames streamed — should not happen, the bridge always passes
+ * --include-partial-messages — so the caller falls back to the result's run-total usage (`event.usage`,
+ * which over-reports as described above) rather than reporting zero.
+ */
+function reportedUsage(requestUsage: Usage | undefined, raw: JsonObject): Usage | undefined {
+	if (!requestUsage) return undefined;
+	const usage: Usage = { ...requestUsage, cost: { ...requestUsage.cost } };
 	usage.cost.total = optionalNumberField(raw, "total_cost_usd", "claude result") ?? 0;
 	return usage;
 }
@@ -259,6 +272,9 @@ async function drive(
 	let settled = false;
 	let observedSessionId: string | undefined;
 	let finalUsage: Usage | undefined;
+	// The newest internal request's usage, rebuilt on each message_start and completed on its
+	// message_delta. Whatever survives to the result frame is the final request ≈ real context fill.
+	let requestUsage: Usage | undefined;
 	// One open pi content block at a time, merged by kind: a new kind closes the current block and
 	// opens the next, so claude's interleaved thinking/text/tool markers become an ordered block list.
 	let openKind: "text" | "thinking" | undefined;
@@ -457,9 +473,27 @@ async function drive(
 		if (settled || !isJsonObject(event)) return;
 		const index = isNumber(event.index) ? event.index : -1;
 		switch (event.type) {
-			case "message_start":
+			case "message_start": {
 				toolBlocks.clear(); // Block indices reset each turn.
+				// Start a fresh per-request usage from this request's prompt partition; the newest one
+				// tracked ends up ≈ the real current context (see requestUsageFromStart).
+				const message = event.message;
+				if (isJsonObject(message)) {
+					const usage = optionalObjectField(message, "usage", "claude message_start");
+					if (usage) requestUsage = requestUsageFromStart(usage);
+				}
 				return;
+			}
+			case "message_delta": {
+				// The request's real output count lands here (message_start's is a stub); complete it.
+				if (!requestUsage) return;
+				const usage = optionalObjectField(event, "usage", "claude message_delta");
+				if (usage) {
+					requestUsage.output = optionalNumberField(usage, "output_tokens", "claude message_delta.usage") ?? 0;
+					requestUsage.totalTokens = requestUsage.input + requestUsage.output + requestUsage.cacheRead + requestUsage.cacheWrite;
+				}
+				return;
+			}
 			case "content_block_start": {
 				const block = event.content_block;
 				if (isJsonObject(block) && block.type === "tool_use" && isString(block.name) && index >= 0) {
@@ -534,8 +568,9 @@ async function drive(
 			return;
 		}
 		if (raw.type !== "system" && raw.type !== "result") return;
-		// Report the final turn's tokens (context proxy), captured before decodeClaude runs.
-		if (raw.type === "result") finalUsage = finalTurnUsage(raw);
+		// Context proxy = the final internal request's usage (tracked from the partial stream), not the
+		// run rollup; cost comes from the result envelope. Captured before decodeClaude runs.
+		if (raw.type === "result") finalUsage = reportedUsage(requestUsage, raw);
 		for (const event of decodeClaude(raw)) {
 			if (settled) return;
 			if (event.kind === "claude-init") partial.model = event.model;
