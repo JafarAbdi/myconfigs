@@ -34,6 +34,7 @@ SEARCH_RESULT_COUNT_MAX = 10
 USER_AGENT = "pi-web-extension/1.0"
 TLS_CONTEXT = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
 REDIRECT_STATUSES = frozenset((301, 302, 303, 307, 308))
+HTML_MEDIA_TYPES = frozenset(("text/html", "application/xhtml+xml"))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -41,6 +42,7 @@ class PublicResponse:
     status: int
     location: str | None
     body: bytes
+    content_type: str | None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -171,11 +173,11 @@ def _request_address(
         )
         response = connection.getresponse()
         if response.status in REDIRECT_STATUSES:
-            return PublicResponse(response.status, response.getheader("Location"), b"")
+            return PublicResponse(response.status, response.getheader("Location"), b"", None)
         body = response.read(FETCH_BODY_BYTE_COUNT_MAX + 1)
         if len(body) > FETCH_BODY_BYTE_COUNT_MAX:
             raise RuntimeError("response exceeded 4 MiB")
-        return PublicResponse(response.status, None, body)
+        return PublicResponse(response.status, None, body, response.getheader("Content-Type"))
     finally:
         connection.close()
 
@@ -192,7 +194,7 @@ def _request_public(url: str) -> PublicResponse:
     raise RuntimeError(f"failed to reach {url}: {last_error}") from last_error
 
 
-def _download_public(url: str) -> bytes:
+def _download_public(url: str) -> tuple[bytes, str | None]:
     current = url
     for redirect_count in range(FETCH_REDIRECT_COUNT_MAX + 1):
         response = _request_public(current)
@@ -205,7 +207,7 @@ def _download_public(url: str) -> bytes:
             continue
         if response.status < 200 or response.status >= 300:
             raise RuntimeError(f"{current} returned HTTP {response.status}")
-        return response.body
+        return response.body, response.content_type
     raise AssertionError("redirect loop exceeded its fixed bound")
 
 
@@ -287,11 +289,31 @@ def search(query: str, result_count: int) -> str:
     )
 
 
+def _media_type(content_type: str | None) -> str:
+    """Return the lowercased media type from a Content-Type header, dropping any parameters."""
+    return (content_type or "").split(";", 1)[0].strip().lower()
+
+
+def _bounded(text: str, character_count_max: int) -> str:
+    """Strip `text` and clip it to `character_count_max`, marking any truncation."""
+    normalized = text.strip()
+    if len(normalized) > character_count_max:
+        return f"{normalized[:character_count_max].rstrip()}\n\n[truncated]"
+    return normalized
+
+
 def _read_url(url: str, *, include_links: bool, character_count_max: int) -> str:
-    downloaded = _download_public(url)
+    body, content_type = _download_public(url)
+    media_type = _media_type(content_type)
+    if media_type and media_type not in HTML_MEDIA_TYPES:
+        try:
+            text = body.decode()
+        except UnicodeDecodeError as error:
+            raise RuntimeError(f"{url} is not decodable text ({content_type})") from error
+        return _bounded(text, character_count_max)
     try:
         content = trafilatura.extract(
-            downloaded,
+            body,
             output_format="markdown",
             include_links=include_links,
         )
@@ -299,10 +321,7 @@ def _read_url(url: str, *, include_links: bool, character_count_max: int) -> str
         raise RuntimeError(f"failed to extract content from {url}: {error}") from error
     if not content:
         raise RuntimeError(f"failed to extract readable content from {url}")
-    normalized = content.strip()
-    if len(normalized) > character_count_max:
-        return f"{normalized[:character_count_max].rstrip()}\n\n[truncated]"
-    return normalized
+    return _bounded(content, character_count_max)
 
 
 def read_urls(urls: list[str], *, include_links: bool, character_count_max: int) -> ReadOutput:
