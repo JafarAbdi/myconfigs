@@ -49,6 +49,10 @@ import { parseSshConnectionDescriptor, SSH_DESCRIPTOR_ENV } from "../ssh/descrip
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
 const MCP_SERVER = join(EXT_DIR, "mcp-server.ts");
+// The MCP server is a bare `node` child pi does not load, so it cannot resolve pi's package by bare
+// specifier. Resolve pi's entry here — inside pi, where it does resolve — and hand the child the
+// absolute URL via env; the child dynamic-imports it to reuse pi's own read/write/edit tools.
+const PI_CODING_AGENT_ENTRY = import.meta.resolve("@earendil-works/pi-coding-agent");
 // claude's only tools. In SSH mode host_bash is added so host-local files (a pasted clipboard image,
 // pi config) stay reachable while the rest target the remote — parity with pi's ssh extension.
 //
@@ -79,7 +83,9 @@ function mcpConfigFor(descriptor: string | undefined): string {
 	const dir = join(tmpdir(), "pi-claude-cli");
 	mkdirSync(dir, { recursive: true });
 	const path = join(dir, `mcp-${process.pid}-${descriptor ? "ssh" : "local"}.json`);
-	const env = descriptor ? { [SSH_DESCRIPTOR_ENV]: descriptor } : {};
+	const env = descriptor
+		? { PI_CODING_AGENT_ENTRY, [SSH_DESCRIPTOR_ENV]: descriptor }
+		: { PI_CODING_AGENT_ENTRY };
 	const config = {
 		mcpServers: {
 			pi: { command: process.execPath, args: ["--experimental-strip-types", MCP_SERVER], env },

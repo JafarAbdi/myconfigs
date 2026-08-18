@@ -3,27 +3,33 @@
  * stripped (see bridge.ts). Hand-rolled JSON-RPC 2.0 over stdio, newline-delimited, zero deps.
  * Only JSON-RPC frames go to stdout; diagnostics go to stderr.
  *
- * Why a dedicated server, and why stdio: pi exposes no tool-executor or MCP-host API to extensions
- * (`getAllTools()` is metadata only), so we can't hand claude pi's own tool instances — we run our
- * own server. Transport is stdio (claude spawns this process): no port to bind, nothing to secure,
- * lifecycle bound to the turn — and claude's MCP client has no unix-socket transport, so stdio is
- * the clean choice, not a compromise.
+ * Why a dedicated server, and why stdio: pi exposes no MCP-host API to extensions, so we run our own
+ * server. Transport is stdio (claude spawns this process): no port to bind, lifecycle bound to the
+ * turn — and claude's MCP client has no unix-socket transport, so stdio is the clean choice.
+ *
+ * read/write/edit reuse pi's OWN tool implementations: the bridge resolves pi's package entry (it
+ * runs inside pi, where the bare specifier resolves) and passes it as PI_CODING_AGENT_ENTRY; we
+ * dynamic-import it and call createRead/Write/EditToolDefinition. So the byte-semantics that are easy
+ * to get subtly wrong — BOM, CRLF preservation, fuzzy (smart-quote/whitespace) matching, image
+ * detection, truncation — match pi exactly, on both local and SSH targets, instead of being
+ * re-derived here. bash/ls/find/grep stay hand-rolled: they are byte-agnostic shell-outs with no such
+ * semantics, and pi's bash tool is welded to a session/TUI context a bare server can't supply.
  *
  * Backend is chosen once at startup from PI_SSH_DESCRIPTOR (set by the bridge in the mcp.json env):
- *   - absent            → local execution on this host
+ *   - absent            → local execution on this host (pi tools with default ops; local shell-outs)
  *   - present + valid   → the ssh extension's remote ops (claude on host, files on the SSH remote)
  *   - present + invalid → a fail-loud backend; every tool returns an error, never local. This is the
  *     load-bearing safety property: when pi is in SSH mode we never silently touch the host.
  *
- * Reuses ../ssh/{connection,operations,descriptor,shell}.ts and ../lib/claude-stream.ts's JSON guards
- * and field validators (they import pi packages only as types, so this runs under a bare
- * `node --experimental-strip-types`). ssh/grep.ts is NOT reused — it imports runtime values from
- * pi-coding-agent — so remote grep shells out to the descriptor's rg directly.
+ * Reuses ../ssh/{connection,operations,descriptor,shell}.ts and ../lib/claude-stream.ts's JSON guards.
+ * ssh/grep.ts is NOT reused — it imports pi-coding-agent by bare specifier, which a bare node child
+ * can't resolve — so remote grep shells out to the descriptor's rg directly.
  */
 import { spawn } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, posix, resolve } from "node:path";
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline";
+import type { EditOperations, ReadOperations, WriteOperations } from "@earendil-works/pi-coding-agent";
 import {
 	isJsonObject,
 	isString,
@@ -34,10 +40,9 @@ import {
 	optionalStringField,
 	requiredStringField,
 } from "../lib/claude-stream.ts";
-import { detectSupportedImageMimeType } from "../lib/image-detect.ts";
 import { SshConnection } from "../ssh/connection.ts";
 import { applySshConnectionDescriptor, parseSshConnectionDescriptor, SSH_DESCRIPTOR_ENV } from "../ssh/descriptor.ts";
-import { createRemoteBashOps, createRemoteReadOps, createRemoteWriteOps } from "../ssh/operations.ts";
+import { createRemoteBashOps, createRemoteEditOps, createRemoteReadOps, createRemoteWriteOps } from "../ssh/operations.ts";
 import { shellQuote } from "../ssh/shell.ts";
 
 const PROTOCOL_FALLBACK = "2024-11-05";
@@ -65,20 +70,47 @@ type ToolContent = { type: "text"; text: string } | { type: "image"; data: strin
 type ToolResult = { content: ToolContent[]; isError: boolean };
 
 const textResult = (text: string, isError = false): ToolResult => ({ content: [{ type: "text", text }], isError });
-// Image bytes are sent as-is (no downscale): pi's processImage — which resizes to the inline limit —
-// needs a native image dependency a bare-node server can't load, so a very large image may be
-// rejected by claude. Acceptable; a resize step would mean shelling out to an external tool.
-const imageResult = (data: string, mimeType: string): ToolResult => ({
-	content: [{ type: "image", data, mimeType }],
-	isError: false,
-});
+
+/** read/write/edit read nothing from pi's execution context, so we supply an empty one — named (not
+ *  a bare `object`) to keep that "we pass no context" contract explicit. */
+type PiToolContext = Record<string, never>;
+
+/** The slice of pi's package we import at runtime. Its tool `content` blocks are already MCP-shaped. */
+interface PiToolDefinition {
+	execute(
+		id: string,
+		params: JsonObject,
+		signal: undefined,
+		onUpdate: undefined,
+		context: PiToolContext,
+	): Promise<{ content: ToolContent[]; isError?: boolean }>;
+}
+interface PiModule {
+	createReadToolDefinition(cwd: string, options?: { operations?: ReadOperations }): PiToolDefinition;
+	createWriteToolDefinition(cwd: string, options?: { operations?: WriteOperations }): PiToolDefinition;
+	createEditToolDefinition(cwd: string, options?: { operations?: EditOperations }): PiToolDefinition;
+}
+
+// Runs one of pi's own tool definitions and maps its result to an MCP tool result. A pi tool signals
+// failure by throwing (caught in handleToolCall) or, rarely, by isError on the result.
+async function runPiTool(definition: PiToolDefinition, params: JsonObject): Promise<ToolResult> {
+	const result = await definition.execute("mcp", params, undefined, undefined, {});
+	return { content: result.content, isError: result.isError === true };
+}
+
+function readParams(filePath: string, offset?: number, limit?: number): JsonObject {
+	const params: JsonObject = { path: filePath };
+	if (offset !== undefined) params.offset = offset;
+	if (limit !== undefined) params.limit = limit;
+	return params;
+}
 
 /** One execution target. Every tool routes through exactly one of these, chosen at startup. */
 interface Backend {
 	bash(command: string): Promise<ToolResult>;
 	read(filePath: string, offset?: number, limit?: number): Promise<ToolResult>;
 	write(filePath: string, content: string): Promise<ToolResult>;
-	edit(filePath: string, oldString: string, newString: string, replaceAll: boolean): Promise<ToolResult>;
+	edit(filePath: string, oldString: string, newString: string): Promise<ToolResult>;
 	ls(path: string): Promise<ToolResult>;
 	find(glob: string, path: string): Promise<ToolResult>;
 	grep(pattern: string, path: string, include?: string): Promise<ToolResult>;
@@ -95,15 +127,6 @@ async function attempt(label: string, run: () => Promise<ToolResult>): Promise<T
 	} catch (error) {
 		return textResult(`${label} failed: ${error instanceof Error ? error.message : String(error)}`, true);
 	}
-}
-
-function sliceLines(text: string, offset?: number, limit?: number): string {
-	if (offset === undefined && limit === undefined) return text;
-	const lines = text.split("\n");
-	// offset is documented 1-based; clamp so 0 or negative doesn't slice from the end.
-	const start = offset !== undefined ? Math.max(0, offset - 1) : 0;
-	const end = limit !== undefined ? start + limit : undefined;
-	return lines.slice(start, end).join("\n");
 }
 
 // Renders a finished command's output. `code === null` means the process never ran (spawn failure).
@@ -145,8 +168,11 @@ function runCommand(
 	});
 }
 
-function localBackend(): Backend {
+function localBackend(pi: PiModule): Backend {
 	const resolveLocal = (path: string): string => resolve(process.cwd(), path);
+	const readDef = pi.createReadToolDefinition(process.cwd());
+	const writeDef = pi.createWriteToolDefinition(process.cwd());
+	const editDef = pi.createEditToolDefinition(process.cwd());
 	return {
 		bash: async (command) => {
 			// A command that runs and exits non-zero did its job (a failing test, a grep miss); that is
@@ -154,29 +180,10 @@ function localBackend(): Backend {
 			const r = await runCommand("bash", ["-c", command]);
 			return textResult(commandText(r.stdout, r.stderr, r.code), r.code === null);
 		},
-		read: (filePath, offset, limit) =>
-			attempt("read", async () => {
-				const buffer = readFileSync(resolveLocal(filePath));
-				const mimeType = detectSupportedImageMimeType(buffer);
-				return mimeType
-					? imageResult(buffer.toString("base64"), mimeType)
-					: textResult(sliceLines(buffer.toString("utf8"), offset, limit));
-			}),
-		write: (filePath, content) =>
-			attempt("write", async () => {
-				const path = resolveLocal(filePath);
-				mkdirSync(dirname(path), { recursive: true });
-				writeFileSync(path, content);
-				return textResult(`wrote ${Buffer.byteLength(content)} bytes to ${path}`);
-			}),
-		edit: (filePath, oldString, newString, replaceAll) =>
-			attempt("edit", async () => {
-				const path = resolveLocal(filePath);
-				const outcome = applyEdit(readFileSync(path, "utf8"), oldString, newString, replaceAll);
-				if (outcome.kind === "rejected") return textResult(`edit rejected: ${outcome.reason}`, true);
-				writeFileSync(path, outcome.updated);
-				return textResult(`edited ${path} (${outcome.count} replacement${outcome.count > 1 ? "s" : ""})`);
-			}),
+		read: (filePath, offset, limit) => runPiTool(readDef, readParams(filePath, offset, limit)),
+		write: (filePath, content) => runPiTool(writeDef, { path: filePath, content }),
+		edit: (filePath, oldString, newString) =>
+			runPiTool(editDef, { path: filePath, edits: [{ oldText: oldString, newText: newString }] }),
 		ls: (path) =>
 			attempt("ls", async () => {
 				const entries = readdirSync(resolveLocal(path || "."), { withFileTypes: true })
@@ -201,12 +208,15 @@ function localBackend(): Backend {
 	};
 }
 
-function remoteBackend(descriptorJson: string): Backend {
+function remoteBackend(pi: PiModule, descriptorJson: string): Backend {
 	const descriptor = parseSshConnectionDescriptor(descriptorJson); // throws if malformed → fail-loud
 	const conn = new SshConnection(descriptor.remote, process.cwd());
 	applySshConnectionDescriptor(conn, descriptor);
-	const readOps = createRemoteReadOps(conn);
-	const writeOps = createRemoteWriteOps(conn);
+	// Same pi tool code as local, but with the ssh extension's remote ops — so remote edits inherit
+	// pi's BOM/CRLF/fuzzy semantics exactly, and remote read gets pi's image detection over ssh.
+	const readDef = pi.createReadToolDefinition(conn.remoteCwd, { operations: createRemoteReadOps(conn) });
+	const writeDef = pi.createWriteToolDefinition(conn.remoteCwd, { operations: createRemoteWriteOps(conn) });
+	const editDef = pi.createEditToolDefinition(conn.remoteCwd, { operations: createRemoteEditOps(conn) });
 	const bashOps = createRemoteBashOps(conn);
 
 	// Run a command in the remote cwd, capturing merged output and the exit code (never throws).
@@ -223,28 +233,10 @@ function remoteBackend(descriptorJson: string): Backend {
 			const { out, code } = await runRemote(command);
 			return textResult(commandText(out, "", code), code === 255);
 		},
-		read: (filePath, offset, limit) =>
-			attempt("read", async () => {
-				const buffer = await readOps.readFile(filePath);
-				const mimeType = detectSupportedImageMimeType(buffer);
-				return mimeType
-					? imageResult(buffer.toString("base64"), mimeType)
-					: textResult(sliceLines(buffer.toString("utf8"), offset, limit));
-			}),
-		write: (filePath, content) =>
-			attempt("write", async () => {
-				await writeOps.mkdir(posix.dirname(filePath));
-				await writeOps.writeFile(filePath, content);
-				return textResult(`wrote ${Buffer.byteLength(content)} bytes to ${conn.toRemotePath(filePath)}`);
-			}),
-		edit: (filePath, oldString, newString, replaceAll) =>
-			attempt("edit", async () => {
-				const original = (await readOps.readFile(filePath)).toString("utf8");
-				const outcome = applyEdit(original, oldString, newString, replaceAll);
-				if (outcome.kind === "rejected") return textResult(`edit rejected: ${outcome.reason}`, true);
-				await writeOps.writeFile(filePath, outcome.updated);
-				return textResult(`edited ${conn.toRemotePath(filePath)} (${outcome.count} replacement${outcome.count > 1 ? "s" : ""})`);
-			}),
+		read: (filePath, offset, limit) => runPiTool(readDef, readParams(filePath, offset, limit)),
+		write: (filePath, content) => runPiTool(writeDef, { path: filePath, content }),
+		edit: (filePath, oldString, newString) =>
+			runPiTool(editDef, { path: filePath, edits: [{ oldText: oldString, newText: newString }] }),
 		ls: async (path) => {
 			const { out, code } = await runRemote(`ls -1Ap ${shellQuote(conn.toRemotePath(path || "."))}`);
 			return commandResult(out, "", code);
@@ -270,23 +262,6 @@ function failingBackend(reason: string): Backend {
 	return { bash: fail, read: fail, write: fail, edit: fail, ls: fail, find: fail, grep: fail };
 }
 
-/** A rejected edit carries only its reason, so no caller can write back a half-applied buffer. */
-type EditOutcome =
-	| { kind: "edited"; updated: string; count: number }
-	| { kind: "rejected"; reason: string };
-
-// split/join throughout: String.replace would interpret dollar patterns in the replacement.
-function applyEdit(original: string, oldString: string, newString: string, replaceAll: boolean): EditOutcome {
-	// Empty old_string would "match" between every character and inject newString throughout.
-	if (oldString === "") return { kind: "rejected", reason: "old_string must not be empty" };
-	const occurrences = original.split(oldString).length - 1;
-	if (occurrences === 0) return { kind: "rejected", reason: "old_string not found" };
-	if (occurrences > 1 && !replaceAll) {
-		return { kind: "rejected", reason: `old_string not unique (${occurrences} matches); add context or set replace_all` };
-	}
-	return { kind: "edited", updated: original.split(oldString).join(newString), count: replaceAll ? occurrences : 1 };
-}
-
 type BackendMode = "local" | "ssh" | "ssh-broken";
 
 interface BackendSelection {
@@ -294,18 +269,29 @@ interface BackendSelection {
 	mode: BackendMode;
 }
 
-function selectBackend(): BackendSelection {
+function selectBackend(pi: PiModule): BackendSelection {
 	const descriptor = process.env[SSH_DESCRIPTOR_ENV];
-	if (!descriptor) return { backend: localBackend(), mode: "local" };
+	if (!descriptor) return { backend: localBackend(pi), mode: "local" };
 	try {
-		return { backend: remoteBackend(descriptor), mode: "ssh" };
+		return { backend: remoteBackend(pi, descriptor), mode: "ssh" };
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error);
 		return { backend: failingBackend(reason), mode: "ssh-broken" };
 	}
 }
 
-const { backend, mode: BACKEND_MODE } = selectBackend();
+// read/write/edit run pi's own tool code. The bridge resolves pi's package entry (it runs inside pi,
+// where the bare specifier resolves) and passes it here; a bare node child can't resolve it itself.
+const PI_ENTRY = process.env.PI_CODING_AGENT_ENTRY;
+if (!PI_ENTRY) {
+	log("fatal: PI_CODING_AGENT_ENTRY is not set; the bridge must provide pi's package entry");
+	process.exit(1);
+}
+// SAFETY: PI_ENTRY is pi's own package entry, resolved by the bridge from inside pi; its exports
+// include these tool factories. We assert only the subset we call, and a mismatch throws at first use.
+const pi = (await import(PI_ENTRY)) as PiModule;
+
+const { backend, mode: BACKEND_MODE } = selectBackend(pi);
 
 function send(message: JsonRpcResponse): void {
 	process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -392,14 +378,13 @@ const TOOLS: Tool[] = [
 	},
 	{
 		name: "edit",
-		description: "Replace an exact string in a file. old_string must be unique unless replace_all is true.",
+		description: "Replace an exact string in a file. old_string must match a unique region of the file.",
 		inputSchema: {
 			type: "object",
 			properties: {
 				file_path: { type: "string", description: "Path to the file (absolute or relative to cwd)." },
 				old_string: { type: "string", description: "Exact text to replace." },
 				new_string: { type: "string", description: "Replacement text." },
-				replace_all: { type: "boolean", description: "Replace every occurrence instead of requiring uniqueness." },
 			},
 			required: ["file_path", "old_string", "new_string"],
 		},
@@ -408,7 +393,6 @@ const TOOLS: Tool[] = [
 				requiredStringField(args, "file_path", "arguments"),
 				requiredStringField(args, "old_string", "arguments"),
 				requiredStringField(args, "new_string", "arguments"),
-				args.replace_all === true,
 			),
 	},
 	{
