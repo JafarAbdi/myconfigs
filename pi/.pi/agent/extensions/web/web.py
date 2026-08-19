@@ -4,10 +4,12 @@
 #   "trafilatura==2.0.0",
 # ]
 # ///
-"""Search through SearXNG and extract readable Markdown from public web pages."""
+"""Search through 4get and extract readable Markdown from public web pages."""
 
 import argparse
+import concurrent.futures
 import dataclasses
+import datetime
 import http.client
 import ipaddress
 import json
@@ -31,6 +33,8 @@ PAGE_CHARACTER_COUNT_MAX = 20_000
 SEARCH_RESPONSE_BYTE_COUNT_MAX = 4 * 1024 * 1024
 SEARCH_RESULT_COUNT_DEFAULT = 10
 SEARCH_RESULT_COUNT_MAX = 10
+# Default mix: one Google index (google_cse), one independent index (brave), one Bing index (ddg).
+FOURGET_SCRAPERS_DEFAULT = ("google_cse", "brave", "ddg")
 USER_AGENT = "pi-web-extension/1.0"
 TLS_CONTEXT = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
 REDIRECT_STATUSES = frozenset((301, 302, 303, 307, 308))
@@ -211,19 +215,35 @@ def _download_public(url: str) -> tuple[bytes, str | None]:
     raise AssertionError("redirect loop exceeded its fixed bound")
 
 
-def _searxng_url() -> str:
-    value = os.environ.get("SEARXNG_URL", "").strip()
+@dataclasses.dataclass(frozen=True)
+class Result:
+    title: str
+    url: str
+    description: str
+    date: str | None
+    engines: tuple[str, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class ScraperOutput:
+    scraper: str
+    results: tuple[Result, ...]
+    error: str | None
+
+
+def _fourget_url() -> str:
+    value = os.environ.get("FOURGET_URL", "").strip()
     if not value:
-        raise ValueError("SEARXNG_URL environment variable is not set")
-    return _http_url(value, "SEARXNG_URL")
+        raise ValueError("FOURGET_URL environment variable is not set")
+    return _http_url(value, "FOURGET_URL")
 
 
-def _search_url(query: str) -> str:
+def _search_url(query: str, scraper: str) -> str:
     normalized = query.strip()
     if not normalized:
         raise ValueError("search query is empty")
-    parameters = urllib.parse.urlencode({"q": normalized, "format": "json"})
-    return f"{_searxng_url().rstrip('/')}/search?{parameters}"
+    parameters = urllib.parse.urlencode({"s": normalized, "scraper": scraper})
+    return f"{_fourget_url().rstrip('/')}/api/v1/web?{parameters}"
 
 
 def _download_search(url: str) -> bytes:
@@ -236,57 +256,123 @@ def _download_search(url: str) -> bytes:
         with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
             body = response.read(SEARCH_RESPONSE_BYTE_COUNT_MAX + 1)
     except urllib.error.HTTPError as error:
-        raise RuntimeError(f"SearXNG returned HTTP {error.code}") from error
+        raise RuntimeError(f"4get returned HTTP {error.code}") from error
     except urllib.error.URLError as error:
-        raise RuntimeError(f"failed to reach SearXNG: {error.reason}") from error
+        raise RuntimeError(f"failed to reach 4get: {error.reason}") from error
     except OSError as error:
-        raise RuntimeError(f"failed to reach SearXNG: {error}") from error
+        raise RuntimeError(f"failed to reach 4get: {error}") from error
     if len(body) > SEARCH_RESPONSE_BYTE_COUNT_MAX:
-        raise RuntimeError("SearXNG response exceeded 4 MiB")
+        raise RuntimeError("4get response exceeded 4 MiB")
     return body
 
 
-def _search_results(payload: object) -> list[dict[str, object]]:
-    if not isinstance(payload, dict):
-        raise RuntimeError("SearXNG response is not an object")
-    results = payload.get("results")
-    if not isinstance(results, list):
-        raise RuntimeError("SearXNG response has no results array")
-    return [result for result in results if isinstance(result, dict)]
-
-
-def _result_text(result: dict[str, object], key: str) -> str:
-    value = result.get(key)
+def _clean(value: object) -> str:
     return " ".join(value.split()) if isinstance(value, str) else ""
 
 
-def _format_result(index: int, result: dict[str, object]) -> str:
-    title = _result_text(result, "title") or "(untitled)"
-    url = _result_text(result, "url") or "(URL missing)"
-    published = _result_text(result, "publishedDate")
-    snippet = _result_text(result, "content")
-    lines = [f"{index}. {title}", f"   URL: {url}"]
-    if published:
-        lines.append(f"   Published: {published}")
-    if snippet:
-        lines.append(f"   {snippet}")
+def _date(value: object) -> str | None:
+    """4get dates are unix seconds or null; render as an ISO date when present."""
+    if not isinstance(value, (int, float)) or value <= 0:
+        return None
+    try:
+        return datetime.datetime.fromtimestamp(value, tz=datetime.UTC).date().isoformat()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _web_item(item: dict[str, object], scraper: str) -> Result | None:
+    url = _clean(item.get("url"))
+    if not url:
+        return None
+    return Result(
+        title=_clean(item.get("title")),
+        url=url,
+        description=_clean(item.get("description")),
+        date=_date(item.get("date")),
+        engines=(scraper,),
+    )
+
+
+def _scrape(query: str, scraper: str) -> ScraperOutput:
+    """Query one scraper. Network and per-engine failures become a non-fatal `error`."""
+    try:
+        payload = json.loads(_download_search(_search_url(query, scraper)))
+    except (RuntimeError, ValueError) as error:
+        return ScraperOutput(scraper, (), str(error))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return ScraperOutput(scraper, (), "4get returned invalid JSON")
+    if not isinstance(payload, dict):
+        return ScraperOutput(scraper, (), "response is not an object")
+    status = payload.get("status")
+    web = payload.get("web")
+    if status != "ok" or not isinstance(web, list):
+        reason = status if isinstance(status, str) else "no web results"
+        return ScraperOutput(scraper, (), reason)
+    results = tuple(
+        result
+        for item in web
+        if isinstance(item, dict) and (result := _web_item(item, scraper)) is not None
+    )
+    return ScraperOutput(scraper, results, None)
+
+
+def _dedupe_key(url: str) -> str:
+    return url.rstrip("/").lower()
+
+
+def _merge(outputs: list[ScraperOutput], result_count: int) -> list[Result]:
+    """Round-robin interleave engines by rank, dedupe by URL, union engine tags."""
+    merged: dict[str, Result] = {}
+    order: list[str] = []
+    columns = [output.results for output in outputs]
+    depth = max((len(column) for column in columns), default=0)
+    for rank in range(depth):
+        for column in columns:
+            if rank >= len(column):
+                continue
+            hit = column[rank]
+            key = _dedupe_key(hit.url)
+            if existing := merged.get(key):
+                extra = tuple(engine for engine in hit.engines if engine not in existing.engines)
+                merged[key] = dataclasses.replace(existing, engines=existing.engines + extra)
+            else:
+                merged[key] = hit
+                order.append(key)
+    return [merged[key] for key in order[:result_count]]
+
+
+def _format_result(index: int, result: Result) -> str:
+    title = result.title or "(untitled)"
+    lines = [f"{index}. {title}  [{', '.join(result.engines)}]", f"   URL: {result.url}"]
+    if result.date:
+        lines.append(f"   Date: {result.date}")
+    if result.description:
+        lines.append(f"   {result.description}")
     return "\n".join(lines)
 
 
 def search(query: str, result_count: int) -> str:
     if not 1 <= result_count <= SEARCH_RESULT_COUNT_MAX:
         raise ValueError(f"results must be between 1 and {SEARCH_RESULT_COUNT_MAX}")
-    try:
-        payload = json.loads(_download_search(_search_url(query)))
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise RuntimeError("SearXNG returned invalid JSON") from error
-    results = _search_results(payload)[:result_count]
-    if not results:
-        return "No results found."
-    return "\n\n".join(
-        _format_result(index, result)
-        for index, result in enumerate(results, start=1)
+    scrapers = FOURGET_SCRAPERS_DEFAULT
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(scrapers)) as pool:
+        outputs = list(pool.map(lambda scraper: _scrape(query, scraper), scrapers))
+
+    failures = [output for output in outputs if output.error is not None]
+    if len(failures) == len(scrapers):
+        detail = "; ".join(f"{output.scraper}: {output.error}" for output in failures)
+        raise RuntimeError(f"all scrapers failed — {detail}")
+
+    results = _merge(outputs, result_count)
+    body = (
+        "\n\n".join(_format_result(index, result) for index, result in enumerate(results, start=1))
+        if results
+        else "No results found."
     )
+    if failures:
+        note = "; ".join(f"{output.scraper}: {output.error}" for output in failures)
+        body += f"\n\n(unavailable — {note})"
+    return body
 
 
 def _media_type(content_type: str | None) -> str:
@@ -348,7 +434,7 @@ def read_urls(urls: list[str], *, include_links: bool, character_count_max: int)
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Search and read the public web")
     commands = parser.add_subparsers(dest="command", required=True)
-    search_parser = commands.add_parser("search", help="Search through SearXNG")
+    search_parser = commands.add_parser("search", help="Search through 4get")
     search_parser.add_argument("query", help="search query")
     search_parser.add_argument(
         "--results",

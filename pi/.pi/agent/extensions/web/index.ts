@@ -5,11 +5,15 @@ import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	defineTool,
+	type AgentToolResult,
 	type ExecResult,
 	type ExtensionAPI,
 	formatSize,
+	getMarkdownTheme,
 	truncateHead,
+	type Theme,
 } from "@earendil-works/pi-coding-agent";
+import { Markdown, Text } from "@earendil-works/pi-tui";
 
 const COMMAND_ERROR_CHAR_COUNT_MAX = 500;
 const FETCH_TIMEOUT_MS = 90_000;
@@ -39,6 +43,43 @@ function formatOutput(text: string): string {
 	const outputSize = formatSize(truncation.outputBytes);
 	const totalSize = formatSize(truncation.totalBytes);
 	return `${truncation.content}\n\n[Web output truncated: ${outputSize} of ${totalSize} shown.]`;
+}
+
+interface WebSearchDetails {
+	queries: string[];
+	numResults: number;
+}
+
+interface FetchContentDetails {
+	urls: string[];
+	maxCharacters: number;
+	partialFailure: boolean;
+}
+
+function resultText(result: AgentToolResult<unknown>): string {
+	return result.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
+}
+
+function resultStats(text: string): string {
+	const lineCount = text.split("\n").length;
+	return `${lineCount} ${lineCount === 1 ? "line" : "lines"} · ${formatSize(Buffer.byteLength(text))}`;
+}
+
+function renderToolResult(
+	result: AgentToolResult<unknown>,
+	options: { expanded: boolean; isPartial: boolean },
+	theme: Theme,
+	isError: boolean,
+	pendingLabel: string,
+	summary: (text: string) => string,
+): Markdown | Text {
+	if (isError) return new Text(theme.fg("error", resultText(result)), 0, 0);
+	if (options.isPartial) return new Text(theme.fg("warning", pendingLabel), 0, 0);
+	const text = resultText(result);
+	if (!options.expanded) {
+		return new Text(theme.fg("success", "✓ ") + theme.fg("muted", summary(text)), 0, 0);
+	}
+	return new Markdown(text, 0, 0, getMarkdownTheme());
 }
 
 function normalizedQueries(query: string | undefined, queries: string[] | undefined): string[] {
@@ -109,7 +150,7 @@ async function searchQueries(
 		const result = results[index];
 		if (result.code !== 0) throw commandError(result);
 		const output = result.stdout.trim();
-		if (output.length === 0) throw new Error("SearXNG returned no output");
+		if (output.length === 0) throw new Error("4get returned no output");
 		sections.push(queries.length === 1 ? output : `## Query: ${queries[index]}\n\n${output}`);
 	}
 	return sections.join("\n\n---\n\n");
@@ -119,7 +160,7 @@ function createWebSearch(pi: ExtensionAPI) {
 	return defineTool({
 		name: "web_search",
 		label: "Web search",
-		description: "Search the public web through private SearXNG. Prefer 2–4 varied queries for broad research.",
+		description: "Search the public web through private 4get. Prefer 2–4 varied queries for broad research.",
 		promptSnippet: "Search the public web; prefer {queries:[...]} with varied research angles",
 		promptGuidelines: [
 			"Use web_search for current public-web research. Prefer 2–4 varied queries for broad questions.",
@@ -140,6 +181,28 @@ function createWebSearch(pi: ExtensionAPI) {
 			},
 			{ additionalProperties: false },
 		),
+		renderCall: (args, theme) => {
+			const queries = args.queries ?? (args.query !== undefined ? [args.query] : []);
+			return new Text(
+				theme.fg("toolTitle", theme.bold("web_search ")) +
+					theme.fg("dim", queries.map((query) => `"${query}"`).join(" ")),
+				0,
+				0,
+			);
+		},
+		renderResult: (result, options, theme, context) =>
+			renderToolResult(
+				result,
+				options,
+				theme,
+				context.isError,
+				"Searching…",
+				(text) => {
+					const details = result.details as WebSearchDetails;
+					const queryCount = details.queries.length;
+					return `${queryCount} ${queryCount === 1 ? "query" : "queries"} · ${resultStats(text)}`;
+				},
+			),
 		async execute(_toolCallId, params, signal) {
 			const queries = normalizedQueries(params.query, params.queries);
 			const resultCount = boundedInteger(
@@ -183,6 +246,28 @@ function createFetchContent(pi: ExtensionAPI) {
 			},
 			{ additionalProperties: false },
 		),
+		renderCall: (args, theme) => {
+			const urls = args.urls ?? (args.url !== undefined ? [args.url] : []);
+			return new Text(
+				theme.fg("toolTitle", theme.bold("fetch_content ")) + theme.fg("dim", urls.join(" ")),
+				0,
+				0,
+			);
+		},
+		renderResult: (result, options, theme, context) =>
+			renderToolResult(
+				result,
+				options,
+				theme,
+				context.isError,
+				"Fetching…",
+				(text) => {
+					const details = result.details as FetchContentDetails;
+					const pageCount = details.urls.length;
+					const failures = details.partialFailure ? " · ⚠ some failed" : "";
+					return `${pageCount} ${pageCount === 1 ? "page" : "pages"} · ${resultStats(text)}${failures}`;
+				},
+			),
 		async execute(_toolCallId, params, signal) {
 			const urls = normalizedUrls(params.url, params.urls);
 			const characterCountMax = boundedInteger(
