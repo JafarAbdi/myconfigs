@@ -91,9 +91,9 @@ install version=VERSION prefix=PREFIX:
     EOF
     chmod +x "$HOME/.local/bin/podman"
 
-    # Rootless Quadlet generator: systemd has no HOME-local generator dir in its
-    # default search path, so register the bundled generator and point the user
-    # manager at it. %h expands per-user at generator time.
+    # Point the user manager at the bundled generator (trailing ':' keeps defaults).
+    # Absolute path, not %h: ManagerEnvironment specifiers need systemd >= 254
+    # (systemd#26675); switch back to %h once every server is >= 254.
     gendir="$HOME/.local/lib/systemd/user-generators"
     mkdir -p "$gendir"
     ln -sfn "$root/libexec/podman/quadlet" "$gendir/podman-user-generator"
@@ -101,14 +101,9 @@ install version=VERSION prefix=PREFIX:
     mkdir -p "$dropin"
     cat > "$dropin/podman-static.conf" <<EOF
     [Manager]
-    ManagerEnvironment="PODMAN=%h/.local/bin/podman" "SYSTEMD_GENERATOR_PATH=%h/.local/lib/systemd/user-generators:"
+    ManagerEnvironment="PODMAN=$HOME/.local/bin/podman" "SYSTEMD_GENERATOR_PATH=$HOME/.local/lib/systemd/user-generators:"
     EOF
-    # Drop the older whole-file user.conf if it only carried our generator env.
-    if [ -f "$HOME/.config/systemd/user.conf" ] \
-       && grep -q 'user-generators' "$HOME/.config/systemd/user.conf"; then
-        rm -f "$HOME/.config/systemd/user.conf"
-        echo "removed superseded ~/.config/systemd/user.conf"
-    fi
+    # ManagerEnvironment is applied at manager start, so re-exec to load it in place.
     systemctl --user daemon-reexec
     systemctl --user daemon-reload
     echo "==> registered rootless quadlet generator (user manager reloaded)"
@@ -153,6 +148,7 @@ uninstall prefix=PREFIX:
     rm -f "$HOME/.config/containers/containers.conf" "$HOME/.config/containers/storage.conf"
     rm -f "$HOME/.local/lib/systemd/user-generators/podman-user-generator"
     rm -f "$HOME/.config/systemd/user.conf.d/podman-static.conf"
+    systemctl --user daemon-reexec 2>/dev/null || true
     systemctl --user daemon-reload 2>/dev/null || true
     rm -rf "$prefix"
     rm -rf "$data" 2>/dev/null || true
