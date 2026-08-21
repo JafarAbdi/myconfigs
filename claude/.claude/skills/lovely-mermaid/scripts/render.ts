@@ -1,8 +1,8 @@
 #!/usr/bin/env -S deno run --quiet --allow-read
 
-import { diagramKind, render } from "npm:grok-mermaid@0.2.2";
+import { diagramKind, render } from "npm:lovely-mermaid@0.3.3";
 
-const prefix = "grok-mermaid";
+const prefix = "lovely-mermaid";
 
 function fail(message: string): never {
   console.error(`${prefix}: ${message}`);
