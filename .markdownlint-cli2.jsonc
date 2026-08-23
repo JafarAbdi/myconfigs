@@ -1,4 +1,7 @@
 {
+  "config": {
+    "MD013": false
+  },
   "ignores": [
     "claude/.claude",
     "pi/.pi/agent",
