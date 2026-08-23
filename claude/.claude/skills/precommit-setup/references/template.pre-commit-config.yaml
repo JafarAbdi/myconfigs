@@ -169,18 +169,15 @@ repos:
       - id: oxlint
 
   # OPT-IN anti-slop — 15 rules against LLM-shaped TS (unknown params/returns,
-  # chained assertions, runtime typeof). https://github.com/dmmulroy/anti-slop
-  # Not on npm: vendor it at a pinned SHA, keep `oxlint` and `@oxlint/plugins`
-  # on one version, list under `jsPlugins` in oxlint.config.ts.
-  # Exclude the vendored dir from oxlint and from this file's top-level
-  # `exclude:` — it uses tabs; whitespace hooks would break re-vendoring.
-  #   - repo: local        # mirror's isolated env can't load a repo-local plugin
+  # chained assertions, runtime typeof). Self-contained hook (bundled oxlint,
+  # plugin pulled from upstream — nothing to vendor); complements mirrors-oxlint
+  # above, which can't load a plugin in its isolated env.
+  # https://github.com/JafarAbdi/anti-slop-pre-commit
+  #   - repo: https://github.com/JafarAbdi/anti-slop-pre-commit
+  #     rev: v0.1.0
   #     hooks:
-  #       - id: oxlint-anti-slop
-  #         name: oxlint (anti-slop)
-  #         entry: npx oxlint --config oxlint.config.ts
-  #         language: system
-  #         types_or: [ts, tsx, javascript, jsx]
+  #       - id: anti-slop
+  #       - id: anti-slop-effect   # only if the repo uses Effect
 
   # OPT-IN type-aware rules (no-floating-promises etc). Needs TypeScript 7.0+
   # and `npm add -D oxlint oxlint-tsgolint`. Local because tsgolint reads the
