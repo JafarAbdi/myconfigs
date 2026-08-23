@@ -1,13 +1,19 @@
 # Output discipline (human-bandwidth constraint)
 
+**This is a hard requirement, not a suggestion or an aspiration. Follow every rule below automatically on every conversational reply, without being asked. Failing to be terse is failing the task — treat it as seriously as a wrong answer.**
+
 This governs conversational replies, not requested artifacts. Explicit shape and depth requests win.
+
+Before sending, re-check the reply against the rules below and rewrite any violation — do not send
+the verbose draft. Standalone artifacts are exempt from footers. Otherwise, end every reply with
+`Concision: clean`, or `Concision: deviated — <rule>: <reason>` naming each rule you bent and why.
 
 Protect attention without losing facts:
 
 - Put the answer, outcome, or recommendation in the first sentence.
 - Use the fewest words that fully answer; brevity applies to replies, not reasoning or work. Never cut warnings, caveats, preconditions, exact numbers, thresholds, or scope.
 - Give full detail when asked, organized for scanning.
-- Output standalone artifacts without wrapper prose. The required `Style:` footer still follows code changes.
+- Output standalone artifacts without wrapper prose.
 - Use short paragraphs, one idea each. Use tables only when clearer.
 - For broad topics, prioritize essentials and name deferred areas.
 - No preamble, restatement, narration, repetition, recap, filler, or needless qualification.
@@ -16,19 +22,26 @@ Protect attention without losing facts:
 
 # Code style
 
-**Follow every rule below automatically on each code change, without being asked. These are hard rules, not suggestions.**
-
-Follow all coding-style rules. Code review is user-initiated, not an automatic implementation step.
+Follow rules relevant to the change; scale effort to risk without expanding scope. If a relevant
+rule cannot be followed, report why as `Style: deviated — <reason>`. Code review is user-initiated,
+not automatic.
 
 Before finishing an edit:
 1. Re-check each file you touched against the sections below.
-2. Never break a rule silently — if one genuinely can't apply, state which and why.
-3. End the reply with one line: `Style: clean` or `Style: deviated — <rule>: <reason>`.
+2. After code changes, place `Style: clean` or `Style: deviated — <reason>` immediately before the
+   final `Concision:` footer.
 
-## Fail loud, never degrade silently
-- Propagate errors or exit — no fallbacks, no silent degradation.
-- Validate preconditions before side effects: fail before you create, write, or publish, not after.
-- Never persist a silently-wrong value — surface a visible warning instead.
+## Judgment and clarity
+- Keep mutable state local and avoid duplicate sources of truth.
+- Use precise names; standard abbreviations such as `id`, `URL`, and `CPU` are fine. Assume SI
+  defaults—seconds, meters, kilograms, and radians—and suffix only deviations such as `timeout_ms`
+  or `angle_deg`.
+- Comment only surprising decisions, focusing on why.
+- Consider performance only when the task has a performance requirement.
+
+## Errors and assertions
+- Handle expected failures normally; reserve assertions for bugs.
+- Validate untrusted input before side effects; never hide failures or invent values.
 
 ## Never infer structure from text
 - Detect a missing resource by its typed absence, not by matching error-message text.
@@ -48,12 +61,9 @@ Before finishing an edit:
 - Never sleep, busy-wait, or poll to synchronize — in code or in tests. Block on the right synchronization primitive (or restructure) so it fires when the work is actually done.
 
 ## Simplicity
-- Simplest implementation that meets today's requirements — no speculative abstraction, config, or indirection.
-- Grow in working layers; never trade a working product for unfinished complexity.
-- Fix problems at the source — change the earliest stage that can address the root cause, not downstream symptoms; the more central the code, the more scrutiny a change needs.
-- No backward-compat layers, fallbacks, or migrations — this project has no released API, so delete obsolete paths.
-- Reuse existing dependencies and platform APIs before adding or reimplementing — check their docs first.
-- Brevity, and one way of doing things — prefer a single implementation file; refactor rather than accumulate.
-- Keep edits local — a change should stay near the code it affects, not fan out across the tree; keep definitions discoverable by name.
-- Keep components modular, with concerns separated.
-- Decide for the long term — no stopgaps meant to be replaced.
+- Implement current needs cleanly; avoid speculative abstractions, configuration, indirection, and
+  temporary paths.
+- Fix the root cause without changing unrelated code.
+- Reuse existing dependencies and platform APIs before adding or reimplementing; check their docs.
+- Prefer editing existing files; add a file only for a distinct responsibility.
+- Delete replaced code unless compatibility is an explicit requirement.
