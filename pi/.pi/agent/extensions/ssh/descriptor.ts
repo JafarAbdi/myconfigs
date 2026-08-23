@@ -1,41 +1,25 @@
+import { Type, type Static } from "typebox";
+import { Value } from "typebox/value";
 import type { SshConnection } from "./connection.ts";
-import { isRecord } from "./util.ts";
 
 export const SSH_DESCRIPTOR_ENV = "PI_SSH_DESCRIPTOR";
 export const DELEGATE_CHILD_ENV = "PI_DELEGATE_CHILD";
 
-export interface SshConnectionDescriptor {
-	remote: string;
-	remoteCwd: string;
-	remoteHome: string;
-	fdPath: string;
-	rgPath: string;
-	fzfPath: string;
-	remoteToolBinDir?: string;
-	remotePythonUvCommandsBinDir?: string;
-	remoteUvBinDir?: string;
-}
+const AbsolutePath = Type.String({ pattern: "^/" });
 
-function requireString(data: Record<string, unknown>, key: string): string {
-	const value = data[key];
-	if (typeof value !== "string" || !value.trim()) {
-		throw new Error(`Invalid SSH descriptor: ${key} must be a non-empty string`);
-	}
-	return value;
-}
+const SshConnectionDescriptorSchema = Type.Object({
+	remote: Type.String({ pattern: "\\S" }),
+	remoteCwd: AbsolutePath,
+	remoteHome: AbsolutePath,
+	fdPath: AbsolutePath,
+	rgPath: AbsolutePath,
+	fzfPath: AbsolutePath,
+	remoteToolBinDir: Type.Optional(AbsolutePath),
+	remotePythonUvCommandsBinDir: Type.Optional(AbsolutePath),
+	remoteUvBinDir: Type.Optional(AbsolutePath),
+});
 
-function requireAbsolutePath(data: Record<string, unknown>, key: string): string {
-	const value = requireString(data, key);
-	if (!value.startsWith("/")) {
-		throw new Error(`Invalid SSH descriptor: ${key} must be an absolute remote path`);
-	}
-	return value;
-}
-
-function optionalAbsolutePath(data: Record<string, unknown>, key: string): string | undefined {
-	if (data[key] === undefined) return undefined;
-	return requireAbsolutePath(data, key);
-}
+export type SshConnectionDescriptor = Static<typeof SshConnectionDescriptorSchema>;
 
 export function parseSshConnectionDescriptor(serialized: string | undefined): SshConnectionDescriptor {
 	if (!serialized) throw new Error(`SSH delegate child requires ${SSH_DESCRIPTOR_ENV}`);
@@ -46,19 +30,10 @@ export function parseSshConnectionDescriptor(serialized: string | undefined): Ss
 	} catch {
 		throw new Error(`Invalid SSH descriptor in ${SSH_DESCRIPTOR_ENV}: expected JSON`);
 	}
-	if (!isRecord(data)) throw new Error("Invalid SSH descriptor: expected an object");
-
-	return {
-		remote: requireString(data, "remote"),
-		remoteCwd: requireAbsolutePath(data, "remoteCwd"),
-		remoteHome: requireAbsolutePath(data, "remoteHome"),
-		fdPath: requireAbsolutePath(data, "fdPath"),
-		rgPath: requireAbsolutePath(data, "rgPath"),
-		fzfPath: requireAbsolutePath(data, "fzfPath"),
-		remoteToolBinDir: optionalAbsolutePath(data, "remoteToolBinDir"),
-		remotePythonUvCommandsBinDir: optionalAbsolutePath(data, "remotePythonUvCommandsBinDir"),
-		remoteUvBinDir: optionalAbsolutePath(data, "remoteUvBinDir"),
-	};
+	if (!Value.Check(SshConnectionDescriptorSchema, data)) {
+		throw new Error("Invalid SSH descriptor: expected a valid descriptor object");
+	}
+	return data;
 }
 
 export function makeSshConnectionDescriptor(connection: SshConnection): SshConnectionDescriptor {

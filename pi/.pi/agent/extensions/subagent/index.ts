@@ -31,6 +31,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Markdown, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { toError } from "../lib/errors.ts";
 import { loadAgents } from "./agents.ts";
 import { runAgent, shutdownAgents } from "./run-agent.ts";
 import {
@@ -40,8 +42,6 @@ import {
 	classifyResult,
 	delegateModelNames,
 	type Inherited,
-	isJsonObject,
-	type JsonValue,
 	modelLabel,
 	preview,
 	type RunResult,
@@ -56,26 +56,23 @@ const TASK_PREVIEW_MAX = 60;
  * has no auth for, in a tool description it pays for every turn. A missing settings file has no Pi
  * choices; a malformed present file is a startup error rather than a silently incomplete menu.
  */
-function isString(value: JsonValue): value is string {
-	return typeof value === "string";
-}
+const SettingsSchema = Type.Object({
+	enabledModels: Type.Optional(Type.Array(Type.String())),
+});
 
 function enabledModels(): string[] {
 	const path = join(AGENT_DIR, "settings.json");
 	if (!existsSync(path)) return [];
-	let settings: JsonValue;
+	let raw: unknown;
 	try {
-		settings = JSON.parse(readFileSync(path, "utf-8"));
+		raw = JSON.parse(readFileSync(path, "utf-8"));
 	} catch (error) {
-		throw new Error(`invalid ${path}: ${error instanceof Error ? error.message : String(error)}`);
+		throw new Error(`invalid ${path}: ${toError(error).message}`);
 	}
-	if (!isJsonObject(settings)) throw new Error(`invalid ${path}: expected a JSON object`);
-	const enabled = settings.enabledModels;
-	if (enabled === undefined) return [];
-	if (!Array.isArray(enabled) || !enabled.every(isString)) {
+	if (!Value.Check(SettingsSchema, raw)) {
 		throw new Error(`invalid ${path}: enabledModels must be a string array`);
 	}
-	return enabled;
+	return raw.enabledModels ?? [];
 }
 
 function formatTokens(count: number): string {

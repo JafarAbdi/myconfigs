@@ -6,10 +6,11 @@
  * one source of truth, so a newly-added claude event type is handled in exactly one place.
  *
  * The generic JSON guards, field validators, and `Usage` helpers live here too because the decoder
- * needs them and the pi decoder in `subagent/runtimes.ts` reuses them. Pi packages are imported only
- * as types, so this module can be unit-tested directly with `node --test`.
+ * needs them and the pi decoder in `subagent/runtimes.ts` reuses them.
  */
 import type { Usage } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
 
@@ -17,24 +18,30 @@ export interface JsonObject {
 	[key: string]: JsonValue;
 }
 
+const StringSchema = Type.String();
+const NumberSchema = Type.Number();
+const BooleanSchema = Type.Boolean();
+const StringOrNumberSchema = Type.Union([StringSchema, NumberSchema]);
+const JsonObjectSchema = Type.Object({});
+
 export function isString(value: JsonValue | undefined): value is string {
-	return typeof value === "string";
+	return Value.Check(StringSchema, value);
 }
 
 export function isNumber(value: JsonValue | undefined): value is number {
-	return typeof value === "number";
+	return Value.Check(NumberSchema, value);
 }
 
 export function isBoolean(value: JsonValue | undefined): value is boolean {
-	return typeof value === "boolean";
+	return Value.Check(BooleanSchema, value);
 }
 
 export function isStringOrNumber(value: JsonValue | undefined): value is string | number {
-	return typeof value === "string" || typeof value === "number";
+	return Value.Check(StringOrNumberSchema, value);
 }
 
 export function isJsonObject(value: JsonValue | undefined): value is JsonObject {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+	return Value.Check(JsonObjectSchema, value);
 }
 
 export function isJsonArray(value: JsonValue | undefined): value is JsonValue[] {

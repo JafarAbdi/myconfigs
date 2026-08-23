@@ -7,8 +7,12 @@
  * these stubs, so this PATH injection is skipped in SSH mode.
  */
 
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ensureLocalPythonUvCommands } from "./lib/python-uv-commands.ts";
+
+const BashCommandInput = Type.Object({ command: Type.String() });
 
 const pythonShimBinPromise = ensureLocalPythonUvCommands().then((commands) => commands.binDir);
 pythonShimBinPromise.catch(() => {});
@@ -98,8 +102,8 @@ function getBlockedCommandMessage(command: string): string | null {
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event) => {
     if (event.toolName !== "bash" && event.toolName !== "host_bash") return;
+    if (!Value.Check(BashCommandInput, event.input)) return;
     const command = event.input.command;
-    if (typeof command !== "string") return;
 
     const blockedMessage = getBlockedCommandMessage(command);
     if (blockedMessage) {

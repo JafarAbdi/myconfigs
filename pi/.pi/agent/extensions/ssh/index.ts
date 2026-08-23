@@ -1,3 +1,5 @@
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
 import {
 	createBashToolDefinition,
@@ -150,11 +152,16 @@ function remoteCwdPromptLine(ssh: SshConnection, hostCwd: string): string {
 // The "Current working directory: <cwd>" line is emitted by the pi runtime, not us, so
 // this match is coupled to pi's prompt format. If pi rewords it the guards below return a
 // warning instead of silently leaving the child pointed at the local cwd in SSH mode.
+interface CwdRewrite {
+	systemPrompt?: string;
+	warning?: string;
+}
+
 function rewriteSystemPromptRemoteCwd(
 	systemPrompt: string,
 	expectedLocalCwd: string,
 	ssh: SshConnection,
-): { systemPrompt?: string; warning?: string } {
+): CwdRewrite {
 	const cwdLinePattern = /^Current working directory: .*$/gm;
 	const cwdLines = systemPrompt.match(cwdLinePattern) ?? [];
 	if (cwdLines.length === 0) {
@@ -282,7 +289,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		reportCompletionError = (error) => {
-			const message = error instanceof Error ? error.message : String(error);
+			const message = error.message;
 			if (message === lastCompletionError) return;
 			lastCompletionError = message;
 			ctx.ui.notify(`SSH completion failed: ${message}`, "error");
@@ -296,7 +303,8 @@ export default function (pi: ExtensionAPI) {
 			toolOverridesRegistered = true;
 		}
 		const childDescriptor = readDelegateChildSshDescriptor();
-		const arg = pi.getFlag("ssh") as string | undefined;
+		const sshFlag = pi.getFlag("ssh");
+		const arg = Value.Check(Type.String(), sshFlag) ? sshFlag : undefined;
 		const persistedState = getPersistedSshState(ctx);
 		const parentTarget = childDescriptor
 			? undefined
@@ -372,9 +380,7 @@ export default function (pi: ExtensionAPI) {
 		const ssh = getConnection();
 		if (!ssh) return;
 
-		const promptCwd = typeof event.systemPromptOptions?.cwd === "string"
-			? event.systemPromptOptions.cwd
-			: ctx.cwd;
+		const promptCwd = event.systemPromptOptions?.cwd ?? ctx.cwd;
 		const rewrite = rewriteSystemPromptRemoteCwd(event.systemPrompt, promptCwd || localCwd, ssh);
 		if (rewrite.warning) {
 			ctx.ui.notify(rewrite.warning, "warning");

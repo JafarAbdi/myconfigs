@@ -5,7 +5,11 @@
  * Patterns checked: recursive rm outside /tmp, sudo, chmod/chown 777
  */
 
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+const BashCommandInput = Type.Object({ command: Type.String() });
 
 const dangerousPatterns = [/\bsudo\b/i, /\b(chmod|chown)\b.*777/i];
 
@@ -34,8 +38,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "bash" && event.toolName !== "host_bash") return undefined;
 
+		if (!Value.Check(BashCommandInput, event.input)) return undefined;
 		const command = event.input.command;
-		if (typeof command !== "string") return undefined;
 		const isDangerous = dangerousPatterns.some((p) => p.test(command)) || isDangerousRm(command);
 
 		if (isDangerous) {

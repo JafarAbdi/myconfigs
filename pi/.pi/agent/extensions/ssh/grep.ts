@@ -97,13 +97,15 @@ function isMatchLine(line: string): boolean {
 	return /^[^:\n]+:\d+:/.test(line);
 }
 
+interface RemoteGrepOutput {
+	output: string;
+	details: GrepToolDetails;
+}
+
 function formatRemoteGrepOutput(
 	rawOutput: string,
 	effectiveLimit: number,
-): {
-	output: string;
-	details: GrepToolDetails;
-} {
+): RemoteGrepOutput {
 	const details: GrepToolDetails = {};
 	const outputLines: string[] = [];
 	let matchCount = 0;

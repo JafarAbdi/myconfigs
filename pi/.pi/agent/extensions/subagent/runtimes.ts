@@ -9,6 +9,8 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import {
 	addUsage,
 	type ChildEvent,
@@ -53,10 +55,12 @@ export {
 export type FrontmatterValue = JsonValue;
 export type FrontmatterObject = JsonObject;
 
+const FrontmatterObjectSchema = Type.Object({});
+
 export function isFrontmatterObject(
 	value: FrontmatterValue | undefined,
 ): value is FrontmatterObject {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+	return Value.Check(FrontmatterObjectSchema, value);
 }
 
 function isFrontmatterArray(

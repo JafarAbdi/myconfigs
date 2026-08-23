@@ -1,4 +1,6 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type, type Static } from "@earendil-works/pi-ai";
+import { Value } from "typebox/value";
+import { toError } from "./lib/errors.ts";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -76,22 +78,48 @@ const LUA_WRAPPER = `
 end)()
 `;
 
-type LuaResponse = { ok: true; data?: unknown } | { ok: false; error: string };
-type Discovery = { self: string; servers: string[]; truncated: boolean };
+type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+
+const LuaResponseSchema = Type.Union([
+	Type.Object({ ok: Type.Literal(true), data: Type.Optional(Type.Any()) }),
+	Type.Object({ ok: Type.Literal(false), error: Type.String() }),
+]);
+
+const LspClientSchema = Type.Object({
+	id: Type.Number(),
+	name: Type.String(),
+	root: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+});
+const ProbeSchema = Type.Object({
+	buffer: Type.String(),
+	cwd: Type.String(),
+	lsp_clients: Type.Array(LspClientSchema),
+	mode: Type.String(),
+	modified: Type.Boolean(),
+	pid: Type.Number(),
+	server: Type.String(),
+	ui_count: Type.Number(),
+});
+type NvimServer = Static<typeof ProbeSchema> & { address: string };
+
+const DiscoverySchema = Type.Object({
+	self: Type.String(),
+	servers: Type.Array(Type.String()),
+	truncated: Type.Boolean(),
+});
+
+const ErrnoSchema = Type.Object({ code: Type.String() });
+
 type NvimState = { selectedPid: number | null; selectedServer: string | null };
 
 class NvimUnavailableError extends Error {}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
 
 function processIsAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return true;
 	} catch (error) {
-		return (error as NodeJS.ErrnoException).code !== "ESRCH";
+		return Value.Check(ErrnoSchema, error) ? error.code !== "ESRCH" : true;
 	}
 }
 
@@ -130,7 +158,7 @@ async function callLua(
 	server: string,
 	code: string,
 	signal: AbortSignal | undefined,
-): Promise<unknown> {
+): Promise<Json> {
 	validateServer(server);
 	if (Buffer.byteLength(code, "utf8") > CODE_BYTES_MAX) {
 		throw new Error("Nvim Lua code exceeds 48 KiB");
@@ -143,26 +171,29 @@ async function callLua(
 		signal,
 	);
 
-	let response: LuaResponse;
+	let raw: unknown;
 	try {
-		response = JSON.parse(output) as LuaResponse;
+		raw = JSON.parse(output);
 	} catch {
 		throw new Error(`Nvim returned invalid JSON: ${output.slice(0, 500)}`);
 	}
-	if (!response.ok) throw new Error(response.error);
-	return response.data;
+	if (!Value.Check(LuaResponseSchema, raw)) {
+		throw new Error(`Nvim returned invalid JSON: ${output.slice(0, 500)}`);
+	}
+	if (!raw.ok) throw new Error(raw.error);
+	return raw.data ?? null;
 }
 
 async function probeServer(
 	pi: ExtensionAPI,
 	server: string,
 	signal: AbortSignal | undefined,
-): Promise<Record<string, unknown>> {
+): Promise<NvimServer> {
 	const data = await callLua(pi, server, PROBE_LUA, signal);
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!Value.Check(ProbeSchema, data)) {
 		throw new Error("Nvim probe returned an invalid object");
 	}
-	return { address: server, ...(data as Record<string, unknown>) };
+	return { address: server, ...data };
 }
 
 async function discoverServers(
@@ -174,22 +205,25 @@ async function discoverServers(
 		["--clean", "--headless", "-c", `lua ${DISCOVER_LUA}`, "-c", "qa!"],
 		signal,
 	);
-	let discovery: Discovery;
+	let raw: unknown;
 	try {
-		discovery = JSON.parse(output) as Discovery;
+		raw = JSON.parse(output);
 	} catch {
 		throw new Error(
 			`Nvim discovery returned invalid JSON: ${output.slice(0, 500)}`,
 		);
 	}
-	if (!Array.isArray(discovery.servers))
-		throw new Error("Nvim discovery returned no server list");
+	if (!Value.Check(DiscoverySchema, raw)) {
+		throw new Error(
+			`Nvim discovery returned invalid JSON: ${output.slice(0, 500)}`,
+		);
+	}
+	const discovery = raw;
 
 	const candidates = new Set<string>();
 	if (process.env.NVIM) candidates.add(process.env.NVIM);
 	for (const server of discovery.servers) {
-		if (typeof server === "string" && server !== discovery.self)
-			candidates.add(server);
+		if (server !== discovery.self) candidates.add(server);
 	}
 	const servers = [...candidates].slice(0, SERVERS_MAX);
 	return {
@@ -198,7 +232,7 @@ async function discoverServers(
 	};
 }
 
-function formatResult(data: unknown): string {
+function formatResult(data: Json): string {
 	const text = JSON.stringify(data ?? null, null, 2);
 	const truncation = truncateHead(text, {
 		maxBytes: DEFAULT_MAX_BYTES,
@@ -208,22 +242,13 @@ function formatResult(data: unknown): string {
 	return `${truncation.content}\n\n[Output truncated from ${formatSize(truncation.outputBytes)}.]`;
 }
 
-function serverLabel(server: Record<string, unknown>): string {
-	const buffer =
-		typeof server.buffer === "string" && server.buffer
-			? server.buffer
-			: "[No Name]";
+function serverLabel(server: NvimServer): string {
+	const buffer = server.buffer || "[No Name]";
 	const dirty = server.modified ? " [+]" : "";
-	const clients = Array.isArray(server.lsp_clients)
-		? server.lsp_clients
-				.map((client) =>
-					typeof client === "object" && client && "name" in client
-						? String(client.name)
-						: "",
-				)
-				.filter(Boolean)
-				.join(",")
-		: "";
+	const clients = server.lsp_clients
+		.map((client) => client.name)
+		.filter(Boolean)
+		.join(",");
 	return `${server.pid} | ${buffer}${dirty} | ${server.cwd} | LSP: ${clients || "none"}`;
 }
 
@@ -245,26 +270,23 @@ function selectServer(
 	pi: ExtensionAPI,
 	state: NvimState,
 	ctx: ExtensionCommandContext,
-	server: Record<string, unknown>,
+	server: NvimServer,
 ): void {
-	state.selectedPid = typeof server.pid === "number" ? server.pid : null;
-	state.selectedServer = String(server.address);
+	state.selectedPid = server.pid;
+	state.selectedServer = server.address;
 	const activeTools = pi.getActiveTools();
 	if (!activeTools.includes("nvim")) {
 		pi.setActiveTools([...activeTools, "nvim"]);
 	}
 
-	const buffer =
-		typeof server.buffer === "string" && server.buffer
-			? server.buffer
-			: "[No Name]";
+	const buffer = server.buffer || "[No Name]";
 	const name = buffer.split("/").pop() || buffer;
 	ctx.ui.setStatus("nvim", `nvim:${server.pid} ${name}`);
 	const message = [
 		`Connected to Nvim ${server.pid}`,
-		String(server.address),
+		server.address,
 		buffer,
-		String(server.cwd),
+		server.cwd,
 	].join("\n");
 	ctx.ui.notify(message, "info");
 }
@@ -314,7 +336,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		try {
 			const server = await probeServer(pi, state.selectedServer, undefined);
-			state.selectedPid = typeof server.pid === "number" ? server.pid : null;
+			state.selectedPid = server.pid;
 		} catch {
 			clearSelectedServer(pi, state, ctx);
 		}
@@ -355,7 +377,7 @@ export default function (pi: ExtensionAPI) {
 				const server = servers[labels.indexOf(choice)];
 				selectServer(pi, state, ctx, server);
 			} catch (error) {
-				ctx.ui.notify(errorMessage(error), "error");
+				ctx.ui.notify(toError(error).message, "error");
 			}
 		},
 	});

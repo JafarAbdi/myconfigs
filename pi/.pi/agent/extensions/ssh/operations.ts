@@ -8,11 +8,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { SshConnection } from "./connection.ts";
 import { REMOTE_FD_EXCLUDES } from "./constants.ts";
+import { toError } from "../lib/errors.ts";
 import { fdExcludeArgs, shellQuote } from "./shell.ts";
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
 
 export function createRemoteReadOps(connection: SshConnection): ReadOperations {
 	return {
@@ -21,7 +18,7 @@ export function createRemoteReadOps(connection: SshConnection): ReadOperations {
 			try {
 				return await connection.exec(`cat ${shellQuote(remotePath)}`);
 			} catch (error) {
-				throw new Error(`Remote file read failed: ${remotePath}\n${errorMessage(error)}`);
+				throw new Error(`Remote file read failed: ${remotePath}\n${toError(error).message}`);
 			}
 		},
 		access: async (p) => {
@@ -29,7 +26,7 @@ export function createRemoteReadOps(connection: SshConnection): ReadOperations {
 			try {
 				await connection.exec(`test -r ${shellQuote(remotePath)}`);
 			} catch (error) {
-				throw new Error(`Remote file is not readable: ${remotePath}\n${errorMessage(error)}`);
+				throw new Error(`Remote file is not readable: ${remotePath}\n${toError(error).message}`);
 			}
 		},
 		detectImageMimeType: async (p) => {
@@ -52,7 +49,7 @@ export function createRemoteWriteOps(connection: SshConnection): WriteOperations
 			try {
 				await connection.exec(`cat > ${shellQuote(remotePath)}`, { input: content });
 			} catch (error) {
-				throw new Error(`Remote file write failed: ${remotePath}\n${errorMessage(error)}`);
+				throw new Error(`Remote file write failed: ${remotePath}\n${toError(error).message}`);
 			}
 		},
 		mkdir: async (dir) => {
@@ -60,7 +57,7 @@ export function createRemoteWriteOps(connection: SshConnection): WriteOperations
 			try {
 				await connection.exec(`mkdir -p ${shellQuote(remotePath)}`);
 			} catch (error) {
-				throw new Error(`Remote directory create failed: ${remotePath}\n${errorMessage(error)}`);
+				throw new Error(`Remote directory create failed: ${remotePath}\n${toError(error).message}`);
 			}
 		},
 	};
@@ -77,7 +74,7 @@ export function createRemoteEditOps(connection: SshConnection): EditOperations {
 			try {
 				await connection.exec(`test -r ${shellQuote(remotePath)} && test -w ${shellQuote(remotePath)}`);
 			} catch (error) {
-				throw new Error(`Remote file is not editable: ${remotePath}\n${errorMessage(error)}`);
+				throw new Error(`Remote file is not editable: ${remotePath}\n${toError(error).message}`);
 			}
 		},
 	};

@@ -1,6 +1,8 @@
 import { chmod, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { Type, type Static, type TSchema } from "typebox";
+import { Value } from "typebox/value";
 import { runCommand } from "../lib/proc.ts";
 
 export const SSH_TOOL_PLATFORMS = ["linux_amd64", "linux_arm64"] as const;
@@ -15,26 +17,29 @@ interface ToolConfig {
 	assetNames: (version: string, platform: SshToolPlatform) => string[];
 }
 
-interface GitHubReleaseAsset {
-	name: string;
-	browser_download_url: string;
-}
+const GitHubReleaseAssetSchema = Type.Object({
+	name: Type.String(),
+	browser_download_url: Type.String(),
+});
+type GitHubReleaseAsset = Static<typeof GitHubReleaseAssetSchema>;
 
-interface GitHubRelease {
-	tag_name: string;
-	assets: GitHubReleaseAsset[];
-}
+const GitHubReleaseSchema = Type.Object({
+	tag_name: Type.String(),
+	assets: Type.Array(GitHubReleaseAssetSchema),
+});
+
+const ErrnoSchema = Type.Object({ code: Type.String() });
 
 // Pinned so every remote gets the same binary, unlike pi's own local tool download (which always
 // takes GitHub's latest, fine for a single machine with no cross-host consistency need). Bumping
 // a version here only affects the next tool that isn't already cached — see ensureLocalSshTool.
-const DEFAULT_SSH_TOOL_VERSIONS: Record<SshToolName, string> = {
+const DEFAULT_SSH_TOOL_VERSIONS = {
 	fd: "10.4.2",
 	rg: "15.1.0",
 	fzf: "0.73.1",
-};
+} satisfies Record<SshToolName, string>;
 
-const TOOL_CONFIGS: Record<SshToolName, ToolConfig> = {
+const TOOL_CONFIGS = {
 	fd: {
 		repo: "sharkdp/fd",
 		binaryName: "fd",
@@ -64,7 +69,7 @@ const TOOL_CONFIGS: Record<SshToolName, ToolConfig> = {
 			return [`fzf-${version}-${platform}.tar.gz`];
 		},
 	},
-};
+} satisfies Record<SshToolName, ToolConfig>;
 
 const NETWORK_TIMEOUT_MS = 10_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
@@ -89,8 +94,7 @@ async function pathExists(path: string): Promise<boolean> {
 		await stat(path);
 		return true;
 	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT") return false;
+		if (Value.Check(ErrnoSchema, error) && error.code === "ENOENT") return false;
 		throw error;
 	}
 }
@@ -100,7 +104,11 @@ function githubAuthHeaders(): Record<string, string> {
 	return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function fetchJson<T>(url: string, timeoutMs: number): Promise<T> {
+async function fetchJson<T extends TSchema>(
+	url: string,
+	timeoutMs: number,
+	schema: T,
+): Promise<Static<T>> {
 	const response = await fetch(url, {
 		headers: { "User-Agent": "pi-ssh-tools", ...githubAuthHeaders() },
 		signal: AbortSignal.timeout(timeoutMs),
@@ -110,7 +118,11 @@ async function fetchJson<T>(url: string, timeoutMs: number): Promise<T> {
 		const hint = rateLimited ? " (GitHub API rate limit hit; set GITHUB_TOKEN to raise it)" : "";
 		throw new Error(`GitHub request failed (${response.status}): ${url}${hint}`);
 	}
-	return (await response.json()) as T;
+	const raw: unknown = await response.json();
+	if (!Value.Check(schema, raw)) {
+		throw new Error(`Unexpected GitHub response shape: ${url}`);
+	}
+	return raw;
 }
 
 async function selectReleaseAsset(
@@ -120,9 +132,10 @@ async function selectReleaseAsset(
 ): Promise<GitHubReleaseAsset> {
 	const config = TOOL_CONFIGS[tool];
 	const tag = `${config.tagPrefix}${version}`;
-	const release = await fetchJson<GitHubRelease>(
+	const release = await fetchJson(
 		`https://api.github.com/repos/${config.repo}/releases/tags/${tag}`,
 		NETWORK_TIMEOUT_MS,
+		GitHubReleaseSchema,
 	);
 	const byName = new Map(release.assets.map((asset) => [asset.name, asset]));
 	for (const assetName of config.assetNames(version, platform)) {

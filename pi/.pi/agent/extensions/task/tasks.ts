@@ -9,6 +9,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 const TASK_FILE = "TASK.md";
 const SLUG_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789-";
@@ -95,12 +97,15 @@ export function worktreePath(task: Pick<Task, "repository" | "slug">): string {
 	return join(dirname(repository), `${basename(repository)}-${task.slug}`);
 }
 
+const JsonObjectSchema = Type.Object({});
+const StringSchema = Type.String();
+
 function isJsonObject(value: JsonValue): value is JsonObject {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+	return Value.Check(JsonObjectSchema, value);
 }
 
 function isString(value: JsonValue | undefined): value is string {
-	return typeof value === "string";
+	return Value.Check(StringSchema, value);
 }
 
 function requireExactKeys<Value extends object>(

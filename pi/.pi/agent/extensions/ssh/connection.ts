@@ -121,21 +121,21 @@ export class SshConnection {
 		const platform = await this.detectRemotePlatform();
 		this.remoteToolBinDir = this.remoteSearchToolsCacheDir(platform);
 
-		const probed = {} as Record<SshToolName, string | undefined>;
+		const probed: Partial<Record<SshToolName, string>> = {};
 		for (const tool of SSH_TOOL_NAMES) {
 			probed[tool] = await this.findRemoteTool(tool, platform);
 		}
 		const missingTools = SSH_TOOL_NAMES.filter((tool) => !probed[tool]);
 
-		const resolved = { ...probed } as Record<SshToolName, string>;
+		const resolved = { ...probed };
 		if (missingTools.length > 0) {
 			onStatus?.(`installing tools for ${platform}`);
 			const installed = await this.installRemoteTools(platform, missingTools);
 			for (const tool of missingTools) {
-				resolved[tool] = installed[tool];
-			}
-			for (const tool of missingTools) {
-				await this.verifyRemoteTool(tool, resolved[tool]);
+				const path = installed[tool];
+				if (!path) throw new Error(`SSH: remote ${tool} did not install`);
+				resolved[tool] = path;
+				await this.verifyRemoteTool(tool, path);
 			}
 		}
 
@@ -284,10 +284,10 @@ export class SshConnection {
 	private async installRemoteTools(
 		platform: SshToolPlatform,
 		tools: SshToolName[],
-	): Promise<Record<SshToolName, string>> {
+	): Promise<Partial<Record<SshToolName, string>>> {
 		const binDir = this.remoteSearchToolsCacheDir(platform);
 		await this.exec(`mkdir -p ${shellQuote(binDir)}`);
-		const paths = {} as Record<SshToolName, string>;
+		const paths: Partial<Record<SshToolName, string>> = {};
 		for (const tool of tools) {
 			const localPath = await ensureLocalSshTool(tool, platform);
 			const remotePath = `${binDir}/${tool}`;

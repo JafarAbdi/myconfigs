@@ -37,18 +37,18 @@ interface Placement {
  * the usual case here. Worth adding as a trailing word (`/wclone right wide`) if pi routinely
  * shares a tab, where splitting the window beats carving up pi's own pane.
  */
-const PLACEMENTS: Record<string, Placement> = {
-	tab: { target: ["spawn"], ownTab: true, description: "New tab (default)" },
-	window: { target: ["spawn", "--new-window"], ownTab: true, description: "New window" },
-	right: { target: ["split-pane", "--right"], ownTab: false, description: "Split right" },
-	left: { target: ["split-pane", "--left"], ownTab: false, description: "Split left" },
-	up: { target: ["split-pane", "--top"], ownTab: false, description: "Split up" },
-	down: { target: ["split-pane", "--bottom"], ownTab: false, description: "Split down" },
-};
+const PLACEMENTS = new Map<string, Placement>([
+	["tab", { target: ["spawn"], ownTab: true, description: "New tab (default)" }],
+	["window", { target: ["spawn", "--new-window"], ownTab: true, description: "New window" }],
+	["right", { target: ["split-pane", "--right"], ownTab: false, description: "Split right" }],
+	["left", { target: ["split-pane", "--left"], ownTab: false, description: "Split left" }],
+	["up", { target: ["split-pane", "--top"], ownTab: false, description: "Split up" }],
+	["down", { target: ["split-pane", "--bottom"], ownTab: false, description: "Split down" }],
+]);
 const DEFAULT_PLACEMENT = "tab";
 
 function completePlacement(prefix: string): AutocompleteItem[] | null {
-	const matches = Object.entries(PLACEMENTS)
+	const matches = [...PLACEMENTS]
 		.filter(([name]) => name.startsWith(prefix))
 		.map(([name, placement]) => ({
 			value: name,
@@ -132,9 +132,9 @@ function preparePane(
 		return undefined;
 	}
 	const name = args.trim() || DEFAULT_PLACEMENT;
-	const placement = PLACEMENTS[name];
+	const placement = PLACEMENTS.get(name);
 	if (!placement) {
-		const known = Object.keys(PLACEMENTS).join(", ");
+		const known = [...PLACEMENTS.keys()].join(", ");
 		ctx.ui.notify(`Unknown placement '${name}'; use one of: ${known}`, "error");
 		return undefined;
 	}

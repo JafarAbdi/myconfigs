@@ -190,7 +190,7 @@ function createWebSearch(pi: ExtensionAPI) {
 				0,
 			);
 		},
-		renderResult: (result, options, theme, context) =>
+		renderResult: (result: AgentToolResult<WebSearchDetails>, options, theme, context) =>
 			renderToolResult(
 				result,
 				options,
@@ -198,7 +198,7 @@ function createWebSearch(pi: ExtensionAPI) {
 				context.isError,
 				"Searching…",
 				(text) => {
-					const details = result.details as WebSearchDetails;
+					const details = result.details;
 					const queryCount = details.queries.length;
 					return `${queryCount} ${queryCount === 1 ? "query" : "queries"} · ${resultStats(text)}`;
 				},
@@ -254,7 +254,7 @@ function createFetchContent(pi: ExtensionAPI) {
 				0,
 			);
 		},
-		renderResult: (result, options, theme, context) =>
+		renderResult: (result: AgentToolResult<FetchContentDetails>, options, theme, context) =>
 			renderToolResult(
 				result,
 				options,
@@ -262,7 +262,7 @@ function createFetchContent(pi: ExtensionAPI) {
 				context.isError,
 				"Fetching…",
 				(text) => {
-					const details = result.details as FetchContentDetails;
+					const details = result.details;
 					const pageCount = details.urls.length;
 					const failures = details.partialFailure ? " · ⚠ some failed" : "";
 					return `${pageCount} ${pageCount === 1 ? "page" : "pages"} · ${resultStats(text)}${failures}`;

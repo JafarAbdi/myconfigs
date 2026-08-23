@@ -24,7 +24,11 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { open } from "node:fs/promises";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+const PathInput = Type.Object({ path: Type.String({ minLength: 1 }) });
 
 /**
  * Magic bytes for common image formats.
@@ -91,10 +95,8 @@ export default function (pi: ExtensionAPI) {
 			return undefined;
 		}
 
-		const rawPath = (event.input as Record<string, unknown>).path as string | undefined;
-		if (!rawPath) {
-			return undefined;
-		}
+		if (!Value.Check(PathInput, event.input)) return undefined;
+		const rawPath = event.input.path;
 
 		// Normalize tilde, then resolve against cwd. resolve() passes
 		// absolute paths through unchanged, handles relative correctly.

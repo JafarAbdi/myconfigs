@@ -8,37 +8,43 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
+import { Value } from "typebox/value";
+import { toError } from "./lib/errors.ts";
 
 const PROTOCOL_VERSION = 1;
 const RPC_DEADLINE_MS = 2_000;
 const RUNTIME_DIR_NAME = "pi-peer";
 const SOCKET_SUFFIX = ".sock";
 
-interface PeerInfo {
-	id: string;
-	name?: string;
-	cwd: string;
-	idle: boolean;
-}
+const PeerInfoSchema = Type.Object({
+	id: Type.String(),
+	name: Type.Optional(Type.String()),
+	cwd: Type.String(),
+	idle: Type.Boolean(),
+});
+type PeerInfo = Static<typeof PeerInfoSchema>;
 
-type Request =
-	| { version: 1; type: "ping" }
-	| {
-			version: 1;
-			type: "send";
-			messageId: string;
-			from: PeerInfo;
-			message: string;
-	  };
+const RequestSchema = Type.Union([
+	Type.Object({ version: Type.Literal(PROTOCOL_VERSION), type: Type.Literal("ping") }),
+	Type.Object({
+		version: Type.Literal(PROTOCOL_VERSION),
+		type: Type.Literal("send"),
+		messageId: Type.String(),
+		from: PeerInfoSchema,
+		message: Type.String(),
+	}),
+]);
+type Request = Static<typeof RequestSchema>;
 
-interface Response {
-	version: 1;
-	ok: boolean;
-	error?: string;
-	messageId?: string;
-	peer?: PeerInfo;
-}
+const ResponseSchema = Type.Object({
+	version: Type.Literal(PROTOCOL_VERSION),
+	ok: Type.Boolean(),
+	error: Type.Optional(Type.String()),
+	messageId: Type.Optional(Type.String()),
+	peer: Type.Optional(PeerInfoSchema),
+});
+type Response = Static<typeof ResponseSchema>;
 
 interface Runtime {
 	active: boolean;
@@ -58,73 +64,24 @@ class TransportError extends Error {
 	}
 }
 
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+const ErrorCodeSchema = Type.Object({ code: Type.String() });
+
+function parseRequest(text: string): Request {
+	const raw: unknown = JSON.parse(text);
+	if (!Value.Check(RequestSchema, raw)) throw new Error("Unsupported peer protocol");
+	if (raw.type === "send") {
+		if (!raw.message.trim()) throw new Error("Peer message is empty");
+		if (Buffer.byteLength(raw.message, "utf8") > DEFAULT_MAX_BYTES) {
+			throw new Error(`Peer message exceeds Pi's ${DEFAULT_MAX_BYTES}-byte limit`);
+		}
+	}
+	return raw;
 }
 
-function errorCode(error: unknown): string | undefined {
-	return error && typeof error === "object" && "code" in error
-		? String(error.code)
-		: undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parsePeer(value: unknown): PeerInfo | undefined {
-	if (!isRecord(value)) return undefined;
-	if (typeof value.id !== "string" || typeof value.cwd !== "string" || typeof value.idle !== "boolean") {
-		return undefined;
-	}
-	if (value.name !== undefined && typeof value.name !== "string") return undefined;
-	return { id: value.id, name: value.name, cwd: value.cwd, idle: value.idle };
-}
-
-function parseRequest(value: unknown): Request {
-	if (!isRecord(value) || value.version !== PROTOCOL_VERSION) {
-		throw new Error("Unsupported peer protocol");
-	}
-	if (value.type === "ping") return { version: PROTOCOL_VERSION, type: "ping" };
-	if (value.type !== "send") throw new Error("Unknown peer request");
-
-	const from = parsePeer(value.from);
-	if (!from || typeof value.messageId !== "string" || typeof value.message !== "string") {
-		throw new Error("Malformed peer message");
-	}
-	const message = value.message;
-	if (!message.trim()) throw new Error("Peer message is empty");
-	if (Buffer.byteLength(message, "utf8") > DEFAULT_MAX_BYTES) {
-		throw new Error(`Peer message exceeds Pi's ${DEFAULT_MAX_BYTES}-byte limit`);
-	}
-	return {
-		version: PROTOCOL_VERSION,
-		type: "send",
-		messageId: value.messageId,
-		from,
-		message,
-	};
-}
-
-function parseResponse(value: unknown): Response {
-	if (!isRecord(value) || value.version !== PROTOCOL_VERSION || typeof value.ok !== "boolean") {
-		throw new Error("Malformed peer response");
-	}
-	if (value.error !== undefined && typeof value.error !== "string") {
-		throw new Error("Malformed peer error");
-	}
-	if (value.messageId !== undefined && typeof value.messageId !== "string") {
-		throw new Error("Malformed peer acknowledgement");
-	}
-	const peer = value.peer === undefined ? undefined : parsePeer(value.peer);
-	if (value.peer !== undefined && !peer) throw new Error("Malformed peer identity");
-	return {
-		version: PROTOCOL_VERSION,
-		ok: value.ok,
-		error: value.error,
-		messageId: value.messageId,
-		peer,
-	};
+function parseResponse(text: string): Response {
+	const raw: unknown = JSON.parse(text);
+	if (!Value.Check(ResponseSchema, raw)) throw new Error("Malformed peer response");
+	return raw;
 }
 
 function runtimeDirectory(): string {
@@ -177,7 +134,7 @@ function handleConnection(runtime: Runtime, socket: Socket): void {
 		signal.removeEventListener("abort", abort);
 
 		try {
-			const request = parseRequest(JSON.parse(input.slice(0, newline)));
+			const request = parseRequest(input.slice(0, newline));
 			if (request.type === "ping") {
 				writeResponse(socket, { version: PROTOCOL_VERSION, ok: true, peer: currentPeer(runtime) });
 				return;
@@ -203,7 +160,7 @@ function handleConnection(runtime: Runtime, socket: Socket): void {
 			writeResponse(socket, {
 				version: PROTOCOL_VERSION,
 				ok: false,
-				error: errorMessage(error),
+				error: toError(error).message,
 			});
 		}
 	});
@@ -234,12 +191,12 @@ function request(
 		runtime.sockets.add(socket);
 		socket.setEncoding("utf8");
 
-		const finish = (error?: unknown, response?: Response) => {
+		const finish = (error?: Error, response?: Response) => {
 			if (settled) return;
 			settled = true;
 			signal.removeEventListener("abort", abort);
 			socket.destroy();
-			if (error) reject(new TransportError(errorMessage(error), transmitted));
+			if (error) reject(new TransportError(error.message, transmitted));
 			else resolve(response!);
 		};
 		const abort = () => {
@@ -261,7 +218,7 @@ function request(
 				socket.write(`${JSON.stringify(payload)}\n`);
 				transmitted = true;
 			} catch (error) {
-				finish(error);
+				finish(toError(error));
 			}
 		});
 		socket.on("data", (chunk: string) => {
@@ -269,9 +226,9 @@ function request(
 			const newline = input.indexOf("\n");
 			if (newline < 0) return;
 			try {
-				finish(undefined, parseResponse(JSON.parse(input.slice(0, newline))));
+				finish(undefined, parseResponse(input.slice(0, newline)));
 			} catch (error) {
-				finish(error);
+				finish(toError(error));
 			}
 		});
 		socket.on("error", (error) => finish(error));
@@ -344,7 +301,7 @@ async function startRuntime(pi: ExtensionAPI, ctx: ExtensionContext): Promise<Ru
 		runtime.active = false;
 		runtime.shutdown.abort();
 		await Promise.all([closeServer(server), closeServer(claim)]);
-		if (errorCode(error) === "EADDRINUSE") {
+		if (Value.Check(ErrorCodeSchema, error) && error.code === "EADDRINUSE") {
 			throw new Error(`Peer is already active for session ${sessionId}`);
 		}
 		throw error;
@@ -353,7 +310,7 @@ async function startRuntime(pi: ExtensionAPI, ctx: ExtensionContext): Promise<Ru
 		if (!runtime.active) return;
 		ctx.ui.notify(`Peer listener failed: ${error.message}`, "error");
 		void stopRuntime(runtime).catch((cleanupError) => {
-			ctx.ui.notify(`Peer cleanup failed: ${errorMessage(cleanupError)}`, "error");
+			ctx.ui.notify(`Peer cleanup failed: ${toError(cleanupError).message}`, "error");
 		});
 	};
 	server.on("error", fail);
@@ -574,7 +531,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		} catch (error) {
 			runtime = undefined;
-			ctx.ui.notify(`Peer unavailable: ${errorMessage(error)}`, "error");
+			ctx.ui.notify(`Peer unavailable: ${toError(error).message}`, "error");
 		}
 	});
 
@@ -600,7 +557,7 @@ export default function (pi: ExtensionAPI) {
 					const peers = await discoverPeers(active);
 					ctx.ui.notify(formatPeers(peers, currentPeer(active).id), "info");
 				} catch (error) {
-					ctx.ui.notify(errorMessage(error), "error");
+					ctx.ui.notify(toError(error).message, "error");
 				}
 				return;
 			}
@@ -620,7 +577,7 @@ export default function (pi: ExtensionAPI) {
 				const request = `Complete this task and send the result to peer ${target.id}: ${task}`;
 				pi.sendUserMessage(request, { deliverAs: "followUp" });
 			} catch (error) {
-				ctx.ui.notify(errorMessage(error), "error");
+				ctx.ui.notify(toError(error).message, "error");
 			}
 		},
 	});

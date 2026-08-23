@@ -1,29 +1,23 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type, type Static } from "typebox";
+import { Value } from "typebox/value";
 import { SSH_STATE_CUSTOM_TYPE } from "./constants.ts";
-import { isRecord } from "./util.ts";
 
-export interface SshSessionState {
-	version: 1;
-	remote: string;
-	remoteCwd: string;
-}
+const SshSessionStateSchema = Type.Object({
+	version: Type.Literal(1),
+	remote: Type.String({ pattern: "\\S" }),
+	remoteCwd: Type.String({ pattern: "\\S" }),
+});
 
-function parseSshSessionState(data: unknown): SshSessionState | undefined {
-	if (!isRecord(data)) return undefined;
-	if (data.version !== 1) return undefined;
-	if (typeof data.remote !== "string" || !data.remote.trim()) return undefined;
-	if (typeof data.remoteCwd !== "string" || !data.remoteCwd.trim()) return undefined;
-	return { version: 1, remote: data.remote, remoteCwd: data.remoteCwd };
-}
+export type SshSessionState = Static<typeof SshSessionStateSchema>;
 
 export function getPersistedSshState(ctx: ExtensionContext): SshSessionState | undefined {
 	const entries = ctx.sessionManager.getEntries();
 	for (let index = entries.length - 1; index >= 0; index -= 1) {
-		const entry = entries[index] as unknown;
-		if (!isRecord(entry)) continue;
+		const entry = entries[index];
 		if (entry.type !== "custom") continue;
 		if (entry.customType !== SSH_STATE_CUSTOM_TYPE) continue;
-		return parseSshSessionState(entry.data);
+		return Value.Check(SshSessionStateSchema, entry.data) ? entry.data : undefined;
 	}
 	return undefined;
 }

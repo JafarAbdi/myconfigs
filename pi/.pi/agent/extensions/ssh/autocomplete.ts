@@ -1,13 +1,18 @@
 import type { AutocompleteItem, AutocompleteProvider, AutocompleteSuggestions } from "@earendil-works/pi-tui";
 import type { SshConnection } from "./connection.ts";
 import { REMOTE_AUTOCOMPLETE_SUGGESTIONS_MAX, REMOTE_FD_CANDIDATES_MAX, REMOTE_FD_EXCLUDES } from "./constants.ts";
+import { toError } from "../lib/errors.ts";
 import { fdExcludeArgs, shellQuote, toDisplayPath } from "./shell.ts";
 
 const PATH_DELIMITERS = new Set([" ", "\t", '"', "'", "="]);
 
-export type CompletionErrorReporter = (error: unknown) => void;
+export type CompletionErrorReporter = (error: Error) => void;
 
 type RemoteSearch = { baseDir: string; displayBase: string; query: string };
+interface RemoteAtPrefix {
+	query: string;
+	isQuoted: boolean;
+}
 
 function findLastDelimiter(text: string): number {
 	for (let i = text.length - 1; i >= 0; i -= 1) {
@@ -55,7 +60,7 @@ function extractRemoteAtPrefix(textBeforeCursor: string): string | undefined {
 	return undefined;
 }
 
-function parseRemoteAtPrefix(prefix: string): { query: string; isQuoted: boolean } {
+function parseRemoteAtPrefix(prefix: string): RemoteAtPrefix {
 	if (prefix.startsWith('@"')) {
 		return { query: prefix.slice(2), isQuoted: true };
 	}
@@ -193,7 +198,7 @@ export function createRemoteAtAutocompleteProvider(
 				return items.length > 0 ? { items, prefix } : null;
 			} catch (error) {
 				if (!options.signal.aborted) {
-					onError(error);
+					onError(toError(error));
 				}
 				return null;
 			}
