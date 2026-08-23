@@ -3,16 +3,26 @@
   "defaultProjectTrust": "always",
   "defaultProvider": "openai-codex",
   "defaultThinkingLevel": "high",
+  "transport": "sse",
   "enabledModels": [
     "llama.cpp/qwen36",
     "llama.cpp/gemma4",
     "openai-codex/gpt-5.5",
     "openai-codex/gpt-5.6-luna",
     "openai-codex/gpt-5.6-sol",
-    "openai-codex/gpt-5.6-terra"
+    "openai-codex/gpt-5.6-terra",
+    "llama.cpp/qwen38",
+    "llama.cpp/qwen38-instruct",
+    "claude-cli/claude-opus-5",
+    "claude-cli/claude-fable-5",
+    "claude-cli/claude-sonnet-5",
+    "claude-cli/claude-opus-4-8",
+    "claude-cli/claude-opus-4-7",
+    "claude-cli/claude-opus-4-6",
+    "claude-cli/claude-sonnet-4-6"
   ],
   "hideThinkingBlock": false,
-  "lastChangelogVersion": "0.84.1",
+  "lastChangelogVersion": "0.84.2",
   "packages": [],
   "prompts": [
     "~/.claude/commands",
@@ -29,5 +39,6 @@
   "quietStartup": true,
   "enableInstallTelemetry": false,
   "fullscreenScrollbar": "always",
-  "tuiMode": "fullscreen"
+  "tuiMode": "fullscreen",
+  "fullscreenExitOutput": "resume-hint"
 }

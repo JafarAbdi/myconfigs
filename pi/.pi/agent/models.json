@@ -86,24 +86,121 @@
           }
         },
         {
-          "compat": {
-            "chatTemplateKwargs": {
-              "enable_thinking": {
-                "$var": "thinking.enabled"
-              }
-            },
-            "thinkingFormat": "chat-template"
-          },
           "contextWindow": 65536,
           "id": "gemma4",
           "input": [
             "text",
             "image"
           ],
+          "maxTokens": 32768,
           "reasoning": true,
           "thinkingLevelMap": {
             "minimal": null,
-            "xhigh": "xhigh"
+            "low": null,
+            "medium": null,
+            "high": "high",
+            "xhigh": null,
+            "max": null
+          }
+        },
+        {
+          "compat": {
+            "chatTemplateKwargs": {
+              "reasoning_strength": {
+                "$var": "thinking.effort"
+              }
+            },
+            "thinkingFormat": "chat-template"
+          },
+          "contextWindow": 262144,
+          "cost": {
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "input": 0,
+            "output": 0
+          },
+          "id": "muse-glimmer",
+          "input": [
+            "text",
+            "image"
+          ],
+          "name": "Muse Glimmer 30B",
+          "maxTokens": 65536,
+          "reasoning": true,
+          "samplingParams": {
+            "temperature": 1,
+            "top_p": 0.95,
+            "top_k": 64,
+            "min_p": 0
+          },
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": null
+          }
+        },
+        {
+          "compat": {
+            "chatTemplateKwargs": {
+              "enable_thinking": {
+                "$var": "thinking.enabled"
+              },
+              "preserve_thinking": true,
+              "reasoning_effort": {
+                "$var": "thinking.effort",
+                "omitWhenOff": true
+              }
+            },
+            "supportsDeveloperRole": true,
+            "thinkingFormat": "chat-template"
+          },
+          "contextWindow": 131072,
+          "id": "qwen38",
+          "input": [
+            "text",
+            "image"
+          ],
+          "maxTokens": 65536,
+          "name": "Qwen3.8 27B",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": "medium",
+            "high": null,
+            "xhigh": "xhigh",
+            "max": null
+          }
+        },
+        {
+          "compat": {
+            "supportsDeveloperRole": true
+          },
+          "contextWindow": 131072,
+          "id": "qwen38-instruct",
+          "input": [
+            "text",
+            "image"
+          ],
+          "maxTokens": 65536,
+          "name": "Qwen3.8 27B Instruct",
+          "reasoning": false,
+          "samplingParams": {
+            "chat_template_kwargs": {
+              "enable_thinking": false,
+              "preserve_thinking": false
+            },
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "top_k": 20,
+            "min_p": 0.0,
+            "presence_penalty": 1.5,
+            "repeat_penalty": 1.0
           }
         }
       ]

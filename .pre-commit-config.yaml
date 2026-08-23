@@ -1,4 +1,4 @@
-exclude: ^claude/|^pi/
+exclude: ^claude/|^pi/(?!\.pi/agent/extensions/.*\.ts$)
 ci:
     skip: [refurb, luacheck, actionlint]
 default_language_version:
@@ -110,3 +110,9 @@ repos:
           - "prettier@3.1.0"
           - "@prettier/plugin-xml@3.3.1"
         files: \.(xml|xacro|srdf|urdf)$
+  # anti-slop on pi's TS extensions (carved out of the pi/ exclude above)
+  - repo: https://github.com/JafarAbdi/anti-slop-pre-commit
+    rev: v0.1.0
+    hooks:
+      - id: anti-slop
+        files: ^pi/\.pi/agent/extensions/.*\.ts$

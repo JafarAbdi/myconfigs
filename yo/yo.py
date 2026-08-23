@@ -90,7 +90,7 @@ TOOLS: tuple[JsonObject, ...] = (
                         "minimum": 1,
                         "maximum": MAX_SCROLLBACK_LINES,
                         "description": "Number of recent terminal lines to read",
-                    }
+                    },
                 },
                 "required": ["lines"],
                 "additionalProperties": False,
@@ -225,7 +225,8 @@ def stream_completion(messages: list[JsonObject]) -> tuple[str, list[ToolCall]]:
 
     try:
         with urllib.request.urlopen(
-            make_request(messages), timeout=REQUEST_TIMEOUT
+            make_request(messages),
+            timeout=REQUEST_TIMEOUT,
         ) as response:
             for raw_line in response:
                 line = raw_line.decode().strip()
@@ -374,7 +375,7 @@ def run_agent(query: str) -> str | None:
                 lines = arguments.get("lines")
                 if type(lines) is not int or not 1 <= lines <= MAX_SCROLLBACK_LINES:
                     raise YoError(
-                        f"scrollback lines must be between 1 and {MAX_SCROLLBACK_LINES}"
+                        f"scrollback lines must be between 1 and {MAX_SCROLLBACK_LINES}",
                     )
                 if round_index + 1 == MAX_MODEL_ROUNDS:
                     raise YoError("model-round limit reached after scrollback request")
@@ -385,14 +386,14 @@ def run_agent(query: str) -> str | None:
                         "role": "assistant",
                         "content": content or None,
                         "tool_calls": [tool_call.as_openai()],
-                    }
+                    },
                 )
                 messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": tool_call.identifier,
                         "content": read_scrollback(lines),
-                    }
+                    },
                 )
 
             case _:
