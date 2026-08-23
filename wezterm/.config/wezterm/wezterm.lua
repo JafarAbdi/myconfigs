@@ -671,7 +671,7 @@ config.default_gui_startup_args = { "connect", "unix" }
 -- when it next starts. Live sessions across GUI restarts are handled by the unix
 -- mux domain itself; remote (ssh) sessions by their own remote mux -- so only
 -- local panes are serialized, only to survive a full reboot.
-local AUTOSAVE_INTERVAL = 60
+local AUTOSAVE_INTERVAL = 3
 local state_dir = (os.getenv("XDG_STATE_HOME") or (wezterm.home_dir .. "/.local/state"))
   .. "/wezterm"
 local snapshot_path = state_dir .. "/session.json"
@@ -890,19 +890,6 @@ local function is_local_window(ws)
   return not (d and (d:find("^SSH") or d:find("^docker")))
 end
 
--- the active workspace as the GUI sees it. mux.get_active_workspace() reads
--- Mux.identity, which isn't the GUI client, so it returns the wrong workspace
--- here; the focused GUI window reports the real one.
-local function gui_active_workspace()
-  local wins = wezterm.gui.gui_windows()
-  for _, w in ipairs(wins) do
-    if w:is_focused() then
-      return w:active_workspace()
-    end
-  end
-  return wins[1] and wins[1]:active_workspace() or mux.get_active_workspace()
-end
-
 local function save_session()
   local windows = {}
   for _, w in ipairs(mux.all_windows()) do
@@ -914,7 +901,7 @@ local function save_session()
   if #windows == 0 then
     return false
   end
-  return write_json(snapshot_path, { windows = windows, active_workspace = gui_active_workspace() })
+  return write_json(snapshot_path, { windows = windows })
 end
 
 -- commands are typed at the prompt (never run); collected during restore and sent
@@ -1011,7 +998,12 @@ local function restore_session()
   return true
 end
 
+-- Save from the mux server only, so a GUI crash/detach can't stop it. wezterm.gui
+-- is nil there; in a GUI process we bail and let that timer die.
 local function autosave_tick()
+  if wezterm.gui then
+    return
+  end
   local ok, err = pcall(save_session)
   if not ok then
     wezterm.log_error("[sessions] autosave failed: " .. tostring(err))
@@ -1019,12 +1011,9 @@ local function autosave_tick()
   wezterm.time.call_after(AUTOSAVE_INTERVAL, autosave_tick)
 end
 
--- the client drops the server's active-tab / active-pane choices on import
--- (defaulting to the first of each), for every restored tab -- not just the
--- focused one. re-apply them client-side by pairing snapshot windows with live
--- ones (by workspace, in order) and matching each snapshot tab's active leaf to
--- the live pane. active_live_pane returns nil on any structural mismatch, so a
--- bad pairing is skipped rather than mis-activated.
+-- The client resets each restored tab's active pane/tab to the first one. Re-apply
+-- the snapshot's choices: pair snapshot windows to live ones (by workspace, in
+-- order) and match active leaves. Skips on any structural mismatch.
 local function restore_focus(data)
   local by_ws = {}
   for _, sw in ipairs(data.windows or {}) do
@@ -1067,33 +1056,14 @@ end
 
 os.execute('mkdir -p "' .. state_dir .. '"')
 
--- these events are process-specific, so registering both everywhere is safe:
--- gui-attached only fires in the GUI, mux-startup only in the mux server.
--- autosave must run in the GUI -- wezterm.time timers only tick there -- and it
--- sees the server's windows over the unix domain. restore must run in the mux
--- server at boot, before the default window spawns. (gui-startup does not fire
--- under `wezterm connect`, so we use gui-attached.)
+-- Restore falls to two events: mux-startup rebuilds the layout in the server;
+-- gui-attached only re-applies focus in the GUI. Saving is elsewhere (top level).
+-- gui-startup doesn't fire under `wezterm connect`, so we hook gui-attached.
 wezterm.on("gui-attached", function()
-  -- Restore focus first, THEN arm autosave (delayed): the frontend tracks the
-  -- active workspace per client, so switch via a GUI-window action (mux
-  -- .set_active_workspace targets a different identity and is a no-op here). only
-  -- switch to a workspace that was actually restored, else SwitchToWorkspace would
-  -- create an empty one and spawn a stray window. autosave must be armed after and
-  -- delayed so its first save can't clobber the snapshot's active workspace with
-  -- the default we briefly show before the switch settles.
   local data = read_json(snapshot_path)
-  local target = data and data.active_workspace
-  local win = wezterm.gui.gui_windows()[1]
-  if target and win then
-    for _, name in ipairs(mux.get_workspace_names()) do
-      if name == target then
-        restore_focus(data)
-        win:perform_action(act.SwitchToWorkspace({ name = target }), win:active_pane())
-        break
-      end
-    end
+  if data then
+    restore_focus(data)
   end
-  wezterm.time.call_after(AUTOSAVE_INTERVAL, autosave_tick)
 end)
 
 wezterm.on("mux-startup", function()
@@ -1102,5 +1072,10 @@ wezterm.on("mux-startup", function()
     wezterm.log_error("[sessions] restore crashed: " .. tostring(err))
   end
 end)
+
+-- Arm at top level, not in an event: wezterm re-arms top-level call_after timers on
+-- every config reload. A reload bumps the generation and silently kills the running
+-- timer, so a self-scheduling chain would die on the first reload and never restart.
+wezterm.time.call_after(AUTOSAVE_INTERVAL, autosave_tick)
 
 return config
