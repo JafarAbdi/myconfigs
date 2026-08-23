@@ -1,0 +1,265 @@
+#!/usr/bin/env node
+// High-level client for the excalidraw-live server. The agent runs semantic verbs
+// (ls/draw/mermaid/show/spec/rm) — never raw element JSON, never coordinates. The
+// server does layout + styling and renders a PNG; `draw`/`mermaid`/`show` save that
+// PNG and print its path so you can Read it to see the result.
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const BASE = process.env.EXCALIDRAW_LIVE_URL ?? "https://server.tail79ed4.ts.net:9446";
+const OUT = path.join(os.tmpdir(), "excalidraw-live");
+const GUIDES = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "guides");
+
+function die(msg) {
+  process.stderr.write(`ex: ${msg}\n`);
+  process.exit(1);
+}
+
+async function req(method, p, body) {
+  let res;
+  try {
+    res = await fetch(BASE + p, {
+      method,
+      headers: body === undefined ? {} : { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    die(`cannot reach the server at ${BASE} (check EXCALIDRAW_LIVE_URL and the server status)`);
+  }
+  return res;
+}
+
+async function jsonReq(method, p, body) {
+  const res = await req(method, p, body);
+  const text = await res.text();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    die(`${res.status}: ${text}`);
+  }
+  if (!res.ok) die(parsed.error ?? `${res.status}`);
+  return parsed;
+}
+
+function readStdin() {
+  return new Promise((resolve) => {
+    let d = "";
+    if (process.stdin.isTTY) return resolve("");
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (c) => (d += c));
+    process.stdin.on("end", () => resolve(d));
+  });
+}
+
+function savePng(name, dataUrl) {
+  fs.mkdirSync(OUT, { recursive: true });
+  const file = path.join(OUT, `${name}.png`);
+  fs.writeFileSync(file, Buffer.from(dataUrl.replace(/^data:image\/png;base64,/, ""), "base64"));
+  return file;
+}
+
+async function draw(name, format) {
+  if (!name) die(`usage: ex ${format === "spec" ? "draw" : "mermaid"} <name> < input`);
+  const input = await readStdin();
+  if (!input.trim()) die("no input on stdin");
+  const body = await jsonReq("PUT", `/api/docs/${encodeURIComponent(name)}`, { format, input });
+  if (!body.png) die("rendered but no image came back (is the canvas tab open?)");
+  const file = savePng(name, body.png);
+  process.stdout.write(`created "${name}" (v${body.version}) → ${file}\nRead that PNG to see the result; make later changes with ex patch.\n`);
+}
+
+const [cmd, name] = process.argv.slice(2);
+
+const help = `ex — shared Excalidraw diagrams (semantic, auto-laid-out, auto-styled)
+
+  ex guide [name]       list task playbooks, or print one (read it before a new kind of diagram)
+  ex state              what's open, what the human has selected, the vocabulary
+  ex ls                 list diagrams
+  ex draw <new-name>    create an auto-laid-out spec document; existing names are rejected
+  ex patch <name>       apply typed ops in place without changing unrelated layout
+  ex mermaid <new-name> create a Mermaid document; existing names are rejected
+  ex capture --url U    screenshot a URL [--full] [--selector <css>] [--clip x,y,w,h] [--to <name>]
+  ex import <name> --url U   crawl a URL's layout into EDITABLE boxes+text on canvas <name>
+  ex show <name>        re-save the latest render PNG (may be stale after hand-edits)
+  ex export <name>      high-quality PNG of the CURRENT canvas, framed [--scale N 1–4=2] [--selection]
+  ex spec <name>        print the derived spec JSON
+  ex rm <name>          delete an inactive diagram (open another document first)
+  ex url                print the canvas URL to open in a browser
+
+A fresh 'ex draw' auto-lays-out and styles from kinds — you don't place anything. Once it
+exists, YOU control placement: 'add-node' / 'move-node' take x,y (read positions + bounds from
+'ex state'), and a patch never relayouts anything you didn't name. Open the canvas URL first
+(${BASE}) — draws render there live.`;
+
+switch (cmd) {
+  case "guide": {
+    const list = () =>
+      fs.existsSync(GUIDES) ? fs.readdirSync(GUIDES).filter((f) => f.endsWith(".md")).map((f) => f.slice(0, -3)) : [];
+    if (!name) {
+      const g = list();
+      process.stdout.write(g.length ? `guides: ${g.join(", ")}\n(ex guide <name> to read one)\n` : "(no guides)\n");
+      break;
+    }
+    const file = path.join(GUIDES, `${name}.md`);
+    if (!fs.existsSync(file)) die(`no guide "${name}". available: ${list().join(", ") || "(none)"}`);
+    process.stdout.write(fs.readFileSync(file, "utf8"));
+    break;
+  }
+  case "state": {
+    const st = await jsonReq("GET", "/api/state");
+    process.stdout.write(JSON.stringify(st, null, 2) + "\n");
+    break;
+  }
+  case "ls": {
+    const docs = await jsonReq("GET", "/api/docs");
+    if (docs.length === 0) process.stdout.write("(no diagrams)\n");
+    for (const d of docs) {
+      const when = new Date(d.updatedAt).toISOString().slice(0, 16).replace("T", " ");
+      process.stdout.write(`${d.name.padEnd(24)} ${String(d.format).padEnd(8)} v${d.version}  ${when}\n`);
+    }
+    break;
+  }
+  case "draw":
+    await draw(name, "spec");
+    break;
+  case "mermaid":
+    await draw(name, "mermaid");
+    break;
+  case "patch": {
+    if (!name) die("usage: ex patch <name> < ops.json");
+    const ops = await readStdin();
+    if (!ops.trim()) die("no ops on stdin");
+    let parsed;
+    try {
+      parsed = JSON.parse(ops);
+    } catch {
+      die("ops must be a JSON array");
+    }
+    const body = await jsonReq("POST", `/api/docs/${encodeURIComponent(name)}/patch`, { ops: parsed });
+    if (!body.png) die("patched but no image came back (is the canvas tab open?)");
+    const file = savePng(name, body.png);
+    process.stdout.write(`patched "${name}" (v${body.version}) → ${file}\nRead that PNG to see the result.\n`);
+    if (Array.isArray(body.placed) && body.placed.length > 0) {
+      const where = body.placed
+        .map((p) => `${p.id} @ (${p.x},${p.y}) ${p.width}×${p.height}`)
+        .join("\n  ");
+      process.stdout.write(`placed:\n  ${where}\n`);
+    }
+    break;
+  }
+  case "import": {
+    if (!name) die("usage: ex import <name> --url <url> [--full]");
+    const args = process.argv.slice(3);
+    const flag = (f) => {
+      const i = args.indexOf(f);
+      return i >= 0 ? args[i + 1] : undefined;
+    };
+    const url = flag("--url") ?? flag("-u");
+    if (!url) die("usage: ex import <name> --url <url> [--full]");
+    const body = await jsonReq("POST", `/api/docs/${encodeURIComponent(name)}/import`, { url, fullPage: args.includes("--full") });
+    if (!body.png) die("imported but no image came back (is the canvas tab open?)");
+    const file = savePng(name, body.png);
+    process.stdout.write(`imported ${url} onto "${name}" (editable) → ${file}\nRead that PNG to see it.\n`);
+    break;
+  }
+  case "capture": {
+    const args = process.argv.slice(3);
+    const flag = (f) => {
+      const i = args.indexOf(f);
+      return i >= 0 ? args[i + 1] : undefined;
+    };
+    const url = flag("--url") ?? flag("-u");
+    const full = args.includes("--full");
+    const to = flag("--to");
+    const selector = flag("--selector") ?? flag("-s");
+    const clipStr = flag("--clip");
+    const usage = "usage: ex capture --url <url> [--full] [--selector <css>] "
+      + "[--clip x,y,w,h] [--to <name>]";
+    if (!url) die(usage);
+    if (selector && clipStr) die("use either --selector or --clip, not both");
+    let clip;
+    if (clipStr) {
+      const parts = clipStr.split(",").map((n) => Number(n.trim()));
+      if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
+        die("--clip expects four numbers: x,y,w,h");
+      }
+      clip = { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
+    }
+    const region = {
+      ...(full ? { fullPage: true } : {}),
+      ...(selector ? { selector } : {}),
+      ...(clip ? { clip } : {}),
+    };
+    if (to) {
+      const body = await jsonReq("POST", `/api/docs/${encodeURIComponent(to)}/capture`, { url, ...region });
+      if (!body.png) die("captured but no image came back (is the canvas tab open?)");
+      const file = savePng(to, body.png);
+      process.stdout.write(`captured ${url} onto "${to}" → ${file}\nRead that PNG to see it.\n`);
+    } else {
+      const body = await jsonReq("POST", `/api/capture`, { url, ...region });
+      const file = savePng("capture", body.png);
+      process.stdout.write(`captured ${url} → ${file}\nRead that PNG to see the page.\n`);
+    }
+    break;
+  }
+  case "show": {
+    if (!name) die("usage: ex show <name>");
+    const res = await req("GET", `/api/docs/${encodeURIComponent(name)}/png`);
+    if (!res.ok) die((await res.json().catch(() => ({}))).error ?? `${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    fs.mkdirSync(OUT, { recursive: true });
+    const file = path.join(OUT, `${name}.png`);
+    fs.writeFileSync(file, buf);
+    process.stdout.write(`${file}\nRead that PNG to see it.\n`);
+    break;
+  }
+  case "export": {
+    if (!name) die("usage: ex export <name> [--scale N] [--selection | --ids a,b,c]   (N = 1–4, default 2)");
+    const args = process.argv.slice(3);
+    const flag = (f) => {
+      const i = args.indexOf(f);
+      return i >= 0 ? args[i + 1] : undefined;
+    };
+    const scaleStr = flag("--scale") ?? flag("-s");
+    const body = {};
+    if (scaleStr !== undefined) {
+      const n = Number(scaleStr);
+      if (!Number.isFinite(n)) die("--scale must be a number between 1 and 4");
+      body.scale = n;
+    }
+    if (args.includes("--selection")) body.selection = true;
+    const idsStr = flag("--ids");
+    if (idsStr !== undefined) {
+      body.ids = idsStr.split(",").map((id) => id.trim()).filter(Boolean);
+      if (body.ids.length === 0) die("--ids expects a comma-separated list of element ids");
+    }
+    const resp = await jsonReq("POST", `/api/docs/${encodeURIComponent(name)}/export`, body);
+    if (!resp.png) die("exported but no image came back (is the canvas tab open?)");
+    const file = savePng(name, resp.png);
+    const what = body.ids ? `ids ${body.ids.join(",")}` : body.selection ? "selected region" : "current canvas";
+    process.stdout.write(`exported "${name}" (${what}, high quality) → ${file}\nRead that PNG to see it.\n`);
+    break;
+  }
+  case "spec": {
+    if (!name) die("usage: ex spec <name>");
+    const doc = await jsonReq("GET", `/api/docs/${encodeURIComponent(name)}`);
+    if (!doc.input) die(`no spec for "${name}" — it is a ${doc.format} document`);
+    process.stdout.write(doc.input.endsWith("\n") ? doc.input : doc.input + "\n");
+    break;
+  }
+  case "rm": {
+    if (!name) die("usage: ex rm <name>");
+    await jsonReq("DELETE", `/api/docs/${encodeURIComponent(name)}`);
+    process.stderr.write(`deleted ${name}\n`);
+    break;
+  }
+  case "url":
+    process.stdout.write(BASE + "/\n");
+    break;
+  default:
+    process.stdout.write(help + "\n");
+    if (cmd && cmd !== "help" && cmd !== "-h" && cmd !== "--help") process.exit(1);
+}
