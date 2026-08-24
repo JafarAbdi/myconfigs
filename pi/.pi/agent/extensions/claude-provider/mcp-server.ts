@@ -1,6 +1,7 @@
 /**
  * Stdio MCP server exposing pi's file/shell tools to a host-local `claude` whose built-ins are
- * stripped (see bridge.ts). Hand-rolled JSON-RPC 2.0 over stdio, newline-delimited, zero deps.
+ * stripped (see bridge.ts). Hand-rolled JSON-RPC 2.0 over stdio, newline-delimited, with no
+ * separately installed dependencies: mcp-loader.mjs resolves shared dependencies from pi itself.
  * Only JSON-RPC frames go to stdout; diagnostics go to stderr.
  *
  * Why a dedicated server, and why stdio: pi exposes no MCP-host API to extensions, so we run our own

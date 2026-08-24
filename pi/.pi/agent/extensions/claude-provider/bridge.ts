@@ -19,11 +19,11 @@
  */
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
 	type AssistantMessage,
 	type AssistantMessageEventStream,
@@ -41,6 +41,7 @@ import {
 	isString,
 	type JsonObject,
 	type JsonValue,
+	optionalArrayField,
 	optionalNumberField,
 	optionalObjectField,
 	stepDetail,
@@ -49,18 +50,20 @@ import { parseSshConnectionDescriptor, SSH_DESCRIPTOR_ENV } from "../ssh/descrip
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
 const MCP_SERVER = join(EXT_DIR, "mcp-server.ts");
+const MCP_LOADER = join(EXT_DIR, "mcp-loader.mjs");
 // The MCP server is a bare `node` child pi does not load, so it cannot resolve pi's package by bare
 // specifier. Resolve pi's entry here — inside pi, where it does resolve — and hand the child the
-// absolute URL via env; the child dynamic-imports it to reuse pi's own read/write/edit tools.
+// absolute URL via env; the child dynamic-imports it to reuse pi's own read/write/edit tools. Its
+// loader also resolves TypeBox imports from this same pi installation.
 const PI_CODING_AGENT_ENTRY = import.meta.resolve("@earendil-works/pi-coding-agent");
-// claude's only tools. In SSH mode host_bash is added so host-local files (a pasted clipboard image,
+// Claude's MCP tools. In SSH mode host_bash is added so host-local files (a pasted clipboard image,
 // pi config) stay reachable while the rest target the remote — parity with pi's ssh extension.
 //
 // A fixed allowlist, not pi's `context.tools`: claude runs these tools itself (inside its own loop),
 // so pi's permission hooks (permission-gate, protected-paths) never fire on a claude-cli turn.
 // Intersecting with context.tools would restore them, but pi gives extensions no way to execute its
 // tools, so enforcement would have to be reimplemented here — deferred; acceptable for a self-driven CLI.
-const BASE_TOOLS = [
+const MCP_TOOLS = [
 	"mcp__pi__bash",
 	"mcp__pi__read",
 	"mcp__pi__write",
@@ -68,31 +71,98 @@ const BASE_TOOLS = [
 	"mcp__pi__ls",
 	"mcp__pi__find",
 	"mcp__pi__grep",
-	// claude's native web tools — parity with pi's own web_search + fetch_content. These are claude
-	// built-ins (not MCP): server-side search / public fetch, machine-independent, so they work the
-	// same locally and under SSH (no filesystem, nothing to forward through the remote).
-	"WebSearch",
-	"WebFetch",
 ];
+// --tools only selects Claude's built-in set. MCP tools are discovered from --mcp-config and need
+// only be granted through --allowed-tools.
+const BUILTIN_TOOLS = ["WebSearch", "WebFetch"];
 
 // The mcp.json carries the SSH descriptor (when present) into the server's env, so the server runs
 // tools on the remote. The filename is scoped to this pid so two concurrent pi processes targeting
 // different remotes can't clobber each other's descriptor between write and claude's read.
 // process.execPath is the node running pi — a stable interpreter.
-function mcpConfigFor(descriptor: string | undefined): string {
+interface McpLaunch {
+	configPath: string;
+	errorPath: string;
+}
+
+function mcpConfigFor(descriptor: string | undefined): McpLaunch {
 	const dir = join(tmpdir(), "pi-claude-cli");
 	mkdirSync(dir, { recursive: true });
-	const path = join(dir, `mcp-${process.pid}-${descriptor ? "ssh" : "local"}.json`);
-	const env = descriptor
-		? { PI_CODING_AGENT_ENTRY, [SSH_DESCRIPTOR_ENV]: descriptor }
-		: { PI_CODING_AGENT_ENTRY };
+	const suffix = `${process.pid}-${descriptor ? "ssh" : "local"}`;
+	const configPath = join(dir, `mcp-${suffix}.json`);
+	const errorPath = join(dir, `mcp-${suffix}.error`);
+	rmSync(errorPath, { force: true });
+	const commonEnv = {
+		PI_CODING_AGENT_ENTRY,
+		PI_MCP_SERVER_ENTRY: pathToFileURL(MCP_SERVER).href,
+		PI_MCP_ERROR_FILE: errorPath,
+	};
+	const env = descriptor ? { ...commonEnv, [SSH_DESCRIPTOR_ENV]: descriptor } : commonEnv;
 	const config = {
 		mcpServers: {
-			pi: { command: process.execPath, args: ["--experimental-strip-types", MCP_SERVER], env },
+			pi: {
+				command: process.execPath,
+				args: ["--experimental-strip-types", MCP_LOADER],
+				env,
+			},
 		},
 	};
-	writeFileSync(path, JSON.stringify(config, null, 2));
-	return path;
+	writeFileSync(configPath, JSON.stringify(config, null, 2));
+	return { configPath, errorPath };
+}
+
+function mcpStartupDiagnostic(errorPath: string, stderrChunks: Buffer[]): string | undefined {
+	const error = existsSync(errorPath) ? readFileSync(errorPath, "utf8").trim() : "";
+	const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+	return (error || stderr).slice(-4000) || undefined;
+}
+
+function mcpInitFailure(event: JsonObject, expectedTools: string[]): string | undefined {
+	const serverEntries = optionalArrayField(event, "mcp_servers", "claude system init") ?? [];
+	let piStatus: string | undefined;
+	for (const [index, entry] of serverEntries.entries()) {
+		if (!isJsonObject(entry)) throw new Error(`claude system init.mcp_servers[${index}] must be an object`);
+		const name = entry.name;
+		const status = entry.status;
+		if (!isString(name) || !isString(status)) {
+			throw new Error(`claude system init.mcp_servers[${index}] must contain string name and status fields`);
+		}
+		if (name === "pi") {
+			if (piStatus !== undefined) throw new Error("claude system init contains duplicate pi MCP servers");
+			piStatus = status;
+		}
+	}
+
+	const rawErrors = event.mcp_server_errors;
+	if (rawErrors !== undefined && rawErrors !== null && !Array.isArray(rawErrors)) {
+		throw new Error("claude system init.mcp_server_errors must be an array or null");
+	}
+	const errors = rawErrors ?? [];
+	const detail = errors.length > 0 ? `; errors: ${JSON.stringify(errors)}` : "";
+	if (piStatus === undefined) return `pi MCP server was not loaded${detail}`;
+	switch (piStatus) {
+		case "connected":
+		case "pending":
+			break;
+		case "failed":
+		case "needs-auth":
+		case "disabled":
+			return `pi MCP server status is ${piStatus}${detail}`;
+		default:
+			return `pi MCP server reported unsupported status ${JSON.stringify(piStatus)}${detail}`;
+	}
+
+	const rawTools = optionalArrayField(event, "tools", "claude system init") ?? [];
+	const tools = new Set<string>();
+	for (const [index, tool] of rawTools.entries()) {
+		if (!isString(tool)) throw new Error(`claude system init.tools[${index}] must be a string`);
+		tools.add(tool);
+	}
+	const missing = expectedTools.filter((tool) => !tools.has(tool));
+	if (missing.length > 0) {
+		return `pi MCP server status is ${piStatus}, but tools are unavailable: ${missing.join(", ")}${detail}`;
+	}
+	return undefined;
 }
 
 function messageText(content: string | { type: string; text?: string }[]): string {
@@ -347,7 +417,8 @@ async function drive(
 			return;
 		}
 	}
-	const allowedTools = (descriptor ? [...BASE_TOOLS, "mcp__pi__host_bash"] : BASE_TOOLS).join(",");
+	const mcpTools = descriptor ? [...MCP_TOOLS, "mcp__pi__host_bash"] : MCP_TOOLS;
+	const allowedTools = [...mcpTools, ...BUILTIN_TOOLS].join(",");
 
 	// Session strategy. With a pi session id we persist and resume claude's own memory across turns;
 	// without one (e.g. a bare `pi -p`) we run a single ephemeral turn. The key includes the remote
@@ -385,6 +456,7 @@ async function drive(
 	}
 
 	const prompt = buildPrompt(context, sendFullHistory);
+	const mcpLaunch = mcpConfigFor(descriptor);
 
 	const args = [
 		"-p",
@@ -393,10 +465,10 @@ async function drive(
 		"--verbose",
 		"--include-partial-messages",
 		"--mcp-config",
-		mcpConfigFor(descriptor),
+		mcpLaunch.configPath,
 		"--strict-mcp-config",
 		"--tools",
-		allowedTools,
+		BUILTIN_TOOLS.join(","),
 		"--allowed-tools",
 		allowedTools,
 		"--permission-mode",
@@ -568,6 +640,17 @@ async function drive(
 			return;
 		}
 		if (raw.type !== "system" && raw.type !== "result") return;
+		if (raw.type === "system" && raw.subtype === "init") {
+			const mcpFailure = mcpInitFailure(raw, mcpTools);
+			if (mcpFailure) {
+				const diagnostic = mcpStartupDiagnostic(mcpLaunch.errorPath, stderrChunks);
+				try {
+					child.kill("SIGKILL");
+				} catch {}
+				fail(`Claude MCP startup failed: ${mcpFailure}${diagnostic ? `\n${diagnostic}` : ""}`);
+				return;
+			}
+		}
 		// Context proxy = the final internal request's usage (tracked from the partial stream), not the
 		// run rollup; cost comes from the result envelope. Captured before decodeClaude runs.
 		if (raw.type === "result") finalUsage = reportedUsage(requestUsage, raw);
