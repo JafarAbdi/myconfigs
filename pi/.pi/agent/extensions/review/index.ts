@@ -795,6 +795,13 @@ async function runLocalAudit(
 			return { existing: false as const, findings };
 		},
 	);
+	if (synthesis.findings.length === 0) {
+		ctx.ui.notify(
+			"Review complete: synthesis retained no publishable findings. Wiff was left unchanged.",
+			"info",
+		);
+		return;
+	}
 	const published = await withLoader(
 		ctx,
 		dependencies,
