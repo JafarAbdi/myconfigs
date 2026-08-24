@@ -1,0 +1,103 @@
+#!/usr/bin/env node
+// mmd — minimal agent CLI for the Mermaid Flow editor (Node 18+, no deps).
+// Five verbs. The .mmd text is the interface; you edit it like any file.
+
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const BASE = process.env.MERMAID_FLOW_URL ?? "https://server.tail79ed4.ts.net:9447";
+
+function fail(msg) {
+  console.error(`error: ${msg}`);
+  process.exit(1);
+}
+
+async function api(method, path, body) {
+  let r;
+  try {
+    r = await fetch(`${BASE}${path}`, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    fail(`cannot reach the Mermaid Flow server at ${BASE} — is it running and reachable?`);
+  }
+  if (!r.ok) fail((await r.json().catch(() => null))?.error ?? `${method} ${path} → ${r.status}`);
+  return r;
+}
+
+async function resolveDoc(name) {
+  const { docs } = await (await api("GET", "/docs")).json();
+  if (name === undefined) {
+    if (docs.length === 1) return docs[0];
+    if (docs.includes("diagram")) return "diagram";
+    fail(`which document? (${docs.join(", ")})`);
+  }
+  if (!docs.includes(name)) fail(`no document "${name}" (have: ${docs.join(", ")})`);
+  return name;
+}
+
+async function readStdin() {
+  const chunks = [];
+  for await (const c of process.stdin) chunks.push(c);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+const [verb, docArg] = process.argv.slice(2);
+switch (verb) {
+  case undefined:
+  case "help":
+    console.log(`mmd — Mermaid Flow agent CLI (server: ${BASE})
+  docs           list documents
+  new <doc>      create a document
+  text [doc]     print the whole .mmd (filter locally with grep/sed/nl)
+  edit [doc]     apply text edits — JSON on stdin:
+                 [{"oldText":"exact unique text","newText":"replacement"}, ...]
+                 (all-or-nothing; the result must parse; one undo step)
+  shot [doc]     PNG of the live canvas → prints the file path — Read it`);
+    break;
+
+  case "docs": {
+    const { docs } = await (await api("GET", "/docs")).json();
+    console.log(docs.join("\n"));
+    break;
+  }
+  case "new":
+    if (!docArg) fail("usage: mmd new <doc>");
+    await api("POST", "/docs", { name: docArg });
+    console.log(`created: ${docArg}`);
+    break;
+
+  case "text": {
+    const doc = await resolveDoc(docArg);
+    process.stdout.write(await (await api("GET", `/mmd?doc=${encodeURIComponent(doc)}`)).text());
+    break;
+  }
+  case "edit": {
+    const doc = await resolveDoc(docArg);
+    let edits;
+    try {
+      edits = JSON.parse(await readStdin());
+    } catch {
+      fail("stdin must be JSON: [{\"oldText\":…,\"newText\":…}, …]");
+    }
+    if (!Array.isArray(edits)) edits = [edits];
+    await api("POST", `/edit?doc=${encodeURIComponent(doc)}`, { edits });
+    console.log(`edited: ${doc} (${edits.length} edit${edits.length === 1 ? "" : "s"})`);
+    break;
+  }
+  case "shot": {
+    const doc = await resolveDoc(docArg);
+    const png = Buffer.from(
+      await (await api("GET", `/screenshot.png?doc=${encodeURIComponent(doc)}`)).arrayBuffer(),
+    );
+    const file = join(tmpdir(), `mmd-${doc}-${Date.now()}.png`);
+    writeFileSync(file, png);
+    console.log(file);
+    break;
+  }
+  default:
+    fail(`unknown verb "${verb}" — run \`mmd help\``);
+}
