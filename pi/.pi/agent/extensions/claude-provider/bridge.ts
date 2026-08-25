@@ -19,9 +19,10 @@
  */
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { findPackageJSON } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -51,11 +52,30 @@ import { parseSshConnectionDescriptor, SSH_DESCRIPTOR_ENV } from "../ssh/descrip
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
 const MCP_SERVER = join(EXT_DIR, "mcp-server.ts");
 const MCP_LOADER = join(EXT_DIR, "mcp-loader.mjs");
-// The MCP server is a bare `node` child pi does not load, so it cannot resolve pi's package by bare
-// specifier. Resolve pi's entry here — inside pi, where it does resolve — and hand the child the
-// absolute URL via env; the child dynamic-imports it to reuse pi's own read/write/edit tools. Its
-// loader also resolves TypeBox imports from this same pi installation.
-const PI_CODING_AGENT_ENTRY = import.meta.resolve("@earendil-works/pi-coding-agent");
+
+function packageImportUrl(specifier: string): string {
+	const executable = process.argv[1];
+	if (!executable) throw new Error(`cannot resolve ${specifier}: process.argv[1] is unavailable`);
+	const manifestPath = findPackageJSON(specifier, realpathSync(executable));
+	if (!manifestPath) throw new Error(`cannot find package ${specifier} from ${executable}`);
+
+	const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+	const exportsField = isJsonObject(manifest) ? manifest.exports : undefined;
+	const rootExport = isJsonObject(exportsField) ? exportsField["."] : undefined;
+	const importPath = isString(rootExport)
+		? rootExport
+		: isJsonObject(rootExport) && isString(rootExport.import)
+			? rootExport.import
+			: undefined;
+	if (!importPath) {
+		throw new Error(`${manifestPath} exports["."] must be a string or contain a string import condition`);
+	}
+	return pathToFileURL(resolve(dirname(manifestPath), importPath)).href;
+}
+
+// The bare-node MCP child cannot use pi's extension resolver. Locate the package that owns the real
+// pi executable, then pass its public ESM entry to the child for pi's read/write/edit implementations.
+const PI_CODING_AGENT_ENTRY = packageImportUrl("@earendil-works/pi-coding-agent");
 // Claude's MCP tools. In SSH mode host_bash is added so host-local files (a pasted clipboard image,
 // pi config) stay reachable while the rest target the remote — parity with pi's ssh extension.
 //
