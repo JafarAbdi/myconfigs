@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1
+
+FROM rust:1.93-alpine3.23 AS builder
+
+RUN apk add --no-cache \
+    build-base cargo-zigbuild cmake git openssl-dev openssl-libs-static perl pkgconf python3 zig
+
+ARG WEZTERM_REPO=https://github.com/JafarAbdi/wezterm.git
+ARG WEZTERM_REF=juruc
+ARG RUST_TARGET=x86_64-unknown-linux-musl
+ENV CARGO_INCREMENTAL=0 \
+    CARGO_PROFILE_RELEASE_STRIP=symbols \
+    OPENSSL_STATIC=1 \
+    PKG_CONFIG_ALL_STATIC=1
+
+WORKDIR /src
+RUN git init \
+ && git remote add origin "$WEZTERM_REPO" \
+ && git fetch --depth=1 origin "$WEZTERM_REF" \
+ && git checkout --detach FETCH_HEAD \
+ && git submodule update --init --recursive --depth=1
+
+RUN rustup target add "$RUST_TARGET"
+
+RUN --mount=type=cache,id=wezterm-mux-zig-registry-${RUST_TARGET},target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wezterm-mux-zig-git-${RUST_TARGET},target=/usr/local/cargo/git \
+    --mount=type=cache,id=wezterm-mux-zig-target-${RUST_TARGET},target=/src/target \
+    --mount=type=cache,id=wezterm-mux-zig-cache,target=/root/.cache/zig \
+    set -eux; \
+    cargo zigbuild --locked --release --target "$RUST_TARGET" -p wezterm-mux-server; \
+    binary="target/$RUST_TARGET/release/wezterm-mux-server"; \
+    needed="$(readelf -d "$binary" 2>/dev/null | grep NEEDED || true)"; \
+    interp="$(readelf -l "$binary" 2>/dev/null | grep -i 'program interpreter' || true)"; \
+    if [ -n "$needed$interp" ]; then \
+        echo "wezterm-mux-server is not fully static" >&2; \
+        echo "$needed" >&2; \
+        echo "$interp" >&2; \
+        exit 1; \
+    fi; \
+    install -Dm755 "$binary" "/out/wezterm-mux-server-$RUST_TARGET"
+
+FROM scratch AS export
+COPY --from=builder /out/ /

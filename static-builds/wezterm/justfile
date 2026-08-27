@@ -1,0 +1,42 @@
+# Portable static wezterm-mux-server builds from JafarAbdi/wezterm:juruc via Zig.
+#
+#   just build            # x86_64 -> out/wezterm-mux-server-x86_64-unknown-linux-musl
+#   just arm64            # ARM64   -> out/wezterm-mux-server-aarch64-unknown-linux-musl
+#   just build <ref>      # build another branch, tag, or commit
+#   ENGINE=docker just build
+
+REPO := "https://github.com/JafarAbdi/wezterm.git"
+REF := "juruc"
+TARGET := "x86_64-unknown-linux-musl"
+ENGINE := env("ENGINE", "podman")
+
+_default:
+    @just --list
+
+# Build and verify a fully static mux server.
+build ref=REF target=TARGET:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{target}}" in
+        x86_64-unknown-linux-musl|aarch64-unknown-linux-musl) ;;
+        *) echo "unsupported target: {{target}}" >&2; exit 1 ;;
+    esac
+    {{ENGINE}} build \
+        --no-cache \
+        --platform linux/amd64 \
+        --target export \
+        --output out \
+        --build-arg WEZTERM_REPO={{REPO}} \
+        --build-arg WEZTERM_REF={{ref}} \
+        --build-arg RUST_TARGET={{target}} \
+        -f Containerfile \
+        .
+    echo "==> built out/wezterm-mux-server-{{target}}"
+
+# Build for 64-bit Raspberry Pi and other ARM64 Linux systems.
+arm64 ref=REF:
+    just build "{{ref}}" aarch64-unknown-linux-musl
+
+# Remove build outputs.
+clean:
+    rm -rf out
