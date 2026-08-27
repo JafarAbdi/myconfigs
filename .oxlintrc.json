@@ -1,0 +1,16 @@
+{
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise", "node"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn",
+    "pedantic": "warn"
+  },
+  "rules": {
+    "complexity": ["error", { "max": 45 }]
+  },
+  "env": {
+    "builtin": true,
+    "node": true
+  }
+}

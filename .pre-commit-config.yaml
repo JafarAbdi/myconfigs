@@ -110,6 +110,13 @@ repos:
           - "prettier@3.1.0"
           - "@prettier/plugin-xml@3.3.1"
         files: \.(xml|xacro|srdf|urdf)$
+  # oxlint on pi's TS extensions (carved out of the pi/ exclude above);
+  # rules in .oxlintrc.json, incl. the cyclomatic `complexity` ceiling
+  - repo: https://github.com/oxc-project/mirrors-oxlint
+    rev: v1.78.0
+    hooks:
+      - id: oxlint
+        files: ^pi/\.pi/agent/extensions/.*\.ts$
   # anti-slop on pi's TS extensions (carved out of the pi/ exclude above)
   - repo: https://github.com/JafarAbdi/anti-slop-pre-commit
     rev: v0.1.0
