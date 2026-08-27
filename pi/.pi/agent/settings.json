@@ -22,7 +22,7 @@
     "claude-cli/claude-sonnet-4-6"
   ],
   "hideThinkingBlock": false,
-  "lastChangelogVersion": "0.84.2",
+  "lastChangelogVersion": "0.84.3",
   "packages": [],
   "prompts": [
     "~/.claude/commands",

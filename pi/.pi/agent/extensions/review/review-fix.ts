@@ -204,7 +204,7 @@ export function registerWiffResolveTool(
 		}
 		if (!ctx.hasPendingMessages()) clear();
 	});
-	pi.on("agent_settled", (_event, ctx) => {
+	pi.on("agent_settled", () => {
 		if (pending && deferred) {
 			deferred = false;
 			pi.sendUserMessage(pending.prompt);

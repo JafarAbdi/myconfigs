@@ -1173,7 +1173,7 @@ export function createReviewController(
 			shuttingDown = true;
 			for (const aborts of activeAborts) aborts.abort(new Error("Review session shut down"));
 			activeAborts.clear();
-			await Promise.allSettled([...activeRuns]);
+			await Promise.allSettled(activeRuns);
 		},
 	};
 }

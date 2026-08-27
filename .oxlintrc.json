@@ -1,16 +1,30 @@
 {
-  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise", "node"],
   "categories": {
     "correctness": "error",
-    "suspicious": "warn",
+    "pedantic": "warn",
     "perf": "warn",
-    "pedantic": "warn"
-  },
-  "rules": {
-    "complexity": ["error", { "max": 45 }]
+    "suspicious": "warn"
   },
   "env": {
     "builtin": true,
     "node": true
+  },
+  "plugins": [
+    "eslint",
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "promise",
+    "node"
+  ],
+  "rules": {
+    "complexity": [
+      "error",
+      {
+        "max": 45
+      }
+    ],
+    "promise/no-callback-in-promise": "off"
   }
 }

@@ -2,13 +2,11 @@ import assert from "node:assert/strict";
 import {
 	existsSync,
 	mkdirSync,
-	mkdtempSync,
 	realpathSync,
 	rmdirSync,
 	rmSync,
 	symlinkSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -47,7 +45,6 @@ const {
 	buildAuditPrompt,
 	runAudit,
 } = await import("./audit.ts");
-type AuditResult = Awaited<ReturnType<typeof runAudit>>;
 
 const PATCH_TEXT = `diff --git a/src/a.ts b/src/a.ts
 index 1111111111111111111111111111111111111111..2222222222222222222222222222222222222222 100644

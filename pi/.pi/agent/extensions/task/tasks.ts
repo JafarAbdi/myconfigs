@@ -160,9 +160,7 @@ function validateRepositoryPath(where: string, value: JsonValue | undefined): st
 }
 
 function isNumberedName(name: string): boolean {
-	const separator = name.indexOf("-");
-	if (separator < 1) return false;
-	return [...name.slice(0, separator)].every((character) => character >= "0" && character <= "9");
+	return /^\d+-/.test(name);
 }
 
 function validateUnnumberedName(where: string, value: JsonValue | undefined): string {

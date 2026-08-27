@@ -534,7 +534,7 @@ function main(): void {
 	});
 	rl.on("close", () => {
 		log(`stdin closed, draining ${pending.size} in-flight`);
-		void Promise.allSettled([...pending]).then(() => {
+		void Promise.allSettled(pending).then(() => {
 			log("exiting");
 			process.exit(0);
 		});
