@@ -7,6 +7,9 @@
     "perf": "warn",
     "pedantic": "warn"
   },
+  "rules": {
+    "complexity": "error"
+  },
   "env": {
     "builtin": true,
     "node": true

@@ -30,6 +30,11 @@ config format, faster, single binary. Tell the user to run `prek install` /
    `oxc`) rather than adding to them — same inside an `overrides` entry, so
    every list must be complete. Keep it comment-free: `check-json` and
    `pretty-format-json` reject jsonc even though oxlint accepts it.
+   It enables `complexity` at oxlint's default ceiling (20 cyclomatic).
+   If the repo already exceeds that, don't suppress or grandfather: run
+   `npx oxlint` once, set `"complexity": ["error", { "max": N }]` with N
+   = the current highest score, and tell the user to ratchet N down as
+   hotspots get split up (modem-dev/hunk#861 is the worked example).
 
 2. **Detect the target repo's ecosystem** by inspecting its root (and one level
    into src/ if ambiguous):
