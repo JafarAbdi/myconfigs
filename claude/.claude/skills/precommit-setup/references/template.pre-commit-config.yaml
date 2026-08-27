@@ -101,6 +101,17 @@ repos:
       - id: djlint-django
 
   # =====================================================================
+  # CYCLOMATIC COMPLEXITY — opt-in for Python and Rust. Linux x86_64/aarch64
+  # only; downloads and verifies the pinned cccc musl binary. Do not duplicate
+  # this with Ruff C901: use one complexity scorer and threshold.
+  # =====================================================================
+  - repo: https://github.com/JafarAbdi/cccc-pre-commit
+    rev: v1.6.0
+    hooks:
+      - id: cccc
+        args: [--max-cyclomatic=10, --top-cyclomatic=20, --table]
+
+  # =====================================================================
   # RUST — no official upstream pre-commit repo; use local hooks calling cargo.
   # =====================================================================
   - repo: local

@@ -7,7 +7,7 @@ description: Use when the user wants to add, generate, or update a .pre-commit-c
 
 Generates a `.pre-commit-config.yaml` for a specific repo by picking the relevant
 sections out of `references/template.pre-commit-config.yaml` — a curated menu of
-hooks covering common languages/tools plus upstream references (uv, ruff,
+hooks covering common languages/tools plus upstream references (uv, ruff, cccc,
 pre-commit-hooks, requests).
 
 Always target **prek** (https://github.com/j178/prek), not `pre-commit` — same
@@ -55,6 +55,10 @@ config format, faster, single binary. Tell the user to run `prek install` /
    - `Dockerfile` → Docker section
    - `.github/workflows/*.yml` → GitHub Actions section (actionlint, zizmor)
    - `*.lua` (and it's a Neovim config, not a game engine plugin dir) → Lua section
+   - Python or Rust → offer the cccc cyclomatic-complexity block once per repo.
+     It enforces a per-function maximum of 10 and shows the top 20 failures.
+     The hook supports Linux x86_64/aarch64 only and requires `curl`,
+     `sha256sum`, and `tar`, so ask before adding it to a cross-platform repo.
    - Docs-heavy repo (lots of `*.md`, mkdocs/sphinx config) → Markdown section
    - The GENERAL section (whitespace, merge-conflict markers, typos) always applies.
 
@@ -63,8 +67,9 @@ config format, faster, single binary. Tell the user to run `prek install` /
    want both sections, or might want Python excluded if it's just a build
    script. Use your judgment on obvious cases (a `Cargo.toml`-only repo doesn't
    need to be asked about Rust) but check with the user before adding opt-in
-   sections that aren't clearly load-bearing (security scanners, license
-   headers, type checking) — those are opt-in in the template for a reason.
+   sections that aren't clearly load-bearing (complexity gates, security
+   scanners, license headers, type checking) — those are opt-in in the template
+   for a reason.
    The template keeps `ty` and `pyrefly` side by side for type checking — one
    job, two tools; ask which, don't install both.
    Widened `oxfmt` (the template's default) formats JSON/YAML/CSS/Markdown too,
@@ -72,8 +77,10 @@ config format, faster, single binary. Tell the user to run `prek install` /
    oxfmt back to JS/TS. `taplo-format` keeps TOML; oxfmt's regex excludes it.
 
 4. **If duplicate-purpose hooks would both apply** (e.g. the repo already pins
-   black instead of ruff, or codespell instead of typos), don't silently
-   replace the user's existing choice — ask which one they want.
+   black instead of ruff, codespell instead of typos, or Ruff C901 alongside
+   cccc), don't silently replace the user's existing choice — ask which one
+   they want. When cccc owns complexity, leave C901 disabled so there is one
+   threshold and scoring model.
 
 5. **If the target already has a `.pre-commit-config.yaml`**, read it first.
    Show what would change (added/removed hooks) before overwriting, don't
