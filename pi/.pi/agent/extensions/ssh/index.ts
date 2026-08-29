@@ -93,8 +93,7 @@ function updateSshStatus(ctx: ExtensionContext, connection: SshConnection | null
 async function connectTarget(target: SshTarget, ctx: ExtensionContext): Promise<SshConnection> {
 	const nextConnection = new SshConnection(target.remote);
 	try {
-		updateSshPhaseStatus(ctx, "connecting");
-		await nextConnection.connect();
+		await nextConnection.connect((phase) => updateSshPhaseStatus(ctx, phase));
 		if (target.remoteCwd) await nextConnection.resolveRemoteCwd(target.remoteCwd);
 		return nextConnection;
 	} catch (error) {
@@ -332,7 +331,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (childDescriptor) {
 				connection = new SshConnection(childDescriptor.remote);
-				await connection.connect();
+				await connection.connect((phase) => updateSshPhaseStatus(ctx, phase));
 				await connection.resolveRemoteCwd(childDescriptor.remoteCwd);
 			} else if (parentTarget) {
 				connection = await connectTarget(parentTarget, ctx);

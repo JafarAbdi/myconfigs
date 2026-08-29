@@ -1,7 +1,7 @@
 import type { AutocompleteItem, AutocompleteProvider, AutocompleteSuggestions } from "@earendil-works/pi-tui";
+import { toError } from "../lib/errors.ts";
 import type { SshConnection } from "./connection.ts";
 import { REMOTE_AUTOCOMPLETE_SUGGESTIONS_MAX, REMOTE_FD_CANDIDATES_MAX, REMOTE_FD_EXCLUDES } from "./constants.ts";
-import { toError } from "../lib/errors.ts";
 import { fdExcludeArgs, shellQuote, toDisplayPath } from "./shell.ts";
 
 const PATH_DELIMITERS = new Set([" ", "\t", '"', "'", "="]);
@@ -91,10 +91,10 @@ function buildAtCompletionValue(remotePath: string, isDirectory: boolean, isQuot
 	return `@"${path}"`;
 }
 
-function remoteFilterStage(query: string): string {
+function remoteFilterStage(fzfPath: string, query: string): string {
 	const cap = `head -n ${REMOTE_AUTOCOMPLETE_SUGGESTIONS_MAX}`;
 	if (!query) return `sort | ${cap}`;
-	return `${shellQuote("fzf")} --filter ${shellQuote(query)} | ${cap}`;
+	return `${shellQuote(fzfPath)} --filter ${shellQuote(query)} | ${cap}`;
 }
 
 function resolveRemoteSearch(rawQuery: string): RemoteSearch {
@@ -112,7 +112,7 @@ function resolveRemoteSearch(rawQuery: string): RemoteSearch {
 	};
 }
 
-function createRemoteFindCommand(remoteCwd: string, search: RemoteSearch): string {
+function createRemoteFindCommand(connection: SshConnection, search: RemoteSearch): string {
 	const baseDir = shellQuote(search.baseDir);
 	const fdArgs = [
 		"--base-directory",
@@ -135,9 +135,11 @@ function createRemoteFindCommand(remoteCwd: string, search: RemoteSearch): strin
 		`if [ -d ${baseDir}/"$clean" ]; then printf '%s/\\n' "$clean"`,
 		"else printf '%s\\n' \"$clean\"; fi; done",
 	].join("; ");
-	const fdCommand = `${shellQuote("fd")} ${fdArgs.map((arg) => shellQuote(arg)).join(" ")}`;
-	const filter = remoteFilterStage(search.query);
-	return [`cd ${shellQuote(remoteCwd)}`, `${fdCommand} | ${filter} | ${markDirectoriesCommand}`].join(" && ");
+	const fdCommand = `${shellQuote(connection.requireFdPath())} ${fdArgs.map((arg) => shellQuote(arg)).join(" ")}`;
+	const filter = remoteFilterStage(connection.requireFzfPath(), search.query);
+	return [`cd ${shellQuote(connection.remoteCwd)}`, `${fdCommand} | ${filter} | ${markDirectoriesCommand}`].join(
+		" && ",
+	);
 }
 
 function formatRemoteAutocompleteItems(
@@ -184,7 +186,7 @@ export function createRemoteAtAutocompleteProvider(
 			const parsed = parseRemoteAtPrefix(prefix);
 			const search = resolveRemoteSearch(parsed.query);
 			try {
-				const output = await connection.exec(createRemoteFindCommand(connection.remoteCwd, search), {
+				const output = await connection.exec(createRemoteFindCommand(connection, search), {
 					signal: options.signal,
 				});
 				if (options.signal.aborted) {

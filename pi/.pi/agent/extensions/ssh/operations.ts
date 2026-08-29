@@ -70,7 +70,8 @@ export function createRemoteReadOps(connection: SshConnection): ReadOperations {
 
 export function createRemoteWriteOps(connection: SshConnection): WriteOperations {
 	return {
-		writeFile: (path, content) => connection.sftp.writeFile(connection.toRemotePath(path), Buffer.from(content, "utf8")),
+		writeFile: (path, content) =>
+			connection.sftp.writeFile(connection.toRemotePath(path), Buffer.from(content, "utf8")),
 		mkdir: (directory) => mkdirp(connection.sftp, connection.toRemotePath(directory)),
 	};
 }
@@ -112,25 +113,27 @@ export function createRemoteFindOps(connection: SshConnection): FindOperations {
 				pattern,
 				connection.toRemotePath(cwd),
 			];
-			const output = await connection.exec(`${shellQuote("fd")} ${args.map((arg) => shellQuote(arg)).join(" ")}`);
+			const output = await connection.exec(
+				`${shellQuote(connection.requireFdPath())} ${args.map((arg) => shellQuote(arg)).join(" ")}`,
+			);
 			return output.toString("utf8").split("\n").filter(Boolean);
 		},
 	};
 }
 
-function remoteExportPrefix(env?: NodeJS.ProcessEnv): string {
-	const exports: string[] = [];
+function remoteExportPrefix(connection: SshConnection, env?: NodeJS.ProcessEnv): string {
+	const exports = [`export PATH=${shellQuote(connection.remoteToolCacheDir)}:"$PATH"`];
 	for (const [key, value] of Object.entries(env ?? {})) {
 		if (!key.startsWith("PI_") || value === undefined) continue;
 		exports.push(`export ${key}=${shellQuote(value)}`);
 	}
-	return exports.length > 0 ? `${exports.join("; ")}; ` : "";
+	return `${exports.join("; ")}; `;
 }
 
 export function createRemoteBashOps(connection: SshConnection): BashOperations {
 	return {
 		exec: (command, cwd, { onData, signal, timeout, env }) => {
-			const remoteCommand = `${remoteExportPrefix(env)}cd ${shellQuote(connection.toRemotePath(cwd))} && ${command}`;
+			const remoteCommand = `${remoteExportPrefix(connection, env)}cd ${shellQuote(connection.toRemotePath(cwd))} && ${command}`;
 			return connection.execStreaming(remoteCommand, {
 				onData,
 				signal,

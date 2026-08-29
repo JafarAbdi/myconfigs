@@ -1,9 +1,11 @@
 import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { posix } from "node:path";
 import { toError } from "../lib/errors.ts";
 import { SftpClient } from "./sftp.ts";
 import { shellQuote, toDisplayPath } from "./shell.ts";
+import { ensureHostSshTool, SSH_TOOL_NAMES, type SshToolName, type SshToolPlatform } from "./tools-cache.ts";
 
 const SSH_ERROR_COMMAND_MAX_LENGTH = 500;
 // These deadlines bound states that can remain open without completing: a silent SFTP handshake,
@@ -21,7 +23,7 @@ const SSH_TRANSPORT_ARGS = [
 	"-o",
 	"ServerAliveCountMax=2",
 ];
-const REQUIRED_REMOTE_COMMANDS = ["bash", "setsid", "fd", "rg", "fzf"] as const;
+const REQUIRED_REMOTE_COMMANDS = ["bash", "setsid"] as const;
 const REMOTE_BASH_STDIN_ARGS = ["env", "-u", "BASH_ENV", "bash", "--noprofile", "--norc", "-s"] as const;
 
 interface RemoteRun {
@@ -52,6 +54,10 @@ export class SshConnection {
 	readonly remote: string;
 	remoteCwd = ".";
 	remoteHome = "";
+	remoteToolCacheDir = "";
+	fdPath: string | undefined;
+	rgPath: string | undefined;
+	fzfPath: string | undefined;
 
 	private closed = false;
 	private connecting: Promise<void> | undefined;
@@ -72,13 +78,14 @@ export class SshConnection {
 		return this.sftpClient;
 	}
 
-	connect(): Promise<void> {
+	connect(onProgress?: (phase: string) => void): Promise<void> {
 		if (this.closed) return Promise.reject(new Error("SSH connection is closed"));
-		this.connecting ??= this.connectOnce();
+		this.connecting ??= this.connectOnce(onProgress);
 		return this.connecting;
 	}
 
-	private async connectOnce(): Promise<void> {
+	private async connectOnce(onProgress?: (phase: string) => void): Promise<void> {
+		onProgress?.("connecting");
 		const child = this.spawnSftp();
 		const stderr: Buffer[] = [];
 		child.stderr.on("data", (data: Buffer) => stderr.push(data));
@@ -110,7 +117,10 @@ export class SshConnection {
 		}
 
 		try {
+			this.remoteToolCacheDir = this.remoteHomePath(".cache/pi/ssh-tools");
+			onProgress?.("checking tools");
 			await this.checkPrerequisites();
+			await this.bootstrapSearchTools(onProgress);
 		} catch (error) {
 			await this.close();
 			throw error;
@@ -170,7 +180,7 @@ export class SshConnection {
 				? setTimeout(() => {
 						timedOut = true;
 						terminate();
-				  }, options.timeout * 1000).unref()
+					}, options.timeout * 1000).unref()
 				: undefined;
 			options.signal?.addEventListener("abort", terminate, { once: true });
 
@@ -231,6 +241,113 @@ export class SshConnection {
 			'test -z "$missing" || { printf "SSH remote is missing required executables:%s\\n" "$missing" >&2; exit 127; }',
 		].join("; ");
 		await this.runBufferedRawSsh(command);
+	}
+
+	private async bootstrapSearchTools(onProgress?: (phase: string) => void): Promise<void> {
+		const paths = await this.findRemoteSearchTools();
+		const missing = SSH_TOOL_NAMES.filter((tool) => paths[tool] === undefined);
+		if (missing.length > 0) {
+			const platform = await this.detectRemotePlatform();
+			await this.runBufferedRawSsh(`mkdir -p ${shellQuote(this.remoteToolCacheDir)}`);
+			for (const tool of missing) {
+				paths[tool] = await this.installRemoteSearchTool(tool, platform, onProgress);
+			}
+		}
+		this.fdPath = paths.fd;
+		this.rgPath = paths.rg;
+		this.fzfPath = paths.fzf;
+	}
+
+	private async findRemoteSearchTools(): Promise<Record<SshToolName, string | undefined>> {
+		const commands = SSH_TOOL_NAMES.map((tool) => {
+			const cachedPath = `${this.remoteToolCacheDir}/${tool}`;
+			return [
+				`path=$(command -v ${shellQuote(tool)} 2>/dev/null || :)`,
+				'if test -n "$path"; then case "$path" in /*) ;; */*) directory=$' +
+					"{path%/*}; name=$" +
+					'{path##*/}; directory=$(cd -- "$directory" && pwd -P) || exit; path="$directory/$name" ;; *) path="$(pwd -P)/$path" ;; esac; test -x "$path" || path=; fi',
+				`if test -z "$path" && test -x ${shellQuote(cachedPath)}; then path=${shellQuote(cachedPath)}; fi`,
+				'printf "%s\\0" "$path"',
+			].join("; ");
+		});
+		const output = await this.runBufferedRawSsh(commands.join("; "));
+		const fields = new TextDecoder("utf-8", { fatal: true }).decode(output).split("\0");
+		if (fields.length !== SSH_TOOL_NAMES.length + 1 || fields.at(-1) !== "") {
+			throw new Error("Invalid SSH search-tool lookup response");
+		}
+
+		const paths = {
+			fd: fields[0] || undefined,
+			rg: fields[1] || undefined,
+			fzf: fields[2] || undefined,
+		} satisfies Record<SshToolName, string | undefined>;
+		for (const tool of SSH_TOOL_NAMES) {
+			const path = paths[tool];
+			if (path && !posix.isAbsolute(path)) throw new Error(`SSH ${tool} path must be absolute`);
+		}
+		return paths;
+	}
+
+	private async detectRemotePlatform(): Promise<SshToolPlatform> {
+		const output = await this.runBufferedRawSsh('printf "%s\\0%s\\0" "$(uname -s)" "$(uname -m)"');
+		const fields = new TextDecoder("utf-8", { fatal: true }).decode(output).split("\0");
+		if (fields.length !== 3 || fields[2] !== "") throw new Error("Invalid SSH platform response");
+		const [system, architecture] = fields;
+		if (system !== "Linux") throw new Error(`Unsupported SSH tool platform: ${system || "unknown"}`);
+		switch (architecture) {
+			case "x86_64":
+			case "amd64":
+				return "linux_amd64";
+			case "aarch64":
+			case "arm64":
+				return "linux_arm64";
+			default:
+				throw new Error(`Unsupported SSH tool architecture: ${architecture || "unknown"}`);
+		}
+	}
+
+	private async installRemoteSearchTool(
+		tool: SshToolName,
+		platform: SshToolPlatform,
+		onProgress?: (phase: string) => void,
+	): Promise<string> {
+		const hostPath = await ensureHostSshTool(tool, platform, () => onProgress?.(`downloading ${tool}`));
+		onProgress?.(`uploading ${tool}`);
+		const remotePath = `${this.remoteToolCacheDir}/${tool}`;
+		const temporaryPath = `${this.remoteToolCacheDir}/.${tool}-${randomUUID()}.tmp`;
+		try {
+			await this.sftp.writeFile(temporaryPath, await readFile(hostPath));
+			await this.runBufferedRawSsh(
+				`chmod 755 ${shellQuote(temporaryPath)} && mv -f ${shellQuote(temporaryPath)} ${shellQuote(remotePath)}`,
+			);
+		} catch (operationError) {
+			try {
+				await this.runBufferedRawSsh(`rm -f ${shellQuote(temporaryPath)}`);
+			} catch (cleanupError) {
+				throw new AggregateError(
+					[operationError, cleanupError],
+					`SSH ${tool} upload and cleanup failed on ${this.remote}`,
+					{ cause: operationError },
+				);
+			}
+			throw operationError;
+		}
+		return remotePath;
+	}
+
+	requireFdPath(): string {
+		if (!this.fdPath) throw new Error("SSH fd path is not initialized");
+		return this.fdPath;
+	}
+
+	requireRgPath(): string {
+		if (!this.rgPath) throw new Error("SSH rg path is not initialized");
+		return this.rgPath;
+	}
+
+	requireFzfPath(): string {
+		if (!this.fzfPath) throw new Error("SSH fzf path is not initialized");
+		return this.fzfPath;
 	}
 
 	private ensureOpen(): void {
@@ -385,7 +502,6 @@ export class SshConnection {
 					}
 				})();
 			});
-
 		});
 	}
 

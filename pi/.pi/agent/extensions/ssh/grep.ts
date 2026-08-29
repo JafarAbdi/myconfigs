@@ -43,7 +43,7 @@ async function buildRemoteGrepCommand(connection: SshConnection, input: GrepTool
 	if (input.glob) args.push("--glob", input.glob);
 	if (contextValue > 0) args.push("--context", String(contextValue));
 
-	const rg = `${shellQuote("rg")} ${args.map((arg) => shellQuote(arg)).join(" ")} -- ${shellQuote(input.pattern)}`;
+	const rg = `${shellQuote(connection.requireRgPath())} ${args.map((arg) => shellQuote(arg)).join(" ")} -- ${shellQuote(input.pattern)}`;
 	if ((attrs.permissions & FILE_TYPE_MASK) === DIRECTORY_TYPE) {
 		return `cd ${shellQuote(searchPath)} && ${rg} .`;
 	}
