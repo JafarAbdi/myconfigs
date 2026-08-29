@@ -14,6 +14,20 @@ import {
 
 const SFTP_SERVER = "/usr/lib/openssh/sftp-server";
 
+test("validates remote command timeouts before spawning", () => {
+	const connection = new SshConnection("unused");
+	for (const timeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+		assert.throws(
+			() => connection.execStreaming("true", { onData: () => {}, timeout }),
+			/Invalid timeout: must be a finite number of seconds/u,
+		);
+	}
+	assert.throws(
+		() => connection.execStreaming("true", { onData: () => {}, timeout: 2_147_483.648 }),
+		/Invalid timeout: maximum is 2147483\.647 seconds/u,
+	);
+});
+
 test("uses OpenSSH exec and a persistent SFTP subsystem", { timeout: 10_000 }, async () => {
 	const directory = await mkdtemp(join(tmpdir(), "pi-ssh-connection-test-"));
 	const binDirectory = join(directory, "bin");

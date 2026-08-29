@@ -8,10 +8,10 @@ import { shellQuote, toDisplayPath } from "./shell.ts";
 import { ensureHostSshTool, SSH_TOOL_NAMES, type SshToolName, type SshToolPlatform } from "./tools-cache.ts";
 
 const SSH_ERROR_COMMAND_MAX_LENGTH = 500;
-// These deadlines bound states that can remain open without completing: a silent SFTP handshake,
-// a stuck cancellation-control session, and the grace period before TERM escalates to KILL.
+const MAX_TIMEOUT_MS = 2_147_483_647;
+const MAX_TIMEOUT_SECONDS = MAX_TIMEOUT_MS / 1000;
+// These deadlines bound a silent SFTP handshake and the grace period before TERM escalates to KILL.
 const TERM_GRACE_MS = 200;
-const REMOTE_CONTROL_TIMEOUT_MS = 1000;
 const SFTP_HANDSHAKE_TIMEOUT_MS = 15_000;
 const SSH_TRANSPORT_ARGS = [
 	"-o",
@@ -48,6 +48,18 @@ function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string
 	return Promise.race([promise, deadline]).finally(() => {
 		if (timer) clearTimeout(timer);
 	});
+}
+
+function resolveTimeoutMs(timeout: number | undefined): number | undefined {
+	if (timeout === undefined) return undefined;
+	if (!Number.isFinite(timeout) || timeout <= 0) {
+		throw new Error("Invalid timeout: must be a finite number of seconds");
+	}
+	const timeoutMs = timeout * 1000;
+	if (timeoutMs > MAX_TIMEOUT_MS) {
+		throw new Error(`Invalid timeout: maximum is ${MAX_TIMEOUT_SECONDS} seconds`);
+	}
+	return timeoutMs;
 }
 
 export class SshConnection {
@@ -164,6 +176,7 @@ export class SshConnection {
 		},
 	): Promise<{ exitCode: number | null }> {
 		this.ensureOpen();
+		const timeoutMs = resolveTimeoutMs(options.timeout);
 		if (options.signal?.aborted) return Promise.reject(new Error("aborted"));
 
 		const run = this.createRemoteRun();
@@ -176,12 +189,13 @@ export class SshConnection {
 			const terminate = () => {
 				termination ??= this.terminateRemoteRun(run, child);
 			};
-			const timer = options.timeout
-				? setTimeout(() => {
-						timedOut = true;
-						terminate();
-					}, options.timeout * 1000).unref()
-				: undefined;
+			const timer =
+				timeoutMs === undefined
+					? undefined
+					: setTimeout(() => {
+							timedOut = true;
+							terminate();
+						}, timeoutMs).unref();
 			options.signal?.addEventListener("abort", terminate, { once: true });
 
 			child.stdout.on("data", options.onData);
@@ -422,20 +436,8 @@ export class SshConnection {
 		const child = this.spawnControlSsh([this.remote, ...REMOTE_BASH_STDIN_ARGS]);
 		this.writeScript(child, command);
 		return new Promise((resolvePromise) => {
-			let settled = false;
-			let timedOut = false;
-			const settle = (success: boolean) => {
-				if (settled) return;
-				settled = true;
-				clearTimeout(timer);
-				resolvePromise(success);
-			};
-			const timer = setTimeout(() => {
-				timedOut = true;
-				void this.stopLocalChild(child);
-			}, REMOTE_CONTROL_TIMEOUT_MS).unref();
-			child.once("error", () => settle(false));
-			child.once("close", (code) => settle(!timedOut && code === 0));
+			child.once("error", () => resolvePromise(false));
+			child.once("close", (code) => resolvePromise(code === 0));
 		});
 	}
 
