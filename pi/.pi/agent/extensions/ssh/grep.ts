@@ -1,3 +1,4 @@
+import { posix } from "node:path";
 import {
 	DEFAULT_MAX_BYTES,
 	formatSize,
@@ -12,7 +13,8 @@ import { rgExcludeArgs, shellQuote } from "./shell.ts";
 
 const DEFAULT_LIMIT = 100;
 const GREP_OUTPUT_BUFFER_MAX = DEFAULT_MAX_BYTES * 4;
-const PATH_NOT_FOUND_EXIT_CODE = 44;
+const FILE_TYPE_MASK = 0o170000;
+const DIRECTORY_TYPE = 0o040000;
 
 interface RemoteGrepResult {
 	stdout: string;
@@ -22,8 +24,11 @@ interface RemoteGrepResult {
 	killedDueToLimit: boolean;
 }
 
-function buildRemoteGrepCommand(connection: SshConnection, input: GrepToolInput): string {
+async function buildRemoteGrepCommand(connection: SshConnection, input: GrepToolInput): Promise<string> {
 	const searchPath = connection.toRemotePath(input.path || ".");
+	const attrs = await connection.sftp.stat(searchPath);
+	if (attrs.permissions === undefined) throw new Error("SFTP STAT response did not include file permissions");
+
 	const contextValue = input.context && input.context > 0 ? input.context : 0;
 	const args = [
 		"--with-filename",
@@ -38,63 +43,65 @@ function buildRemoteGrepCommand(connection: SshConnection, input: GrepToolInput)
 	if (input.glob) args.push("--glob", input.glob);
 	if (contextValue > 0) args.push("--context", String(contextValue));
 
-	const rgPrefix = `${shellQuote(connection.requireRgPath())} ${args.map(shellQuote).join(" ")} -- ${shellQuote(input.pattern)}`;
-	return [
-		`search=${shellQuote(searchPath)}`,
-		`if [ -d "$search" ]; then cd "$search" && ${rgPrefix} .`,
-		`elif [ -e "$search" ]; then parent=$(dirname "$search") && name=$(basename "$search") && cd "$parent" && ${rgPrefix} "$name"`,
-		`else exit ${PATH_NOT_FOUND_EXIT_CODE}; fi`,
-	].join("; ");
+	const rg = `${shellQuote("rg")} ${args.map((arg) => shellQuote(arg)).join(" ")} -- ${shellQuote(input.pattern)}`;
+	if ((attrs.permissions & FILE_TYPE_MASK) === DIRECTORY_TYPE) {
+		return `cd ${shellQuote(searchPath)} && ${rg} .`;
+	}
+	return `cd ${shellQuote(posix.dirname(searchPath))} && ${rg} ${shellQuote(posix.basename(searchPath))}`;
 }
 
-function runRemoteGrepCommand(
+async function runRemoteGrepCommand(
 	connection: SshConnection,
 	command: string,
 	signal?: AbortSignal,
 ): Promise<RemoteGrepResult> {
-	return new Promise((resolve, reject) => {
-		if (signal?.aborted) {
-			reject(new Error("Operation aborted"));
-			return;
-		}
+	if (signal?.aborted) throw new Error("Operation aborted");
 
-		const child = connection.spawnRemoteCommand(command);
-		child.stdin.end();
-		let stdout = "";
-		let stderr = "";
-		let aborted = false;
-		let killedDueToLimit = false;
-		const onAbort = () => {
-			aborted = true;
-			child.kill();
+	const controller = new AbortController();
+	const onAbort = () => controller.abort();
+	signal?.addEventListener("abort", onAbort, { once: true });
+	let stdout = "";
+	let stderr = "";
+	let killedDueToLimit = false;
+	try {
+		const result = await connection.execStreaming(command, {
+			signal: controller.signal,
+			onData: (chunk) => {
+				stdout += chunk.toString("utf8");
+				if (stdout.length > GREP_OUTPUT_BUFFER_MAX && !controller.signal.aborted) {
+					killedDueToLimit = true;
+					controller.abort();
+				}
+			},
+			onStderr: (chunk) => {
+				stderr += chunk.toString("utf8");
+			},
+		});
+		return {
+			stdout,
+			stderr,
+			code: result.exitCode,
+			aborted: false,
+			killedDueToLimit: false,
 		};
-		signal?.addEventListener("abort", onAbort, { once: true });
-
-		child.stdout.setEncoding("utf8");
-		child.stderr.setEncoding("utf8");
-		child.stdout.on("data", (chunk: string) => {
-			stdout += chunk;
-			if (stdout.length > GREP_OUTPUT_BUFFER_MAX && !child.killed) {
-				killedDueToLimit = true;
-				child.kill();
-			}
-		});
-		child.stderr.on("data", (chunk: string) => {
-			stderr += chunk;
-		});
-		child.on("error", (error) => {
-			signal?.removeEventListener("abort", onAbort);
-			reject(error);
-		});
-		child.on("close", (code) => {
-			signal?.removeEventListener("abort", onAbort);
-			resolve({ stdout, stderr, code, aborted, killedDueToLimit });
-		});
-	});
+	} catch (error) {
+		if (signal?.aborted) return { stdout, stderr, code: null, aborted: true, killedDueToLimit };
+		if (killedDueToLimit)
+			return {
+				stdout,
+				stderr,
+				code: null,
+				aborted: false,
+				killedDueToLimit: true,
+			};
+		throw error;
+	} finally {
+		signal?.removeEventListener("abort", onAbort);
+	}
 }
 
 function isMatchLine(line: string): boolean {
-	return /^[^:\n]+:\d+:/.test(line);
+	return /^[^:\n]+:\d+:/u.test(line);
 }
 
 interface RemoteGrepOutput {
@@ -102,17 +109,14 @@ interface RemoteGrepOutput {
 	details: GrepToolDetails;
 }
 
-function formatRemoteGrepOutput(
-	rawOutput: string,
-	effectiveLimit: number,
-): RemoteGrepOutput {
+function formatRemoteGrepOutput(rawOutput: string, effectiveLimit: number): RemoteGrepOutput {
 	const details: GrepToolDetails = {};
 	const outputLines: string[] = [];
 	let matchCount = 0;
 	let matchLimitReached = false;
 	let linesTruncated = false;
 
-	for (const line of rawOutput.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n")) {
+	for (const line of rawOutput.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n")) {
 		if (!line) continue;
 		if (isMatchLine(line)) {
 			matchCount += 1;
@@ -126,7 +130,9 @@ function formatRemoteGrepOutput(
 		outputLines.push(text);
 	}
 
-	const truncation = truncateHead(outputLines.join("\n"), { maxLines: Number.MAX_SAFE_INTEGER });
+	const truncation = truncateHead(outputLines.join("\n"), {
+		maxLines: Number.MAX_SAFE_INTEGER,
+	});
 	let output = truncation.content;
 	const notices: string[] = [];
 	if (matchLimitReached) {
@@ -148,19 +154,17 @@ function formatRemoteGrepOutput(
 }
 
 export async function executeRemoteGrep(connection: SshConnection, input: GrepToolInput, signal?: AbortSignal) {
-	const command = buildRemoteGrepCommand(connection, input);
+	const command = await buildRemoteGrepCommand(connection, input);
 	const result = await runRemoteGrepCommand(connection, command, signal);
-	if (result.aborted) {
-		throw new Error("Operation aborted");
-	}
-	if (result.code === PATH_NOT_FOUND_EXIT_CODE) {
-		throw new Error(`Path not found: ${connection.toRemotePath(input.path || ".")}`);
-	}
+	if (result.aborted) throw new Error("Operation aborted");
 	if (!result.killedDueToLimit && result.code !== 0 && result.code !== 1) {
 		throw new Error(result.stderr.trim() || `ripgrep exited with code ${result.code ?? "unknown"}`);
 	}
 	if (!result.stdout.trim()) {
-		return { content: [{ type: "text" as const, text: "No matches found" }], details: undefined };
+		return {
+			content: [{ type: "text" as const, text: "No matches found" }],
+			details: undefined,
+		};
 	}
 
 	const effectiveLimit = Math.max(1, input.limit ?? DEFAULT_LIMIT);

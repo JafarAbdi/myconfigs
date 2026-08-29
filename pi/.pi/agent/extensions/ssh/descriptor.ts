@@ -5,19 +5,13 @@ import type { SshConnection } from "./connection.ts";
 export const SSH_DESCRIPTOR_ENV = "PI_SSH_DESCRIPTOR";
 export const DELEGATE_CHILD_ENV = "PI_DELEGATE_CHILD";
 
-const AbsolutePath = Type.String({ pattern: "^/" });
-
-const SshConnectionDescriptorSchema = Type.Object({
-	remote: Type.String({ pattern: "\\S" }),
-	remoteCwd: AbsolutePath,
-	remoteHome: AbsolutePath,
-	fdPath: AbsolutePath,
-	rgPath: AbsolutePath,
-	fzfPath: AbsolutePath,
-	remoteToolBinDir: Type.Optional(AbsolutePath),
-	remotePythonUvCommandsBinDir: Type.Optional(AbsolutePath),
-	remoteUvBinDir: Type.Optional(AbsolutePath),
-});
+const SshConnectionDescriptorSchema = Type.Object(
+	{
+		remote: Type.String({ pattern: "\\S" }),
+		remoteCwd: Type.String({ pattern: "^/" }),
+	},
+	{ additionalProperties: false },
+);
 
 export type SshConnectionDescriptor = Static<typeof SshConnectionDescriptorSchema>;
 
@@ -31,37 +25,15 @@ export function parseSshConnectionDescriptor(serialized: string | undefined): Ss
 		throw new Error(`Invalid SSH descriptor in ${SSH_DESCRIPTOR_ENV}: expected JSON`);
 	}
 	if (!Value.Check(SshConnectionDescriptorSchema, data)) {
-		throw new Error("Invalid SSH descriptor: expected a valid descriptor object");
+		throw new Error("Invalid SSH descriptor: expected { remote, remoteCwd }");
 	}
 	return data;
 }
 
-export function makeSshConnectionDescriptor(connection: SshConnection): SshConnectionDescriptor {
-	return {
-		remote: connection.remote,
-		remoteCwd: connection.remoteCwd,
-		remoteHome: connection.remoteHome,
-		fdPath: connection.requireFdPath(),
-		rgPath: connection.requireRgPath(),
-		fzfPath: connection.requireFzfPath(),
-		remoteToolBinDir: connection.remoteToolBinDir,
-		remotePythonUvCommandsBinDir: connection.remotePythonUvCommandsBinDir,
-		remoteUvBinDir: connection.remoteUvBinDir,
-	};
-}
-
-export function applySshConnectionDescriptor(
-	connection: SshConnection,
-	descriptor: SshConnectionDescriptor,
-): void {
-	connection.setRemoteCwd(descriptor.remoteCwd);
-	connection.remoteHome = descriptor.remoteHome;
-	connection.fdPath = descriptor.fdPath;
-	connection.rgPath = descriptor.rgPath;
-	connection.fzfPath = descriptor.fzfPath;
-	connection.remoteToolBinDir = descriptor.remoteToolBinDir;
-	connection.remotePythonUvCommandsBinDir = descriptor.remotePythonUvCommandsBinDir;
-	connection.remoteUvBinDir = descriptor.remoteUvBinDir;
+export function makeSshConnectionDescriptor(
+	connection: Pick<SshConnection, "remote" | "remoteCwd">,
+): SshConnectionDescriptor {
+	return { remote: connection.remote, remoteCwd: connection.remoteCwd };
 }
 
 export function readDelegateChildSshDescriptor(

@@ -14,7 +14,6 @@ import { type CompletionErrorReporter, createRemoteAtAutocompleteProvider } from
 import { SshConnection } from "./connection.ts";
 import { SSH_STATE_CUSTOM_TYPE } from "./constants.ts";
 import {
-	applySshConnectionDescriptor,
 	clearSshConnectionDescriptor,
 	DELEGATE_CHILD_ENV,
 	publishSshConnectionDescriptor,
@@ -29,7 +28,12 @@ import {
 	createRemoteReadOps,
 	createRemoteWriteOps,
 } from "./operations.ts";
-import { getPersistedSshState, makeSshSessionState, type SshSessionState } from "./state.ts";
+import {
+	getPersistedSshState,
+	hasPersistedSshState,
+	makeSshSessionState,
+	type SshSessionState,
+} from "./state.ts";
 
 const SSH_EXECUTION_TOOL_NAMES = [
 	"read",
@@ -41,6 +45,7 @@ const SSH_EXECUTION_TOOL_NAMES = [
 	"find",
 	"grep",
 ] as const;
+const SSH_EXECUTION_TOOL_NAME_SET: ReadonlySet<string> = new Set(SSH_EXECUTION_TOOL_NAMES);
 
 type SshExecutionToolName = (typeof SSH_EXECUTION_TOOL_NAMES)[number];
 
@@ -85,17 +90,12 @@ function updateSshStatus(ctx: ExtensionContext, connection: SshConnection | null
 	ctx.ui.setStatus("ssh", `${label} ${theme.fg("success", sshStatusText(connection))}`);
 }
 
-async function connectTarget(target: SshTarget, localCwd: string, ctx: ExtensionContext): Promise<SshConnection> {
-	const nextConnection = new SshConnection(target.remote, localCwd);
+async function connectTarget(target: SshTarget, ctx: ExtensionContext): Promise<SshConnection> {
+	const nextConnection = new SshConnection(target.remote);
 	try {
 		updateSshPhaseStatus(ctx, "connecting");
 		await nextConnection.connect();
-		if (target.remoteCwd) {
-			await nextConnection.resolveRemoteCwd(target.remoteCwd);
-		} else {
-			nextConnection.setRemoteCwd((await nextConnection.exec("pwd")).toString().trim());
-		}
-		await nextConnection.bootstrapTools((status) => updateSshPhaseStatus(ctx, status));
+		if (target.remoteCwd) await nextConnection.resolveRemoteCwd(target.remoteCwd);
 		return nextConnection;
 	} catch (error) {
 		await nextConnection.close();
@@ -135,6 +135,7 @@ function checkSshExecutionToolOwnership(pi: ExtensionAPI, ctx: ExtensionContext)
 		...lines,
 		"Change those extensions to use policy hooks instead of registering execution tools.",
 	].join("\n");
+	pi.setActiveTools(pi.getActiveTools().filter((name) => !SSH_EXECUTION_TOOL_NAME_SET.has(name)));
 	updateSshStatus(ctx, null, message);
 	ctx.ui.notify(message, "error");
 	return false;
@@ -162,7 +163,7 @@ function rewriteSystemPromptRemoteCwd(
 	expectedLocalCwd: string,
 	ssh: SshConnection,
 ): CwdRewrite {
-	const cwdLinePattern = /^Current working directory: .*$/gm;
+	const cwdLinePattern = /^Current working directory: .*$/gmu;
 	const cwdLines = systemPrompt.match(cwdLinePattern) ?? [];
 	if (cwdLines.length === 0) {
 		return { warning: "SSH: cwd prompt line not found; remote cwd not injected." };
@@ -178,7 +179,7 @@ function rewriteSystemPromptRemoteCwd(
 	return { systemPrompt: systemPrompt.replace(cwdLinePattern, remoteCwdPromptLine(ssh, expectedLocalCwd)) };
 }
 
-function registerSshToolOverrides(
+function registerAndActivateSshTools(
 	pi: ExtensionAPI,
 	localCwd: string,
 	getConnection: () => SshConnection | null,
@@ -266,6 +267,10 @@ function registerSshToolOverrides(
 			return definition.execute(id, params, signal, onUpdate, ctx);
 		},
 	});
+
+	// Late same-name overrides inherit the built-ins' active state, so enable the full SSH suite.
+	// Pi has already removed tools not permitted by --tools, --exclude-tools, or --no-tools.
+	pi.setActiveTools([...new Set([...pi.getActiveTools(), ...SSH_EXECUTION_TOOL_NAMES])]);
 }
 
 export default function (pi: ExtensionAPI) {
@@ -278,6 +283,7 @@ export default function (pi: ExtensionAPI) {
 	let autocompleteProviderRegistered = false;
 	let toolOverridesRegistered = false;
 	let delegateChild = false;
+	let sshModeRequested = false;
 
 	const getConnection = () => connection;
 	const persistConnection = (ssh: SshConnection) => {
@@ -296,46 +302,49 @@ export default function (pi: ExtensionAPI) {
 		};
 
 		delegateChild = process.env[DELEGATE_CHILD_ENV] === "1";
-		// Fail closed if a marked child's inherited descriptor is malformed.
-		if (delegateChild && !toolOverridesRegistered) {
-			if (!checkSshExecutionToolOwnership(pi, ctx)) return;
-			registerSshToolOverrides(pi, localCwd, getConnection);
-			toolOverridesRegistered = true;
-		}
-		const childDescriptor = readDelegateChildSshDescriptor();
 		const sshFlag = pi.getFlag("ssh");
 		const arg = Value.Check(Type.String(), sshFlag) ? sshFlag : undefined;
-		const persistedState = getPersistedSshState(ctx);
-		const parentTarget = childDescriptor
-			? undefined
-			: arg
-				? parseSshFlag(arg)
-				: persistedState
-					? targetFromState(persistedState)
-					: undefined;
-		if (!childDescriptor && !parentTarget) {
+		sshModeRequested = delegateChild || arg !== undefined || hasPersistedSshState(ctx);
+		if (!sshModeRequested) {
 			clearSshConnectionDescriptor();
 			updateSshStatus(ctx, null);
 			return;
 		}
 
+		// Register before parsing inherited or persisted state: malformed SSH state must never
+		// leave local execution tools active.
 		if (!toolOverridesRegistered) {
 			if (!checkSshExecutionToolOwnership(pi, ctx)) return;
-			registerSshToolOverrides(pi, localCwd, getConnection);
+			registerAndActivateSshTools(pi, localCwd, getConnection);
 			toolOverridesRegistered = true;
 		}
 
 		try {
+			const childDescriptor = readDelegateChildSshDescriptor();
+			const persistedState = childDescriptor || arg ? undefined : getPersistedSshState(ctx);
+			const parentTarget = childDescriptor
+				? undefined
+				: arg
+					? parseSshFlag(arg)
+					: persistedState
+						? targetFromState(persistedState)
+						: undefined;
+
 			if (childDescriptor) {
-				connection = new SshConnection(childDescriptor.remote, ctx.cwd);
-				applySshConnectionDescriptor(connection, childDescriptor);
-			} else {
-				connection = await connectTarget(parentTarget!, ctx.cwd, ctx);
+				connection = new SshConnection(childDescriptor.remote);
+				await connection.connect();
+				await connection.resolveRemoteCwd(childDescriptor.remoteCwd);
+			} else if (parentTarget) {
+				connection = await connectTarget(parentTarget, ctx);
 				publishSshConnectionDescriptor(connection);
+			} else {
+				throw new Error("SSH mode was requested without a target");
 			}
 			if (parentTarget?.persist) persistConnection(connection);
 		} catch (error) {
+			const failedConnection = connection;
 			connection = null;
+			await failedConnection?.close();
 			if (!delegateChild) clearSshConnectionDescriptor();
 			const message = error instanceof Error ? error.message : String(error);
 			updateSshStatus(ctx, null, message);
@@ -361,17 +370,20 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		const ssh = connection;
 		connection = null;
+		sshModeRequested = false;
 		if (!delegateChild) clearSshConnectionDescriptor();
 		await ssh?.close();
 	});
 
 	pi.on("user_bash", (_event) => {
+		if (!sshModeRequested) return;
 		const ssh = getConnection();
-		if (!ssh) return;
-		const operations = createRemoteBashOps(ssh);
 		return {
 			operations: {
-				exec: (command, _cwd, options) => operations.exec(command, ssh.remoteCwd, options),
+				exec: (command, _cwd, options) => {
+					if (!ssh) return Promise.reject(new Error("SSH is not connected; refusing to run command locally"));
+					return createRemoteBashOps(ssh).exec(command, ssh.remoteCwd, options);
+				},
 			},
 		};
 	});

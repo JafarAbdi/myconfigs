@@ -17,11 +17,10 @@ const BashCommandInput = Type.Object({ command: Type.String() });
 const pythonShimBinPromise = ensureLocalPythonUvCommands().then((commands) => commands.binDir);
 pythonShimBinPromise.catch(() => {});
 
-// PI_SSH_REMOTE is published by the ssh extension (ssh/subagent-env.ts) whenever an SSH
-// connection is active, including inside subagent children. Its presence means execution
-// is remote, so the local python-shim PATH injection below must be skipped.
+// The SSH descriptor is present only when execution targets a remote, including in delegated
+// children. Never prepend the host's shim path to a remote command.
 function isSshModeActive(): boolean {
-  return Boolean(process.env.PI_SSH_REMOTE);
+  return Boolean(process.env.PI_SSH_DESCRIPTOR);
 }
 
 function getBlockedCommandMessage(command: string): string | null {

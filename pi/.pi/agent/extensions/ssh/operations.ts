@@ -1,3 +1,4 @@
+import { posix } from "node:path";
 import type {
 	BashOperations,
 	EditOperations,
@@ -8,124 +9,97 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { SshConnection } from "./connection.ts";
 import { REMOTE_FD_EXCLUDES } from "./constants.ts";
-import { toError } from "../lib/errors.ts";
+import { RemoteFileNotFoundError, type SftpAttrs, type SftpClient } from "./sftp.ts";
 import { fdExcludeArgs, shellQuote } from "./shell.ts";
+
+const FILE_TYPE_MASK = 0o170000;
+const DIRECTORY_TYPE = 0o040000;
+
+function isDirectory(attrs: SftpAttrs): boolean {
+	if (attrs.permissions === undefined) {
+		throw new Error("SFTP STAT response did not include file permissions");
+	}
+	return (attrs.permissions & FILE_TYPE_MASK) === DIRECTORY_TYPE;
+}
+
+function detectImageMimeType(header: Buffer): string | null {
+	if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) return "image/jpeg";
+	if (header.length >= 8 && header.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))) return "image/png";
+	if (header.length >= 6) {
+		const signature = header.subarray(0, 6).toString("ascii");
+		if (signature === "GIF87a" || signature === "GIF89a") return "image/gif";
+	}
+	if (
+		header.length >= 12 &&
+		header.subarray(0, 4).toString("ascii") === "RIFF" &&
+		header.subarray(8, 12).toString("ascii") === "WEBP"
+	) {
+		return "image/webp";
+	}
+	if (header.length >= 2 && header[0] === 0x42 && header[1] === 0x4d) return "image/bmp";
+	return null;
+}
+
+async function mkdirp(sftp: SftpClient, directory: string): Promise<void> {
+	const normalized = posix.normalize(directory);
+	if (!posix.isAbsolute(normalized)) throw new Error(`Remote directory must be absolute: ${directory}`);
+	let current = "/";
+	for (const part of normalized.split("/").filter(Boolean)) {
+		current = posix.join(current, part);
+		try {
+			await sftp.mkdir(current);
+		} catch (mkdirError) {
+			try {
+				if (isDirectory(await sftp.stat(current))) continue;
+			} catch (statError) {
+				if (!(statError instanceof RemoteFileNotFoundError)) throw statError;
+			}
+			throw mkdirError;
+		}
+	}
+}
 
 export function createRemoteReadOps(connection: SshConnection): ReadOperations {
 	return {
-		readFile: async (p) => {
-			const remotePath = connection.toRemotePath(p);
-			try {
-				return await connection.exec(`cat ${shellQuote(remotePath)}`);
-			} catch (error) {
-				throw new Error(`Remote file read failed: ${remotePath}\n${toError(error).message}`);
-			}
-		},
-		access: async (p) => {
-			const remotePath = connection.toRemotePath(p);
-			try {
-				await connection.exec(`test -r ${shellQuote(remotePath)}`);
-			} catch (error) {
-				throw new Error(`Remote file is not readable: ${remotePath}\n${toError(error).message}`);
-			}
-		},
-		detectImageMimeType: async (p) => {
-			try {
-				const remotePath = connection.toRemotePath(p);
-				const r = await connection.exec(`file --mime-type -b ${shellQuote(remotePath)}`);
-				const m = r.toString().trim();
-				return ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(m) ? m : null;
-			} catch {
-				return null;
-			}
-		},
+		readFile: (path) => connection.sftp.readFile(connection.toRemotePath(path)),
+		access: (path) => connection.sftp.access(connection.toRemotePath(path), "read"),
+		detectImageMimeType: async (path) =>
+			detectImageMimeType(await connection.sftp.readFile(connection.toRemotePath(path), 12)),
 	};
 }
 
 export function createRemoteWriteOps(connection: SshConnection): WriteOperations {
 	return {
-		writeFile: async (p, content) => {
-			const remotePath = connection.toRemotePath(p);
-			try {
-				await connection.exec(`cat > ${shellQuote(remotePath)}`, { input: content });
-			} catch (error) {
-				throw new Error(`Remote file write failed: ${remotePath}\n${toError(error).message}`);
-			}
-		},
-		mkdir: async (dir) => {
-			const remotePath = connection.toRemotePath(dir);
-			try {
-				await connection.exec(`mkdir -p ${shellQuote(remotePath)}`);
-			} catch (error) {
-				throw new Error(`Remote directory create failed: ${remotePath}\n${toError(error).message}`);
-			}
-		},
+		writeFile: (path, content) => connection.sftp.writeFile(connection.toRemotePath(path), Buffer.from(content, "utf8")),
+		mkdir: (directory) => mkdirp(connection.sftp, connection.toRemotePath(directory)),
 	};
 }
 
 export function createRemoteEditOps(connection: SshConnection): EditOperations {
-	const r = createRemoteReadOps(connection);
-	const w = createRemoteWriteOps(connection);
+	const read = createRemoteReadOps(connection);
+	const write = createRemoteWriteOps(connection);
 	return {
-		readFile: r.readFile,
-		writeFile: w.writeFile,
-		access: async (p) => {
-			const remotePath = connection.toRemotePath(p);
-			try {
-				await connection.exec(`test -r ${shellQuote(remotePath)} && test -w ${shellQuote(remotePath)}`);
-			} catch (error) {
-				throw new Error(`Remote file is not editable: ${remotePath}\n${toError(error).message}`);
-			}
-		},
+		readFile: read.readFile,
+		writeFile: write.writeFile,
+		access: (path) => connection.sftp.access(connection.toRemotePath(path), "read-write"),
 	};
 }
 
 export function createRemoteLsOps(connection: SshConnection): LsOperations {
 	return {
-		exists: async (p) => {
-			try {
-				await connection.exec(`test -e ${shellQuote(connection.toRemotePath(p))}`);
-				return true;
-			} catch {
-				return false;
-			}
+		exists: (path) => connection.sftp.exists(connection.toRemotePath(path)),
+		stat: async (path) => {
+			const attrs = await connection.sftp.stat(connection.toRemotePath(path));
+			return { isDirectory: () => isDirectory(attrs) };
 		},
-		stat: async (p) => {
-			const remotePath = connection.toRemotePath(p);
-			const command = [
-				`if [ -d ${shellQuote(remotePath)} ]; then printf d`,
-				`elif [ -e ${shellQuote(remotePath)} ]; then printf f`,
-				"else exit 1; fi",
-			].join("; ");
-			const output = await connection.exec(command);
-			const kind = output.toString("utf8");
-			return { isDirectory: () => kind === "d" };
-		},
-		readdir: async (p) => {
-			const output = await connection.exec(
-				[
-					`dir=${shellQuote(connection.toRemotePath(p))}`,
-					'find "$dir" -maxdepth 1 -mindepth 1 -exec basename {} \\;',
-				].join(" && "),
-			);
-			return output.toString("utf8").split("\n").filter(Boolean);
-		},
+		readdir: (path) => connection.sftp.readdir(connection.toRemotePath(path)),
 	};
 }
 
 export function createRemoteFindOps(connection: SshConnection): FindOperations {
 	return {
-		exists: async (p) => {
-			try {
-				await connection.exec(`test -e ${shellQuote(connection.toRemotePath(p))}`);
-				return true;
-			} catch {
-				return false;
-			}
-		},
+		exists: (path) => connection.sftp.exists(connection.toRemotePath(path)),
 		glob: async (pattern, cwd, options) => {
-			const searchPath = connection.toRemotePath(cwd);
-			const excludes = fdExcludeArgs(REMOTE_FD_EXCLUDES);
 			const args = [
 				"--glob",
 				"--color=never",
@@ -133,25 +107,19 @@ export function createRemoteFindOps(connection: SshConnection): FindOperations {
 				"--no-require-git",
 				"--max-results",
 				String(options.limit),
-				...excludes,
+				...fdExcludeArgs(REMOTE_FD_EXCLUDES),
 				"--",
 				pattern,
-				searchPath,
+				connection.toRemotePath(cwd),
 			];
-			const command = `${shellQuote(connection.requireFdPath())} ${args.map(shellQuote).join(" ")}`;
-			const output = await connection.exec(command);
+			const output = await connection.exec(`${shellQuote("fd")} ${args.map((arg) => shellQuote(arg)).join(" ")}`);
 			return output.toString("utf8").split("\n").filter(Boolean);
 		},
 	};
 }
 
-// Only PI_* vars are forwarded, never the full local env: the remote shell keeps its own
-// PATH/HOME/credentials, matching every other tool's host/remote independence.
-function remoteExportPrefix(pathDirs: string[], env?: NodeJS.ProcessEnv): string {
+function remoteExportPrefix(env?: NodeJS.ProcessEnv): string {
 	const exports: string[] = [];
-	if (pathDirs.length > 0) {
-		exports.push(`export PATH=${pathDirs.map(shellQuote).join(":")}:"$PATH"`);
-	}
 	for (const [key, value] of Object.entries(env ?? {})) {
 		if (!key.startsWith("PI_") || value === undefined) continue;
 		exports.push(`export ${key}=${shellQuote(value)}`);
@@ -162,14 +130,12 @@ function remoteExportPrefix(pathDirs: string[], env?: NodeJS.ProcessEnv): string
 export function createRemoteBashOps(connection: SshConnection): BashOperations {
 	return {
 		exec: (command, cwd, { onData, signal, timeout, env }) => {
-			const pathDirs = [
-				connection.remotePythonUvCommandsBinDir,
-				connection.remoteUvBinDir,
-				connection.remoteToolBinDir,
-			].filter((dir): dir is string => dir !== undefined);
-			const exportPrefix = remoteExportPrefix(pathDirs, env);
-			const cmd = `${exportPrefix}cd ${shellQuote(connection.toRemotePath(cwd))} && ${command}`;
-			return connection.execStreaming(cmd, { onData, signal, timeout });
+			const remoteCommand = `${remoteExportPrefix(env)}cd ${shellQuote(connection.toRemotePath(cwd))} && ${command}`;
+			return connection.execStreaming(remoteCommand, {
+				onData,
+				signal,
+				timeout,
+			});
 		},
 	};
 }

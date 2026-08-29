@@ -42,7 +42,7 @@ import {
 	requiredStringField,
 } from "../lib/claude-stream.ts";
 import { SshConnection } from "../ssh/connection.ts";
-import { applySshConnectionDescriptor, parseSshConnectionDescriptor, SSH_DESCRIPTOR_ENV } from "../ssh/descriptor.ts";
+import { parseSshConnectionDescriptor, SSH_DESCRIPTOR_ENV } from "../ssh/descriptor.ts";
 import { createRemoteBashOps, createRemoteEditOps, createRemoteReadOps, createRemoteWriteOps } from "../ssh/operations.ts";
 import { shellQuote } from "../ssh/shell.ts";
 
@@ -108,6 +108,7 @@ function readParams(filePath: string, offset?: number, limit?: number): JsonObje
 
 /** One execution target. Every tool routes through exactly one of these, chosen at startup. */
 interface Backend {
+	close(): Promise<void>;
 	bash(command: string): Promise<ToolResult>;
 	read(filePath: string, offset?: number, limit?: number): Promise<ToolResult>;
 	write(filePath: string, content: string): Promise<ToolResult>;
@@ -150,7 +151,7 @@ function runCommand(
 	input?: string,
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
 	return new Promise((resolvePromise) => {
-		const child = spawn(file, args, { stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
+		const child = spawn(file, args, { stdio: ["pipe", "pipe", "pipe"] });
 		let stdout = "";
 		let stderr = "";
 		child.stdout.on("data", (chunk: Buffer) => {
@@ -162,10 +163,8 @@ function runCommand(
 		// code null distinguishes "never ran" (spawn failure) from a real non-zero exit.
 		child.on("error", (error) => resolvePromise({ stdout, stderr: `${stderr}${error.message}`, code: null }));
 		child.on("close", (code) => resolvePromise({ stdout, stderr, code }));
-		if (input !== undefined && child.stdin) {
-			child.stdin.on("error", () => {});
-			child.stdin.end(input);
-		}
+		child.stdin.on("error", () => {});
+		child.stdin.end(input);
 	});
 }
 
@@ -175,6 +174,7 @@ function localBackend(pi: PiModule): Backend {
 	const writeDef = pi.createWriteToolDefinition(process.cwd());
 	const editDef = pi.createEditToolDefinition(process.cwd());
 	return {
+		close: async () => undefined,
 		bash: async (command) => {
 			// A command that runs and exits non-zero did its job (a failing test, a grep miss); that is
 			// NOT a tool failure. isError is reserved for the process failing to run at all (code null).
@@ -209,10 +209,16 @@ function localBackend(pi: PiModule): Backend {
 	};
 }
 
-function remoteBackend(pi: PiModule, descriptorJson: string): Backend {
+async function remoteBackend(pi: PiModule, descriptorJson: string): Promise<Backend> {
 	const descriptor = parseSshConnectionDescriptor(descriptorJson); // throws if malformed → fail-loud
-	const conn = new SshConnection(descriptor.remote, process.cwd());
-	applySshConnectionDescriptor(conn, descriptor);
+	const conn = new SshConnection(descriptor.remote);
+	try {
+		await conn.connect();
+		await conn.resolveRemoteCwd(descriptor.remoteCwd);
+	} catch (error) {
+		await conn.close();
+		throw error;
+	}
 	// Same pi tool code as local, but with the ssh extension's remote ops — so remote edits inherit
 	// pi's BOM/CRLF/fuzzy semantics exactly, and remote read gets pi's image detection over ssh.
 	const readDef = pi.createReadToolDefinition(conn.remoteCwd, { operations: createRemoteReadOps(conn) });
@@ -228,19 +234,26 @@ function remoteBackend(pi: PiModule, descriptorJson: string): Backend {
 	};
 
 	return {
+		close: () => conn.close(),
 		bash: async (command) => {
-			// Same rule as local: a real non-zero exit is not a tool failure. Over ssh, exit 255 is the
-			// transport failing to run the command at all, so that is the one code we surface as isError.
 			const { out, code } = await runRemote(command);
-			return textResult(commandText(out, "", code), code === 255);
+			return textResult(commandText(out, "", code));
 		},
 		read: (filePath, offset, limit) => runPiTool(readDef, readParams(filePath, offset, limit)),
 		write: (filePath, content) => runPiTool(writeDef, { path: filePath, content }),
 		edit: (filePath, oldString, newString) =>
 			runPiTool(editDef, { path: filePath, edits: [{ oldText: oldString, newText: newString }] }),
 		ls: async (path) => {
-			const { out, code } = await runRemote(`ls -1Ap ${shellQuote(conn.toRemotePath(path || "."))}`);
-			return commandResult(out, "", code);
+			const directory = conn.toRemotePath(path || ".");
+			const entries = await conn.sftp.readdir(directory);
+			const rendered = await Promise.all(
+				entries.map(async (entry) => {
+					const attrs = await conn.sftp.stat(`${directory.replace(/\/$/u, "")}/${entry}`);
+					const isDirectory = attrs.permissions !== undefined && (attrs.permissions & 0o170000) === 0o040000;
+					return isDirectory ? `${entry}/` : entry;
+				}),
+			);
+			return textResult(rendered.sort().join("\n") || "(empty)");
 		},
 		find: async (glob, path) => {
 			const target = shellQuote(conn.toRemotePath(path || "."));
@@ -248,7 +261,7 @@ function remoteBackend(pi: PiModule, descriptorJson: string): Backend {
 			return commandResult(out, "", code);
 		},
 		grep: async (pattern, path, include) => {
-			const rg = shellQuote(conn.requireRgPath());
+			const rg = shellQuote("rg");
 			const inc = include ? ` --glob ${shellQuote(include)}` : "";
 			const target = shellQuote(conn.toRemotePath(path || "."));
 			const { out, code } = await runRemote(`${rg} -n${inc} -e ${shellQuote(pattern)} ${target}`);
@@ -260,7 +273,7 @@ function remoteBackend(pi: PiModule, descriptorJson: string): Backend {
 
 function failingBackend(reason: string): Backend {
 	const fail = async (): Promise<ToolResult> => textResult(`SSH remote unavailable: ${reason}`, true);
-	return { bash: fail, read: fail, write: fail, edit: fail, ls: fail, find: fail, grep: fail };
+	return { close: async () => undefined, bash: fail, read: fail, write: fail, edit: fail, ls: fail, find: fail, grep: fail };
 }
 
 type BackendMode = "local" | "ssh" | "ssh-broken";
@@ -270,11 +283,11 @@ interface BackendSelection {
 	mode: BackendMode;
 }
 
-function selectBackend(pi: PiModule): BackendSelection {
+async function selectBackend(pi: PiModule): Promise<BackendSelection> {
 	const descriptor = process.env[SSH_DESCRIPTOR_ENV];
 	if (!descriptor) return { backend: localBackend(pi), mode: "local" };
 	try {
-		return { backend: remoteBackend(pi, descriptor), mode: "ssh" };
+		return { backend: await remoteBackend(pi, descriptor), mode: "ssh" };
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error);
 		return { backend: failingBackend(reason), mode: "ssh-broken" };
@@ -292,7 +305,7 @@ if (!PI_ENTRY) {
 // include these tool factories. We assert only the subset we call, and a mismatch throws at first use.
 const pi = (await import(PI_ENTRY)) as PiModule;
 
-const { backend, mode: BACKEND_MODE } = selectBackend(pi);
+const { backend, mode: BACKEND_MODE } = await selectBackend(pi);
 
 function send(message: JsonRpcResponse): void {
 	process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -534,7 +547,8 @@ function main(): void {
 	});
 	rl.on("close", () => {
 		log(`stdin closed, draining ${pending.size} in-flight`);
-		void Promise.allSettled(pending).then(() => {
+		void Promise.allSettled(pending).then(async () => {
+			await backend.close();
 			log("exiting");
 			process.exit(0);
 		});

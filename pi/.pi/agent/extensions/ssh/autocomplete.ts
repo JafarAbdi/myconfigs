@@ -91,10 +91,10 @@ function buildAtCompletionValue(remotePath: string, isDirectory: boolean, isQuot
 	return `@"${path}"`;
 }
 
-function remoteFilterStage(fzfPath: string, query: string): string {
+function remoteFilterStage(query: string): string {
 	const cap = `head -n ${REMOTE_AUTOCOMPLETE_SUGGESTIONS_MAX}`;
 	if (!query) return `sort | ${cap}`;
-	return `${shellQuote(fzfPath)} --filter ${shellQuote(query)} | ${cap}`;
+	return `${shellQuote("fzf")} --filter ${shellQuote(query)} | ${cap}`;
 }
 
 function resolveRemoteSearch(rawQuery: string): RemoteSearch {
@@ -112,7 +112,7 @@ function resolveRemoteSearch(rawQuery: string): RemoteSearch {
 	};
 }
 
-function createRemoteFindCommand(remoteCwd: string, fdPath: string, fzfPath: string, search: RemoteSearch): string {
+function createRemoteFindCommand(remoteCwd: string, search: RemoteSearch): string {
 	const baseDir = shellQuote(search.baseDir);
 	const fdArgs = [
 		"--base-directory",
@@ -135,8 +135,8 @@ function createRemoteFindCommand(remoteCwd: string, fdPath: string, fzfPath: str
 		`if [ -d ${baseDir}/"$clean" ]; then printf '%s/\\n' "$clean"`,
 		"else printf '%s\\n' \"$clean\"; fi; done",
 	].join("; ");
-	const fdCommand = `${shellQuote(fdPath)} ${fdArgs.map(shellQuote).join(" ")}`;
-	const filter = remoteFilterStage(fzfPath, search.query);
+	const fdCommand = `${shellQuote("fd")} ${fdArgs.map((arg) => shellQuote(arg)).join(" ")}`;
+	const filter = remoteFilterStage(search.query);
 	return [`cd ${shellQuote(remoteCwd)}`, `${fdCommand} | ${filter} | ${markDirectoriesCommand}`].join(" && ");
 }
 
@@ -184,12 +184,9 @@ export function createRemoteAtAutocompleteProvider(
 			const parsed = parseRemoteAtPrefix(prefix);
 			const search = resolveRemoteSearch(parsed.query);
 			try {
-				const output = await connection.exec(
-					createRemoteFindCommand(connection.remoteCwd, connection.requireFdPath(), connection.requireFzfPath(), search),
-					{
-						signal: options.signal,
-					},
-				);
+				const output = await connection.exec(createRemoteFindCommand(connection.remoteCwd, search), {
+					signal: options.signal,
+				});
 				if (options.signal.aborted) {
 					return null;
 				}

@@ -1,102 +1,77 @@
 # SSH extension
 
-Remote SSH mode for pi tools.
+Runs Pi against a remote machine through the system OpenSSH client.
 
-## Start
+## Use
 
 ```bash
 pi --ssh desktop.local:/workspace
 ```
 
-This extension auto-loads from `~/.pi/agent/extensions/ssh/` on every `pi` start. It registers execution-tool overrides only when `--ssh` or persisted SSH state is active.
+Targets may be `host`, `user@host`, or either followed by `:/remote/path`. The target is passed unchanged to OpenSSH; `~/.ssh/config` is the only source for aliases, authentication, host verification, proxies, and multiplexing.
 
-`--ssh` accepts:
+In SSH mode:
 
-```text
-user@host
-user@host:/remote/path
-host:/remote/path
+- `read`, `write`, `edit`, `ls`, `find`, `grep`, `bash`, and `!` target the remote.
+- `host_bash` targets the machine running Pi.
+- Relative paths use the fixed remote cwd selected at startup.
+- `@` completion searches the remote cwd.
+- Failed or malformed SSH state never falls back to local execution.
+
+## Upgrade
+
+Install the remote requirements below, update these configs, and restart Pi. The extension no longer downloads remote tools.
+
+Old SSH sessions containing the removed `version` field need one explicit reconnect:
+
+```bash
+pi --ssh host:/remote/path --resume
 ```
 
-## Behavior
+Old bootstrap caches are unused and may be removed:
 
-- `read`, `write`, `edit`, `ls`, `find`, `grep`, `bash`, and user `!` commands always run
-  on the SSH remote.
-- Relative paths resolve against the remote cwd selected at startup. Absolute paths are remote absolute paths.
-- The remote cwd is fixed for the session; select it with `--ssh user@host:/remote/path`.
-- `host_bash` runs on the host machine running Pi, with Pi's local cwd. It is available
-  only while SSH mode is active. Use it for every host-local command or file, including Pi
-  docs, extensions, prompts, and agent config.
-- Host and remote cwd are independent. Paths never select a machine implicitly.
-- `@` autocomplete uses the remote cwd.
-- Footer shows `ssh host:/remote/cwd`.
-- Remote commands run with clean bash:
-
-  ```bash
-  env -u BASH_ENV bash --noprofile --norc -c ...
-  ```
-
-- Pi passes no multiplexing options; connection reuse is expected from `~/.ssh/config`. Without it, every remote command pays a full SSH handshake. Assumed config:
-
-  ```text
-  Host *
-      ControlPath ~/.ssh/sockets/%r@%h:%p
-      ControlMaster auto
-      ControlPersist 10m
-  ```
-
-  Keep `ControlPersist` bounded: a long-lived master captures `SSH_AUTH_SOCK` at startup, so an immortal master outlives agent restarts (e.g. wezterm's pid-based agent proxy) and breaks agent forwarding with `Permission denied (publickey)`. Recover with `ssh -O exit <host>` or by removing the socket.
-
-## Execution tool ownership
-
-SSH mode requires ownership of its execution tools so every tool has one unambiguous machine target. If another extension registers `read`, `write`, `edit`, `bash`, `host_bash`, `ls`, `find`, or `grep`, SSH startup fails with the conflicting owner path. Change those extensions to use policy hooks instead of registering execution tools.
-
-## Tool bootstrap
-
-If remote `fd`, `rg`, or `fzf` is missing, pi detects the remote's architecture (Linux `amd64` or `arm64`), downloads and caches that tool's binary on the host, then uploads it to the remote. `fzf` ranks `@` path autocomplete candidates. If remote `uv` is available, pi also installs Python command wrappers that route agents toward `uv`. Both host cache and remote install use:
-
-```text
-~/.cache/pi/ssh-tools/
-  search-tools/
-    linux_amd64/{fd,rg,fzf}
-    linux_arm64/{fd,rg,fzf}
-  python-uv-commands/
+```bash
+rm -rf ~/.cache/pi/ssh-tools
+ssh host 'rm -rf ~/.cache/pi/ssh-tools'
 ```
 
-A cached tool is reused as-is once present, on both host and remote — bumping a pinned version has no effect until the cached file is removed by hand.
+## Requirements
 
-## Delegates
-
-After SSH connects, `delegate` offers Pi models only. Omitting its `model` uses the current Pi model.
-The parent bootstraps remote helper tools once; delegated Pi children inherit the resolved paths and
-run their file and shell tools through SSH without installing anything remotely.
-
-## Resume
-
-Sessions started with `--ssh` persist SSH target and remote cwd and are named `ssh host:/remote/cwd`, so the target is visible in Pi's `/resume` selector. Resuming without `--ssh` reconnects automatically. If reconnect fails, startup fails.
-
-## Test
-
-Inside pi:
+The remote must provide:
 
 ```text
-!pwd
-!echo "$BASH_ENV"
-!shopt login_shell
-!fd --version
-!rg --version
-!fzf --version
+bash
+setsid
+fd
+rg
+fzf
 ```
 
-Expected:
+Its SSH server must enable the SFTP subsystem.
+
+## Transport
+
+Files use one persistent typed SFTP v3 session:
 
 ```text
-BASH_ENV is empty
-login_shell off
+ssh -s <target> sftp
 ```
 
-Autocomplete:
+Commands use ordinary OpenSSH sessions and clean, non-login Bash. Only `PI_*` execution variables are forwarded. OpenSSH connection reuse remains controlled by `~/.ssh/config`.
+
+Cancellation sends `TERM` to the remote process group, then `KILL` if needed. Loss of termination confirmation is reported.
+
+## Delegation
+
+Delegated Pi and Claude MCP children inherit only `{ remote, remoteCwd }`; each opens its own OpenSSH command and SFTP processes. Malformed child state fails closed.
+
+## Smoke test
 
 ```text
-@.ssh/con<Tab>
+Use the bash tool to run exactly:
+find . -maxdepth 1 -mindepth 1 -printf '%f\n' | sort
+```
+
+```text
+Using only write, read, edit, and ls—never bash—create /tmp/pi-sftp-test.txt, read it, edit it, read it again, then list /tmp.
 ```

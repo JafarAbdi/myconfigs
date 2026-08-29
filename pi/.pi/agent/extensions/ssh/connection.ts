@@ -1,24 +1,16 @@
 import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { dirname, isAbsolute, posix, resolve } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
-import {
-	ensureLocalPythonUvCommands,
-	type LocalPythonUvCommands,
-	PYTHON_UV_COMMAND_NAMES,
-	pythonUvCommandsCacheKey,
-} from "../lib/python-uv-commands.ts";
+import { posix } from "node:path";
+import { toError } from "../lib/errors.ts";
+import { SftpClient } from "./sftp.ts";
 import { shellQuote, toDisplayPath } from "./shell.ts";
-import { ensureLocalSshTool, SSH_TOOL_NAMES, type SshToolName, type SshToolPlatform } from "./tools-cache.ts";
 
 const SSH_ERROR_COMMAND_MAX_LENGTH = 500;
-// Grace period between SIGTERM and SIGKILL, for both a local ssh child and a remote process
-// group (each killed through its own path, but on the same "let it exit cleanly" schedule).
-const KILL_GRACE_MS = 200;
-const REMOTE_RUN_SSH_COMMAND_TIMEOUT_MS = 1000;
-const LOCAL_SSH_COMMAND_TIMEOUT_MS = 120_000;
-const LOCAL_SSH_CONNECT_TIMEOUT_MS = 10_000;
+// These deadlines bound states that can remain open without completing: a silent SFTP handshake,
+// a stuck cancellation-control session, and the grace period before TERM escalates to KILL.
+const TERM_GRACE_MS = 200;
+const REMOTE_CONTROL_TIMEOUT_MS = 1000;
+const SFTP_HANDSHAKE_TIMEOUT_MS = 15_000;
 const SSH_TRANSPORT_ARGS = [
 	"-o",
 	"BatchMode=yes",
@@ -29,13 +21,11 @@ const SSH_TRANSPORT_ARGS = [
 	"-o",
 	"ServerAliveCountMax=2",
 ];
-const LOCAL_TRANSPORT_FALLBACK_DELAY_MS = 1500;
-const REMOTE_RUN_PID_MARKER = "__PI_SSH_REMOTE_RUN_PID__:";
+const REQUIRED_REMOTE_COMMANDS = ["bash", "setsid", "fd", "rg", "fzf"] as const;
+const REMOTE_BASH_STDIN_ARGS = ["env", "-u", "BASH_ENV", "bash", "--noprofile", "--norc", "-s"] as const;
 
 interface RemoteRun {
-	id: string;
 	pidFile: string;
-	processGroupId?: number;
 }
 
 function formatStderr(stderr: string): string {
@@ -48,34 +38,79 @@ function formatCommand(command: string): string {
 	return `${command.slice(0, SSH_ERROR_COMMAND_MAX_LENGTH)}...`;
 }
 
+function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+	let timer: NodeJS.Timeout | undefined;
+	const deadline = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(message)), timeoutMs).unref();
+	});
+	return Promise.race([promise, deadline]).finally(() => {
+		if (timer) clearTimeout(timer);
+	});
+}
+
 export class SshConnection {
 	readonly remote: string;
-	readonly localCwd: string;
 	remoteCwd = ".";
 	remoteHome = "";
-	fdPath: string | undefined;
-	rgPath: string | undefined;
-	fzfPath: string | undefined;
-	remoteToolBinDir: string | undefined;
-	remotePythonUvCommandsBinDir: string | undefined;
-	remoteUvBinDir: string | undefined;
 
 	private closed = false;
-	private activeChildren = new Set<ChildProcess>();
+	private connecting: Promise<void> | undefined;
+	private closing: Promise<void> | undefined;
+	private sftpClient: SftpClient | undefined;
+	private sftpChild: ChildProcessWithoutNullStreams | undefined;
+	private readonly commandChildren = new Set<ChildProcess>();
+	private readonly controlChildren = new Set<ChildProcess>();
+	private readonly finishedChildren = new WeakSet<ChildProcess>();
+	private readonly activeRuns = new Map<ChildProcess, RemoteRun>();
 
-	constructor(remote: string, localCwd: string) {
+	constructor(remote: string) {
 		this.remote = remote;
-		this.localCwd = resolve(localCwd);
 	}
 
-	async connect(): Promise<void> {
+	get sftp(): SftpClient {
+		if (!this.sftpClient) throw new Error("SSH SFTP connection is not initialized");
+		return this.sftpClient;
+	}
+
+	connect(): Promise<void> {
+		if (this.closed) return Promise.reject(new Error("SSH connection is closed"));
+		this.connecting ??= this.connectOnce();
+		return this.connecting;
+	}
+
+	private async connectOnce(): Promise<void> {
+		const child = this.spawnSftp();
+		const stderr: Buffer[] = [];
+		child.stderr.on("data", (data: Buffer) => stderr.push(data));
+		const sftp = new SftpClient(child.stdout, child.stdin);
+		this.sftpChild = child;
+		this.sftpClient = sftp;
+
 		try {
-			await this.runConnectionProbe([this.remote, "true"]);
-			const remoteHome = (await this.exec('printf "%s" "$HOME"')).toString("utf8").trim();
-			if (!isAbsolute(remoteHome)) {
-				throw new Error("SSH remote HOME must be an absolute path");
+			const defaultDirectory = await withDeadline(
+				(async () => {
+					await sftp.initialize();
+					return sftp.realpath(".");
+				})(),
+				SFTP_HANDSHAKE_TIMEOUT_MS,
+				`SSH SFTP connection timed out for ${this.remote}`,
+			);
+			if (!posix.isAbsolute(defaultDirectory)) {
+				throw new Error("SSH SFTP default directory must be an absolute path");
 			}
-			this.remoteHome = remoteHome.replace(/\/+$/, "") || "/";
+			this.remoteHome = defaultDirectory.replace(/\/+$/u, "") || "/";
+			this.remoteCwd = this.remoteHome;
+		} catch (error) {
+			await this.close();
+			const diagnostic = Buffer.concat(stderr).toString("utf8");
+			throw new Error(
+				`SSH SFTP connection failed for ${this.remote}: ${toError(error).message}\nstderr: ${formatStderr(diagnostic)}`,
+				{ cause: error },
+			);
+		}
+
+		try {
+			await this.checkPrerequisites();
 		} catch (error) {
 			await this.close();
 			throw error;
@@ -83,15 +118,104 @@ export class SshConnection {
 	}
 
 	setRemoteCwd(remoteCwd: string): void {
-		this.remoteCwd = remoteCwd.replace(/\/+$/, "") || "/";
+		this.remoteCwd = remoteCwd.replace(/\/+$/u, "") || "/";
 	}
 
 	toRemotePath(filePath: string): string {
 		const displayPath = toDisplayPath(filePath);
 		if (displayPath === "~") return this.remoteHome;
 		if (displayPath.startsWith("~/")) return this.remoteHomePath(displayPath.slice(2));
-		if (isAbsolute(displayPath)) return displayPath;
-		return toDisplayPath(resolve(this.remoteCwd, displayPath));
+		if (posix.isAbsolute(displayPath)) return displayPath;
+		return toDisplayPath(posix.resolve(this.remoteCwd, displayPath));
+	}
+
+	async resolveRemoteCwd(input: string): Promise<string> {
+		const target = input.trim();
+		if (!target) throw new Error("SSH remote cwd must not be empty");
+		const remoteCwd = await this.sftp.realpath(this.toRemotePath(target));
+		this.setRemoteCwd(remoteCwd);
+		return this.remoteCwd;
+	}
+
+	exec(command: string, options?: { signal?: AbortSignal }): Promise<Buffer> {
+		this.ensureOpen();
+		const run = this.createRemoteRun();
+		const child = this.spawnRemoteRun(run, command);
+		return this.runBufferedSsh(child, run, command, options);
+	}
+
+	execStreaming(
+		command: string,
+		options: {
+			onData: (data: Buffer) => void;
+			onStderr?: (data: Buffer) => void;
+			signal?: AbortSignal;
+			timeout?: number;
+		},
+	): Promise<{ exitCode: number | null }> {
+		this.ensureOpen();
+		if (options.signal?.aborted) return Promise.reject(new Error("aborted"));
+
+		const run = this.createRemoteRun();
+		const child = this.spawnRemoteRun(run, command);
+
+		return new Promise((resolvePromise, reject) => {
+			let timedOut = false;
+			let spawnError: Error | undefined;
+			let termination: Promise<boolean> | undefined;
+			const terminate = () => {
+				termination ??= this.terminateRemoteRun(run, child);
+			};
+			const timer = options.timeout
+				? setTimeout(() => {
+						timedOut = true;
+						terminate();
+				  }, options.timeout * 1000).unref()
+				: undefined;
+			options.signal?.addEventListener("abort", terminate, { once: true });
+
+			child.stdout.on("data", options.onData);
+			child.stderr.on("data", options.onStderr ?? options.onData);
+			child.on("error", (error) => {
+				spawnError = error;
+			});
+			child.on("close", (code) => {
+				if (timer) clearTimeout(timer);
+				options.signal?.removeEventListener("abort", terminate);
+				void (async () => {
+					const terminationConfirmed = termination ? await termination : true;
+					if (options.signal?.aborted) {
+						reject(this.cancellationError("aborted", terminationConfirmed));
+					} else if (timedOut) {
+						reject(this.cancellationError(`timeout:${options.timeout}`, terminationConfirmed));
+					} else if (spawnError) {
+						reject(spawnError);
+					} else {
+						resolvePromise({ exitCode: code });
+					}
+				})();
+			});
+		});
+	}
+
+	close(): Promise<void> {
+		this.closing ??= this.closeOnce();
+		return this.closing;
+	}
+
+	private async closeOnce(): Promise<void> {
+		this.closed = true;
+		const sftp = this.sftpClient;
+		const sftpChild = this.sftpChild;
+		this.sftpClient = undefined;
+		this.sftpChild = undefined;
+		sftp?.close();
+
+		const runTerminations = [...this.activeRuns].map(([child, run]) => this.terminateRemoteRun(run, child));
+		await Promise.all(runTerminations);
+		await Promise.all([...this.commandChildren].map((child) => this.stopLocalChild(child)));
+		await Promise.all([...this.controlChildren].map((child) => this.stopLocalChild(child)));
+		if (sftpChild) await this.stopLocalChild(sftpChild);
 	}
 
 	private remoteHomePath(suffix: string): string {
@@ -99,549 +223,275 @@ export class SshConnection {
 		return `${this.remoteHome}/${suffix}`;
 	}
 
-	private remoteCacheHome(): string {
-		return this.remoteHomePath(".cache");
-	}
-
-	async resolveRemoteCwd(input: string): Promise<string> {
-		const target = input.trim();
-		if (!target) {
-			throw new Error("SSH remote cwd must not be empty");
-		}
-		const nextRemoteCwd = (await this.exec(this.buildChangeDirectoryCommand(target))).toString("utf8").trim();
-		this.setRemoteCwd(nextRemoteCwd);
-		return this.remoteCwd;
-	}
-
-	async bootstrapTools(onStatus?: (status: string) => void): Promise<void> {
-		onStatus?.("checking tools");
-		// Platform is needed up front (not only once something's missing) so findRemoteTool can
-		// check our own cache path — it's not on the remote's real PATH, so command -v alone
-		// would never see a tool we uploaded on a previous connect and would reinstall it forever.
-		const platform = await this.detectRemotePlatform();
-		this.remoteToolBinDir = this.remoteSearchToolsCacheDir(platform);
-
-		const probed: Partial<Record<SshToolName, string>> = {};
-		for (const tool of SSH_TOOL_NAMES) {
-			probed[tool] = await this.findRemoteTool(tool, platform);
-		}
-		const missingTools = SSH_TOOL_NAMES.filter((tool) => !probed[tool]);
-
-		const resolved = { ...probed };
-		if (missingTools.length > 0) {
-			onStatus?.(`installing tools for ${platform}`);
-			const installed = await this.installRemoteTools(platform, missingTools);
-			for (const tool of missingTools) {
-				const path = installed[tool];
-				if (!path) throw new Error(`SSH: remote ${tool} did not install`);
-				resolved[tool] = path;
-				await this.verifyRemoteTool(tool, path);
-			}
-		}
-
-		this.fdPath = resolved.fd;
-		this.rgPath = resolved.rg;
-		this.fzfPath = resolved.fzf;
-		await this.bootstrapPythonUvCommands(onStatus);
-	}
-
-	requireFdPath(): string {
-		if (!this.fdPath) {
-			throw new Error("remote fd is not initialized");
-		}
-		return this.fdPath;
-	}
-
-	requireRgPath(): string {
-		if (!this.rgPath) {
-			throw new Error("remote rg is not initialized");
-		}
-		return this.rgPath;
-	}
-
-	requireFzfPath(): string {
-		if (!this.fzfPath) {
-			throw new Error("remote fzf is not initialized");
-		}
-		return this.fzfPath;
-	}
-
-	exec(command: string, options?: { input?: string; signal?: AbortSignal }): Promise<Buffer> {
-		const args = [this.remote, this.buildBashCommand(command)];
-		return this.runBufferedSsh(args, command, options);
-	}
-
-	execStreaming(
-		command: string,
-		options: { onData: (data: Buffer) => void; signal?: AbortSignal; timeout?: number },
-	): Promise<{ exitCode: number | null }> {
-		return new Promise((resolve, reject) => {
-			if (options.signal?.aborted) {
-				reject(new Error("aborted"));
-				return;
-			}
-
-			const remoteRun = this.createRemoteRun();
-			const child = this.spawnRemoteRun(remoteRun, command);
-			child.stdin.end();
-			let timedOut = false;
-			let terminating = false;
-			let stderrRemainder = "";
-			const terminate = () => {
-				if (terminating) return;
-				terminating = true;
-				void this.terminateRemoteRun(remoteRun);
-				setTimeout(() => this.terminateChild(child), LOCAL_TRANSPORT_FALLBACK_DELAY_MS).unref();
-			};
-			const timer = options.timeout
-				? setTimeout(
-						() => {
-							timedOut = true;
-							terminate();
-						},
-						options.timeout * 1000,
-					).unref()
-				: undefined;
-			options.signal?.addEventListener("abort", terminate, { once: true });
-
-			child.stdout.on("data", options.onData);
-			child.stderr.on("data", (data) => {
-				if (remoteRun.processGroupId !== undefined) {
-					if (stderrRemainder.length > 0) {
-						options.onData(Buffer.concat([Buffer.from(stderrRemainder), data]));
-						stderrRemainder = "";
-						return;
-					}
-					options.onData(data);
-					return;
-				}
-				stderrRemainder = this.handleRemoteRunStderr(data, stderrRemainder, remoteRun, options.onData);
-			});
-			child.on("error", (error) => {
-				if (timer) clearTimeout(timer);
-				options.signal?.removeEventListener("abort", terminate);
-				reject(error);
-			});
-			child.on("close", (code) => {
-				if (timer) clearTimeout(timer);
-				options.signal?.removeEventListener("abort", terminate);
-				this.flushRemoteRunStderr(stderrRemainder, remoteRun, options.onData);
-				void this.cleanupRemoteRun(remoteRun);
-				if (options.signal?.aborted) reject(new Error("aborted"));
-				else if (timedOut) reject(new Error(`timeout:${options.timeout}`));
-				else resolve({ exitCode: code });
-			});
-		});
-	}
-
-	spawnRemoteCommand(command: string): ChildProcessWithoutNullStreams {
-		return this.spawnSshStream([this.remote, this.buildBashCommand(command)]);
-	}
-
-	spawnRemoteRun(run: RemoteRun, command: string): ChildProcessWithoutNullStreams {
-		return this.spawnSshStream([this.remote, this.buildRemoteRunCommand(run, command)]);
-	}
-
-	spawnRemoteTool(commandPath: string, args: string[]): ChildProcessWithoutNullStreams {
-		const child = this.spawnRemoteCommand([shellQuote(commandPath), ...args.map(shellQuote)].join(" "));
-		child.stdin.end();
-		return child;
-	}
-
-	async close(): Promise<void> {
-		if (this.closed) return;
-		this.closed = true;
-		for (const child of this.activeChildren) {
-			this.terminateChild(child);
-		}
-		this.activeChildren.clear();
-	}
-
-	private async detectRemotePlatform(): Promise<SshToolPlatform> {
-		const output = (await this.exec("uname -s && uname -m")).toString("utf8").trim().split("\n");
-		const system = output[0]?.trim();
-		const arch = output[1]?.trim();
-		if (system !== "Linux") {
-			throw new Error(`Unsupported SSH tool platform: ${system || "unknown"}/${arch || "unknown"}`);
-		}
-		if (arch === "x86_64" || arch === "amd64") return "linux_amd64";
-		if (arch === "aarch64" || arch === "arm64") return "linux_arm64";
-		throw new Error(`Unsupported SSH tool architecture: ${arch || "unknown"}`);
-	}
-
-	private remoteSearchToolsCacheDir(platform: SshToolPlatform): string {
-		return `${this.remoteCacheHome()}/pi/ssh-tools/search-tools/${platform}`;
-	}
-
-	private async findRemoteTool(tool: SshToolName, platform: SshToolPlatform): Promise<string | undefined> {
-		const cachedPath = `${this.remoteSearchToolsCacheDir(platform)}/${tool}`;
-		const command = `test -x ${shellQuote(cachedPath)} && printf '%s\\n' ${shellQuote(cachedPath)} || command -v ${tool} 2>/dev/null || true`;
-		const output = (await this.exec(command)).toString("utf8").trim();
-		const toolPath = output.split("\n")[0]?.trim();
-		return toolPath ? posix.resolve(this.remoteHome, toolPath) : undefined;
-	}
-
-	private async installRemoteTools(
-		platform: SshToolPlatform,
-		tools: SshToolName[],
-	): Promise<Partial<Record<SshToolName, string>>> {
-		const binDir = this.remoteSearchToolsCacheDir(platform);
-		await this.exec(`mkdir -p ${shellQuote(binDir)}`);
-		const paths: Partial<Record<SshToolName, string>> = {};
-		for (const tool of tools) {
-			const localPath = await ensureLocalSshTool(tool, platform);
-			const remotePath = `${binDir}/${tool}`;
-			// Upload to a fixed tmp path, then rename into place — same-filesystem rename is
-			// atomic, so a dropped connection mid-upload can never leave a partial file sitting
-			// at the path findRemoteTool actually checks. The tmp name is fixed, not unique, so a
-			// failed attempt's leftovers just get overwritten by the next one, nothing to clean up.
-			const remoteTmpPath = `${remotePath}.tmp`;
-			await this.uploadFile(localPath, remoteTmpPath);
-			await this.exec(
-				`chmod 755 ${shellQuote(remoteTmpPath)} && mv -f ${shellQuote(remoteTmpPath)} ${shellQuote(remotePath)}`,
-			);
-			paths[tool] = remotePath;
-		}
-		return paths;
-	}
-
-	private async bootstrapPythonUvCommands(onStatus?: (status: string) => void): Promise<void> {
-		const uvPath = await this.findRemoteUv();
-		if (!uvPath) return;
-
-		onStatus?.("caching python uv commands");
-		const commands = await ensureLocalPythonUvCommands();
-		onStatus?.("installing python uv commands");
-		const installed = await this.installPythonUvCommands(commands);
-		this.remotePythonUvCommandsBinDir = installed.binDir;
-		this.remoteUvBinDir = dirname(uvPath);
-	}
-
-	private async findRemoteUv(): Promise<string | undefined> {
+	private async checkPrerequisites(): Promise<void> {
+		const tools = REQUIRED_REMOTE_COMMANDS.map((tool) => shellQuote(tool)).join(" ");
 		const command = [
-			"command -v uv 2>/dev/null",
-			'test -x "$HOME/.local/bin/uv" && printf "%s\\n" "$HOME/.local/bin/uv"',
-			'test -x "$HOME/.cargo/bin/uv" && printf "%s\\n" "$HOME/.cargo/bin/uv"',
-		].join(" || ");
-		const output = (await this.exec(`${command} || true`)).toString("utf8").trim();
-		const uvPath = output.split("\n")[0]?.trim();
-		return uvPath ? posix.resolve(this.remoteHome, uvPath) : undefined;
+			"missing=",
+			`for tool in ${tools}; do command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"; done`,
+			'test -z "$missing" || { printf "SSH remote is missing required executables:%s\\n" "$missing" >&2; exit 127; }',
+		].join("; ");
+		await this.runBufferedRawSsh(command);
 	}
 
-	private async installPythonUvCommands(commands: LocalPythonUvCommands): Promise<{ binDir: string }> {
-		const parentDir = `${this.remoteCacheHome()}/pi/ssh-tools/python-uv-commands`;
-		const rootDir = `${parentDir}/${pythonUvCommandsCacheKey()}`;
-		const binDir = `${rootDir}/bin`;
-		const remoteArchivePath = `${rootDir}/python-uv-commands.tar.gz`;
-
-		const presentTest = PYTHON_UV_COMMAND_NAMES.map((name) => `test -x ${shellQuote(`${binDir}/${name}`)}`).join(
-			" && ",
-		);
-		const present = (await this.exec(`${presentTest} && printf ok || true`)).toString("utf8").trim();
-		if (present === "ok") return { binDir };
-
-		await this.exec(`rm -rf ${shellQuote(parentDir)} && mkdir -p ${shellQuote(rootDir)}`);
-		await this.uploadFile(commands.archivePath, remoteArchivePath);
-		const chmodPaths = PYTHON_UV_COMMAND_NAMES.map((name) => shellQuote(`${binDir}/${name}`)).join(" ");
-		await this.exec(
-			[
-				`tar xzf ${shellQuote(remoteArchivePath)} -C ${shellQuote(rootDir)}`,
-				`chmod 755 ${chmodPaths}`,
-				`rm -f ${shellQuote(remoteArchivePath)}`,
-			].join(" && "),
-		);
-		return { binDir };
-	}
-
-	private async verifyRemoteTool(tool: SshToolName, commandPath: string): Promise<void> {
-		await this.exec(`${shellQuote(commandPath)} --version >/dev/null 2>&1`, {}).catch((error) => {
-			const message = error instanceof Error ? error.message : String(error);
-			throw new Error(`Failed to verify remote ${tool}: ${message}`);
-		});
-	}
-
-	private uploadFile(localPath: string, remotePath: string): Promise<void> {
-		const child = this.spawnRemoteCommand(`cat > ${shellQuote(remotePath)}`);
-		return new Promise((resolvePromise, reject) => {
-			let settled = false;
-			const stderr: Buffer[] = [];
-			const input = createReadStream(localPath);
-			const fail = (error: Error) => {
-				if (settled) return;
-				settled = true;
-				child.kill();
-				input.destroy();
-				reject(error);
-			};
-
-			child.stderr.on("data", (data) => stderr.push(data));
-			child.on("error", fail);
-			input.on("error", fail);
-			child.on("close", (code) => {
-				if (settled) return;
-				settled = true;
-				if (code === 0) {
-					resolvePromise();
-					return;
-				}
-				reject(new Error(`SSH upload failed (${code}): ${Buffer.concat(stderr).toString("utf8")}`));
-			});
-			input.pipe(child.stdin);
-		});
-	}
-
-	private buildBashCommand(command: string): string {
-		return `env -u BASH_ENV bash --noprofile --norc -c ${shellQuote(command)}`;
+	private ensureOpen(): void {
+		if (this.closed) throw new Error("SSH connection is closed");
 	}
 
 	private createRemoteRun(): RemoteRun {
-		const id = randomUUID();
-		return {
-			id,
-			pidFile: `${this.remoteCacheHome()}/pi/ssh-tools/runs/${id}.pid`,
-		};
+		return { pidFile: `/tmp/pi-ssh-${randomUUID()}.pid` };
 	}
 
-	// setsid starts the wrapper as a new session/process-group leader, so its own $$ (written to
-	// the PID file and the marker line below) is also that process group's ID. That's what makes
-	// `kill -SIGNAL -- -$pgid` in buildRemoteRunSignalCommand reach the whole remote command tree,
-	// not just this one shell.
-	private buildRemoteRunCommand(run: RemoteRun, command: string): string {
-		const cleanup = `rm -f ${shellQuote(run.pidFile)}`;
-		const wrapper = [
-			`printf '%s\\n' "$$" > ${shellQuote(run.pidFile)}`,
-			`printf '%s%s\\n' ${shellQuote(REMOTE_RUN_PID_MARKER)} "$$" >&2`,
-			`trap ${shellQuote(cleanup)} EXIT`,
-			'env -u BASH_ENV bash --noprofile --norc -c "$1"',
-			"exit_code=$?",
-			cleanup,
-			'exit "$exit_code"',
-		].join("; ");
-		return [
-			`mkdir -p ${shellQuote(dirname(run.pidFile))}`,
-			`exec setsid env -u BASH_ENV bash --noprofile --norc -c ${shellQuote(wrapper)} _ ${shellQuote(command)}`,
-		].join(" && ");
-	}
-
-	private handleRemoteRunStderr(
-		data: Buffer,
-		remainder: string,
-		run: RemoteRun,
-		onData: (data: Buffer) => void,
-	): string {
-		const lines = `${remainder}${data.toString("utf8")}`.split("\n");
-		const nextRemainder = lines.pop() ?? "";
-		for (const line of lines) {
-			this.handleRemoteRunStderrLine(line, run, onData);
-		}
-		return nextRemainder;
-	}
-
-	private flushRemoteRunStderr(
-		remainder: string,
-		run: RemoteRun,
-		onData: (data: Buffer) => void,
-	): void {
-		if (remainder.length === 0) return;
-		this.handleRemoteRunStderrLine(remainder, run, onData);
-	}
-
-	private handleRemoteRunStderrLine(
-		line: string,
-		run: RemoteRun,
-		onData: (data: Buffer) => void,
-	): void {
-		if (run.processGroupId === undefined && line.startsWith(REMOTE_RUN_PID_MARKER)) {
-			const processGroupId = Number.parseInt(line.slice(REMOTE_RUN_PID_MARKER.length), 10);
-			if (Number.isSafeInteger(processGroupId) && processGroupId > 1) {
-				run.processGroupId = processGroupId;
-			}
-			return;
-		}
-		onData(Buffer.from(`${line}\n`));
-	}
-
-	private async terminateRemoteRun(run: RemoteRun): Promise<void> {
-		await this.signalRemoteRun(run, "TERM");
-		await delay(KILL_GRACE_MS);
-		await this.signalRemoteRun(run, "KILL");
-		await this.cleanupRemoteRun(run);
-	}
-
-	private signalRemoteRun(run: RemoteRun, signal: "TERM" | "KILL"): Promise<void> {
-		return this.execRemoteRunControl(this.buildRemoteRunSignalCommand(run, signal));
-	}
-
-	private cleanupRemoteRun(run: RemoteRun): Promise<void> {
-		return this.execRemoteRunControl(`rm -f ${shellQuote(run.pidFile)}`);
-	}
-
-	private execRemoteRunControl(command: string): Promise<void> {
-		return new Promise((resolvePromise) => {
-			let settled = false;
-			const child = this.spawnSshIgnore([this.remote, this.buildBashCommand(command)]);
-			child.unref();
-			const settle = () => {
-				if (settled) return;
-				settled = true;
-				clearTimeout(timer);
-				resolvePromise();
-			};
-			const timer = setTimeout(() => {
-				this.terminateChild(child);
-				settle();
-			}, REMOTE_RUN_SSH_COMMAND_TIMEOUT_MS).unref();
-			child.on("error", settle);
-			child.on("close", settle);
-		});
-	}
-
-	private buildRemoteRunSignalCommand(run: RemoteRun, signal: "TERM" | "KILL"): string {
-		if (run.processGroupId !== undefined) {
-			return `kill -${signal} -- -${run.processGroupId} 2>/dev/null || true`;
-		}
-		return [
-			`test -r ${shellQuote(run.pidFile)} || exit 0`,
-			`pid=$(cat ${shellQuote(run.pidFile)})`,
-			`case "$pid" in ''|*[!0-9]*) exit 0;; esac`,
-			`kill -${signal} -- "-$pid" 2>/dev/null || true`,
-		].join("; ");
-	}
-
-	private trackChild<T extends ChildProcess>(child: T): T {
-		this.activeChildren.add(child);
-		const cleanup = () => this.activeChildren.delete(child);
+	private spawnRemoteRun(run: RemoteRun, command: string): ChildProcessWithoutNullStreams {
+		const child = this.spawnCommandSsh([this.remote, ...REMOTE_BASH_STDIN_ARGS]);
+		this.writeScript(child, this.buildRemoteRunCommand(run, command));
+		this.activeRuns.set(child, run);
+		const cleanup = () => this.activeRuns.delete(child);
 		child.once("close", cleanup);
 		child.once("error", cleanup);
 		return child;
 	}
 
-	private terminateChild(child: ChildProcess): void {
-		if (child.exitCode !== null || child.killed) return;
-		child.kill("SIGTERM");
-		setTimeout(() => {
-			if (child.exitCode === null) child.kill("SIGKILL");
-		}, KILL_GRACE_MS).unref();
+	private buildRemoteRunCommand(run: RemoteRun, command: string): string {
+		const cleanup = `rm -f ${shellQuote(run.pidFile)}`;
+		// A trapped TERM interrupts bash's wait; wait again so the pidfile remains usable until
+		// the command exits or cancellation escalates to KILL.
+		const wrapper = [
+			`printf '%s\\n' "$$" > ${shellQuote(run.pidFile)}`,
+			`trap ${shellQuote(cleanup)} EXIT`,
+			"term_received=0",
+			`trap ${shellQuote("term_received=1")} TERM`,
+			'env -u BASH_ENV bash --noprofile --norc -c "$1" <&0 & command_pid=$!',
+			'while :; do term_received=0; wait "$command_pid"; exit_code=$?; test "$term_received" -eq 1 || break; done',
+			cleanup,
+			'exit "$exit_code"',
+		].join("; ");
+		return `exec setsid env -u BASH_ENV bash --noprofile --norc -c ${shellQuote(wrapper)} _ ${shellQuote(command)}`;
 	}
 
-	private spawnSshStream(args: string[]): ChildProcessWithoutNullStreams {
-		return this.trackChild(spawn("ssh", [...SSH_TRANSPORT_ARGS, ...args], {
-			stdio: ["pipe", "pipe", "pipe"],
-		}));
-	}
-
-	private spawnSshPipe(args: string[]): ChildProcessWithoutNullStreams {
-		return this.trackChild(spawn("ssh", [...SSH_TRANSPORT_ARGS, ...args], {
-			stdio: ["ignore", "pipe", "pipe"],
-		}));
-	}
-
-	private spawnSshIgnore(args: string[]): ChildProcess {
-		return this.trackChild(spawn("ssh", [...SSH_TRANSPORT_ARGS, ...args], { stdio: "ignore" }));
-	}
-
-	private buildChangeDirectoryCommand(target: string): string {
-		let cdTarget: string;
-		if (target === "~") {
-			cdTarget = "";
-		} else if (target === "~/") {
-			cdTarget = "";
-		} else if (target.startsWith("~/")) {
-			cdTarget = `"$HOME"/${shellQuote(target.slice(2))}`;
-		} else {
-			cdTarget = shellQuote(target);
+	private async terminateRemoteRun(run: RemoteRun, child: ChildProcess): Promise<boolean> {
+		const termSent = await this.signalRemoteRun(run, "TERM");
+		if (!termSent) {
+			await this.stopLocalChild(child);
+			await this.cleanupRemoteRun(run);
+			return false;
 		}
-		const changeDirectory = cdTarget ? `cd ${cdTarget}` : "cd";
-		return `cd ${shellQuote(this.remoteCwd)} && ${changeDirectory} && pwd -P`;
+		if (await this.waitForChildCloseDuringGrace(child)) {
+			await this.cleanupRemoteRun(run);
+			return true;
+		}
+
+		const killSent = await this.signalRemoteRun(run, "KILL");
+		await this.stopLocalChild(child);
+		await this.cleanupRemoteRun(run);
+		return killSent;
 	}
 
-	private runConnectionProbe(args: string[]): Promise<void> {
-		return new Promise((resolvePromise, reject) => {
-			const child = this.spawnSshPipe(args);
-			const errChunks: Buffer[] = [];
-			const timer = setTimeout(() => {
-				this.terminateChild(child);
-				reject(new Error(`SSH connection timed out for ${this.remote}`));
-			}, LOCAL_SSH_CONNECT_TIMEOUT_MS).unref();
-			child.stderr.on("data", (data) => errChunks.push(data));
-			child.on("error", (error) => {
-				clearTimeout(timer);
-				reject(error);
-			});
-			child.on("close", (code) => {
-				clearTimeout(timer);
-				if (code === 0) {
-					resolvePromise();
-				} else {
-					const stderr = Buffer.concat(errChunks).toString("utf8");
-					const message = `SSH connection failed for ${this.remote} (exit ${code})`;
-					reject(new Error(`${message}: ${formatStderr(stderr)}`));
-				}
-			});
-		});
+	private signalRemoteRun(run: RemoteRun, signal: "TERM" | "KILL"): Promise<boolean> {
+		const command = [
+			`test -r ${shellQuote(run.pidFile)} || exit 1`,
+			`pid=$(cat ${shellQuote(run.pidFile)}) || exit 1`,
+			`case "$pid" in ''|*[!0-9]*) exit 1;; esac`,
+			`test "$pid" -gt 1 || exit 1`,
+			`kill -${signal} -- "-$pid"`,
+		].join("; ");
+		return this.execRemoteRunControl(command);
 	}
 
-	private runBufferedSsh(
-		args: string[],
-		command: string,
-		options?: { input?: string; signal?: AbortSignal },
-	): Promise<Buffer> {
-		return new Promise((resolvePromise, reject) => {
-			if (options?.signal?.aborted) {
-				reject(new Error("aborted"));
-				return;
-			}
+	private cleanupRemoteRun(run: RemoteRun): Promise<boolean> {
+		return this.execRemoteRunControl(`rm -f ${shellQuote(run.pidFile)}`);
+	}
 
+	private execRemoteRunControl(command: string): Promise<boolean> {
+		const child = this.spawnControlSsh([this.remote, ...REMOTE_BASH_STDIN_ARGS]);
+		this.writeScript(child, command);
+		return new Promise((resolvePromise) => {
 			let settled = false;
 			let timedOut = false;
-			let stdinError: Error | undefined;
-			const child = options?.input === undefined ? this.spawnSshPipe(args) : this.spawnSshStream(args);
-			const chunks: Buffer[] = [];
-			const errChunks: Buffer[] = [];
-			const onAbort = () => this.terminateChild(child);
-			const timer = setTimeout(() => {
-				timedOut = true;
-				this.terminateChild(child);
-			}, LOCAL_SSH_COMMAND_TIMEOUT_MS).unref();
-			const settle = (callback: () => void) => {
+			const settle = (success: boolean) => {
 				if (settled) return;
 				settled = true;
 				clearTimeout(timer);
-				options?.signal?.removeEventListener("abort", onAbort);
-				callback();
+				resolvePromise(success);
 			};
-			options?.signal?.addEventListener("abort", onAbort, { once: true });
-
-			child.stdout.on("data", (data) => chunks.push(data));
-			child.stderr.on("data", (data) => errChunks.push(data));
-			child.on("error", (error) => settle(() => reject(error)));
-			child.on("close", (code) => settle(() => {
-				if (options?.signal?.aborted) {
-					reject(new Error("aborted"));
-				} else if (timedOut) {
-					const seconds = Math.floor(LOCAL_SSH_COMMAND_TIMEOUT_MS / 1000);
-					reject(new Error(`SSH command timed out after ${seconds}s: ${formatCommand(command)}`));
-				} else if (code !== 0) {
-					const stderr = Buffer.concat(errChunks).toString("utf8");
-					const commandText = formatCommand(command);
-					if (code === 255) {
-						reject(new Error(`SSH transport failed for ${this.remote}: ${formatStderr(stderr)}`));
-					} else {
-						const message = `Remote command failed on ${this.remote} (exit ${code})`;
-						reject(new Error(`${message}: ${commandText}\nstderr: ${formatStderr(stderr)}`));
-					}
-				} else if (stdinError) {
-					reject(stdinError);
-				} else {
-					resolvePromise(Buffer.concat(chunks));
-				}
-			}));
-			if (options?.input !== undefined) {
-				child.stdin.on("error", (error) => {
-					stdinError = error;
-				});
-				child.stdin.end(options.input, "utf8");
-			}
+			const timer = setTimeout(() => {
+				timedOut = true;
+				void this.stopLocalChild(child);
+			}, REMOTE_CONTROL_TIMEOUT_MS).unref();
+			child.once("error", () => settle(false));
+			child.once("close", (code) => settle(!timedOut && code === 0));
 		});
+	}
+
+	private cancellationError(reason: string, terminationConfirmed: boolean): Error {
+		return new Error(terminationConfirmed ? reason : `${reason}; remote termination was not confirmed`);
+	}
+
+	private writeScript(child: ChildProcessWithoutNullStreams, script: string): void {
+		child.stdin.on("error", () => {});
+		child.stdin.end(script, "utf8");
+	}
+
+	private runBufferedSsh(
+		child: ChildProcessWithoutNullStreams,
+		run: RemoteRun,
+		command: string,
+		options?: { signal?: AbortSignal },
+	): Promise<Buffer> {
+		if (options?.signal?.aborted) {
+			return this.terminateRemoteRun(run, child).then((confirmed) => {
+				throw this.cancellationError("aborted", confirmed);
+			});
+		}
+
+		return new Promise((resolvePromise, reject) => {
+			const chunks: Buffer[] = [];
+			const stderr: Buffer[] = [];
+			let spawnError: Error | undefined;
+			let termination: Promise<boolean> | undefined;
+			const terminate = () => {
+				termination ??= this.terminateRemoteRun(run, child);
+			};
+			options?.signal?.addEventListener("abort", terminate, { once: true });
+
+			child.stdout.on("data", (data: Buffer) => chunks.push(data));
+			child.stderr.on("data", (data: Buffer) => stderr.push(data));
+			child.on("error", (error) => {
+				spawnError = error;
+			});
+			child.on("close", (code) => {
+				options?.signal?.removeEventListener("abort", terminate);
+				void (async () => {
+					const terminationConfirmed = termination ? await termination : true;
+					if (options?.signal?.aborted) {
+						reject(this.cancellationError("aborted", terminationConfirmed));
+					} else if (spawnError) {
+						reject(spawnError);
+					} else if (code !== 0) {
+						const stderrText = Buffer.concat(stderr).toString("utf8");
+						const commandText = formatCommand(command);
+						if (code === 255) {
+							reject(new Error(`SSH transport failed for ${this.remote}: ${formatStderr(stderrText)}`));
+						} else {
+							reject(
+								new Error(
+									`Remote command failed on ${this.remote} (exit ${code}): ${commandText}\nstderr: ${formatStderr(
+										stderrText,
+									)}`,
+								),
+							);
+						}
+					} else {
+						resolvePromise(Buffer.concat(chunks));
+					}
+				})();
+			});
+
+		});
+	}
+
+	private runBufferedRawSsh(command: string): Promise<Buffer> {
+		const child = this.spawnCommandSsh([this.remote, ...REMOTE_BASH_STDIN_ARGS]);
+		this.writeScript(child, command);
+		return new Promise((resolvePromise, reject) => {
+			const stdout: Buffer[] = [];
+			const stderr: Buffer[] = [];
+			let spawnError: Error | undefined;
+			child.stdout.on("data", (data: Buffer) => stdout.push(data));
+			child.stderr.on("data", (data: Buffer) => stderr.push(data));
+			child.on("error", (error) => {
+				spawnError = error;
+			});
+			child.on("close", (code) => {
+				if (spawnError) reject(spawnError);
+				else if (code !== 0) {
+					reject(
+						new Error(
+							`Remote prerequisite check failed on ${this.remote} (exit ${code}): ${formatStderr(
+								Buffer.concat(stderr).toString("utf8"),
+							)}`,
+						),
+					);
+				} else resolvePromise(Buffer.concat(stdout));
+			});
+		});
+	}
+
+	private trackChild<T extends ChildProcess>(child: T, children: Set<ChildProcess>): T {
+		children.add(child);
+		const cleanup = () => {
+			this.finishedChildren.add(child);
+			children.delete(child);
+		};
+		child.once("close", cleanup);
+		child.once("error", cleanup);
+		return child;
+	}
+
+	private waitForChildClose(child: ChildProcess): Promise<void> {
+		if (this.isChildFinished(child)) return Promise.resolve();
+		return new Promise((resolvePromise) => {
+			const finish = () => {
+				child.removeListener("close", finish);
+				child.removeListener("error", finish);
+				resolvePromise();
+			};
+			child.once("close", finish);
+			child.once("error", finish);
+		});
+	}
+
+	private waitForChildCloseDuringGrace(child: ChildProcess): Promise<boolean> {
+		if (this.isChildFinished(child)) return Promise.resolve(true);
+		return new Promise((resolvePromise) => {
+			const finish = (closed: boolean) => {
+				clearTimeout(timer);
+				child.removeListener("close", onClose);
+				child.removeListener("error", onError);
+				resolvePromise(closed);
+			};
+			const onClose = () => finish(true);
+			const onError = () => finish(true);
+			const timer = setTimeout(() => finish(false), TERM_GRACE_MS).unref();
+			child.once("close", onClose);
+			child.once("error", onError);
+		});
+	}
+
+	private async stopLocalChild(child: ChildProcess): Promise<void> {
+		if (this.isChildFinished(child)) return;
+		child.kill("SIGTERM");
+		if (await this.waitForChildCloseDuringGrace(child)) return;
+		child.kill("SIGKILL");
+		await this.waitForChildClose(child);
+	}
+
+	private isChildFinished(child: ChildProcess): boolean {
+		return this.finishedChildren.has(child) || child.exitCode !== null || child.signalCode !== null;
+	}
+
+	private spawnSftp(): ChildProcessWithoutNullStreams {
+		const child = spawn("ssh", [...SSH_TRANSPORT_ARGS, "-s", this.remote, "sftp"], {
+			stdio: ["pipe", "pipe", "pipe"],
+		});
+		const finish = () => this.finishedChildren.add(child);
+		child.once("close", finish);
+		child.once("error", finish);
+		return child;
+	}
+
+	private spawnCommandSsh(args: string[]): ChildProcessWithoutNullStreams {
+		return this.trackChild(
+			spawn("ssh", [...SSH_TRANSPORT_ARGS, ...args], {
+				stdio: ["pipe", "pipe", "pipe"],
+			}),
+			this.commandChildren,
+		);
+	}
+
+	private spawnControlSsh(args: string[]): ChildProcessWithoutNullStreams {
+		return this.trackChild(
+			spawn("ssh", [...SSH_TRANSPORT_ARGS, ...args], { stdio: ["pipe", "pipe", "pipe"] }),
+			this.controlChildren,
+		);
 	}
 }
